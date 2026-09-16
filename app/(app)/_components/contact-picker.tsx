@@ -9,10 +9,12 @@ export function ContactPicker({
   contacts,
   defaultContact,
   name = "contactId",
+  onSelect,
 }: {
   contacts: Contact[];
   defaultContact?: Pick<Contact, "id" | "first_name" | "last_name"> | null;
   name?: string;
+  onSelect?: (contact: Contact | null) => void;
 }) {
   const [query, setQuery] = useState(defaultContact ? contactDisplayName(defaultContact) : "");
   const [selectedId, setSelectedId] = useState(defaultContact?.id ?? "");
@@ -35,6 +37,14 @@ export function ContactPicker({
     setSelectedId(contact.id);
     setQuery(contactDisplayName(contact));
     setOpen(false);
+    onSelect?.(contact);
+  }
+
+  function handleChange(value: string) {
+    setQuery(value);
+    setSelectedId("");
+    setOpen(true);
+    onSelect?.(null);
   }
 
   return (
@@ -43,11 +53,7 @@ export function ContactPicker({
       <input
         type="text"
         value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setSelectedId("");
-          setOpen(true);
-        }}
+        onChange={(event) => handleChange(event.target.value)}
         onFocus={() => setOpen(true)}
         placeholder="Search contacts by name, company, phone, or email"
         autoComplete="off"

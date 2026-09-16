@@ -5,7 +5,7 @@ import { errorBannerClass, inputClass, labelClass } from "@/lib/ui/form";
 import type { Contact } from "@/lib/contacts/queries";
 import { LEAD_STATUSES, LEAD_TEMPERATURES, type Lead } from "@/lib/leads/queries";
 import { createLead, updateLead, type LeadFormState } from "../actions";
-import { ContactPicker } from "./contact-picker";
+import { ContactPicker } from "../../_components/contact-picker";
 
 const initialState: LeadFormState = {};
 
