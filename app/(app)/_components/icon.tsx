@@ -15,7 +15,12 @@ export type IconName =
   | "logout"
   | "flame"
   | "clock"
-  | "document";
+  | "document"
+  | "search"
+  | "plus"
+  | "pencil"
+  | "trash"
+  | "arrow-left";
 
 const PATHS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -110,6 +115,39 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M7.5 3.75h6l4 4v12.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1Z" />
       <path d="M13.5 3.75v4h4" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="10.75" cy="10.75" r="6.25" />
+      <path d="M19.25 19.25l-4.3-4.3" />
+    </>
+  ),
+  plus: (
+    <>
+      <path d="M12 4.75v14.5" />
+      <path d="M4.75 12h14.5" />
+    </>
+  ),
+  pencil: (
+    <>
+      <path d="M15.25 4.75l4 4-11 11-4.5 1 1-4.5 10.5-11.5Z" />
+      <path d="M13.5 6.5l4 4" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M5.75 7.75h12.5" />
+      <path d="M9.75 7.75V6a1.5 1.5 0 0 1 1.5-1.5h1.5A1.5 1.5 0 0 1 14.25 6v1.75" />
+      <path d="M7.5 7.75l.75 11a1.5 1.5 0 0 0 1.5 1.4h4.5a1.5 1.5 0 0 0 1.5-1.4l.75-11" />
+      <path d="M10.5 11.25v6" />
+      <path d="M13.5 11.25v6" />
+    </>
+  ),
+  "arrow-left": (
+    <>
+      <path d="M19.25 12H4.75" />
+      <path d="M10.5 6.25L4.75 12l5.75 5.75" />
     </>
   ),
 };
