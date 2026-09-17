@@ -11,6 +11,7 @@ import {
   type AppointmentStatus,
   type AppointmentView,
 } from "@/lib/appointments/queries";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { AddAppointmentButton } from "./_components/add-appointment-button";
 import { AppointmentsEmptyState } from "./_components/appointments-empty-state";
 import { AppointmentsList } from "./_components/appointments-list";
@@ -49,10 +50,11 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
     redirect("/onboarding");
   }
 
-  const [allAppointments, contacts, leads] = await Promise.all([
+  const [allAppointments, contacts, leads, timeZone] = await Promise.all([
     getAppointments(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
 
   const summary = summarizeAppointments(allAppointments);
@@ -79,7 +81,12 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
       ) : (
         <>
           <AppointmentsToolbar initialQuery={query} initialStatus={status} view={view} />
-          <AppointmentsList appointments={filtered} view={view} hasActiveFilters={hasActiveFilters} />
+          <AppointmentsList
+            appointments={filtered}
+            view={view}
+            hasActiveFilters={hasActiveFilters}
+            timeZone={timeZone}
+          />
         </>
       )}
     </div>

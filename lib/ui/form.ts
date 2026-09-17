@@ -6,6 +6,12 @@ export const labelClass = "text-sm font-medium text-slate-700";
 export const primaryButtonClass =
   "inline-flex w-full items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
 
+// Same treatment as primaryButtonClass without the forced full width, for
+// buttons placed inline (e.g. a right-aligned section "Save" action) rather
+// than filling a dialog.
+export const primaryButtonAutoClass =
+  "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
+
 export const errorBannerClass =
   "rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700";
 

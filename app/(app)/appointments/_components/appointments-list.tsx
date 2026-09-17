@@ -5,7 +5,15 @@ import { formatAppointmentDate, formatAppointmentTimeRange, getDayGroupLabel } f
 import type { Appointment, AppointmentView } from "@/lib/appointments/queries";
 import { AppointmentStatusBadge } from "./status-badge";
 
-function AppointmentRow({ appointment, showDate }: { appointment: Appointment; showDate: boolean }) {
+function AppointmentRow({
+  appointment,
+  showDate,
+  timeZone,
+}: {
+  appointment: Appointment;
+  showDate: boolean;
+  timeZone?: string;
+}) {
   const name = appointment.contact ? contactDisplayName(appointment.contact) : "No contact";
 
   return (
@@ -23,8 +31,8 @@ function AppointmentRow({ appointment, showDate }: { appointment: Appointment; s
             <AppointmentStatusBadge status={appointment.status} />
           </span>
           <span className="mt-0.5 block truncate text-xs text-slate-500">
-            {showDate ? `${formatAppointmentDate(appointment.start_at)} · ` : ""}
-            {formatAppointmentTimeRange(appointment.start_at, appointment.end_at)} · {appointment.title}
+            {showDate ? `${formatAppointmentDate(appointment.start_at, timeZone)} · ` : ""}
+            {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)} · {appointment.title}
           </span>
         </span>
       </Link>
@@ -36,10 +44,12 @@ export function AppointmentsList({
   appointments,
   view,
   hasActiveFilters,
+  timeZone,
 }: {
   appointments: Appointment[];
   view: AppointmentView;
   hasActiveFilters: boolean;
+  timeZone?: string;
 }) {
   if (appointments.length === 0) {
     const emptyMessage =
@@ -67,7 +77,12 @@ export function AppointmentsList({
       <div className={cardClass}>
         <ul className="divide-y divide-slate-100">
           {ordered.map((appointment) => (
-            <AppointmentRow key={appointment.id} appointment={appointment} showDate={view === "past"} />
+            <AppointmentRow
+              key={appointment.id}
+              appointment={appointment}
+              showDate={view === "past"}
+              timeZone={timeZone}
+            />
           ))}
         </ul>
       </div>
@@ -76,7 +91,7 @@ export function AppointmentsList({
 
   const groups = new Map<string, Appointment[]>();
   for (const appointment of appointments) {
-    const label = getDayGroupLabel(appointment.start_at);
+    const label = getDayGroupLabel(appointment.start_at, new Date(), timeZone);
     const existing = groups.get(label) ?? [];
     existing.push(appointment);
     groups.set(label, existing);
@@ -90,7 +105,7 @@ export function AppointmentsList({
           <div className={cardClass}>
             <ul className="divide-y divide-slate-100">
               {items.map((appointment) => (
-                <AppointmentRow key={appointment.id} appointment={appointment} showDate={false} />
+                <AppointmentRow key={appointment.id} appointment={appointment} showDate={false} timeZone={timeZone} />
               ))}
             </ul>
           </div>

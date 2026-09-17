@@ -13,6 +13,7 @@ import {
   formatAppointmentDuration,
   formatAppointmentTimeRange,
 } from "@/lib/appointments/format";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { cardClass, cardHeaderClass, cardTitleClass } from "@/lib/ui/card";
 import { Icon } from "../../_components/icon";
 import { AppointmentStatusBadge } from "../_components/status-badge";
@@ -36,10 +37,11 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
     redirect("/onboarding");
   }
 
-  const [appointment, contacts, leads] = await Promise.all([
+  const [appointment, contacts, leads, timeZone] = await Promise.all([
     getAppointment(supabase, membership.organizationId, id),
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
 
   if (!appointment) {
@@ -86,12 +88,12 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
         <dl className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 py-5 sm:grid-cols-2">
           <div>
             <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Date</dt>
-            <dd className="mt-1 text-sm text-slate-900">{formatAppointmentDate(appointment.start_at)}</dd>
+            <dd className="mt-1 text-sm text-slate-900">{formatAppointmentDate(appointment.start_at, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Time</dt>
             <dd className="mt-1 text-sm text-slate-900">
-              {formatAppointmentTimeRange(appointment.start_at, appointment.end_at)}
+              {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
             </dd>
           </div>
           <div>
