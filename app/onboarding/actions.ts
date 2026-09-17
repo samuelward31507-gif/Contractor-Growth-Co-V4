@@ -35,27 +35,12 @@ export async function createOrganization(
     return { error: "Business name is too long." };
   }
 
-  const { data: organization, error: orgError } = await supabase
-    .from("organizations")
-    .insert({ name: businessName })
-    .select("id")
-    .single();
-
-  if (orgError || !organization) {
-    return { error: "We couldn't create your organization. Please try again." };
-  }
-
-  const { error: membershipError } = await supabase.from("organization_members").insert({
-    organization_id: organization.id,
-    user_id: user.id,
-    role: "owner",
+  const { error: bootstrapError } = await supabase.rpc("bootstrap_organization", {
+    org_name: businessName,
   });
 
-  if (membershipError) {
-    // Best-effort cleanup so a failed membership insert doesn't leave an
-    // orphaned organization with no owner.
-    await supabase.from("organizations").delete().eq("id", organization.id);
-    return { error: "We couldn't finish setting up your organization. Please try again." };
+  if (bootstrapError) {
+    return { error: "We couldn't create your organization. Please try again." };
   }
 
   redirect("/dashboard");
