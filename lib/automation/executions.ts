@@ -166,3 +166,51 @@ export async function failWorkflowExecution(
 
   return { ok: true, execution: data as WorkflowExecution };
 }
+
+/**
+ * Service-role variants for the n8n callback route only. That route has no
+ * Supabase Auth session to check (n8n authenticates via a shared secret, not
+ * a user JWT), so there is no auth.getUser() to require here - the caller
+ * must have already verified the request's authenticity and the
+ * organization/event/execution relationship itself before calling these.
+ * The underlying RPCs recognize the service_role Postgres role as a second
+ * legitimate caller (see the n8n_callback_execution_access migration); nothing
+ * else about the state-transition logic differs from the user-session path.
+ */
+export async function completeWorkflowExecutionAsService(
+  supabase: SupabaseClient,
+  executionId: string,
+  metadata?: Record<string, unknown>,
+): Promise<ExecutionResult> {
+  const { data, error } = await supabase
+    .rpc("complete_workflow_execution", {
+      p_execution_id: executionId,
+      p_metadata: metadata ?? null,
+    })
+    .single();
+
+  if (error || !data) {
+    return { ok: false, error: mapExecutionRpcError(error?.message) };
+  }
+
+  return { ok: true, execution: data as WorkflowExecution };
+}
+
+export async function failWorkflowExecutionAsService(
+  supabase: SupabaseClient,
+  executionId: string,
+  errorMessage: string,
+): Promise<ExecutionResult> {
+  const { data, error } = await supabase
+    .rpc("fail_workflow_execution", {
+      p_execution_id: executionId,
+      p_error_message: errorMessage.slice(0, 2000),
+    })
+    .single();
+
+  if (error || !data) {
+    return { ok: false, error: mapExecutionRpcError(error?.message) };
+  }
+
+  return { ok: true, execution: data as WorkflowExecution };
+}

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { LEAD_STATUSES, LEAD_TEMPERATURES, type LeadStatus, type LeadTemperature } from "@/lib/leads/queries";
+import { emitLeadCreatedFollowup } from "@/lib/automation/lead-followup";
 
 export type LeadFormState = {
   error?: string;
@@ -129,13 +130,29 @@ export async function createLead(_prevState: LeadFormState, formData: FormData):
     return { error: "Select a valid contact." };
   }
 
-  const { error: insertError } = await supabase
+  const { data: lead, error: insertError } = await supabase
     .from("leads")
-    .insert({ ...input, organization_id: organizationId });
+    .insert({ ...input, organization_id: organizationId })
+    .select("id")
+    .single();
 
-  if (insertError) {
+  if (insertError || !lead) {
     return { error: "We couldn't create this lead. Please try again." };
   }
+
+  // Best-effort: the lead is already created and is the source of truth
+  // regardless of what happens here. emitLeadCreatedFollowup never throws
+  // and logs its own failures rather than surfacing them to the contractor.
+  await emitLeadCreatedFollowup(supabase, {
+    leadId: lead.id,
+    contactId: input.contact_id,
+    organizationId,
+    source: input.source,
+    service: input.service,
+    status: input.status,
+    temperature: input.temperature,
+    estimatedValue: input.estimated_value,
+  });
 
   revalidatePath("/leads");
   revalidatePath("/dashboard");
