@@ -3,6 +3,10 @@
     {
       "path": "/api/automation/appointment-reminders",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/automation/estimate-followups",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

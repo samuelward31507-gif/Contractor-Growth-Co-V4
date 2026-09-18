@@ -188,6 +188,8 @@ function interactionTypeFor(eventType: string): string {
       return "appointment_created_response";
     case "appointment.no_show":
       return "appointment_no_show_response";
+    case "estimate.sent":
+      return "estimate_sent_response";
     default:
       return "lead_followup_response";
   }
@@ -202,6 +204,16 @@ function interactionTypeFor(eventType: string): string {
 function appointmentEligibleStatusesFor(eventType: string): ("scheduled" | "confirmed" | "completed" | "cancelled" | "no_show")[] | null {
   if (eventType === "appointment.created") return ["scheduled", "confirmed"];
   if (eventType === "appointment.no_show") return ["no_show"];
+  return null;
+}
+
+/**
+ * Phase 4.5: same pattern as appointmentEligibleStatusesFor, for
+ * estimate.sent's initial notification - only sendable while the estimate
+ * is still 'sent' (not yet accepted/declined/cancelled/expired).
+ */
+function estimateEligibleStatusesFor(eventType: string): ("draft" | "sent" | "accepted" | "declined" | "cancelled" | "expired")[] | null {
+  if (eventType === "estimate.sent") return ["sent"];
   return null;
 }
 
@@ -376,6 +388,14 @@ export async function POST(request: NextRequest) {
         : null;
   const appointmentEligibleStatuses = appointmentEligibleStatusesFor(event.event_type);
 
+  const estimateId =
+    event.entity_type === "estimate"
+      ? event.entity_id
+      : typeof event.payload?.estimate_id === "string"
+        ? (event.payload.estimate_id as string)
+        : null;
+  const estimateEligibleStatuses = estimateEligibleStatusesFor(event.event_type);
+
   // Trackpr is the final send authority: the AI/n8n may recommend sending,
   // but nothing reaches the customer without independently passing this
   // gate. Every condition it checks is re-derived from the database, not
@@ -393,6 +413,8 @@ export async function POST(request: NextRequest) {
     },
     appointmentId: appointmentEligibleStatuses ? appointmentId : null,
     appointmentEligibleStatuses: appointmentEligibleStatuses ?? undefined,
+    estimateId: estimateEligibleStatuses ? estimateId : null,
+    estimateEligibleStatuses: estimateEligibleStatuses ?? undefined,
   });
 
   if (!gateResult.allowed) {

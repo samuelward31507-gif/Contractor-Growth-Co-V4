@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateContentSafety } from "./content-safety";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
+import type { EstimateStatus } from "@/lib/estimates/queries";
 
 const MAX_MESSAGE_LENGTH = 1600;
 
@@ -28,6 +29,18 @@ export type OutboundGateInput = {
   appointmentId?: string | null;
   /** Required whenever appointmentId is set: the statuses this specific message type is allowed to send under right now. */
   appointmentEligibleStatuses?: AppointmentStatus[];
+  /**
+   * Phase 4.5: same pattern as appointmentId/appointmentEligibleStatuses
+   * above, for estimate.sent-followup sends - re-checks the estimate's live
+   * status (never trusting it's still 'sent' just because it was 'sent'
+   * when the automation event/cron tick fired). Kept as a separate sibling
+   * field rather than generalizing appointmentId/estimateId into one
+   * "entity context" shape, to avoid touching the already-tested Phase 4.4
+   * behavior for a refactor with no functional benefit.
+   */
+  estimateId?: string | null;
+  /** Required whenever estimateId is set. */
+  estimateEligibleStatuses?: EstimateStatus[];
 };
 
 export type OutboundGateDenialReason =
@@ -54,7 +67,10 @@ export type OutboundGateDenialReason =
   | "duplicate_outbound_send"
   | "appointment_not_found"
   | "appointment_wrong_organization"
-  | "appointment_status_ineligible";
+  | "appointment_status_ineligible"
+  | "estimate_not_found"
+  | "estimate_wrong_organization"
+  | "estimate_status_ineligible";
 
 export type OutboundGateResult =
   | { allowed: true; contactId: string; conversationId: string; body: string }
@@ -171,6 +187,22 @@ export async function evaluateOutboundGate(
     const eligible = input.appointmentEligibleStatuses ?? [];
     if (!eligible.includes(appointment.status as AppointmentStatus)) {
       return deny("appointment_status_ineligible", `appointment status is ${appointment.status}`);
+    }
+  }
+
+  if (input.estimateId) {
+    const { data: estimate } = await supabase
+      .from("estimates")
+      .select("id, organization_id, status")
+      .eq("id", input.estimateId)
+      .maybeSingle();
+
+    if (!estimate) return deny("estimate_not_found");
+    if (estimate.organization_id !== input.organizationId) return deny("estimate_wrong_organization");
+
+    const eligible = input.estimateEligibleStatuses ?? [];
+    if (!eligible.includes(estimate.status as EstimateStatus)) {
+      return deny("estimate_status_ineligible", `estimate status is ${estimate.status}`);
     }
   }
 

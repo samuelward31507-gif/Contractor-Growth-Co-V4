@@ -25,7 +25,14 @@ const GUARANTEE_PATTERN = /\bguarantee(d)?\b|\b100%\s*(guaranteed|satisfaction)\
 const SCHEDULING_CLAIM_PATTERN =
   /\b(?:will|can|will be)\s+(?:arrive|be there|be over|get there|show up)\b|\bon (?:our|my) way\b|\beta\b|\bbooked\s+(?:you|for|an? (?:appointment|technician))\b|\btechnician\s+is\s+(?:on|booked|assigned|en route)\b/i;
 const PAYMENT_CLAIM_PATTERN = /\bpayment\s+(?:received|processed|confirmed)\b|\bpaid\s+in\s+full\b|\binvoice\s+(?:paid|settled)\b/i;
-const ESTIMATE_CLAIM_PATTERN = /\byour\s+estimate\s+(?:is|of)\b|\bestimate\s+is\s+ready\b|\bestimate\s+has\s+been\s+(?:created|generated|sent)\b/i;
+// Deliberately does NOT match a plain "estimate has been sent" phrase -
+// Phase 4.5's estimate.sent notification needs to say exactly that, and the
+// gate has already re-verified estimates.status = 'sent' before this
+// message type is even reachable, so it is never a hallucinated claim in
+// that context. What this still catches is the AI inventing a specific
+// dollar figure ("your estimate is/of $X") or claiming readiness/completion
+// Trackpr doesn't actually show.
+const ESTIMATE_CLAIM_PATTERN = /\byour\s+estimate\s+(?:is|of)\b|\bestimate\s+is\s+ready\b/i;
 
 const CHECKS: { pattern: RegExp; reason: string }[] = [
   { pattern: PRICE_PATTERN, reason: "message appears to state a specific price" },
