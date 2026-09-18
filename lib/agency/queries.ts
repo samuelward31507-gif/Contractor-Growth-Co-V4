@@ -161,8 +161,9 @@ export async function getAgencyOrganizationSnapshots(
 // null-on-zero-denominator rule as every Rate in lib/bi/types.ts.
 // ---------------------------------------------------------------------------
 
+/** Matches lib/bi/metrics.ts's own rate() exactly - every Rate in this codebase is a 0-100 value, never a 0-1 fraction. */
 function rate(numerator: number, denominator: number): Rate {
-  return denominator === 0 ? null : numerator / denominator;
+  return denominator === 0 ? null : (numerator / denominator) * 100;
 }
 
 export type AgencyBusinessSummary = {
