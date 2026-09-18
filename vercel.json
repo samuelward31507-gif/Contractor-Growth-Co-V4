@@ -2,19 +2,19 @@
   "crons": [
     {
       "path": "/api/automation/appointment-reminders",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 13 * * *"
     },
     {
       "path": "/api/automation/estimate-followups",
-      "schedule": "*/15 * * * *"
+      "schedule": "15 13 * * *"
     },
     {
       "path": "/api/automation/lead-nurture",
-      "schedule": "*/15 * * * *"
+      "schedule": "30 13 * * *"
     },
     {
       "path": "/api/automation/lead-reactivation",
-      "schedule": "*/15 * * * *"
+      "schedule": "45 13 * * *"
     }
   ]
 }
