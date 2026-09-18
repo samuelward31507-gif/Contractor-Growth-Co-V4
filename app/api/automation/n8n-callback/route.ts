@@ -194,6 +194,8 @@ function interactionTypeFor(eventType: string): string {
       return "job_created_response";
     case "job.post_followup":
       return "post_job_followup_response";
+    case "lead.lost_nurture":
+      return "lead_lost_nurture_response";
     default:
       return "lead_followup_response";
   }
@@ -233,6 +235,17 @@ function jobEligibleStatusesFor(eventType: string): ("scheduled" | "in_progress"
   // sendable while the job is still 'completed' (requirement K) - re-checked
   // live, not trusted from when the automation event was first created.
   if (eventType === "job.post_followup") return ["completed"];
+  return null;
+}
+
+/**
+ * Phase 4.8: same pattern, for lead.lost_nurture's touch 1/2 - only
+ * sendable while the lead is still 'lost' (the core stale-lead protection:
+ * a lead that became active again after the nurture event/cron tick fired
+ * must never receive the stale touch, re-checked live here).
+ */
+function leadEligibleStatusesFor(eventType: string): ("new" | "contacted" | "qualified" | "appointment" | "estimate" | "won" | "lost")[] | null {
+  if (eventType === "lead.lost_nurture") return ["lost"];
   return null;
 }
 
@@ -423,6 +436,8 @@ export async function POST(request: NextRequest) {
         : null;
   const jobEligibleStatuses = jobEligibleStatusesFor(event.event_type);
 
+  const leadEligibleStatuses = leadEligibleStatusesFor(event.event_type);
+
   // Trackpr is the final send authority: the AI/n8n may recommend sending,
   // but nothing reaches the customer without independently passing this
   // gate. Every condition it checks is re-derived from the database, not
@@ -444,6 +459,7 @@ export async function POST(request: NextRequest) {
     estimateEligibleStatuses: estimateEligibleStatuses ?? undefined,
     jobId: jobEligibleStatuses ? jobId : null,
     jobEligibleStatuses: jobEligibleStatuses ?? undefined,
+    leadEligibleStatuses: leadEligibleStatuses ?? undefined,
   });
 
   if (!gateResult.allowed) {

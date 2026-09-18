@@ -6,6 +6,7 @@ import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { LEAD_STATUSES, LEAD_TEMPERATURES, type LeadStatus, type LeadTemperature } from "@/lib/leads/queries";
 import { emitLeadCreatedFollowup } from "@/lib/automation/lead-followup";
+import { emitLeadLost } from "@/lib/automation/lead-lost";
 
 export type LeadFormState = {
   error?: string;
@@ -175,6 +176,18 @@ export async function updateLead(_prevState: LeadFormState, formData: FormData):
     return { error: "Select a valid contact." };
   }
 
+  // Read before write: Phase 4.8's lead.lost lifecycle event must only
+  // fire on a genuine NEW transition into 'lost', never on every save of
+  // an already-lost lead (requirement C) - this is the only way to know
+  // the lead's previous status, since updateLead is a single generic
+  // update covering every field, not a dedicated status-transition action.
+  const { data: previous } = await supabase
+    .from("leads")
+    .select("status")
+    .eq("id", id)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
   const { data, error: updateError } = await supabase
     .from("leads")
     .update(input)
@@ -189,6 +202,10 @@ export async function updateLead(_prevState: LeadFormState, formData: FormData):
 
   if (!data) {
     return { error: "This lead could not be found." };
+  }
+
+  if (previous && previous.status !== "lost" && input.status === "lost") {
+    await emitLeadLost(supabase, id);
   }
 
   revalidatePath("/leads");

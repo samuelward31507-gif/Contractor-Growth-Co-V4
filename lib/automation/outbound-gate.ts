@@ -3,6 +3,7 @@ import { evaluateContentSafety } from "./content-safety";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
 import type { JobStatus } from "@/lib/jobs/queries";
+import type { LeadStatus } from "@/lib/leads/queries";
 
 const MAX_MESSAGE_LENGTH = 1600;
 
@@ -51,6 +52,18 @@ export type OutboundGateInput = {
   jobId?: string | null;
   /** Required whenever jobId is set. */
   jobEligibleStatuses?: JobStatus[];
+  /**
+   * Phase 4.8: same pattern as appointmentId/estimateId/jobId above, for
+   * lead.lost_nurture sends - re-checks the lead's live status
+   * immediately before sending (a lead that became active again after the
+   * nurture event/cron tick fired must never receive the stale touch).
+   * Only meaningful together with leadId (already an existing field, used
+   * unconditionally for the lead/conversation consistency check below) -
+   * omit leadEligibleStatuses entirely for sends where leadId is present
+   * only for that consistency check, not for status eligibility (e.g.
+   * appointment/estimate/job sends that happen to carry a lead_id).
+   */
+  leadEligibleStatuses?: LeadStatus[];
 };
 
 export type OutboundGateDenialReason =
@@ -83,7 +96,8 @@ export type OutboundGateDenialReason =
   | "estimate_status_ineligible"
   | "job_not_found"
   | "job_wrong_organization"
-  | "job_status_ineligible";
+  | "job_status_ineligible"
+  | "lead_status_ineligible";
 
 export type OutboundGateResult =
   | { allowed: true; contactId: string; conversationId: string; body: string }
@@ -160,13 +174,19 @@ export async function evaluateOutboundGate(
   if (input.leadId) {
     const { data: lead } = await supabase
       .from("leads")
-      .select("id, organization_id")
+      .select("id, organization_id, status")
       .eq("id", input.leadId)
       .maybeSingle();
 
     if (!lead) return deny("lead_not_found");
     if (lead.organization_id !== input.organizationId) return deny("lead_wrong_organization");
     if (conversation.lead_id !== input.leadId) return deny("lead_conversation_mismatch");
+
+    if (input.leadEligibleStatuses) {
+      if (!input.leadEligibleStatuses.includes(lead.status as LeadStatus)) {
+        return deny("lead_status_ineligible", `lead status is ${lead.status}`);
+      }
+    }
   }
 
   if (!execution) return deny("execution_not_found");
