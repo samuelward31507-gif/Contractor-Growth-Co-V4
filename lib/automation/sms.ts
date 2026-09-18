@@ -1,3 +1,5 @@
+import Twilio from "twilio";
+
 export type SendSmsInput = {
   organizationId: string;
   to: string;
@@ -6,21 +8,55 @@ export type SendSmsInput = {
 
 export type SendSmsResult =
   | { ok: true; providerMessageId: string }
-  | { ok: false; error: string; unconfigured: true };
+  | { ok: false; error: string; unconfigured?: true };
+
+// Loose E.164 shape check only (leading +, 2-15 digits, no leading zero) -
+// not a full validation library. This never rewrites or "fixes" a number;
+// it only decides whether to attempt a send at all, so an already-correct
+// international number is never mangled.
+const E164_PATTERN = /^\+[1-9]\d{1,14}$/;
 
 /**
- * SMS provider boundary only. No SMS provider is configured anywhere in this
- * repository or environment yet, so this always returns a typed
- * "unconfigured" failure rather than pretending a message was sent - callers
- * must treat that as a real delivery failure, never as success. When a real
- * provider (Twilio, etc.) is chosen, only this function's body should need
- * to change; its signature is already shaped for a real send.
+ * SMS provider boundary. Reads TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
+ * TWILIO_FROM_NUMBER directly from the environment on every call - no
+ * module-level client caching, so there is nothing about a prior call's
+ * credentials to leak into a later one. Same TWILIO_AUTH_TOKEN variable the
+ * inbound webhook (app/api/webhooks/sms/inbound) already uses to validate
+ * Twilio's request signature - one credential, one env var name, read
+ * independently by each boundary that needs it.
+ *
+ * Never throws: any missing config or provider error resolves to a typed
+ * `{ ok: false }` result. Never logs or returns the credential values, the
+ * destination number, or the message body - only a generic error string and
+ * (server-side only) the organization id and Twilio's numeric error code,
+ * neither of which is secret.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- input is part of the boundary's shape; unused until a real provider is wired in
 export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
-  return {
-    ok: false,
-    error: "SMS delivery is not configured for this environment.",
-    unconfigured: true,
-  };
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER;
+
+  if (!accountSid || !authToken || !fromNumber) {
+    return {
+      ok: false,
+      error: "SMS delivery is not configured for this environment.",
+      unconfigured: true,
+    };
+  }
+
+  const to = input.to.trim();
+  if (!E164_PATTERN.test(to)) {
+    return { ok: false, error: "The destination phone number is not a valid E.164 number." };
+  }
+
+  const client = Twilio(accountSid, authToken);
+
+  try {
+    const message = await client.messages.create({ to, from: fromNumber, body: input.body });
+    return { ok: true, providerMessageId: message.sid };
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
+    console.error("[sms] Twilio send failed", { organizationId: input.organizationId, code });
+    return { ok: false, error: "The SMS provider rejected the request." };
+  }
 }
