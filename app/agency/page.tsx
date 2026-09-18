@@ -1,8 +1,8 @@
+import { Building2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
 import { getAgencyHealth, type AgencyOrganizationHealth } from "@/lib/agency/health";
-import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
 import { UnauthorizedState } from "./_components/unauthorized-state";
 import { EmptyState } from "./_components/empty-state";
 import { ErrorState } from "./_components/error-state";
@@ -35,7 +35,7 @@ export default async function AgencyPage() {
     [metrics, health] = await Promise.all([getAgencyBusinessMetrics(supabase, service), getAgencyHealth(supabase, service)]);
   } catch {
     return (
-      <div className="flex flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
         <ErrorState />
       </div>
     );
@@ -43,7 +43,7 @@ export default async function AgencyPage() {
 
   if (!metrics.ok || !health.ok) {
     return (
-      <div className="flex flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
         <UnauthorizedState />
       </div>
     );
@@ -51,7 +51,7 @@ export default async function AgencyPage() {
 
   if (metrics.organizations.length === 0) {
     return (
-      <div className="flex flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
         <EmptyState />
       </div>
     );
@@ -61,17 +61,28 @@ export default async function AgencyPage() {
   const attentionOrganizations = health.organizations.filter((org) => org.needsAttention);
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <div>
-        <h1 className={pageTitleClass}>Agency Command Center</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>Contractor Growth Co. - {metrics.organizations.length} client organization{metrics.organizations.length === 1 ? "" : "s"}.</p>
+    <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900">
+          <Building2 className="h-4 w-4 text-white" aria-hidden />
+        </span>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Agency Command Center</h1>
+          <p className="text-xs text-slate-500">
+            Contractor Growth Co. — client organization monitoring · {metrics.organizations.length} client organization{metrics.organizations.length === 1 ? "" : "s"}
+          </p>
+        </div>
       </div>
 
-      <OverviewCards summary={metrics.summary} />
-      <ClientHealthTable organizations={metrics.organizations} healthByOrg={healthByOrg} />
-      <AttentionSection organizations={attentionOrganizations} stuck={health.stuck} />
-      <AutomationActivity summary={metrics.summary} stuckCount={health.stuck.length} />
-      <AiActivity summary={metrics.summary} aiTokenUsageUnavailable={metrics.dataQuality.aiTokenUsageUnavailable} />
+      <div className="mt-6 flex flex-col gap-5">
+        <OverviewCards summary={metrics.summary} />
+        <ClientHealthTable organizations={metrics.organizations} healthByOrg={healthByOrg} />
+        <AttentionSection organizations={attentionOrganizations} stuck={health.stuck} />
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <AutomationActivity summary={metrics.summary} stuckCount={health.stuck.length} />
+          <AiActivity summary={metrics.summary} aiTokenUsageUnavailable={metrics.dataQuality.aiTokenUsageUnavailable} />
+        </div>
+      </div>
     </div>
   );
 }

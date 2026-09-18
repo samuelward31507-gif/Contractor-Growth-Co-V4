@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { sectionLabelClass } from "@/lib/ui/typography";
+import { Users2, ChevronRight } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { formatCount } from "./format";
+import { SectionCard } from "./section-card";
+import { StatusPill } from "./status-pill";
 import type { AgencyOrganizationSnapshot } from "@/lib/agency/queries";
 import type { AgencyOrganizationHealth } from "@/lib/agency/health";
 
@@ -18,52 +20,53 @@ export function ClientHealthTable({
   healthByOrg: Map<string, AgencyOrganizationHealth>;
 }) {
   return (
-    <div className="border-t border-slate-200 pt-8">
-      <p className={sectionLabelClass}>Client health</p>
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[720px] text-left text-sm">
+    <SectionCard title="Client health" description={`${organizations.length} client organization${organizations.length === 1 ? "" : "s"}`} icon={Users2}>
+      <div className="-mx-5 overflow-x-auto sm:-mx-6">
+        <table className="w-full min-w-[760px] text-left text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-xs font-medium uppercase tracking-wide text-slate-400">
-              <th className="py-2 pr-4 font-medium">Client</th>
+            <tr className="border-b border-slate-200 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              <th className="py-2 pl-5 pr-4 font-medium sm:pl-6">Client</th>
               <th className="py-2 pr-4 font-medium">Leads</th>
-              <th className="py-2 pr-4 font-medium">Pipeline value</th>
+              <th className="py-2 pr-4 font-medium">Pipeline</th>
               <th className="py-2 pr-4 font-medium">Estimates</th>
               <th className="py-2 pr-4 font-medium">Jobs</th>
               <th className="py-2 pr-4 font-medium">Automation</th>
               <th className="py-2 pr-4 font-medium">AI activity</th>
-              <th className="py-2 pr-4 font-medium">Attention</th>
+              <th className="py-2 pr-5 font-medium sm:pr-6">Attention</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {organizations.map((org) => {
               const health = healthByOrg.get(org.organizationId);
               return (
-                <tr key={org.organizationId} className="hover:bg-slate-50">
-                  <td className="py-3 pr-4">
-                    <Link href={`/agency/organizations/${org.organizationId}`} className="font-medium text-slate-900 hover:underline">
+                <tr key={org.organizationId} className="group">
+                  <td className="py-3 pl-5 pr-4 sm:pl-6">
+                    <Link
+                      href={`/agency/organizations/${org.organizationId}`}
+                      className="flex items-center gap-1 font-semibold text-slate-900 group-hover:text-slate-700"
+                    >
                       {org.organizationName}
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-300 transition-transform group-hover:translate-x-0.5" aria-hidden />
                     </Link>
                   </td>
                   <td className="py-3 pr-4 tabular-nums text-slate-700">{formatCount(org.metrics.leadMetrics.totalLeads)}</td>
-                  <td className="py-3 pr-4 tabular-nums text-slate-700">{formatCurrency(org.metrics.pipelineMetrics.pipelineValue)}</td>
+                  <td className="py-3 pr-4 tabular-nums font-medium text-slate-900">{formatCurrency(org.metrics.pipelineMetrics.pipelineValue)}</td>
                   <td className="py-3 pr-4 tabular-nums text-slate-700">{formatCount(org.metrics.estimateMetrics.totalEstimates)}</td>
                   <td className="py-3 pr-4 tabular-nums text-slate-700">{formatCount(org.metrics.jobMetrics.totalJobs)}</td>
                   <td className="py-3 pr-4 text-slate-700">
-                    {health ? `${formatCount(health.failedWorkflowExecutions)} failed · ${formatCount(health.runningWorkflowExecutions)} running` : "—"}
-                  </td>
-                  <td className="py-3 pr-4 tabular-nums text-slate-700">{health ? formatCount(health.aiInteractions) : "—"}</td>
-                  <td className="py-3 pr-4">
-                    {health?.needsAttention ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />
-                        Needs attention
+                    {health ? (
+                      <span className="tabular-nums">
+                        {health.failedWorkflowExecutions > 0 ? <span className="font-medium text-red-600">{formatCount(health.failedWorkflowExecutions)} failed</span> : "0 failed"}
+                        <span className="text-slate-300"> · </span>
+                        {formatCount(health.runningWorkflowExecutions)} running
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-                        Healthy
-                      </span>
+                      "—"
                     )}
+                  </td>
+                  <td className="py-3 pr-4 tabular-nums text-slate-700">{health ? formatCount(health.aiInteractions) : "—"}</td>
+                  <td className="py-3 pr-5 sm:pr-6">
+                    {health?.needsAttention ? <StatusPill tone="attention" label="Needs attention" /> : <StatusPill tone="healthy" label="Healthy" />}
                   </td>
                 </tr>
               );
@@ -71,6 +74,6 @@ export function ClientHealthTable({
           </tbody>
         </table>
       </div>
-    </div>
+    </SectionCard>
   );
 }

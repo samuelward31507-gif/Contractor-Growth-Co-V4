@@ -1,6 +1,7 @@
-import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { Workflow, CheckCircle2, XCircle, Loader2, AlertTriangle, Percent } from "lucide-react";
 import { formatRate, formatCount } from "./format";
 import { StatGrid, type Stat } from "./stat-grid";
+import { SectionCard } from "./section-card";
 import type { AgencyBusinessSummary } from "@/lib/agency/queries";
 
 /**
@@ -10,21 +11,18 @@ import type { AgencyBusinessSummary } from "@/lib/agency/queries";
  */
 export function AutomationActivity({ summary, stuckCount }: { summary: AgencyBusinessSummary; stuckCount: number }) {
   const stats: Stat[] = [
-    { key: "workflow-executions", label: "Workflow executions", value: formatCount(summary.workflowExecutions) },
-    { key: "completed", label: "Completed", value: formatCount(summary.successfulWorkflowExecutions) },
-    { key: "failed", label: "Failed", value: formatCount(summary.failedWorkflowExecutions) },
-    { key: "running", label: "Running", value: formatCount(summary.runningWorkflowExecutions) },
-    { key: "stuck", label: "Stuck", value: formatCount(stuckCount) },
-    { key: "success-rate", label: "Success rate", value: formatRate(summary.automationSuccessRate) },
+    { key: "workflow-executions", label: "Executions", value: formatCount(summary.workflowExecutions), icon: Workflow },
+    { key: "completed", label: "Completed", value: formatCount(summary.successfulWorkflowExecutions), icon: CheckCircle2 },
+    { key: "failed", label: "Failed", value: formatCount(summary.failedWorkflowExecutions), icon: XCircle, tone: summary.failedWorkflowExecutions > 0 ? "danger" : "default" },
+    { key: "running", label: "Running", value: formatCount(summary.runningWorkflowExecutions), icon: Loader2 },
+    { key: "stuck", label: "Stuck", value: formatCount(stuckCount), icon: AlertTriangle, tone: stuckCount > 0 ? "warning" : "default" },
+    { key: "success-rate", label: "Success rate", value: formatRate(summary.automationSuccessRate), icon: Percent },
   ];
 
   return (
-    <div className="border-t border-slate-200 pt-8">
-      <p className={sectionLabelClass}>Automation activity</p>
-      <div className="mt-3">
-        <StatGrid stats={stats} columns="sm:grid-cols-3 lg:grid-cols-6" />
-      </div>
-      <p className={`mt-4 ${metaClass}`}>Activity counts only - not a claim that automation caused any change in leads, jobs, or pipeline value.</p>
-    </div>
+    <SectionCard title="Automation activity" icon={Workflow}>
+      <StatGrid stats={stats} columns="sm:grid-cols-3 lg:grid-cols-6" />
+      <p className="mt-4 text-xs text-slate-400">Activity counts only - not a claim that automation caused any change in leads, jobs, or pipeline value.</p>
+    </SectionCard>
   );
 }

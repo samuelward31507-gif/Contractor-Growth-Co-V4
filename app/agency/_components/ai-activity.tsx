@@ -1,5 +1,6 @@
-import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { Bot, Info } from "lucide-react";
 import { formatCount } from "./format";
+import { SectionCard } from "./section-card";
 import type { AgencyBusinessSummary } from "@/lib/agency/queries";
 
 /**
@@ -18,25 +19,31 @@ export function AiActivity({
   const typeEntries = Object.entries(summary.aiInteractionsByType).sort(([, a], [, b]) => b - a);
 
   return (
-    <div className="border-t border-slate-200 pt-8">
-      <p className={sectionLabelClass}>AI activity</p>
-      <div className="mt-3">
-        <p className="text-xs text-slate-500">AI interactions</p>
-        <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{formatCount(summary.aiInteractions)}</p>
+    <SectionCard title="AI activity" icon={Bot}>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">AI interactions</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{formatCount(summary.aiInteractions)}</p>
+        </div>
+
+        {typeEntries.length > 0 ? (
+          <dl className="flex flex-1 flex-wrap gap-x-6 gap-y-2">
+            {typeEntries.map(([type, count]) => (
+              <div key={type} className="min-w-[8rem]">
+                <dt className="text-xs text-slate-500">{type}</dt>
+                <dd className="mt-0.5 text-sm font-semibold tabular-nums text-slate-900">{formatCount(count)}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
       </div>
 
-      {typeEntries.length > 0 ? (
-        <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
-          {typeEntries.map(([type, count]) => (
-            <div key={type}>
-              <dt className="text-xs text-slate-500">{type}</dt>
-              <dd className="mt-0.5 text-sm font-medium tabular-nums text-slate-900">{formatCount(count)}</dd>
-            </div>
-          ))}
-        </dl>
+      {aiTokenUsageUnavailable ? (
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-600">
+          <Info className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+          AI token usage unavailable - not tracked by any automation path yet.
+        </div>
       ) : null}
-
-      <p className={`mt-4 ${metaClass}`}>{aiTokenUsageUnavailable ? "AI token usage unavailable - not tracked by any automation path yet." : "Token usage data not shown."}</p>
-    </div>
+    </SectionCard>
   );
 }
