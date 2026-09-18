@@ -34,9 +34,12 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // The marketing home page and the email-confirmation callback stay public
-  // and untouched regardless of auth state.
-  if (pathname === "/" || pathname.startsWith("/auth")) {
+  // The marketing home page, the email-confirmation callback, and API routes
+  // stay public and untouched regardless of auth state. API routes (e.g. the
+  // n8n callback) authenticate themselves - n8n never presents a Supabase
+  // session, so redirecting them to /login would make those routes
+  // unreachable by design rather than by any check they actually perform.
+  if (pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/api/")) {
     return supabaseResponse;
   }
 
