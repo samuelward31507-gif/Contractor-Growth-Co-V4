@@ -26,7 +26,7 @@ export function OverviewCards({ summary }: { summary: AgencyBusinessSummary }) {
   return (
     <SectionCard title="Agency overview" icon={Building2}>
       <StatGrid stats={stats} columns="sm:grid-cols-4" />
-      <p className="mt-4 text-xs text-slate-400">
+      <p className="mt-3 text-xs text-slate-400">
         Pipeline, estimate, and job values shown here are quoted or contracted amounts, not collected payments - Trackpr does not track payment data.
       </p>
     </SectionCard>

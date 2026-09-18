@@ -62,7 +62,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
     [metrics, health] = await Promise.all([getAgencyBusinessMetrics(supabase, service), getAgencyHealth(supabase, service)]);
   } catch {
     return (
-      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
         <ErrorState />
       </div>
     );
@@ -70,7 +70,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
   if (!metrics.ok || !health.ok) {
     return (
-      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
         <UnauthorizedState />
       </div>
     );
@@ -85,7 +85,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   // existence of an organization the caller isn't authorized to see.
   if (!org || !orgHealth) {
     return (
-      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
         <UnauthorizedState />
       </div>
     );
@@ -180,7 +180,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   ].filter((note): note is string => note !== null);
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+    <div className="mx-auto w-full max-w-[1400px] px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
       <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
         Agency Command Center
@@ -188,20 +188,20 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-900">
             <Building2 className="h-4 w-4 text-white" aria-hidden />
           </span>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">{org.organizationName}</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900">{org.organizationName}</h1>
         </div>
         {orgHealth.needsAttention ? <StatusPill tone="attention" label="Needs attention" /> : <StatusPill tone="healthy" label="Healthy" />}
       </div>
 
-      <div className="mt-6 flex flex-col gap-5">
+      <div className="mt-4 flex flex-col gap-3.5">
         <SectionCard title="Business" icon={Building2}>
           <StatGrid stats={businessStats} />
         </SectionCard>
 
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
           <SectionCard title="Estimates" icon={FileText}>
             <StatGrid stats={estimateStats} columns="sm:grid-cols-2 lg:grid-cols-4" />
           </SectionCard>
@@ -224,13 +224,13 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         </SectionCard>
 
         <SectionCard title="AI activity" icon={Bot}>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">AI interactions</p>
-              <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{formatCount(m.aiMetrics.aiInteractions)}</p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+              <p className="text-[10.5px] font-medium uppercase tracking-wide text-slate-500">AI interactions</p>
+              <p className="mt-0.5 text-xl font-semibold tracking-tight tabular-nums text-slate-900">{formatCount(m.aiMetrics.aiInteractions)}</p>
             </div>
             {aiTypeEntries.length > 0 ? (
-              <dl className="flex flex-1 flex-wrap gap-x-6 gap-y-2">
+              <dl className="flex flex-1 flex-wrap gap-x-5 gap-y-1.5">
                 {aiTypeEntries.map(([type, count]) => (
                   <div key={type} className="min-w-[8rem]">
                     <dt className="text-xs text-slate-500">{type}</dt>

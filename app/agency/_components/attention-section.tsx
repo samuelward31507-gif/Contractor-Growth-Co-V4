@@ -23,8 +23,8 @@ export function AttentionSection({
   if (!hasAttentionItems) {
     return (
       <SectionCard title="Attention required" icon={AlertTriangle}>
-        <div className="flex items-center gap-3 rounded-lg border border-emerald-100 bg-emerald-50/60 px-4 py-3.5">
-          <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+        <div className="inline-flex w-fit items-center gap-2.5 self-start rounded-lg border border-emerald-100 bg-emerald-50/60 px-3.5 py-2.5">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
           <div>
             <p className="text-sm font-medium text-emerald-900">No attention required</p>
             <p className="text-xs text-emerald-700">All connected client systems are currently healthy.</p>
@@ -36,11 +36,11 @@ export function AttentionSection({
 
   return (
     <SectionCard title="Attention required" description={`${organizations.length} client${organizations.length === 1 ? "" : "s"} flagged`} icon={AlertTriangle}>
-      <div className="space-y-5">
+      <div className="space-y-3.5">
         {organizations.length > 0 ? (
           <ul className="divide-y divide-slate-100 rounded-lg border border-amber-200 bg-amber-50/30">
             {organizations.map((org) => (
-              <li key={org.organizationId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+              <li key={org.organizationId} className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5">
                 <Link href={`/agency/organizations/${org.organizationId}`} className="text-sm font-semibold text-slate-900 hover:underline">
                   {org.organizationName}
                 </Link>
@@ -65,13 +65,13 @@ export function AttentionSection({
 
         {stuck.length > 0 ? (
           <div>
-            <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-500">
+            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-500">
               <Clock className="h-3.5 w-3.5" aria-hidden />
               Stuck workflow executions (running longer than expected)
             </p>
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
               {stuck.map((execution) => (
-                <li key={execution.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
+                <li key={execution.id} className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 text-sm">
                   <span className="text-slate-900">
                     {execution.workflowName} <span className="text-slate-300">·</span>{" "}
                     <Link href={`/agency/organizations/${execution.organizationId}`} className="text-slate-600 hover:underline">

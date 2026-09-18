@@ -22,7 +22,7 @@ export function AutomationActivity({ summary, stuckCount }: { summary: AgencyBus
   return (
     <SectionCard title="Automation activity" icon={Workflow}>
       <StatGrid stats={stats} columns="sm:grid-cols-3 lg:grid-cols-6" />
-      <p className="mt-4 text-xs text-slate-400">Activity counts only - not a claim that automation caused any change in leads, jobs, or pipeline value.</p>
+      <p className="mt-3 text-xs text-slate-400">Activity counts only - not a claim that automation caused any change in leads, jobs, or pipeline value.</p>
     </SectionCard>
   );
 }

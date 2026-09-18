@@ -20,14 +20,14 @@ export function AiActivity({
 
   return (
     <SectionCard title="AI activity" icon={Bot}>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">AI interactions</p>
-          <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{formatCount(summary.aiInteractions)}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+          <p className="text-[10.5px] font-medium uppercase tracking-wide text-slate-500">AI interactions</p>
+          <p className="mt-0.5 text-xl font-semibold tracking-tight tabular-nums text-slate-900">{formatCount(summary.aiInteractions)}</p>
         </div>
 
         {typeEntries.length > 0 ? (
-          <dl className="flex flex-1 flex-wrap gap-x-6 gap-y-2">
+          <dl className="flex flex-1 flex-wrap gap-x-5 gap-y-1.5">
             {typeEntries.map(([type, count]) => (
               <div key={type} className="min-w-[8rem]">
                 <dt className="text-xs text-slate-500">{type}</dt>
@@ -39,7 +39,7 @@ export function AiActivity({
       </div>
 
       {aiTokenUsageUnavailable ? (
-        <div className="mt-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-600">
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
           <Info className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
           AI token usage unavailable - not tracked by any automation path yet.
         </div>
