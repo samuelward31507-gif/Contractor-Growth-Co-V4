@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "@/lib/automation/executions";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
+import { evaluateOutboundGate } from "@/lib/automation/outbound-gate";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_MESSAGE_LENGTH = 1600;
@@ -243,20 +244,20 @@ export async function POST(request: NextRequest) {
         ? (event.payload.lead_id as string)
         : null;
 
-  // Phase 4.2 safety requirement: should_send must be unreachable for
-  // customer.message.received regardless of what n8n/the AI returned - this
-  // event type never sends SMS in this phase, full stop, not merely
-  // "whichever value n8n happened to send". lead.created's should_send is
-  // untouched (n8n hardcodes it false there already).
-  if (aiResult && event.event_type === "customer.message.received") {
-    aiResult.should_send = false;
-  }
+  // Phase 4.3: should_send is no longer forced false for
+  // customer.message.received - the AI may now recommend sending, but that
+  // recommendation only ever reaches sendOutboundMessage() after passing
+  // the safe outbound gate below. lead.created's should_send remains
+  // hardcoded false in n8n itself (that branch is intentionally unchanged
+  // this phase), so it never reaches the gate in practice, but the gate
+  // path is fully generic and would apply to it the same way if that ever
+  // changed.
+  const contactId =
+    typeof event.payload?.contact_id === "string" ? (event.payload.contact_id as string) : null;
+  const conversationId =
+    typeof event.payload?.conversation_id === "string" ? (event.payload.conversation_id as string) : null;
 
   if (aiResult) {
-    const contactId =
-      typeof event.payload?.contact_id === "string" ? (event.payload.contact_id as string) : null;
-    const conversationId =
-      typeof event.payload?.conversation_id === "string" ? (event.payload.conversation_id as string) : null;
     const interactionType =
       event.event_type === "customer.message.received" ? "customer_reply_response" : "lead_followup_response";
 
@@ -337,32 +338,59 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const contactId =
-    typeof event.payload?.contact_id === "string" ? (event.payload.contact_id as string) : null;
+  // Trackpr is the final send authority: the AI/n8n may recommend sending,
+  // but nothing reaches the customer without independently passing this
+  // gate. Every condition it checks is re-derived from the database, not
+  // trusted from this request's payload - see lib/automation/outbound-gate.
+  const gateResult = await evaluateOutboundGate(service, {
+    organizationId: event.organization_id,
+    executionId: execution.id,
+    contactId,
+    conversationId,
+    leadId,
+    aiResult: {
+      should_send: aiResult.should_send,
+      response_message: aiResult.response_message,
+      needs_human: aiResult.needs_human,
+    },
+  });
 
-  if (!contactId) {
-    const failed = await failWorkflowExecutionAsService(
-      service,
-      execution.id,
-      "The automation event has no associated contact - SMS could not be attempted.",
-    );
-    if (!failed.ok && !isAlreadyProcessedError(failed.error)) {
-      console.error("[automation] failed to record execution failure", { executionId: execution.id, error: failed.error });
+  if (!gateResult.allowed) {
+    // Blocked by Trackpr's own safety decision - not an error. Recorded as
+    // a normal completion with should_send:false, exactly like the AI
+    // itself returning should_send:false, plus the specific reason so it's
+    // inspectable later (metadata is never surfaced to the customer).
+    const result = await completeWorkflowExecutionAsService(service, execution.id, {
+      should_send: false,
+      blocked_reason: gateResult.reason,
+      blocked_detail: gateResult.detail ?? null,
+      needs_human: aiResult.needs_human,
+      qualification_status: aiResult.qualification_status,
+      urgency: aiResult.urgency,
+      missing_information: aiResult.missing_information,
+      intent: aiResult.intent,
+      summary: aiResult.summary,
+    });
+    if (!result.ok) {
+      if (isAlreadyProcessedError(result.error)) {
+        return NextResponse.json({ ok: true, alreadyProcessed: true });
+      }
+      console.error("[automation] failed to complete execution", { executionId: execution.id, error: result.error });
+      return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, sent: false, blockedReason: gateResult.reason });
   }
 
   // sendOutboundMessage is the single path every outbound SMS goes through:
   // it opens/reuses the conversation, writes the messages row first
   // (status: queued), then calls the Twilio provider and updates that same
-  // row to sent/failed. This branch is unreachable in production today
-  // because the n8n workflow hardcodes ai_result.should_send to false - the
-  // real safety mechanism keeping SMS disabled during this phase.
+  // row to sent/failed.
   const sendResult = await sendOutboundMessage(service, {
     organizationId: event.organization_id,
-    contactId,
+    contactId: gateResult.contactId,
+    conversationId: gateResult.conversationId,
     channel: "sms",
-    body: aiResult.response_message ?? "",
+    body: gateResult.body,
     senderType: "ai",
     workflowExecutionId: execution.id,
   });

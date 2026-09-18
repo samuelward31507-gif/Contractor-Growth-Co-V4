@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findOrCreateOpenConversation, type ConversationChannel, type MessageSenderType } from "@/lib/conversations/queries";
-import { sendSms } from "@/lib/automation/sms";
+import { sendSms, type SendSmsInput, type SendSmsResult } from "@/lib/automation/sms";
 
 export type SendOutboundMessageInput = {
   organizationId: string;
@@ -12,6 +12,14 @@ export type SendOutboundMessageInput = {
   senderType?: MessageSenderType;
   /** Ties this message back to the exact automation run that produced it, when applicable. */
   workflowExecutionId?: string | null;
+  /**
+   * Test seam only - production callers must never pass this. Defaults to
+   * the real Twilio-backed `sendSms`, so every production code path keeps
+   * calling the real provider with no behavior change; a test can inject a
+   * deterministic fake here instead of monkey-patching the provider module
+   * or hitting Twilio's trial-account restrictions.
+   */
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>;
 };
 
 export type SendOutboundMessageResult =
@@ -97,10 +105,42 @@ export async function sendOutboundMessage(
     .single();
 
   if (insertError || !queued) {
+    // A unique-violation on workflow_execution_id (outbound) means a
+    // concurrent call for this exact automation run already won the race
+    // and recorded its own message row - the DB constraint is the real
+    // duplicate-send guarantee, this is just handling its result. Report
+    // that existing send's outcome instead of erroring or ever calling the
+    // provider a second time for the same execution.
+    if (insertError?.code === "23505" && input.workflowExecutionId) {
+      const { data: existing } = await supabase
+        .from("messages")
+        .select("id, status, provider_message_id")
+        .eq("workflow_execution_id", input.workflowExecutionId)
+        .eq("direction", "outbound")
+        .maybeSingle();
+
+      if (existing) {
+        if (existing.status === "sent") {
+          return {
+            ok: true,
+            messageId: existing.id,
+            conversationId: conversation.id,
+            providerMessageId: existing.provider_message_id ?? "",
+          };
+        }
+        return {
+          ok: false,
+          error: "This workflow execution already has an outbound message in progress.",
+          messageId: existing.id,
+          conversationId: conversation.id,
+        };
+      }
+    }
     return { ok: false, error: "Could not record the outbound message.", messageId: null, conversationId: conversation.id };
   }
 
-  const result = await sendSms({ organizationId: input.organizationId, to: contact.phone, body: input.body });
+  const sendFn = input.sendSmsFn ?? sendSms;
+  const result = await sendFn({ organizationId: input.organizationId, to: contact.phone, body: input.body });
 
   if (!result.ok) {
     await supabase.from("messages").update({ status: "failed", status_reason: result.error }).eq("id", queued.id);
