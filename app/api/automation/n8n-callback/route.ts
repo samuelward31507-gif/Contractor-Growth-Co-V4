@@ -7,12 +7,20 @@ import { sendOutboundMessage } from "@/lib/messaging/outbound";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_MESSAGE_LENGTH = 1600;
 const MAX_SHORT_FIELD_LENGTH = 200;
+const MAX_MISSING_INFO_ITEMS = 10;
+
+const QUALIFICATION_STATUSES = new Set(["new", "qualifying", "qualified", "needs_human"]);
+const URGENCY_LEVELS = new Set(["low", "normal", "high", "emergency"]);
+
+type QualificationStatus = "new" | "qualifying" | "qualified" | "needs_human";
+type Urgency = "low" | "normal" | "high" | "emergency";
 
 type AiResult = {
   should_send: boolean;
-  message: string | null;
-  intent: string | null;
-  summary: string | null;
+  response_message: string | null;
+  qualification_status: QualificationStatus;
+  missing_information: string[];
+  urgency: Urgency;
   needs_human: boolean;
   model: string | null;
 };
@@ -66,27 +74,35 @@ function validateBody(raw: unknown): ValidationResult {
     if (typeof raw2.needs_human !== "boolean") {
       return { ok: false, error: "ai_result.needs_human must be a boolean." };
     }
-    if (!isOptionalString(raw2.message, MAX_MESSAGE_LENGTH)) {
-      return { ok: false, error: "ai_result.message must be a string within the length limit, or null." };
+    if (!isOptionalString(raw2.response_message, MAX_MESSAGE_LENGTH)) {
+      return { ok: false, error: "ai_result.response_message must be a string within the length limit, or null." };
     }
-    if (!isOptionalString(raw2.intent, MAX_SHORT_FIELD_LENGTH)) {
-      return { ok: false, error: "ai_result.intent must be a short string or null." };
+    if (typeof raw2.qualification_status !== "string" || !QUALIFICATION_STATUSES.has(raw2.qualification_status)) {
+      return { ok: false, error: "ai_result.qualification_status must be one of new, qualifying, qualified, needs_human." };
     }
-    if (!isOptionalString(raw2.summary, MAX_SHORT_FIELD_LENGTH * 4)) {
-      return { ok: false, error: "ai_result.summary must be a string within the length limit, or null." };
+    if (
+      !Array.isArray(raw2.missing_information) ||
+      raw2.missing_information.length > MAX_MISSING_INFO_ITEMS ||
+      !raw2.missing_information.every((item) => typeof item === "string" && item.length <= MAX_SHORT_FIELD_LENGTH)
+    ) {
+      return { ok: false, error: "ai_result.missing_information must be an array of short strings." };
+    }
+    if (typeof raw2.urgency !== "string" || !URGENCY_LEVELS.has(raw2.urgency)) {
+      return { ok: false, error: "ai_result.urgency must be one of low, normal, high, emergency." };
     }
     if (!isOptionalString(raw2.model, MAX_SHORT_FIELD_LENGTH)) {
       return { ok: false, error: "ai_result.model must be a short string or null." };
     }
-    if (raw2.should_send && !raw2.message) {
-      return { ok: false, error: "ai_result.message is required when should_send is true." };
+    if (raw2.should_send && !raw2.response_message) {
+      return { ok: false, error: "ai_result.response_message is required when should_send is true." };
     }
 
     aiResult = {
       should_send: raw2.should_send,
-      message: (raw2.message as string | null) ?? null,
-      intent: (raw2.intent as string | null) ?? null,
-      summary: (raw2.summary as string | null) ?? null,
+      response_message: (raw2.response_message as string | null) ?? null,
+      qualification_status: raw2.qualification_status as QualificationStatus,
+      missing_information: raw2.missing_information as string[],
+      urgency: raw2.urgency as Urgency,
       needs_human: raw2.needs_human,
       model: (raw2.model as string | null) ?? null,
     };
@@ -203,24 +219,63 @@ export async function POST(request: NextRequest) {
   }
 
   const aiResult = body.ai_result;
+  const leadId = event.entity_type === "lead" ? event.entity_id : null;
 
   if (aiResult) {
-    const leadId = event.entity_type === "lead" ? event.entity_id : null;
     const contactId =
       typeof event.payload?.contact_id === "string" ? (event.payload.contact_id as string) : null;
 
-    const { error: aiInsertError } = await service.from("ai_interactions").insert({
-      organization_id: event.organization_id,
-      lead_id: leadId,
-      contact_id: contactId,
-      interaction_type: "lead_followup_response",
-      input: { event_type: event.event_type, entity_type: event.entity_type, entity_id: event.entity_id, payload: event.payload },
-      output: aiResult,
-      model: aiResult.model,
-    });
+    // Upsert on workflow_execution_id (unique, nullable-safe) rather than a
+    // plain insert: two genuinely concurrent callback deliveries for the
+    // same execution could otherwise both pass the running-status check
+    // above before either finishes and each write their own AI interaction.
+    // ignoreDuplicates makes the loser a no-op instead of a duplicate row.
+    const { error: aiInsertError } = await service.from("ai_interactions").upsert(
+      {
+        organization_id: event.organization_id,
+        lead_id: leadId,
+        contact_id: contactId,
+        conversation_id: null,
+        workflow_execution_id: execution.id,
+        interaction_type: "lead_followup_response",
+        input: { event_type: event.event_type, entity_type: event.entity_type, entity_id: event.entity_id, payload: event.payload },
+        output: aiResult,
+        model: aiResult.model,
+      },
+      { onConflict: "workflow_execution_id", ignoreDuplicates: true },
+    );
 
     if (aiInsertError) {
       console.error("[automation] failed to record ai_interaction", { executionId: execution.id, error: aiInsertError.message });
+    }
+
+    // leads.ai_summary already exists for exactly this purpose - a short,
+    // human-readable AI rollup on the lead itself, queryable without
+    // parsing ai_interactions.output. ai_score is deliberately left
+    // untouched: qualification_status/urgency are categorical, not a score,
+    // and inventing a numeric mapping would be exactly the "elaborate
+    // scoring system" this phase avoids.
+    if (leadId) {
+      const summaryParts = [
+        `Qualification: ${aiResult.qualification_status}`,
+        `Urgency: ${aiResult.urgency}`,
+      ];
+      if (aiResult.missing_information.length > 0) {
+        summaryParts.push(`Missing: ${aiResult.missing_information.join(", ")}`);
+      }
+      if (aiResult.needs_human) {
+        summaryParts.push("Needs human follow-up");
+      }
+
+      const { error: leadUpdateError } = await service
+        .from("leads")
+        .update({ ai_summary: summaryParts.join(" · ") })
+        .eq("id", leadId)
+        .eq("organization_id", event.organization_id);
+
+      if (leadUpdateError) {
+        console.error("[automation] failed to update lead ai_summary", { executionId: execution.id, error: leadUpdateError.message });
+      }
     }
   }
 
@@ -228,8 +283,9 @@ export async function POST(request: NextRequest) {
     const result = await completeWorkflowExecutionAsService(service, execution.id, {
       should_send: false,
       needs_human: aiResult?.needs_human ?? null,
-      intent: aiResult?.intent ?? null,
-      summary: aiResult?.summary ?? null,
+      qualification_status: aiResult?.qualification_status ?? null,
+      urgency: aiResult?.urgency ?? null,
+      missing_information: aiResult?.missing_information ?? null,
     });
     if (!result.ok) {
       if (isAlreadyProcessedError(result.error)) {
@@ -256,20 +312,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const leadId = event.entity_type === "lead" ? event.entity_id : null;
-
   // sendOutboundMessage is the single path every outbound SMS goes through:
   // it opens/reuses the conversation, writes the messages row first
-  // (status: queued), then calls the SMS provider boundary and updates that
-  // same row to sent/failed. sendSms() is still an unconfigured stub, so
-  // this always resolves to a failed send today - but the message row and
-  // conversation now exist and are fully traceable back to this workflow
-  // execution, closing the gap the previous version of this route left open.
+  // (status: queued), then calls the Twilio provider and updates that same
+  // row to sent/failed. This branch is unreachable in production today
+  // because the n8n workflow hardcodes ai_result.should_send to false - the
+  // real safety mechanism keeping SMS disabled during this phase.
   const sendResult = await sendOutboundMessage(service, {
     organizationId: event.organization_id,
     contactId,
     channel: "sms",
-    body: aiResult.message ?? "",
+    body: aiResult.response_message ?? "",
     senderType: "ai",
     workflowExecutionId: execution.id,
   });
