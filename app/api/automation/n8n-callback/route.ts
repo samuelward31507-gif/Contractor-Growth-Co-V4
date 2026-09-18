@@ -192,6 +192,8 @@ function interactionTypeFor(eventType: string): string {
       return "estimate_sent_response";
     case "job.created":
       return "job_created_response";
+    case "job.post_followup":
+      return "post_job_followup_response";
     default:
       return "lead_followup_response";
   }
@@ -227,6 +229,10 @@ function estimateEligibleStatusesFor(eventType: string): ("draft" | "sent" | "ac
  */
 function jobEligibleStatusesFor(eventType: string): ("scheduled" | "in_progress" | "completed" | "cancelled")[] | null {
   if (eventType === "job.created") return ["scheduled", "in_progress"];
+  // Phase 4.7: the post-job thank-you/review/referral message is only
+  // sendable while the job is still 'completed' (requirement K) - re-checked
+  // live, not trusted from when the automation event was first created.
+  if (eventType === "job.post_followup") return ["completed"];
   return null;
 }
 

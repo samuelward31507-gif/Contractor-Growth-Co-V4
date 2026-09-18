@@ -11,9 +11,10 @@ export type BusinessProfile = {
   zip: string | null;
   website: string | null;
   timezone: string;
+  review_url: string | null;
 };
 
-const PROFILE_COLUMNS = "id, name, phone, email, address, city, state, zip, website, timezone";
+const PROFILE_COLUMNS = "id, name, phone, email, address, city, state, zip, website, timezone, review_url";
 
 /**
  * The business profile lives directly on `organizations` (name is already

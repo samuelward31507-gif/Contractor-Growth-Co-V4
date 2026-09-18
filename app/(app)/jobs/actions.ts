@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { emitJobLifecycleEvent } from "@/lib/automation/jobs";
+import { emitPostJobFollowup } from "@/lib/automation/post-job-followup";
 
 /**
  * Backend-only job status transitions for Phase 4.6. There is no Jobs UI
@@ -61,6 +62,10 @@ async function transitionJob(
 
   if (toStatus === "completed") {
     await emitJobLifecycleEvent(supabase, jobId, "job.completed");
+    // Phase 4.7: one combined thank-you + review-ask (when configured) +
+    // referral-ask message, per explicit decision - idempotent, see
+    // emitPostJobFollowup.
+    await emitPostJobFollowup(supabase, organizationId, jobId);
   } else {
     await emitJobLifecycleEvent(supabase, jobId, "job.cancelled");
   }
