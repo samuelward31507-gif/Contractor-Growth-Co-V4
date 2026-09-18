@@ -1,17 +1,25 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { processEstimateFollowups } from "@/lib/automation/estimate-followups";
 
 /**
  * Vercel Cron target (see vercel.json) - same CRON_SECRET fail-closed
- * pattern as app/api/automation/appointment-reminders/route.ts.
+ * pattern as app/api/automation/appointment-reminders/route.ts, including
+ * the constant-time comparison.
  */
 function isAuthorized(request: NextRequest): boolean {
   const configuredSecret = process.env.CRON_SECRET;
   if (!configuredSecret) return false;
 
   const authHeader = request.headers.get("authorization");
-  return authHeader === `Bearer ${configuredSecret}`;
+  if (!authHeader) return false;
+
+  const expected = Buffer.from(`Bearer ${configuredSecret}`);
+  const actual = Buffer.from(authHeader);
+  if (expected.length !== actual.length) return false;
+
+  return timingSafeEqual(expected, actual);
 }
 
 export async function GET(request: NextRequest) {
