@@ -257,3 +257,242 @@ export type BusinessIntelligenceSnapshot = {
   /** Wall-clock time this snapshot was computed - not a business timestamp. */
   generatedAt: string;
 };
+
+// =============================================================================
+// Phase 5.2 - Business Intelligence Metrics Layer
+//
+// Everything below is additive to Phase 5.1 (which is frozen - nothing above
+// this line was changed). Phase 5.2 turns Phase 5.1's raw counts/sums into a
+// contractor-focused metrics contract: adds rate calculations (with
+// null-on-undefined-denominator semantics, never a divide-by-zero or a
+// fabricated 0%/100%), period-over-period comparisons, and a small
+// dataQuality block. See lib/bi/metrics.ts for the implementation - it
+// consumes Phase 5.1's query functions and does not duplicate their queries.
+// =============================================================================
+
+/**
+ * A rate/percentage is `null`, never 0 or a fabricated number, whenever its
+ * denominator is 0 - there is no such thing as a 0% or 100% rate over zero
+ * observations, and returning either would misrepresent "no data yet" as a
+ * real measured outcome.
+ */
+export type Rate = number | null;
+
+/**
+ * Period-over-period comparison for a single count metric. `previous` (and
+ * therefore `change`/`percentageChange`) is `null` whenever the current
+ * period has no defined previous period of the same length - this happens
+ * exactly when the current range is open-ended (e.g. "all time", or a custom
+ * range missing a bound). `percentageChange` is additionally `null` whenever
+ * `previous` is 0, per the explicit "never divide by zero" requirement - a
+ * change from 0 has no defined percentage.
+ */
+export type PeriodComparison = {
+  current: number;
+  previous: number | null;
+  change: number | null;
+  percentageChange: number | null;
+};
+
+export type BusinessMetricsComparisons = {
+  leadCount: PeriodComparison;
+  estimateCount: PeriodComparison;
+  jobCount: PeriodComparison;
+};
+
+export type BiLeadMetrics = {
+  totalLeads: number;
+  newLeads: number;
+  contactedLeads: number;
+  qualifiedLeads: number;
+  appointmentStageLeads: number;
+  estimateStageLeads: number;
+  wonLeads: number;
+  lostLeads: number;
+  hotLeads: number;
+  warmLeads: number;
+  coldLeads: number;
+  /**
+   * lostLeads / (wonLeads + lostLeads) - the fraction of leads that reached
+   * a terminal outcome and were lost. `null` when neither has happened yet
+   * (denominator 0). This is a current-state ratio over the two terminal
+   * statuses, not a time-based conversion rate - Phase 5.1 confirmed no
+   * stage-transition history exists to compute a true historical rate.
+   */
+  lostRate: Rate;
+  /**
+   * Counted by `leads.source`, exactly as stored (nullable/free text -> a
+   * null source is grouped under "unknown"). Exposed for transparency only -
+   * per the Phase 5.1 audit, `leads.source` is not standardized in this
+   * database, so this layer never ranks, labels, or compares sources by
+   * performance. See dataQuality.sourceAttributionLimited.
+   */
+  sourceCounts: Record<string, number>;
+};
+
+export type BiPipelineMetrics = {
+  /** Count of leads whose status is one of the non-terminal statuses (new, contacted, qualified, appointment, estimate). */
+  openOpportunityCount: number;
+  /** SUM(leads.estimated_value) over the same open statuses - a manual estimate on the lead, never revenue. */
+  pipelineValue: number;
+  /** pipelineValue / openOpportunityCount. `null` when openOpportunityCount is 0. */
+  averagePipelineValue: number | null;
+};
+
+export type BiEstimateMetrics = {
+  totalEstimates: number;
+  draftEstimates: number;
+  sentEstimates: number;
+  acceptedEstimates: number;
+  declinedEstimates: number;
+  cancelledEstimates: number;
+  expiredEstimates: number;
+  /** SUM(estimates.amount) across all estimates - quoted/contracted total, never revenue. */
+  estimateValue: number;
+  /** AVG(estimates.amount). `null` when there are zero estimates with a non-null amount. */
+  averageEstimateValue: number | null;
+  /**
+   * acceptedEstimates / (acceptedEstimates + declinedEstimates) - deliberately
+   * excludes draft/sent/cancelled/expired from the denominator so an estimate
+   * that hasn't yet received a real customer decision never dilutes the rate.
+   * `null` when the denominator is 0.
+   */
+  estimateAcceptanceRate: Rate;
+  /**
+   * totalJobs / acceptedEstimates. Reliable because job creation is
+   * synchronous with estimate acceptance in this codebase (one job per
+   * accepted estimate, enforced by a unique index on jobs.estimate_id - see
+   * lib/automation/jobs.ts) - every job traces back to exactly one accepted
+   * estimate. `null` when acceptedEstimates is 0.
+   */
+  estimateToJobRate: Rate;
+};
+
+export type BiJobMetrics = {
+  totalJobs: number;
+  scheduledJobs: number;
+  inProgressJobs: number;
+  completedJobs: number;
+  cancelledJobs: number;
+  /** SUM(jobs.amount) - the contracted job value, never "revenue collected" (no payment infrastructure exists). */
+  contractedJobValue: number;
+  /** AVG(jobs.amount). `null` when there are zero jobs with a non-null amount. */
+  averageContractedJobValue: number | null;
+  /** completedJobs / (completedJobs + cancelledJobs). `null` when the denominator is 0. */
+  jobCompletionRate: Rate;
+};
+
+export type BiAppointmentMetrics = {
+  totalAppointments: number;
+  scheduledAppointments: number;
+  confirmedAppointments: number;
+  completedAppointments: number;
+  cancelledAppointments: number;
+  noShowAppointments: number;
+  /** noShowAppointments / (completedAppointments + cancelledAppointments + noShowAppointments) - the three "resolved" outcomes. `null` when the denominator is 0. */
+  appointmentNoShowRate: Rate;
+};
+
+export type BiCommunicationMetrics = {
+  inboundMessages: number;
+  outboundMessages: number;
+  /** Equal to inboundMessages - every inbound message in this system is sender_type='customer' by construction (verified in the Phase 4.8/4.9 audits: the inbound SMS webhook always writes direction='inbound', sender_type='customer'). Exposed under this name because "a customer replied" is the business-meaningful framing. */
+  customerReplies: number;
+  aiOutboundMessages: number;
+  userOutboundMessages: number;
+  systemOutboundMessages: number;
+  conversationsOpened: number;
+  conversationsClosed: number;
+  /** contacts.sms_opt_out = true, scoped by contacts.created_at within the requested range - not an opt-out EVENT timestamp (no such column exists), so this measures "opted-out contacts created in this window," not "opt-outs that occurred in this window." */
+  optOutCount: number;
+};
+
+export type BiAutomationMetrics = {
+  automationEvents: number;
+  completedAutomationEvents: number;
+  failedAutomationEvents: number;
+  pendingAutomationEvents: number;
+  workflowExecutions: number;
+  successfulWorkflowExecutions: number;
+  failedWorkflowExecutions: number;
+  runningWorkflowExecutions: number;
+  /**
+   * successfulWorkflowExecutions / (successfulWorkflowExecutions +
+   * failedWorkflowExecutions) - computed over workflow_executions (the
+   * dispatch/delivery outcome), not automation_events (which records the
+   * business event itself, not whether the automation succeeded). `null`
+   * when the denominator is 0.
+   */
+  automationSuccessRate: Rate;
+};
+
+export type BiAiMetrics = {
+  aiInteractions: number;
+  /** ai_interactions where the stored structured output has should_send = true - the AI actually recommended sending a message (subject to the outbound gate, which is not reflected here). */
+  aiOutboundInteractions: number;
+  /** ai_interactions where interaction_type = 'customer_reply_response'. */
+  customerReplyAiInteractions: number;
+  /** ai_interactions where the stored structured output has needs_human = true. */
+  aiNeedsHumanCount: number;
+};
+
+export type BiFollowUpMetrics = {
+  /** automation_events where event_type = 'lead.lost_nurture'. */
+  lostLeadNurtureEvents: number;
+  /** automation_events where event_type = 'lead.reactivation'. */
+  reactivationEvents: number;
+  /** automation_events where event_type = 'appointment.reminder'. */
+  appointmentReminderEvents: number;
+  /** automation_events where event_type = 'estimate.followup'. */
+  estimateFollowUpEvents: number;
+  /** automation_events where event_type = 'job.post_followup'. */
+  postJobFollowUpEvents: number;
+  /**
+   * Distinct leads with at least one automation_events row where
+   * entity_type = 'lead' (lead.created, lead.lost, lead.lost_nurture,
+   * lead.reactivation). Deliberately conservative: it does NOT reach into
+   * the payload of appointment/estimate/job/customer-reply events to find an
+   * indirectly-associated lead_id, since those payload shapes are not
+   * uniform across event types - only direct lead-entity events are counted,
+   * so this is a floor, not a complete count of every lead automation has
+   * ever touched.
+   */
+  leadsTouchedByAutomation: number;
+};
+
+/**
+ * Explicit, honest limitations of the current data - see the Phase 5.1
+ * audit. Every flag here is a fact about this codebase/schema today, not a
+ * per-organization computed judgment - kept deliberately small per the
+ * "do not overbuild a data-quality framework" instruction.
+ */
+export type BiDataQuality = {
+  /** No payment/invoicing infrastructure exists anywhere in this codebase - every "value" figure is quoted/contracted, never confirmed collected money. */
+  collectedRevenueUnavailable: true;
+  /** leads.source is nullable, free-text, and not standardized - source counts are exposed but never ranked or labeled as "best"/"worst"/"highest converting". */
+  sourceAttributionLimited: true;
+  /** No table or trigger records lead status-transition history - every rate/count here is a current-state or activity-count metric, never a true historical conversion rate. */
+  stageHistoryUnavailable: true;
+  /** ai_interactions.tokens_used is never populated by any code path in this repo - no AI cost figure is calculated anywhere in this layer. */
+  aiTokenUsageUnavailable: true;
+  /** Short, human-readable notes elaborating on the flags above. */
+  notes: string[];
+};
+
+export type BusinessMetricsSnapshot = {
+  organizationId: string;
+  period: ResolvedDateRange;
+  comparisons: BusinessMetricsComparisons;
+  leadMetrics: BiLeadMetrics;
+  pipelineMetrics: BiPipelineMetrics;
+  estimateMetrics: BiEstimateMetrics;
+  jobMetrics: BiJobMetrics;
+  appointmentMetrics: BiAppointmentMetrics;
+  communicationMetrics: BiCommunicationMetrics;
+  automationMetrics: BiAutomationMetrics;
+  aiMetrics: BiAiMetrics;
+  followUpMetrics: BiFollowUpMetrics;
+  dataQuality: BiDataQuality;
+  /** Wall-clock time this snapshot was computed - not a business timestamp. */
+  generatedAt: string;
+};
