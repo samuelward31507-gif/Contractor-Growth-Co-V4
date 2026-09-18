@@ -34,14 +34,20 @@ export type ConversationLead = {
   estimated_value: number | null;
 };
 
+export type MessageStatus = "queued" | "sent" | "delivered" | "failed" | "undelivered" | "received" | "logged";
+
 export type Message = {
   id: string;
   conversation_id: string;
   direction: MessageDirection;
   sender_type: MessageSenderType;
   body: string;
+  status: MessageStatus;
+  status_reason: string | null;
   provider_message_id: string | null;
+  workflow_execution_id: string | null;
   created_at: string;
+  updated_at: string;
 };
 
 export type Conversation = {
@@ -70,7 +76,8 @@ export type ConversationWithLastMessage = Conversation & {
 const CONVERSATION_COLUMNS =
   "id, contact_id, lead_id, channel, status, ai_enabled, created_at, updated_at, contact:contacts(id, first_name, last_name, company_name, phone, email), lead:leads(id, service, source, status, temperature, estimated_value)";
 
-const MESSAGE_COLUMNS = "id, conversation_id, direction, sender_type, body, provider_message_id, created_at";
+const MESSAGE_COLUMNS =
+  "id, conversation_id, direction, sender_type, body, status, status_reason, provider_message_id, workflow_execution_id, created_at, updated_at";
 
 type Embedded<T> = T | T[] | null;
 
@@ -298,4 +305,58 @@ export function summarizeConversations(conversations: Conversation[]): Conversat
     closed: conversations.filter((conversation) => conversation.status === "closed").length,
     aiEnabled: conversations.filter((conversation) => conversation.ai_enabled).length,
   };
+}
+
+/**
+ * Returns the contact's existing open conversation on this channel, or opens
+ * a new one. Relies on the partial unique index
+ * (organization_id, contact_id, channel) where status = 'open' to make a
+ * concurrent race (two inbound messages arriving at once) resolve safely:
+ * the loser's insert hits the unique violation and this re-selects the
+ * winner's row instead of erroring. Works with either an RLS-scoped
+ * user-session client or a service-role client - both already enforce
+ * organization scoping the same way every other query in this codebase does
+ * (explicit filter + trusted organizationId from the caller).
+ */
+export async function findOrCreateOpenConversation(
+  supabase: SupabaseClient,
+  organizationId: string,
+  contactId: string,
+  channel: ConversationChannel,
+  leadId: string | null = null,
+): Promise<{ id: string } | null> {
+  const { data: existing } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .eq("channel", channel)
+    .eq("status", "open")
+    .maybeSingle();
+
+  if (existing) return existing;
+
+  const { data: created, error } = await supabase
+    .from("conversations")
+    .insert({ organization_id: organizationId, contact_id: contactId, channel, lead_id: leadId })
+    .select("id")
+    .single();
+
+  if (created) return created;
+
+  // Unique-violation race: someone else's insert won between our select and
+  // our insert. Re-select rather than treat this as a failure.
+  if (error?.code === "23505") {
+    const { data: winner } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .eq("channel", channel)
+      .eq("status", "open")
+      .maybeSingle();
+    return winner ?? null;
+  }
+
+  return null;
 }

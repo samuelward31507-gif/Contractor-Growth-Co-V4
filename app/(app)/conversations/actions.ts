@@ -160,6 +160,7 @@ export async function createMessage(
     direction: "outbound",
     sender_type: "user",
     body,
+    status: "logged",
   });
 
   if (error) {

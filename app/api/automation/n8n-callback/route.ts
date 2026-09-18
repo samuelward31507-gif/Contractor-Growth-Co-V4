@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "@/lib/automation/executions";
-import { sendSms } from "@/lib/automation/sms";
+import { sendOutboundMessage } from "@/lib/messaging/outbound";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_MESSAGE_LENGTH = 1600;
@@ -244,20 +244,11 @@ export async function POST(request: NextRequest) {
   const contactId =
     typeof event.payload?.contact_id === "string" ? (event.payload.contact_id as string) : null;
 
-  const { data: contact } = contactId
-    ? await service
-        .from("contacts")
-        .select("phone")
-        .eq("id", contactId)
-        .eq("organization_id", event.organization_id)
-        .maybeSingle()
-    : { data: null };
-
-  if (!contact?.phone) {
+  if (!contactId) {
     const failed = await failWorkflowExecutionAsService(
       service,
       execution.id,
-      "The contact has no phone number on file - SMS could not be attempted.",
+      "The automation event has no associated contact - SMS could not be attempted.",
     );
     if (!failed.ok && !isAlreadyProcessedError(failed.error)) {
       console.error("[automation] failed to record execution failure", { executionId: execution.id, error: failed.error });
@@ -265,33 +256,41 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const smsResult = await sendSms({
+  const leadId = event.entity_type === "lead" ? event.entity_id : null;
+
+  // sendOutboundMessage is the single path every outbound SMS goes through:
+  // it opens/reuses the conversation, writes the messages row first
+  // (status: queued), then calls the SMS provider boundary and updates that
+  // same row to sent/failed. sendSms() is still an unconfigured stub, so
+  // this always resolves to a failed send today - but the message row and
+  // conversation now exist and are fully traceable back to this workflow
+  // execution, closing the gap the previous version of this route left open.
+  const sendResult = await sendOutboundMessage(service, {
     organizationId: event.organization_id,
-    to: contact.phone,
+    contactId,
+    channel: "sms",
     body: aiResult.message ?? "",
+    senderType: "ai",
+    workflowExecutionId: execution.id,
   });
 
-  if (!smsResult.ok) {
-    // SMS is not configured yet anywhere in this environment - this always
-    // takes this branch today. The execution must clearly reflect that
-    // delivery could not complete; it must never be marked completed as if
-    // the customer-facing message went out, and no messages row is ever
-    // written for a send that didn't actually happen.
-    const failed = await failWorkflowExecutionAsService(service, execution.id, smsResult.error);
+  if (!sendResult.ok) {
+    // The execution must clearly reflect that delivery could not complete;
+    // it must never be marked completed as if the customer-facing message
+    // went out.
+    const failed = await failWorkflowExecutionAsService(service, execution.id, sendResult.error);
     if (!failed.ok && !isAlreadyProcessedError(failed.error)) {
       console.error("[automation] failed to record execution failure", { executionId: execution.id, error: failed.error });
     }
     return NextResponse.json({ ok: true });
   }
 
-  // A real provider send succeeded. Recording it as a `messages` row would
-  // require an existing conversation (messages.conversation_id is NOT
-  // NULL), and creating conversations is explicitly out of scope for this
-  // phase - so only the execution is completed here. See the final report
-  // for this documented limitation.
   const completed = await completeWorkflowExecutionAsService(service, execution.id, {
     should_send: true,
-    provider_message_id: smsResult.providerMessageId,
+    message_id: sendResult.messageId,
+    conversation_id: sendResult.conversationId,
+    provider_message_id: sendResult.providerMessageId,
+    lead_id: leadId,
   });
   if (!completed.ok) {
     if (isAlreadyProcessedError(completed.error)) {
