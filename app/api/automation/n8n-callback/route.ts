@@ -23,6 +23,10 @@ type AiResult = {
   urgency: Urgency;
   needs_human: boolean;
   model: string | null;
+  // Optional: present for customer.message.received (Phase 4.2), absent for
+  // lead.created - both are valid, existing behavior is unchanged either way.
+  intent: string | null;
+  summary: string | null;
 };
 
 type CallbackBody = {
@@ -93,6 +97,12 @@ function validateBody(raw: unknown): ValidationResult {
     if (!isOptionalString(raw2.model, MAX_SHORT_FIELD_LENGTH)) {
       return { ok: false, error: "ai_result.model must be a short string or null." };
     }
+    if (!isOptionalString(raw2.intent, MAX_SHORT_FIELD_LENGTH)) {
+      return { ok: false, error: "ai_result.intent must be a short string or null." };
+    }
+    if (!isOptionalString(raw2.summary, MAX_SHORT_FIELD_LENGTH * 4)) {
+      return { ok: false, error: "ai_result.summary must be a string within the length limit, or null." };
+    }
     if (raw2.should_send && !raw2.response_message) {
       return { ok: false, error: "ai_result.response_message is required when should_send is true." };
     }
@@ -105,6 +115,8 @@ function validateBody(raw: unknown): ValidationResult {
       urgency: raw2.urgency as Urgency,
       needs_human: raw2.needs_human,
       model: (raw2.model as string | null) ?? null,
+      intent: (raw2.intent as string | null) ?? null,
+      summary: (raw2.summary as string | null) ?? null,
     };
   }
 
@@ -219,11 +231,34 @@ export async function POST(request: NextRequest) {
   }
 
   const aiResult = body.ai_result;
-  const leadId = event.entity_type === "lead" ? event.entity_id : null;
+
+  // entity_id/entity_type covers lead.created (entity_type: "lead").
+  // customer.message.received's entity is the conversation, with lead_id
+  // (possibly null - not every conversation has an associated lead) carried
+  // in the payload instead.
+  const leadId =
+    event.entity_type === "lead"
+      ? event.entity_id
+      : typeof event.payload?.lead_id === "string"
+        ? (event.payload.lead_id as string)
+        : null;
+
+  // Phase 4.2 safety requirement: should_send must be unreachable for
+  // customer.message.received regardless of what n8n/the AI returned - this
+  // event type never sends SMS in this phase, full stop, not merely
+  // "whichever value n8n happened to send". lead.created's should_send is
+  // untouched (n8n hardcodes it false there already).
+  if (aiResult && event.event_type === "customer.message.received") {
+    aiResult.should_send = false;
+  }
 
   if (aiResult) {
     const contactId =
       typeof event.payload?.contact_id === "string" ? (event.payload.contact_id as string) : null;
+    const conversationId =
+      typeof event.payload?.conversation_id === "string" ? (event.payload.conversation_id as string) : null;
+    const interactionType =
+      event.event_type === "customer.message.received" ? "customer_reply_response" : "lead_followup_response";
 
     // Upsert on workflow_execution_id (unique, nullable-safe) rather than a
     // plain insert: two genuinely concurrent callback deliveries for the
@@ -235,9 +270,9 @@ export async function POST(request: NextRequest) {
         organization_id: event.organization_id,
         lead_id: leadId,
         contact_id: contactId,
-        conversation_id: null,
+        conversation_id: conversationId,
         workflow_execution_id: execution.id,
-        interaction_type: "lead_followup_response",
+        interaction_type: interactionType,
         input: { event_type: event.event_type, entity_type: event.entity_type, entity_id: event.entity_id, payload: event.payload },
         output: aiResult,
         model: aiResult.model,
@@ -266,6 +301,9 @@ export async function POST(request: NextRequest) {
       if (aiResult.needs_human) {
         summaryParts.push("Needs human follow-up");
       }
+      if (aiResult.summary) {
+        summaryParts.push(aiResult.summary);
+      }
 
       const { error: leadUpdateError } = await service
         .from("leads")
@@ -286,6 +324,8 @@ export async function POST(request: NextRequest) {
       qualification_status: aiResult?.qualification_status ?? null,
       urgency: aiResult?.urgency ?? null,
       missing_information: aiResult?.missing_information ?? null,
+      intent: aiResult?.intent ?? null,
+      summary: aiResult?.summary ?? null,
     });
     if (!result.ok) {
       if (isAlreadyProcessedError(result.error)) {

@@ -91,3 +91,55 @@ export async function createAutomationEvent(
   const { is_duplicate, ...event } = data as AutomationEvent & { is_duplicate: boolean };
   return { ok: true, event, duplicate: is_duplicate };
 }
+
+/**
+ * Service-role variant for callers with no Supabase Auth session - today
+ * only the inbound SMS webhook (app/api/webhooks/sms/inbound), which
+ * authenticates via Twilio's HMAC signature rather than a user JWT, exactly
+ * like the n8n callback route already does for the execution RPCs. The
+ * caller must supply organizationId itself, already resolved and trusted
+ * (the inbound webhook derives it from organizations.sms_phone_number
+ * before ever calling this) - this function never derives it from anything
+ * client-supplied. The underlying RPC recognizes the service_role Postgres
+ * role as a second legitimate caller (see the
+ * automation_rpcs_service_role_access migration); validation and
+ * idempotency behavior are otherwise identical to createAutomationEvent.
+ */
+export async function createAutomationEventAsService(
+  supabase: SupabaseClient,
+  organizationId: string,
+  input: CreateAutomationEventInput,
+): Promise<CreateAutomationEventResult> {
+  const eventType = input.eventType.trim().toLowerCase();
+  if (!EVENT_TYPE_PATTERN.test(eventType)) {
+    return { ok: false, error: "Invalid event type. Expected a form like lead.created." };
+  }
+
+  const entityType = input.entityType?.trim().toLowerCase() || null;
+  if (entityType && !ENTITY_TYPE_PATTERN.test(entityType)) {
+    return { ok: false, error: "Invalid entity type." };
+  }
+
+  const idempotencyKey = input.idempotencyKey?.trim() || null;
+  if (idempotencyKey && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    return { ok: false, error: "Idempotency key is too long." };
+  }
+
+  const { data, error } = await supabase
+    .rpc("create_automation_event", {
+      p_event_type: eventType,
+      p_entity_type: entityType,
+      p_entity_id: input.entityId ?? null,
+      p_payload: input.payload ?? {},
+      p_idempotency_key: idempotencyKey,
+      p_organization_id: organizationId,
+    })
+    .single();
+
+  if (error || !data) {
+    return { ok: false, error: "We couldn't record this automation event." };
+  }
+
+  const { is_duplicate, ...event } = data as AutomationEvent & { is_duplicate: boolean };
+  return { ok: true, event, duplicate: is_duplicate };
+}

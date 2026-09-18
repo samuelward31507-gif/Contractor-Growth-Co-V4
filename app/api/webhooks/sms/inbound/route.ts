@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { matchSmsKeyword } from "@/lib/messaging/keywords";
+import { emitCustomerReplyFollowup } from "@/lib/automation/customer-reply";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
@@ -144,6 +145,28 @@ export async function POST(request: NextRequest) {
 
   if (insertError) {
     console.error("[sms][inbound] failed to record message", { organizationId: organization.id, error: insertError.message });
+  }
+
+  // STOP/START/HELP are compliance keywords, not conversational content -
+  // they must never trigger AI qualification/conversation processing. A
+  // normal message triggers the customer_reply_followup automation
+  // (Phase 4.2); should_send stays false throughout that flow, so this
+  // never results in an outbound SMS.
+  if (!insertError && !keyword) {
+    const { data: conversationLead } = await service
+      .from("conversations")
+      .select("lead_id")
+      .eq("id", conversation.id)
+      .maybeSingle();
+
+    await emitCustomerReplyFollowup(service, {
+      organizationId: organization.id,
+      contactId: contact.id,
+      conversationId: conversation.id,
+      leadId: conversationLead?.lead_id ?? null,
+      messageBody: body,
+      providerMessageId: messageSid,
+    });
   }
 
   return twiml();

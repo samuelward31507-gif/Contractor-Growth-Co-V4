@@ -196,6 +196,40 @@ export async function completeWorkflowExecutionAsService(
   return { ok: true, execution: data as WorkflowExecution };
 }
 
+/**
+ * Service-role variant of startWorkflowExecution for the inbound SMS
+ * webhook (no Supabase Auth session - see createAutomationEventAsService).
+ * The underlying RPC derives organization_id from the automation_events row
+ * itself (already set correctly by createAutomationEventAsService), so no
+ * organizationId parameter is needed here - only the service_role
+ * authorization bypass differs from the user-session path. Does not enforce
+ * MAX_WORKFLOW_RETRY_ATTEMPTS: this is always the first attempt for a
+ * freshly-created event in this caller's flow, never a retry.
+ */
+export async function startWorkflowExecutionAsService(
+  supabase: SupabaseClient,
+  automationEventId: string,
+  workflowName: string,
+  metadata: Record<string, unknown> = {},
+): Promise<ExecutionResult> {
+  const name = workflowName.trim();
+  if (!name) return { ok: false, error: "workflow_name is required." };
+
+  const { data, error } = await supabase
+    .rpc("start_workflow_execution", {
+      p_automation_event_id: automationEventId,
+      p_workflow_name: name,
+      p_metadata: metadata,
+    })
+    .single();
+
+  if (error || !data) {
+    return { ok: false, error: mapExecutionRpcError(error?.message) };
+  }
+
+  return { ok: true, execution: data as WorkflowExecution };
+}
+
 export async function failWorkflowExecutionAsService(
   supabase: SupabaseClient,
   executionId: string,
