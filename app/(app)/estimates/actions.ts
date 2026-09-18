@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { emitEstimateSent, emitEstimateLifecycleEvent } from "@/lib/automation/estimates";
+import { emitJobCreatedFromEstimate } from "@/lib/automation/jobs";
 
 /**
  * Backend-only estimate CRUD for Phase 4.5. There is no Estimates UI yet
@@ -143,6 +144,9 @@ async function transitionEstimate(
 
   if (toStatus === "accepted") {
     await emitEstimateLifecycleEvent(supabase, estimateId, "estimate.accepted");
+    // Phase 4.6: estimate accepted is the sole job-creation trigger, per
+    // explicit decision. Idempotent - see emitJobCreatedFromEstimate.
+    await emitJobCreatedFromEstimate(supabase, organizationId, estimateId);
   } else if (toStatus === "declined") {
     await emitEstimateLifecycleEvent(supabase, estimateId, "estimate.declined");
   }

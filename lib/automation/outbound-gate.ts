@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateContentSafety } from "./content-safety";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
+import type { JobStatus } from "@/lib/jobs/queries";
 
 const MAX_MESSAGE_LENGTH = 1600;
 
@@ -41,6 +42,15 @@ export type OutboundGateInput = {
   estimateId?: string | null;
   /** Required whenever estimateId is set. */
   estimateEligibleStatuses?: EstimateStatus[];
+  /**
+   * Phase 4.6: same pattern as appointmentId/estimateId above, for
+   * job.created-kickoff sends - re-checks the job's live status (a
+   * completed/cancelled job can never receive the kickoff message, even if
+   * it was 'scheduled' when the event/n8n dispatch first fired).
+   */
+  jobId?: string | null;
+  /** Required whenever jobId is set. */
+  jobEligibleStatuses?: JobStatus[];
 };
 
 export type OutboundGateDenialReason =
@@ -70,7 +80,10 @@ export type OutboundGateDenialReason =
   | "appointment_status_ineligible"
   | "estimate_not_found"
   | "estimate_wrong_organization"
-  | "estimate_status_ineligible";
+  | "estimate_status_ineligible"
+  | "job_not_found"
+  | "job_wrong_organization"
+  | "job_status_ineligible";
 
 export type OutboundGateResult =
   | { allowed: true; contactId: string; conversationId: string; body: string }
@@ -203,6 +216,22 @@ export async function evaluateOutboundGate(
     const eligible = input.estimateEligibleStatuses ?? [];
     if (!eligible.includes(estimate.status as EstimateStatus)) {
       return deny("estimate_status_ineligible", `estimate status is ${estimate.status}`);
+    }
+  }
+
+  if (input.jobId) {
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("id, organization_id, status")
+      .eq("id", input.jobId)
+      .maybeSingle();
+
+    if (!job) return deny("job_not_found");
+    if (job.organization_id !== input.organizationId) return deny("job_wrong_organization");
+
+    const eligible = input.jobEligibleStatuses ?? [];
+    if (!eligible.includes(job.status as JobStatus)) {
+      return deny("job_status_ineligible", `job status is ${job.status}`);
     }
   }
 

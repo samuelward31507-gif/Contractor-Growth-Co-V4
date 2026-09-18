@@ -190,6 +190,8 @@ function interactionTypeFor(eventType: string): string {
       return "appointment_no_show_response";
     case "estimate.sent":
       return "estimate_sent_response";
+    case "job.created":
+      return "job_created_response";
     default:
       return "lead_followup_response";
   }
@@ -214,6 +216,17 @@ function appointmentEligibleStatusesFor(eventType: string): ("scheduled" | "conf
  */
 function estimateEligibleStatusesFor(eventType: string): ("draft" | "sent" | "accepted" | "declined" | "cancelled" | "expired")[] | null {
   if (eventType === "estimate.sent") return ["sent"];
+  return null;
+}
+
+/**
+ * Phase 4.6: same pattern, for job.created's kickoff notification - only
+ * sendable while the job is still scheduled/in_progress (requirement M:
+ * completed/cancelled jobs can never receive it, even if it was eligible
+ * when the automation event was first created).
+ */
+function jobEligibleStatusesFor(eventType: string): ("scheduled" | "in_progress" | "completed" | "cancelled")[] | null {
+  if (eventType === "job.created") return ["scheduled", "in_progress"];
   return null;
 }
 
@@ -396,6 +409,14 @@ export async function POST(request: NextRequest) {
         : null;
   const estimateEligibleStatuses = estimateEligibleStatusesFor(event.event_type);
 
+  const jobId =
+    event.entity_type === "job"
+      ? event.entity_id
+      : typeof event.payload?.job_id === "string"
+        ? (event.payload.job_id as string)
+        : null;
+  const jobEligibleStatuses = jobEligibleStatusesFor(event.event_type);
+
   // Trackpr is the final send authority: the AI/n8n may recommend sending,
   // but nothing reaches the customer without independently passing this
   // gate. Every condition it checks is re-derived from the database, not
@@ -415,6 +436,8 @@ export async function POST(request: NextRequest) {
     appointmentEligibleStatuses: appointmentEligibleStatuses ?? undefined,
     estimateId: estimateEligibleStatuses ? estimateId : null,
     estimateEligibleStatuses: estimateEligibleStatuses ?? undefined,
+    jobId: jobEligibleStatuses ? jobId : null,
+    jobEligibleStatuses: jobEligibleStatuses ?? undefined,
   });
 
   if (!gateResult.allowed) {
