@@ -1,0 +1,206 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createAutomationEventAsService } from "./events";
+import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
+import { evaluateOutboundGate } from "./outbound-gate";
+import { sendOutboundMessage } from "@/lib/messaging/outbound";
+import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
+import { getBusinessProfile } from "@/lib/settings/queries";
+import { formatAppointmentDate, formatAppointmentTimeRange } from "@/lib/appointments/format";
+import type { AppointmentStatus } from "@/lib/appointments/queries";
+import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
+
+export const APPOINTMENT_REMINDER_WORKFLOW = "appointment_reminder";
+export const REMINDER_LEAD_TIME_MS = 24 * 60 * 60 * 1000; // 24 hours - the Phase 4.4 default interval
+
+const ELIGIBLE_STATUSES: AppointmentStatus[] = ["scheduled", "confirmed"];
+
+type CandidateAppointment = {
+  id: string;
+  organization_id: string;
+  contact_id: string | null;
+  lead_id: string | null;
+  title: string;
+  start_at: string;
+  end_at: string;
+  status: AppointmentStatus;
+  updated_at: string;
+};
+
+export type ReminderOutcome =
+  | { appointmentId: string; outcome: "sent"; messageId: string }
+  | { appointmentId: string; outcome: "blocked"; reason: string }
+  | { appointmentId: string; outcome: "skipped_duplicate" }
+  | { appointmentId: string; outcome: "failed"; error: string };
+
+export type ReminderRunResult = {
+  candidates: number;
+  outcomes: ReminderOutcome[];
+};
+
+/**
+ * Composes the reminder body directly in Trackpr, with no AI/n8n round
+ * trip: a reminder is pure fact-recitation (title, date, time) with no
+ * judgment call for a model to make, so involving the LLM would only add
+ * latency, cost, and a hallucination surface for zero benefit. This keeps
+ * "Trackpr is the source of truth" as strict as possible for this message
+ * type - see the Phase 4.4 report for the full architectural rationale.
+ */
+function composeReminderBody(appointment: CandidateAppointment, timezone: string): string {
+  const dateLabel = formatAppointmentDate(appointment.start_at, timezone);
+  const timeLabel = formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timezone);
+  return `Reminder: your appointment "${appointment.title}" is scheduled for ${dateLabel} at ${timeLabel}. Reply STOP to opt out of texts.`;
+}
+
+/**
+ * Finds appointments due for their 24-hour-before reminder right now, and
+ * for each one: creates the appointment.reminder automation event/execution
+ * (idempotent per appointment+start_at - see idempotencyKey below), sends
+ * the reminder through the exact same safe outbound gate + sendOutboundMessage
+ * path every other automated message uses, and completes/fails the
+ * execution accordingly. Designed to be called repeatedly on a schedule
+ * (see app/api/automation/appointment-reminders/route.ts) - every step is
+ * idempotent, so calling this twice in the same window is always safe.
+ *
+ * Eligibility, computed entirely from existing columns (no new schema):
+ * - status is 'scheduled' or 'confirmed' (never cancelled/completed/no_show)
+ * - start_at is between now and now+24h (the reminder is "due")
+ * - updated_at is at or before start_at-24h - i.e. this appointment's
+ *   current start_at has been in place for at least 24 hours already. This
+ *   is the guard against inventing a "historical" reminder: an appointment
+ *   created or rescheduled with less than 24 hours' notice never gets a
+ *   reminder fired immediately just because the 24-hour mark has already
+ *   technically passed - see the Phase 4.4 report for the documented
+ *   limitation (updated_at is a proxy for "when this start_at was set",
+ *   not a dedicated column, since the schema has none).
+ */
+export async function processAppointmentReminders(
+  supabase: SupabaseClient,
+  now: Date = new Date(),
+  /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+): Promise<ReminderRunResult> {
+  const windowEnd = new Date(now.getTime() + REMINDER_LEAD_TIME_MS);
+
+  const { data: rawCandidates } = await supabase
+    .from("appointments")
+    .select("id, organization_id, contact_id, lead_id, title, start_at, end_at, status, updated_at")
+    .in("status", ELIGIBLE_STATUSES)
+    .gt("start_at", now.toISOString())
+    .lte("start_at", windowEnd.toISOString())
+    .limit(500);
+
+  const candidates = ((rawCandidates ?? []) as CandidateAppointment[]).filter((appointment) => {
+    const dueAt = new Date(appointment.start_at).getTime() - REMINDER_LEAD_TIME_MS;
+    return new Date(appointment.updated_at).getTime() <= dueAt;
+  });
+
+  const outcomes: ReminderOutcome[] = [];
+
+  for (const appointment of candidates) {
+    outcomes.push(await processOneReminder(supabase, appointment, sendSmsFn));
+  }
+
+  return { candidates: candidates.length, outcomes };
+}
+
+async function processOneReminder(
+  supabase: SupabaseClient,
+  appointment: CandidateAppointment,
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+): Promise<ReminderOutcome> {
+  const idempotencyKey = `appointment.reminder:${appointment.id}:${appointment.start_at}`;
+
+  const eventResult = await createAutomationEventAsService(supabase, appointment.organization_id, {
+    eventType: "appointment.reminder",
+    entityType: "appointment",
+    entityId: appointment.id,
+    payload: {
+      appointment_id: appointment.id,
+      contact_id: appointment.contact_id,
+      lead_id: appointment.lead_id,
+      start_at: appointment.start_at,
+    },
+    idempotencyKey,
+  });
+
+  if (!eventResult.ok) {
+    return { appointmentId: appointment.id, outcome: "failed", error: eventResult.error };
+  }
+  if (eventResult.duplicate) {
+    return { appointmentId: appointment.id, outcome: "skipped_duplicate" };
+  }
+
+  const executionResult = await startWorkflowExecutionAsService(
+    supabase,
+    eventResult.event.id,
+    APPOINTMENT_REMINDER_WORKFLOW,
+  );
+  if (!executionResult.ok) {
+    return { appointmentId: appointment.id, outcome: "failed", error: executionResult.error };
+  }
+
+  const executionId = executionResult.execution.id;
+  const businessProfile = await getBusinessProfile(supabase, appointment.organization_id);
+  const timezone = businessProfile?.timezone ?? "UTC";
+
+  let conversationId: string | null = null;
+  if (appointment.contact_id) {
+    const conversation = await findOrCreateOpenConversation(
+      supabase,
+      appointment.organization_id,
+      appointment.contact_id,
+      "sms",
+      appointment.lead_id,
+    );
+    conversationId = conversation?.id ?? null;
+  }
+
+  const body = composeReminderBody(appointment, timezone);
+
+  const gateResult = await evaluateOutboundGate(supabase, {
+    organizationId: appointment.organization_id,
+    executionId,
+    contactId: appointment.contact_id,
+    conversationId,
+    leadId: appointment.lead_id,
+    aiResult: { should_send: true, response_message: body, needs_human: false },
+    appointmentId: appointment.id,
+    appointmentEligibleStatuses: ELIGIBLE_STATUSES,
+  });
+
+  if (!gateResult.allowed) {
+    await completeWorkflowExecutionAsService(supabase, executionId, {
+      should_send: false,
+      blocked_reason: gateResult.reason,
+      blocked_detail: gateResult.detail ?? null,
+      appointment_id: appointment.id,
+    });
+    return { appointmentId: appointment.id, outcome: "blocked", reason: gateResult.reason };
+  }
+
+  const sendResult = await sendOutboundMessage(supabase, {
+    organizationId: appointment.organization_id,
+    contactId: gateResult.contactId,
+    conversationId: gateResult.conversationId,
+    channel: "sms",
+    body: gateResult.body,
+    senderType: "ai",
+    workflowExecutionId: executionId,
+    sendSmsFn,
+  });
+
+  if (!sendResult.ok) {
+    await failWorkflowExecutionAsService(supabase, executionId, sendResult.error);
+    return { appointmentId: appointment.id, outcome: "failed", error: sendResult.error };
+  }
+
+  await completeWorkflowExecutionAsService(supabase, executionId, {
+    should_send: true,
+    message_id: sendResult.messageId,
+    conversation_id: sendResult.conversationId,
+    provider_message_id: sendResult.providerMessageId,
+    appointment_id: appointment.id,
+  });
+
+  return { appointmentId: appointment.id, outcome: "sent", messageId: sendResult.messageId };
+}

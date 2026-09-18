@@ -174,6 +174,37 @@ function isAlreadyProcessedError(error: string): boolean {
   return error === "Execution is not running";
 }
 
+/**
+ * Maps an automation event_type to the ai_interactions.interaction_type
+ * label it should be recorded under. interaction_type has no CHECK
+ * constraint (free text), so adding a new event type here never needs a
+ * migration - only this mapping.
+ */
+function interactionTypeFor(eventType: string): string {
+  switch (eventType) {
+    case "customer.message.received":
+      return "customer_reply_response";
+    case "appointment.created":
+      return "appointment_created_response";
+    case "appointment.no_show":
+      return "appointment_no_show_response";
+    default:
+      return "lead_followup_response";
+  }
+}
+
+/**
+ * Phase 4.4: appointment-context sends (confirmation, no-show follow-up)
+ * are only allowed while the appointment is still in the specific state
+ * that message type makes sense for - re-checked live by the gate, never
+ * trusted from when the automation event was originally created.
+ */
+function appointmentEligibleStatusesFor(eventType: string): ("scheduled" | "confirmed" | "completed" | "cancelled" | "no_show")[] | null {
+  if (eventType === "appointment.created") return ["scheduled", "confirmed"];
+  if (eventType === "appointment.no_show") return ["no_show"];
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
@@ -258,8 +289,7 @@ export async function POST(request: NextRequest) {
     typeof event.payload?.conversation_id === "string" ? (event.payload.conversation_id as string) : null;
 
   if (aiResult) {
-    const interactionType =
-      event.event_type === "customer.message.received" ? "customer_reply_response" : "lead_followup_response";
+    const interactionType = interactionTypeFor(event.event_type);
 
     // Upsert on workflow_execution_id (unique, nullable-safe) rather than a
     // plain insert: two genuinely concurrent callback deliveries for the
@@ -338,6 +368,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  const appointmentId =
+    event.entity_type === "appointment"
+      ? event.entity_id
+      : typeof event.payload?.appointment_id === "string"
+        ? (event.payload.appointment_id as string)
+        : null;
+  const appointmentEligibleStatuses = appointmentEligibleStatusesFor(event.event_type);
+
   // Trackpr is the final send authority: the AI/n8n may recommend sending,
   // but nothing reaches the customer without independently passing this
   // gate. Every condition it checks is re-derived from the database, not
@@ -353,6 +391,8 @@ export async function POST(request: NextRequest) {
       response_message: aiResult.response_message,
       needs_human: aiResult.needs_human,
     },
+    appointmentId: appointmentEligibleStatuses ? appointmentId : null,
+    appointmentEligibleStatuses: appointmentEligibleStatuses ?? undefined,
   });
 
   if (!gateResult.allowed) {

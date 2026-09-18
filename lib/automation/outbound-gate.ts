@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateContentSafety } from "./content-safety";
+import type { AppointmentStatus } from "@/lib/appointments/queries";
 
 const MAX_MESSAGE_LENGTH = 1600;
 
@@ -16,6 +17,17 @@ export type OutboundGateInput = {
   conversationId: string | null;
   leadId: string | null;
   aiResult: GateAiResult;
+  /**
+   * Phase 4.4: when this send is about a specific appointment (confirmation,
+   * reminder, no-show follow-up), the gate re-checks that appointment's
+   * current state directly from the database - never trusting that it's
+   * still eligible just because it was eligible when the automation event
+   * was created. Omit both fields entirely for non-appointment sends
+   * (customer replies, lead follow-ups) - no appointment check is performed.
+   */
+  appointmentId?: string | null;
+  /** Required whenever appointmentId is set: the statuses this specific message type is allowed to send under right now. */
+  appointmentEligibleStatuses?: AppointmentStatus[];
 };
 
 export type OutboundGateDenialReason =
@@ -39,7 +51,10 @@ export type OutboundGateDenialReason =
   | "execution_not_found"
   | "execution_wrong_organization"
   | "execution_not_eligible"
-  | "duplicate_outbound_send";
+  | "duplicate_outbound_send"
+  | "appointment_not_found"
+  | "appointment_wrong_organization"
+  | "appointment_status_ineligible";
 
 export type OutboundGateResult =
   | { allowed: true; contactId: string; conversationId: string; body: string }
@@ -142,6 +157,22 @@ export async function evaluateOutboundGate(
     .maybeSingle();
 
   if (existingOutbound) return deny("duplicate_outbound_send");
+
+  if (input.appointmentId) {
+    const { data: appointment } = await supabase
+      .from("appointments")
+      .select("id, organization_id, status")
+      .eq("id", input.appointmentId)
+      .maybeSingle();
+
+    if (!appointment) return deny("appointment_not_found");
+    if (appointment.organization_id !== input.organizationId) return deny("appointment_wrong_organization");
+
+    const eligible = input.appointmentEligibleStatuses ?? [];
+    if (!eligible.includes(appointment.status as AppointmentStatus)) {
+      return deny("appointment_status_ineligible", `appointment status is ${appointment.status}`);
+    }
+  }
 
   return { allowed: true, contactId: input.contactId, conversationId: input.conversationId, body };
 }

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { APPOINTMENT_STATUSES, type AppointmentStatus } from "@/lib/appointments/queries";
+import { emitAppointmentCreated, emitAppointmentNoShow, emitAppointmentLifecycleEvent } from "@/lib/automation/appointments";
 
 export type AppointmentFormState = {
   error?: string;
@@ -175,15 +176,21 @@ export async function createAppointment(
     return { error: relationshipError };
   }
 
-  const { error: insertError } = await supabase
+  const { data: created, error: insertError } = await supabase
     .from("appointments")
-    .insert({ ...input, organization_id: organizationId });
+    .insert({ ...input, organization_id: organizationId })
+    .select("id")
+    .single();
 
   if (insertError) {
     if (insertError.code === "23514") {
       return { error: "End time must be after the start time." };
     }
     return { error: "We couldn't create this appointment. Please try again." };
+  }
+
+  if (created) {
+    await emitAppointmentCreated(supabase, created.id);
   }
 
   revalidatePath("/appointments");
@@ -210,12 +217,24 @@ export async function updateAppointment(
     return { error: relationshipError };
   }
 
+  // Read before write: appointment lifecycle automation (Phase 4.4) is
+  // driven by comparing the prior state to the new one - this single,
+  // generic update is the only place status/time transitions happen, so
+  // detecting "what actually changed" here is the only way to know which
+  // automation event(s), if any, a given save represents.
+  const { data: previous } = await supabase
+    .from("appointments")
+    .select("status, start_at, end_at")
+    .eq("id", id)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
   const { data, error: updateError } = await supabase
     .from("appointments")
     .update(input)
     .eq("id", id)
     .eq("organization_id", organizationId)
-    .select("id")
+    .select("id, updated_at")
     .maybeSingle();
 
   if (updateError) {
@@ -229,10 +248,45 @@ export async function updateAppointment(
     return { error: "This appointment could not be found." };
   }
 
+  if (previous) {
+    await emitAppointmentTransitions(supabase, id, previous, { status: input.status, start_at: input.start_at, end_at: input.end_at, updated_at: data.updated_at });
+  }
+
   revalidatePath("/appointments");
   revalidatePath(`/appointments/${id}`);
   revalidatePath("/dashboard");
   return { success: true };
+}
+
+/**
+ * Emits the Phase 4.4 appointment lifecycle automation event(s), if any,
+ * implied by a single updateAppointment() save. At most one of
+ * cancelled/completed/no_show fires (status is a single enum value), plus
+ * independently a rescheduled event if start/end time changed and the
+ * appointment isn't simultaneously being cancelled (a cancelled appointment
+ * has nothing to reschedule a reminder for).
+ */
+async function emitAppointmentTransitions(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  appointmentId: string,
+  previous: { status: AppointmentStatus; start_at: string; end_at: string },
+  next: { status: AppointmentStatus; start_at: string; end_at: string; updated_at: string },
+): Promise<void> {
+  if (previous.status !== "cancelled" && next.status === "cancelled") {
+    await emitAppointmentLifecycleEvent(supabase, appointmentId, "appointment.cancelled");
+    return;
+  }
+
+  if (previous.status !== "completed" && next.status === "completed") {
+    await emitAppointmentLifecycleEvent(supabase, appointmentId, "appointment.completed");
+  } else if (previous.status !== "no_show" && next.status === "no_show") {
+    await emitAppointmentNoShow(supabase, appointmentId);
+  }
+
+  const timeChanged = previous.start_at !== next.start_at || previous.end_at !== next.end_at;
+  if (timeChanged) {
+    await emitAppointmentLifecycleEvent(supabase, appointmentId, "appointment.rescheduled", next.updated_at);
+  }
 }
 
 export async function deleteAppointment(
