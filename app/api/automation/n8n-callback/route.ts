@@ -196,6 +196,8 @@ function interactionTypeFor(eventType: string): string {
       return "post_job_followup_response";
     case "lead.lost_nurture":
       return "lead_lost_nurture_response";
+    case "lead.reactivation":
+      return "lead_reactivation_response";
     default:
       return "lead_followup_response";
   }
@@ -246,7 +248,23 @@ function jobEligibleStatusesFor(eventType: string): ("scheduled" | "in_progress"
  */
 function leadEligibleStatusesFor(eventType: string): ("new" | "contacted" | "qualified" | "appointment" | "estimate" | "won" | "lost")[] | null {
   if (eventType === "lead.lost_nurture") return ["lost"];
+  // Phase 4.9: lead.reactivation's touch 1/2 are only sendable while the
+  // lead is still in one of the exact statuses the reactivation candidate
+  // scan itself uses (new/contacted/qualified) - re-checked live here,
+  // never trusted from when the cron tick first found the lead eligible.
+  if (eventType === "lead.reactivation") return ["new", "contacted", "qualified"];
   return null;
+}
+
+/**
+ * Phase 4.9: whether this event type additionally requires the gate to
+ * re-verify, live, that the lead has no active appointment/estimate/job
+ * right now - the audit found leads.status is never auto-synced when one of
+ * those is created for a lead, so leadEligibleStatusesFor alone cannot
+ * detect it.
+ */
+function leadMustHaveNoActiveEngagementFor(eventType: string): boolean {
+  return eventType === "lead.reactivation";
 }
 
 export async function POST(request: NextRequest) {
@@ -437,6 +455,7 @@ export async function POST(request: NextRequest) {
   const jobEligibleStatuses = jobEligibleStatusesFor(event.event_type);
 
   const leadEligibleStatuses = leadEligibleStatusesFor(event.event_type);
+  const leadMustHaveNoActiveEngagement = leadMustHaveNoActiveEngagementFor(event.event_type);
 
   // Trackpr is the final send authority: the AI/n8n may recommend sending,
   // but nothing reaches the customer without independently passing this
@@ -460,6 +479,7 @@ export async function POST(request: NextRequest) {
     jobId: jobEligibleStatuses ? jobId : null,
     jobEligibleStatuses: jobEligibleStatuses ?? undefined,
     leadEligibleStatuses: leadEligibleStatuses ?? undefined,
+    leadMustHaveNoActiveEngagement: leadMustHaveNoActiveEngagement || undefined,
   });
 
   if (!gateResult.allowed) {

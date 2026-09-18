@@ -11,6 +11,10 @@
     {
       "path": "/api/automation/lead-nurture",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/automation/lead-reactivation",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

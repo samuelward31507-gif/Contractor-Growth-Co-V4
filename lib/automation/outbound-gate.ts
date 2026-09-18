@@ -7,6 +7,15 @@ import type { LeadStatus } from "@/lib/leads/queries";
 
 const MAX_MESSAGE_LENGTH = 1600;
 
+// Phase 4.9: the exact "active" status sets the lead-reactivation audit
+// specified, reusing the existing status enums unchanged - not a new
+// definition of "active" distinct from what the rest of the codebase means
+// by those words (appointment reminders/estimate follow-ups/job kickoff all
+// already use these same sets as their own eligible-statuses).
+const ACTIVE_APPOINTMENT_STATUSES: AppointmentStatus[] = ["scheduled", "confirmed"];
+const ACTIVE_ESTIMATE_STATUSES: EstimateStatus[] = ["sent", "accepted"];
+const ACTIVE_JOB_STATUSES: JobStatus[] = ["scheduled", "in_progress"];
+
 export type GateAiResult = {
   should_send: boolean;
   response_message: string | null;
@@ -64,6 +73,19 @@ export type OutboundGateInput = {
    * appointment/estimate/job sends that happen to carry a lead_id).
    */
   leadEligibleStatuses?: LeadStatus[];
+  /**
+   * Phase 4.9: for lead.reactivation sends - re-checks, live, that the lead
+   * still has no active appointment/estimate/job right before sending. The
+   * audit found that leads.status is never auto-synced when an appointment/
+   * estimate/job is created (no Server Action updates it), so a lead's
+   * status alone cannot be trusted to reflect this - this performs its own
+   * direct queries against appointments/estimates/jobs by lead_id, the same
+   * "never trust it's still eligible just because it was eligible when the
+   * cron tick fired" principle as every other *EligibleStatuses field above,
+   * applied to "does this lead have any active engagement at all" rather
+   * than "is this one specific entity still in an eligible status".
+   */
+  leadMustHaveNoActiveEngagement?: boolean;
 };
 
 export type OutboundGateDenialReason =
@@ -97,7 +119,8 @@ export type OutboundGateDenialReason =
   | "job_not_found"
   | "job_wrong_organization"
   | "job_status_ineligible"
-  | "lead_status_ineligible";
+  | "lead_status_ineligible"
+  | "lead_has_active_engagement";
 
 export type OutboundGateResult =
   | { allowed: true; contactId: string; conversationId: string; body: string }
@@ -186,6 +209,39 @@ export async function evaluateOutboundGate(
       if (!input.leadEligibleStatuses.includes(lead.status as LeadStatus)) {
         return deny("lead_status_ineligible", `lead status is ${lead.status}`);
       }
+    }
+
+    if (input.leadMustHaveNoActiveEngagement) {
+      const [{ data: activeAppointment }, { data: activeEstimate }, { data: activeJob }] = await Promise.all([
+        supabase
+          .from("appointments")
+          .select("id")
+          .eq("lead_id", input.leadId)
+          .eq("organization_id", input.organizationId)
+          .in("status", ACTIVE_APPOINTMENT_STATUSES)
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("estimates")
+          .select("id")
+          .eq("lead_id", input.leadId)
+          .eq("organization_id", input.organizationId)
+          .in("status", ACTIVE_ESTIMATE_STATUSES)
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("jobs")
+          .select("id")
+          .eq("lead_id", input.leadId)
+          .eq("organization_id", input.organizationId)
+          .in("status", ACTIVE_JOB_STATUSES)
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      if (activeAppointment) return deny("lead_has_active_engagement", "lead has an active appointment");
+      if (activeEstimate) return deny("lead_has_active_engagement", "lead has an active estimate");
+      if (activeJob) return deny("lead_has_active_engagement", "lead has an active job");
     }
   }
 
