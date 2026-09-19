@@ -79,3 +79,45 @@ export async function retryWorkflowExecution(
 
   return { ok: true, dispatched: true, executionId, newExecutionId: newExecution.id, automationId };
 }
+
+export type RetryAuditPlan =
+  | { kind: "unattributable" }
+  | { kind: "rejected"; automationId: string; reason: string }
+  | { kind: "requested_only"; automationId: string }
+  | { kind: "requested_and_succeeded"; automationId: string };
+
+/**
+ * Phase H: the pure audit decision behind retryExecution
+ * (app/(app)/automations/actions.ts) - extracted so it can be unit tested
+ * directly (that file is "use server", where every export must be an async
+ * function). Encodes the exact three-action semantics already established:
+ *
+ * - "unattributable": no automationId was ever resolved - nothing to
+ *   attribute an audit row to (create_automation_audit_event requires
+ *   automation_id NOT NULL). No audit call at all.
+ * - "rejected": the retry was rejected before a new execution was
+ *   successfully created (result.ok === false) - audit
+ *   automation_retry_rejected only, never automation_retry_requested for
+ *   the same rejection.
+ * - "requested_only": a new execution WAS created (result.ok === true) but
+ *   the handoff failed (dispatched === false) - audit
+ *   automation_retry_requested only; automation_retry_succeeded must never
+ *   be written for a failed handoff.
+ * - "requested_and_succeeded": the execution was created AND the handoff
+ *   was itself successfully initiated - audit both
+ *   automation_retry_requested and automation_retry_succeeded. This is
+ *   never interpreted as "the underlying automation eventually completed".
+ */
+export function planRetryAudit(result: RetryOutcome): RetryAuditPlan {
+  if (!result.ok) {
+    return result.automationId ? { kind: "rejected", automationId: result.automationId, reason: result.reason } : { kind: "unattributable" };
+  }
+
+  if (!result.automationId) {
+    return { kind: "unattributable" };
+  }
+
+  return result.dispatched
+    ? { kind: "requested_and_succeeded", automationId: result.automationId }
+    : { kind: "requested_only", automationId: result.automationId };
+}

@@ -6,10 +6,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { assertOrgAdmin } from "@/lib/automation/authorization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
-import { getAutomationEnabled } from "@/lib/automation/settings";
+import { getAutomationEnabled, shouldAuditEnableToggle } from "@/lib/automation/settings";
 import { processAppointmentReminders, previewAppointmentReminders, type ReminderPreview } from "@/lib/automation/appointment-reminders";
 import { processEstimateFollowups, previewEstimateFollowups, type FollowupPreview } from "@/lib/automation/estimate-followups";
-import { retryWorkflowExecution } from "@/lib/automation/retry";
+import { retryWorkflowExecution, planRetryAudit } from "@/lib/automation/retry";
 import type { RetryRejectionReason } from "@/lib/automation/retry-eligibility";
 import { getExecutionDetail, type ExecutionDetail } from "@/lib/automation/execution-detail";
 
@@ -121,8 +121,11 @@ export async function setAutomationEnabled(automationId: string, enabled: boolea
 
   revalidatePath("/automations");
 
-  if (previousEnabled === enabled) {
-    // Not a real transition - nothing to audit.
+  // shouldAuditEnableToggle (lib/automation/settings.ts) is the single,
+  // unit-tested source of truth for "was this a real transition" - returns
+  // null for a no-op toggle, which is never audited.
+  const auditPlan = shouldAuditEnableToggle(previousEnabled, enabled);
+  if (!auditPlan) {
     return { success: true };
   }
 
@@ -138,16 +141,16 @@ export async function setAutomationEnabled(automationId: string, enabled: boolea
   // record specifically could not be saved.
   const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
     p_organization_id: membership.organizationId,
-    p_action: enabled ? "automation_enabled" : "automation_disabled",
+    p_action: auditPlan.action,
     p_automation_id: automationId,
-    p_metadata: { previous_enabled: previousEnabled, new_enabled: enabled },
+    p_metadata: auditPlan.metadata,
   });
 
   if (auditError) {
     console.error("[automation] failed to record audit log entry", {
       organizationId: membership.organizationId,
       automationId,
-      action: enabled ? "automation_enabled" : "automation_disabled",
+      action: auditPlan.action,
       error: auditError.message,
     });
     return { success: true, auditWarning: "The automation was updated, but the audit record could not be saved." };
@@ -364,27 +367,29 @@ export async function retryExecution(executionId: string): Promise<RetryActionSt
   const { supabase, organizationId } = session;
 
   const result = await retryWorkflowExecution(supabase, organizationId, executionId);
+  // planRetryAudit (lib/automation/retry.ts) is the single, unit-tested
+  // source of truth for which audit action(s) this outcome warrants - see
+  // its own comment for the exact four-way semantics.
+  const plan = planRetryAudit(result);
 
   if (!result.ok) {
-    if (!result.automationId) {
-      return { error: retryRejectionMessage(result.reason) };
-    }
-
-    const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
-      p_organization_id: organizationId,
-      p_action: "automation_retry_rejected",
-      p_automation_id: result.automationId,
-      p_metadata: { reason: result.reason },
-      p_entity_id: executionId,
-    });
-
-    if (auditError) {
-      console.error("[automation] failed to record audit log entry", {
-        organizationId,
-        automationId: result.automationId,
-        action: "automation_retry_rejected",
-        error: auditError.message,
+    if (plan.kind === "rejected") {
+      const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+        p_organization_id: organizationId,
+        p_action: "automation_retry_rejected",
+        p_automation_id: plan.automationId,
+        p_metadata: { reason: plan.reason },
+        p_entity_id: executionId,
       });
+
+      if (auditError) {
+        console.error("[automation] failed to record audit log entry", {
+          organizationId,
+          automationId: plan.automationId,
+          action: "automation_retry_rejected",
+          error: auditError.message,
+        });
+      }
     }
 
     return { error: retryRejectionMessage(result.reason) };
@@ -392,14 +397,7 @@ export async function retryExecution(executionId: string): Promise<RetryActionSt
 
   revalidatePath(`/automations`);
 
-  // create_automation_audit_event requires automation_id NOT NULL - an
-  // execution whose event_type resolves to no catalog automation at all
-  // cannot happen here in practice (checkRetryEligibility's
-  // SAFE_RETRY_AUTOMATION_IDS gate already requires a resolved,
-  // known-safe automationId before result.ok can ever be true), but the
-  // type is still nullable, so this is handled defensively rather than
-  // asserted away.
-  if (!result.automationId) {
+  if (plan.kind === "unattributable") {
     return { success: true, newExecutionId: result.newExecutionId, auditWarning: "The retry ran, but could not be attributed to a known automation for auditing." };
   }
 
@@ -410,7 +408,7 @@ export async function retryExecution(executionId: string): Promise<RetryActionSt
   const requestAudit = await supabase.rpc("create_automation_audit_event", {
     p_organization_id: organizationId,
     p_action: "automation_retry_requested",
-    p_automation_id: result.automationId,
+    p_automation_id: plan.automationId,
     p_metadata: {},
     p_entity_id: executionId,
   });
@@ -418,20 +416,20 @@ export async function retryExecution(executionId: string): Promise<RetryActionSt
   if (requestAudit.error) {
     console.error("[automation] failed to record audit log entry", {
       organizationId,
-      automationId: result.automationId,
+      automationId: plan.automationId,
       action: "automation_retry_requested",
       error: requestAudit.error.message,
     });
   }
 
-  if (!result.dispatched) {
+  if (plan.kind === "requested_only") {
     // Execution created, but the handoff itself failed (already recorded
     // as a failed execution by the redispatch function) - NOT
     // "succeeded": the admin's retry did not achieve what they asked for.
     // No "rejected" audit either - rejection is specifically defined as
     // "before a new execution was created", which already happened here.
     return {
-      error: `The retry was created but could not be dispatched: ${result.dispatchError}`,
+      error: `The retry was created but could not be dispatched: ${!result.dispatched ? result.dispatchError : "Unknown dispatch error."}`,
       newExecutionId: result.newExecutionId,
       auditWarning: requestAudit.error ? "The audit record could not be saved." : undefined,
     };
@@ -440,7 +438,7 @@ export async function retryExecution(executionId: string): Promise<RetryActionSt
   const successAudit = await supabase.rpc("create_automation_audit_event", {
     p_organization_id: organizationId,
     p_action: "automation_retry_succeeded",
-    p_automation_id: result.automationId,
+    p_automation_id: plan.automationId,
     p_metadata: { new_execution_id: result.newExecutionId },
     p_entity_id: executionId,
   });
@@ -448,7 +446,7 @@ export async function retryExecution(executionId: string): Promise<RetryActionSt
   if (successAudit.error) {
     console.error("[automation] failed to record audit log entry", {
       organizationId,
-      automationId: result.automationId,
+      automationId: plan.automationId,
       action: "automation_retry_succeeded",
       error: successAudit.error.message,
     });

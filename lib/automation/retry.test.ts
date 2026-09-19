@@ -20,7 +20,7 @@ import { createRequire } from "node:module";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const require = createRequire(import.meta.url);
-const { retryWorkflowExecution }: typeof import("./retry") = require("./retry.ts");
+const { retryWorkflowExecution, planRetryAudit }: typeof import("./retry") = require("./retry.ts");
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const EXECUTION_ID = "22222222-2222-2222-2222-222222222222";
@@ -184,4 +184,52 @@ test("redispatch to an unconfigured n8n orchestrator never attempts a real netwo
   // see the Phase E review report's audit-semantics fix.
   assert.equal(result.ok && result.dispatched, false);
   assert.ok(result.ok && !result.dispatched && result.dispatchError, "a dispatch error message must be present");
+});
+
+// Phase H: planRetryAudit is the pure decision behind retryExecution's
+// audit calls (app/(app)/automations/actions.ts) - extracted specifically
+// so this branching can be unit tested directly, since that file is
+// "use server" and cannot export a plain synchronous function.
+
+test("Phase H: an eligibility rejection with a resolved automationId plans 'rejected' only", () => {
+  const plan = planRetryAudit({ ok: false, reason: "automation_disabled", executionId: EXECUTION_ID, automationId: "instant-lead-followup" });
+
+  assert.deepEqual(plan, { kind: "rejected", automationId: "instant-lead-followup", reason: "automation_disabled" });
+});
+
+test("Phase H: an eligibility rejection with no resolvable automationId plans 'unattributable' (no audit call at all)", () => {
+  const plan = planRetryAudit({ ok: false, reason: "execution_not_found", executionId: EXECUTION_ID, automationId: null });
+
+  assert.deepEqual(plan, { kind: "unattributable" });
+});
+
+test("Phase H: a successful execution creation with a failed handoff plans 'requested_only' - never 'succeeded'", () => {
+  const plan = planRetryAudit({
+    ok: true,
+    dispatched: false,
+    executionId: EXECUTION_ID,
+    newExecutionId: NEW_EXECUTION_ID,
+    automationId: "instant-lead-followup",
+    dispatchError: "The automation orchestrator rejected the request.",
+  });
+
+  assert.deepEqual(plan, { kind: "requested_only", automationId: "instant-lead-followup" });
+});
+
+test("Phase H: a successful execution creation with a successful handoff plans 'requested_and_succeeded'", () => {
+  const plan = planRetryAudit({
+    ok: true,
+    dispatched: true,
+    executionId: EXECUTION_ID,
+    newExecutionId: NEW_EXECUTION_ID,
+    automationId: "appointment-reminders",
+  });
+
+  assert.deepEqual(plan, { kind: "requested_and_succeeded", automationId: "appointment-reminders" });
+});
+
+test("Phase H: a successful execution creation with no resolvable automationId plans 'unattributable'", () => {
+  const plan = planRetryAudit({ ok: true, dispatched: true, executionId: EXECUTION_ID, newExecutionId: NEW_EXECUTION_ID, automationId: null });
+
+  assert.deepEqual(plan, { kind: "unattributable" });
 });

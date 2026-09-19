@@ -50,3 +50,25 @@ export async function getAutomationEnabledMap(supabase: SupabaseClient, organiza
 
   return map;
 }
+
+export type EnableToggleAudit = {
+  action: "automation_enabled" | "automation_disabled";
+  metadata: { previous_enabled: boolean; new_enabled: boolean };
+};
+
+/**
+ * Phase H: the pure decision behind setAutomationEnabled's audit call,
+ * extracted so it can be unit tested directly (app/(app)/automations/
+ * actions.ts is a "use server" file - every export must be an async
+ * function, so a plain synchronous helper has to live here instead).
+ * Returns null for a no-op toggle (e.g. clicking "enable" on an automation
+ * that's already enabled) - no automation_enabled/automation_disabled row
+ * should ever be written for a state that didn't actually change.
+ */
+export function shouldAuditEnableToggle(previousEnabled: boolean, newEnabled: boolean): EnableToggleAudit | null {
+  if (previousEnabled === newEnabled) return null;
+  return {
+    action: newEnabled ? "automation_enabled" : "automation_disabled",
+    metadata: { previous_enabled: previousEnabled, new_enabled: newEnabled },
+  };
+}

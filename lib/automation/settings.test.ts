@@ -14,7 +14,7 @@ import { createRequire } from "node:module";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const require = createRequire(import.meta.url);
-const { getAutomationEnabled }: typeof import("./settings") = require("./settings.ts");
+const { getAutomationEnabled, shouldAuditEnableToggle }: typeof import("./settings") = require("./settings.ts");
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 
@@ -91,4 +91,30 @@ test("L: disabling one automation does not affect another automation in the same
     ["instant-lead-followup", "job-lifecycle", "estimate-followup"],
     "each automation must be looked up by its own automation_id, independently",
   );
+});
+
+test("Phase H: enabling a previously-disabled automation produces an automation_enabled audit plan", () => {
+  const plan = shouldAuditEnableToggle(false, true);
+
+  assert.ok(plan);
+  assert.equal(plan!.action, "automation_enabled");
+  assert.deepEqual(plan!.metadata, { previous_enabled: false, new_enabled: true });
+});
+
+test("Phase H: disabling a previously-enabled automation produces an automation_disabled audit plan", () => {
+  const plan = shouldAuditEnableToggle(true, false);
+
+  assert.ok(plan);
+  assert.equal(plan!.action, "automation_disabled");
+  assert.deepEqual(plan!.metadata, { previous_enabled: true, new_enabled: false });
+});
+
+test("Phase H: a no-op toggle (already enabled -> enabled, or already disabled -> disabled) produces no audit plan", () => {
+  assert.equal(shouldAuditEnableToggle(true, true), null);
+  assert.equal(shouldAuditEnableToggle(false, false), null);
+});
+
+test("Phase H: enable-toggle audit metadata never contains anything beyond the two boolean fields", () => {
+  const plan = shouldAuditEnableToggle(false, true)!;
+  assert.deepEqual(Object.keys(plan.metadata).sort(), ["new_enabled", "previous_enabled"]);
 });
