@@ -9,7 +9,13 @@ import {
   type WorkflowExecutionTriggerSource,
 } from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
-import { getAutomationEnabled } from "./settings";
+import {
+  getAutomationEnabled,
+  getAutomationConfig,
+  getAutomationConfigByOrganization,
+  readEstimateFollowupConfig,
+  type EstimateFollowupConfig,
+} from "./settings";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
@@ -18,8 +24,6 @@ import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 export const ESTIMATE_FOLLOWUP_WORKFLOW = "estimate_followup";
 export const ESTIMATE_EXPIRED_WORKFLOW = "estimate_expired_lifecycle";
 
-const FOLLOWUP_1_HOURS = 24;
-const FOLLOWUP_2_HOURS = 72;
 const ACTIVE_STATUSES: EstimateStatus[] = ["sent"];
 
 type CandidateEstimate = {
@@ -46,6 +50,22 @@ export type FollowupRunResult = {
   candidates: number;
   outcomes: FollowupOutcome[];
 };
+
+/**
+ * The pure decision behind which follow-up (if any) is due, given how many
+ * hours have elapsed since an estimate was sent - extracted so "an
+ * organization's own configured follow-up timing is what decides
+ * occurrence" can be unit tested directly, without a mocked Supabase
+ * client. Shared by processOneEstimate and previewEstimateFollowups below.
+ * At most one occurrence per call: if both thresholds have already been
+ * crossed, the more current one (2) is preferred - see this module's own
+ * top-level comment for why.
+ */
+export function computeFollowupOccurrence(hoursSinceSent: number, config: EstimateFollowupConfig): 1 | 2 | null {
+  if (hoursSinceSent >= config.followup_2_hours) return 2;
+  if (hoursSinceSent >= config.followup_1_hours) return 1;
+  return null;
+}
 
 function composeFollowupBody(estimate: CandidateEstimate, occurrence: 1 | 2): string {
   if (occurrence === 1) {
@@ -78,6 +98,8 @@ export async function processEstimateFollowups(
   /** Phase D: "manual" when triggered by an org admin's "Run now" action; every real cron tick omits this and keeps the column's own 'event' default. */
   triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<FollowupRunResult> {
+  const configByOrg = await getAutomationConfigByOrganization(supabase, "estimate-followup");
+
   const { data: rawCandidates } = await supabase
     .from("estimates")
     .select("id, organization_id, contact_id, lead_id, title, status, sent_at, expires_at")
@@ -89,7 +111,8 @@ export async function processEstimateFollowups(
   const outcomes: FollowupOutcome[] = [];
 
   for (const estimate of candidates) {
-    outcomes.push(await processOneEstimate(supabase, estimate, now, sendSmsFn, triggerSource));
+    const config = readEstimateFollowupConfig(configByOrg.get(estimate.organization_id) ?? null);
+    outcomes.push(await processOneEstimate(supabase, estimate, now, config, sendSmsFn, triggerSource));
   }
 
   return { candidates: candidates.length, outcomes };
@@ -99,6 +122,7 @@ async function processOneEstimate(
   supabase: SupabaseClient,
   estimate: CandidateEstimate,
   now: Date,
+  config: EstimateFollowupConfig,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
   triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<FollowupOutcome> {
@@ -115,13 +139,7 @@ async function processOneEstimate(
   }
 
   const hoursSinceSent = (now.getTime() - new Date(estimate.sent_at).getTime()) / (60 * 60 * 1000);
-
-  let occurrence: 1 | 2 | null = null;
-  if (hoursSinceSent >= FOLLOWUP_2_HOURS) {
-    occurrence = 2;
-  } else if (hoursSinceSent >= FOLLOWUP_1_HOURS) {
-    occurrence = 1;
-  }
+  const occurrence = computeFollowupOccurrence(hoursSinceSent, config);
 
   if (!occurrence) {
     return { estimateId: estimate.id, outcome: "not_due" };
@@ -312,6 +330,9 @@ export async function previewEstimateFollowups(
   organizationId: string,
   now: Date = new Date(),
 ): Promise<FollowupPreview> {
+  const rawConfig = await getAutomationConfig(supabase, organizationId, "estimate-followup");
+  const config = readEstimateFollowupConfig(rawConfig);
+
   const { data: rawCandidates } = await supabase
     .from("estimates")
     .select("id, organization_id, contact_id, lead_id, title, status, sent_at, expires_at")
@@ -328,13 +349,7 @@ export async function previewEstimateFollowups(
     }
 
     const hoursSinceSent = (now.getTime() - new Date(estimate.sent_at).getTime()) / (60 * 60 * 1000);
-
-    let occurrence: 1 | 2 | null = null;
-    if (hoursSinceSent >= FOLLOWUP_2_HOURS) {
-      occurrence = 2;
-    } else if (hoursSinceSent >= FOLLOWUP_1_HOURS) {
-      occurrence = 1;
-    }
+    const occurrence = computeFollowupOccurrence(hoursSinceSent, config);
 
     if (!occurrence) continue;
 

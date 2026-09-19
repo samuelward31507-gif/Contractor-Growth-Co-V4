@@ -5,13 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
 import { getWorkflowNameStats, getRecentExecutionsForWorkflows, buildAutomationSummaries } from "@/lib/automation/queries";
-import { getAutomationEnabledMap } from "@/lib/automation/settings";
+import { getAutomationEnabledMap, getAutomationConfig, readAppointmentReminderConfig, readEstimateFollowupConfig } from "@/lib/automation/settings";
 import { pageTitleClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { AutomationStatusPill } from "../_components/status-pill";
 import { HowItWorks } from "../_components/how-it-works";
 import { RecentExecutions } from "../_components/recent-executions";
 import { ManualRunControls } from "../_components/manual-run-controls";
 import { EnableToggle } from "../_components/enable-toggle";
+import { AppointmentReminderConfigForm } from "../_components/appointment-reminder-config";
+import { EstimateFollowupConfigForm } from "../_components/estimate-followup-config";
 import { formatCount } from "../_components/format";
 import { SAFE_RETRY_AUTOMATION_IDS } from "@/lib/automation/retry-eligibility";
 
@@ -58,10 +60,15 @@ export default async function AutomationDetailPage({ params }: { params: Promise
   // setAutomationEnabled re-verifies assertOrgAdmin() itself regardless.
   const canManage = membership.role === "owner" || membership.role === "admin";
 
-  const [statsByName, executions, enabledByAutomationId] = await Promise.all([
+  // Automation Configuration V1: only these two catalog automations have
+  // any configurable value in this phase - see lib/automation/settings.ts.
+  const isConfigurable = definition.id === "appointment-reminders" || definition.id === "estimate-followup";
+
+  const [statsByName, executions, enabledByAutomationId, rawConfig] = await Promise.all([
     getWorkflowNameStats(supabase, membership.organizationId),
     getRecentExecutionsForWorkflows(supabase, membership.organizationId, definition.workflowNames),
     getAutomationEnabledMap(supabase, membership.organizationId),
+    isConfigurable ? getAutomationConfig(supabase, membership.organizationId, definition.id) : Promise.resolve(null),
   ]);
 
   const summary = buildAutomationSummaries(statsByName, enabledByAutomationId).find((s) => s.definition.id === definition.id)!;
@@ -124,6 +131,22 @@ export default async function AutomationDetailPage({ params }: { params: Promise
           </div>
         </div>
       </div>
+
+      {isConfigurable && canManage ? (
+        <div>
+          <p className={sectionLabelClass}>Configuration</p>
+          <div className="mt-3">
+            {definition.id === "appointment-reminders" ? (
+              <AppointmentReminderConfigForm initialLeadTimeHours={readAppointmentReminderConfig(rawConfig).reminder_lead_time_hours} />
+            ) : (
+              <EstimateFollowupConfigForm
+                initialFollowup1Hours={readEstimateFollowupConfig(rawConfig).followup_1_hours}
+                initialFollowup2Hours={readEstimateFollowupConfig(rawConfig).followup_2_hours}
+              />
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <p className={sectionLabelClass}>Recent executions</p>

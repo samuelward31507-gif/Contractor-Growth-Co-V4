@@ -6,7 +6,15 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { assertOrgAdmin } from "@/lib/automation/authorization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
-import { getAutomationEnabled, shouldAuditEnableToggle } from "@/lib/automation/settings";
+import {
+  getAutomationEnabled,
+  shouldAuditEnableToggle,
+  readAppointmentReminderConfig,
+  validateAppointmentReminderConfig,
+  readEstimateFollowupConfig,
+  validateEstimateFollowupConfig,
+  shouldAuditConfigUpdate,
+} from "@/lib/automation/settings";
 import { processAppointmentReminders, previewAppointmentReminders, type ReminderPreview } from "@/lib/automation/appointment-reminders";
 import { processEstimateFollowups, previewEstimateFollowups, type FollowupPreview } from "@/lib/automation/estimate-followups";
 import { retryWorkflowExecution, planRetryAudit } from "@/lib/automation/retry";
@@ -26,7 +34,7 @@ import { getExecutionDetail, type ExecutionDetail } from "@/lib/automation/execu
  * mapping from an arbitrary client-supplied automationId to a workflow/event
  * name anywhere below; the two branches are a hardcoded if/else.
  */
-const MANUAL_RUN_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followups"]);
+const MANUAL_RUN_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followup"]);
 
 export type AutomationActionState = {
   error?: string;
@@ -503,4 +511,137 @@ export async function getExecutionDetailAction(executionId: string): Promise<Exe
   }
 
   return { ok: true, detail };
+}
+
+export type ConfigActionState = AutomationActionState & { config?: Record<string, unknown> };
+
+/**
+ * Automation Configuration V1: updates appointment-reminders' configured
+ * reminder lead time. Owner/admin only (requireOrgAdminSession, same as
+ * every other mutation in this file). Only ever touches the `config`
+ * column - `enabled` is read/written exclusively by setAutomationEnabled
+ * above, and this upsert never includes it, so a config save can never
+ * accidentally flip an automation's enabled state (or vice versa).
+ * Audited only when the value actually changes - shouldAuditConfigUpdate
+ * (lib/automation/settings.ts) is the single, unit-tested source of truth
+ * for that decision, mirroring shouldAuditEnableToggle's own pattern above.
+ */
+export async function updateAppointmentReminderConfig(reminderLeadTimeHours: number): Promise<ConfigActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  const validation = validateAppointmentReminderConfig({ reminder_lead_time_hours: reminderLeadTimeHours });
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("automation_id", "appointment-reminders")
+    .maybeSingle();
+
+  const previousConfig = readAppointmentReminderConfig(existingRow?.config ?? null);
+
+  const { error: upsertError } = await supabase.from("automation_settings").upsert(
+    { organization_id: organizationId, automation_id: "appointment-reminders", config: validation.value },
+    { onConflict: "organization_id,automation_id" },
+  );
+
+  if (upsertError) {
+    return { error: "We couldn't update this automation's configuration. Please try again." };
+  }
+
+  revalidatePath("/automations/appointment-reminders");
+
+  const auditPlan = shouldAuditConfigUpdate(previousConfig, validation.value);
+  if (!auditPlan) {
+    return { success: true, config: validation.value };
+  }
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: auditPlan.action,
+    p_automation_id: "appointment-reminders",
+    p_metadata: auditPlan.metadata,
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId: "appointment-reminders",
+      action: auditPlan.action,
+      error: auditError.message,
+    });
+    return { success: true, config: validation.value, auditWarning: "The configuration was updated, but the audit record could not be saved." };
+  }
+
+  return { success: true, config: validation.value };
+}
+
+/**
+ * Automation Configuration V1: updates estimate-followup's configured
+ * follow-up timings. Same pattern as updateAppointmentReminderConfig above -
+ * see that function's comment for the shared rationale (admin-only,
+ * config-column-only, audit-on-change-only).
+ */
+export async function updateEstimateFollowupConfig(followup1Hours: number, followup2Hours: number): Promise<ConfigActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  const validation = validateEstimateFollowupConfig({ followup_1_hours: followup1Hours, followup_2_hours: followup2Hours });
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("automation_id", "estimate-followup")
+    .maybeSingle();
+
+  const previousConfig = readEstimateFollowupConfig(existingRow?.config ?? null);
+
+  const { error: upsertError } = await supabase.from("automation_settings").upsert(
+    { organization_id: organizationId, automation_id: "estimate-followup", config: validation.value },
+    { onConflict: "organization_id,automation_id" },
+  );
+
+  if (upsertError) {
+    return { error: "We couldn't update this automation's configuration. Please try again." };
+  }
+
+  revalidatePath("/automations/estimate-followup");
+
+  const auditPlan = shouldAuditConfigUpdate(previousConfig, validation.value);
+  if (!auditPlan) {
+    return { success: true, config: validation.value };
+  }
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: auditPlan.action,
+    p_automation_id: "estimate-followup",
+    p_metadata: auditPlan.metadata,
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId: "estimate-followup",
+      action: auditPlan.action,
+      error: auditError.message,
+    });
+    return { success: true, config: validation.value, auditWarning: "The configuration was updated, but the audit record could not be saved." };
+  }
+
+  return { success: true, config: validation.value };
 }

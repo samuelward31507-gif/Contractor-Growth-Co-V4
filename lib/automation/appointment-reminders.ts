@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
-import { getAutomationEnabled } from "./settings";
+import {
+  getAutomationEnabled,
+  getAutomationConfig,
+  getAutomationConfigByOrganization,
+  readAppointmentReminderConfig,
+  REMINDER_LEAD_TIME_MAX_HOURS,
+  type AppointmentReminderConfig,
+} from "./settings";
 import {
   startWorkflowExecutionAsService,
   completeWorkflowExecutionAsService,
@@ -18,7 +25,6 @@ import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 
 export const APPOINTMENT_REMINDER_WORKFLOW = "appointment_reminder";
-export const REMINDER_LEAD_TIME_MS = 24 * 60 * 60 * 1000; // 24 hours - the Phase 4.4 default interval
 
 const ELIGIBLE_STATUSES: AppointmentStatus[] = ["scheduled", "confirmed"];
 
@@ -61,27 +67,67 @@ function composeReminderBody(appointment: CandidateAppointment, timezone: string
 }
 
 /**
- * Finds appointments due for their 24-hour-before reminder right now, and
- * for each one: creates the appointment.reminder automation event/execution
- * (idempotent per appointment+start_at - see idempotencyKey below), sends
- * the reminder through the exact same safe outbound gate + sendOutboundMessage
- * path every other automated message uses, and completes/fails the
- * execution accordingly. Designed to be called repeatedly on a schedule
- * (see app/api/automation/appointment-reminders/route.ts) - every step is
- * idempotent, so calling this twice in the same window is always safe.
+ * Finds appointments due for their configured-lead-time-before reminder
+ * right now, and for each one: creates the appointment.reminder automation
+ * event/execution (idempotent per appointment+start_at - see idempotencyKey
+ * below), sends the reminder through the exact same safe outbound gate +
+ * sendOutboundMessage path every other automated message uses, and
+ * completes/fails the execution accordingly. Designed to be called
+ * repeatedly on a schedule (see app/api/automation/appointment-reminders/
+ * route.ts) - every step is idempotent, so calling this twice in the same
+ * window is always safe.
+ *
+ * Automation Configuration V1: reminder_lead_time_hours is per-organization
+ * (automation_settings.config), defaulting to 24 for any organization that
+ * hasn't configured it - identical to the hardcoded behavior before this
+ * setting existed. Since this single query spans every organization at
+ * once (the real cron path), the SQL pre-filter widens to the maximum
+ * possible configured value (REMINDER_LEAD_TIME_MAX_HOURS) so it can never
+ * exclude a row some organization's own configured window would still
+ * consider due; the exact per-organization window is then re-applied as an
+ * in-memory filter below, using getAutomationConfigByOrganization's map -
+ * the same "narrow a wider SQL fetch with an in-memory check" pattern this
+ * function already used for the updated_at/dueAt guard. This means a
+ * cron-wide scan may now fetch more candidate rows than before (up to the
+ * existing 500-row cap) when any organization configures a long lead time -
+ * an accepted, documented tradeoff for V1, not a correctness issue.
  *
  * Eligibility, computed entirely from existing columns (no new schema):
  * - status is 'scheduled' or 'confirmed' (never cancelled/completed/no_show)
- * - start_at is between now and now+24h (the reminder is "due")
- * - updated_at is at or before start_at-24h - i.e. this appointment's
- *   current start_at has been in place for at least 24 hours already. This
- *   is the guard against inventing a "historical" reminder: an appointment
- *   created or rescheduled with less than 24 hours' notice never gets a
- *   reminder fired immediately just because the 24-hour mark has already
- *   technically passed - see the Phase 4.4 report for the documented
- *   limitation (updated_at is a proxy for "when this start_at was set",
- *   not a dedicated column, since the schema has none).
+ * - start_at is between now and now+leadTime (the reminder is "due")
+ * - updated_at is at or before start_at-leadTime - i.e. this appointment's
+ *   current start_at has been in place for at least the configured lead
+ *   time already. This is the guard against inventing a "historical"
+ *   reminder: an appointment created or rescheduled with less notice than
+ *   the configured lead time never gets a reminder fired immediately just
+ *   because the threshold has already technically passed - see the Phase
+ *   4.4 report for the documented limitation (updated_at is a proxy for
+ *   "when this start_at was set", not a dedicated column, since the schema
+ *   has none).
  */
+/**
+ * The pure eligibility check behind both processAppointmentReminders and
+ * previewAppointmentReminders below - extracted so "an appointment's own
+ * configured lead time is what decides whether it's due" can be unit tested
+ * directly, without standing up a mocked Supabase client. Takes an
+ * already-resolved AppointmentReminderConfig (never a raw/unknown value) -
+ * callers are responsible for resolving each appointment's own organization's
+ * config via readAppointmentReminderConfig first.
+ */
+export function isReminderDue(
+  appointment: Pick<CandidateAppointment, "start_at" | "updated_at">,
+  config: AppointmentReminderConfig,
+  now: Date,
+): boolean {
+  const leadTimeMs = config.reminder_lead_time_hours * 60 * 60 * 1000;
+  const startAtMs = new Date(appointment.start_at).getTime();
+  const nowMs = now.getTime();
+  const withinWindow = startAtMs > nowMs && startAtMs <= nowMs + leadTimeMs;
+  const dueAt = startAtMs - leadTimeMs;
+  const isStable = new Date(appointment.updated_at).getTime() <= dueAt;
+  return withinWindow && isStable;
+}
+
 export async function processAppointmentReminders(
   supabase: SupabaseClient,
   now: Date = new Date(),
@@ -90,7 +136,10 @@ export async function processAppointmentReminders(
   /** Phase D: "manual" when triggered by an org admin's "Run now" action; every real cron tick omits this and keeps the column's own 'event' default. */
   triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<ReminderRunResult> {
-  const windowEnd = new Date(now.getTime() + REMINDER_LEAD_TIME_MS);
+  const configByOrg = await getAutomationConfigByOrganization(supabase, "appointment-reminders");
+
+  const maxWindowMs = REMINDER_LEAD_TIME_MAX_HOURS * 60 * 60 * 1000;
+  const windowEnd = new Date(now.getTime() + maxWindowMs);
 
   const { data: rawCandidates } = await supabase
     .from("appointments")
@@ -101,8 +150,8 @@ export async function processAppointmentReminders(
     .limit(500);
 
   const candidates = ((rawCandidates ?? []) as CandidateAppointment[]).filter((appointment) => {
-    const dueAt = new Date(appointment.start_at).getTime() - REMINDER_LEAD_TIME_MS;
-    return new Date(appointment.updated_at).getTime() <= dueAt;
+    const config = readAppointmentReminderConfig(configByOrg.get(appointment.organization_id) ?? null);
+    return isReminderDue(appointment, config, now);
   });
 
   const outcomes: ReminderOutcome[] = [];
@@ -252,7 +301,11 @@ export async function previewAppointmentReminders(
   organizationId: string,
   now: Date = new Date(),
 ): Promise<ReminderPreview> {
-  const windowEnd = new Date(now.getTime() + REMINDER_LEAD_TIME_MS);
+  const rawConfig = await getAutomationConfig(supabase, organizationId, "appointment-reminders");
+  const config = readAppointmentReminderConfig(rawConfig);
+  const leadTimeMs = config.reminder_lead_time_hours * 60 * 60 * 1000;
+
+  const windowEnd = new Date(now.getTime() + leadTimeMs);
 
   const { data: rawCandidates } = await supabase
     .from("appointments")
@@ -263,10 +316,7 @@ export async function previewAppointmentReminders(
     .lte("start_at", windowEnd.toISOString())
     .limit(500);
 
-  const candidates = ((rawCandidates ?? []) as CandidateAppointment[]).filter((appointment) => {
-    const dueAt = new Date(appointment.start_at).getTime() - REMINDER_LEAD_TIME_MS;
-    return new Date(appointment.updated_at).getTime() <= dueAt;
-  });
+  const candidates = ((rawCandidates ?? []) as CandidateAppointment[]).filter((appointment) => isReminderDue(appointment, config, now));
 
   const appointment = candidates[0];
   if (!appointment) {
