@@ -29,6 +29,12 @@ const {
   validateLostLeadNurtureConfig,
   readLeadReactivationConfig,
   validateLeadReactivationConfig,
+  readAppointmentLifecycleConfig,
+  validateAppointmentLifecycleConfig,
+  readJobLifecycleConfig,
+  validateJobLifecycleConfig,
+  readReviewReferralFollowupConfig,
+  validateReviewReferralFollowupConfig,
   shouldAuditConfigUpdate,
   getAutomationConfig,
   getAutomationConfigByOrganization,
@@ -680,3 +686,254 @@ test("V4: organization isolation - getAutomationConfigByOrganization keys strict
 // next/headers, which requires a real request context), so re-asserting the
 // identical, unmodified authorization chain here would not exercise any
 // code this phase actually changed.
+
+// ============================================================================
+// Automation Configuration V5 - respect_business_hours extended to
+// appointment-lifecycle, job-lifecycle, and review-referral-followup.
+//
+// Config typing/read/validate for all three below is byte-for-byte the same
+// pattern as InstantLeadFollowupConfig (already covered above) - each is
+// its own independently-named type/default/key-set, not a shared or reused
+// one, matching this file's established per-automation convention.
+//
+// Note on gate-level behavior (inside/outside/no-configured-hours business
+// hours, and organization timezone handling): the enforcement mechanism
+// itself - isWithinBusinessHours() in lib/automation/outbound-gate.ts - is
+// 100% reused, unmodified, and automation-agnostic (it takes a Date,
+// timezone, and hours array directly; it has no awareness of which
+// automation_id set respectBusinessHours). That behavior is already
+// directly unit-tested in lib/automation/outbound-gate.test.ts (10 tests:
+// no-hours-configured-always-allows, inside/outside hours, an explicitly
+// closed day, a day with no saved row, timezone handling, open/close
+// boundaries, and time-string parsing). lib/automation/outbound-gate.ts
+// itself has zero diff in this phase - re-testing the identical boolean
+// logic three more times per automation would not exercise any code this
+// phase changed, so it is not duplicated here. What IS new and tested below
+// is each automation's own config typing/validation/persistence/audit
+// behavior, and (separately, by code inspection - see the V5 commit's
+// security audit) that app/api/automation/n8n-callback/route.ts's
+// respectBusinessHoursFor() correctly resolves the new event types to the
+// new automation ids.
+// ============================================================================
+
+test("V5 appointment-lifecycle: default respect_business_hours is false", () => {
+  assert.deepEqual(readAppointmentLifecycleConfig(null), { respect_business_hours: false });
+  assert.deepEqual(readAppointmentLifecycleConfig(undefined), { respect_business_hours: false });
+  assert.deepEqual(readAppointmentLifecycleConfig({}), { respect_business_hours: false });
+});
+
+test("V5 appointment-lifecycle: true and false are both accepted and persist through validation", () => {
+  assert.deepEqual(validateAppointmentLifecycleConfig({ respect_business_hours: true }), { ok: true, value: { respect_business_hours: true } });
+  assert.deepEqual(validateAppointmentLifecycleConfig({ respect_business_hours: false }), { ok: true, value: { respect_business_hours: false } });
+});
+
+test("V5 appointment-lifecycle: invalid values are rejected, never silently coerced", () => {
+  assert.equal(validateAppointmentLifecycleConfig({ respect_business_hours: "true" }).ok, false, "string");
+  assert.equal(validateAppointmentLifecycleConfig({ respect_business_hours: 1 }).ok, false, "number");
+  assert.equal(validateAppointmentLifecycleConfig({ respect_business_hours: null }).ok, false, "null value");
+  assert.equal(validateAppointmentLifecycleConfig(null).ok, false, "null input");
+  assert.equal(validateAppointmentLifecycleConfig([true]).ok, false, "array input");
+  assert.equal(validateAppointmentLifecycleConfig({}).ok, false, "missing field");
+  assert.equal(validateAppointmentLifecycleConfig({ respect_business_hours: true, extra_field: "x" }).ok, false, "unknown property");
+});
+
+test("V5 appointment-lifecycle: a malformed stored config (wrong type, or an array) safely falls back to the default of false", () => {
+  assert.deepEqual(readAppointmentLifecycleConfig({ respect_business_hours: "true" }), { respect_business_hours: false });
+  assert.deepEqual(readAppointmentLifecycleConfig({ respect_business_hours: 1 }), { respect_business_hours: false });
+  assert.deepEqual(readAppointmentLifecycleConfig([true]), { respect_business_hours: false });
+  assert.deepEqual(readAppointmentLifecycleConfig("not an object"), { respect_business_hours: false });
+});
+
+test("V5 appointment-lifecycle: saving an identical config produces no audit plan (no-op save)", () => {
+  assert.equal(shouldAuditConfigUpdate({ respect_business_hours: false }, { respect_business_hours: false }), null);
+});
+
+test("V5 appointment-lifecycle: saving a changed config produces exactly one automation_config_updated plan", () => {
+  const plan = shouldAuditConfigUpdate({ respect_business_hours: false }, { respect_business_hours: true });
+  assert.deepEqual(plan, {
+    action: "automation_config_updated",
+    metadata: { previous_config: { respect_business_hours: false }, new_config: { respect_business_hours: true } },
+  });
+});
+
+test("V5 appointment-lifecycle: organization isolation - getAutomationConfigByOrganization keys strictly by organization_id", async () => {
+  const ORG_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const ORG_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const rows = [
+    { organization_id: ORG_A, config: { respect_business_hours: true } },
+    { organization_id: ORG_B, config: { respect_business_hours: false } },
+  ];
+  const client = {
+    from: (table: string) => {
+      assert.equal(table, "automation_settings");
+      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+    },
+  } as unknown as SupabaseClient;
+
+  const map = await getAutomationConfigByOrganization(client, "appointment-lifecycle");
+
+  assert.deepEqual(readAppointmentLifecycleConfig(map.get(ORG_A)), { respect_business_hours: true });
+  assert.deepEqual(readAppointmentLifecycleConfig(map.get(ORG_B)), { respect_business_hours: false });
+  assert.deepEqual(readAppointmentLifecycleConfig(map.get("no-such-org")), { respect_business_hours: false }, "an org with no row still gets the default");
+});
+
+test("V5 appointment-lifecycle: getAutomationConfig scopes its lookup to exactly one organization_id and one automation_id", async () => {
+  const seen: { organizationId?: string; automationId?: string } = {};
+  const client = {
+    from: () => ({
+      select: () => ({
+        eq: (col: string, value: string) => {
+          if (col === "organization_id") seen.organizationId = value;
+          return {
+            eq: (col2: string, value2: string) => {
+              if (col2 === "automation_id") seen.automationId = value2;
+              return { maybeSingle: async () => ({ data: { config: { respect_business_hours: true } } }) };
+            },
+          };
+        },
+      }),
+    }),
+  } as unknown as SupabaseClient;
+
+  const raw = await getAutomationConfig(client, "org-1", "appointment-lifecycle");
+
+  assert.equal(seen.organizationId, "org-1");
+  assert.equal(seen.automationId, "appointment-lifecycle");
+  assert.deepEqual(raw, { respect_business_hours: true });
+});
+
+test("V5 job-lifecycle: default respect_business_hours is false", () => {
+  assert.deepEqual(readJobLifecycleConfig(null), { respect_business_hours: false });
+  assert.deepEqual(readJobLifecycleConfig(undefined), { respect_business_hours: false });
+  assert.deepEqual(readJobLifecycleConfig({}), { respect_business_hours: false });
+});
+
+test("V5 job-lifecycle: true and false are both accepted and persist through validation", () => {
+  assert.deepEqual(validateJobLifecycleConfig({ respect_business_hours: true }), { ok: true, value: { respect_business_hours: true } });
+  assert.deepEqual(validateJobLifecycleConfig({ respect_business_hours: false }), { ok: true, value: { respect_business_hours: false } });
+});
+
+test("V5 job-lifecycle: invalid values are rejected, never silently coerced", () => {
+  assert.equal(validateJobLifecycleConfig({ respect_business_hours: "true" }).ok, false, "string");
+  assert.equal(validateJobLifecycleConfig({ respect_business_hours: 1 }).ok, false, "number");
+  assert.equal(validateJobLifecycleConfig({ respect_business_hours: null }).ok, false, "null value");
+  assert.equal(validateJobLifecycleConfig(null).ok, false, "null input");
+  assert.equal(validateJobLifecycleConfig([true]).ok, false, "array input");
+  assert.equal(validateJobLifecycleConfig({}).ok, false, "missing field");
+  assert.equal(validateJobLifecycleConfig({ respect_business_hours: true, extra_field: "x" }).ok, false, "unknown property");
+});
+
+test("V5 job-lifecycle: a malformed stored config (wrong type, or an array) safely falls back to the default of false", () => {
+  assert.deepEqual(readJobLifecycleConfig({ respect_business_hours: "true" }), { respect_business_hours: false });
+  assert.deepEqual(readJobLifecycleConfig({ respect_business_hours: 1 }), { respect_business_hours: false });
+  assert.deepEqual(readJobLifecycleConfig([true]), { respect_business_hours: false });
+  assert.deepEqual(readJobLifecycleConfig("not an object"), { respect_business_hours: false });
+});
+
+test("V5 job-lifecycle: saving an identical config produces no audit plan (no-op save)", () => {
+  assert.equal(shouldAuditConfigUpdate({ respect_business_hours: false }, { respect_business_hours: false }), null);
+});
+
+test("V5 job-lifecycle: saving a changed config produces exactly one automation_config_updated plan", () => {
+  const plan = shouldAuditConfigUpdate({ respect_business_hours: false }, { respect_business_hours: true });
+  assert.deepEqual(plan, {
+    action: "automation_config_updated",
+    metadata: { previous_config: { respect_business_hours: false }, new_config: { respect_business_hours: true } },
+  });
+});
+
+test("V5 job-lifecycle: organization isolation - getAutomationConfigByOrganization keys strictly by organization_id", async () => {
+  const ORG_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const ORG_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const rows = [
+    { organization_id: ORG_A, config: { respect_business_hours: true } },
+    { organization_id: ORG_B, config: { respect_business_hours: false } },
+  ];
+  const client = {
+    from: (table: string) => {
+      assert.equal(table, "automation_settings");
+      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+    },
+  } as unknown as SupabaseClient;
+
+  const map = await getAutomationConfigByOrganization(client, "job-lifecycle");
+
+  assert.deepEqual(readJobLifecycleConfig(map.get(ORG_A)), { respect_business_hours: true });
+  assert.deepEqual(readJobLifecycleConfig(map.get(ORG_B)), { respect_business_hours: false });
+  assert.deepEqual(readJobLifecycleConfig(map.get("no-such-org")), { respect_business_hours: false }, "an org with no row still gets the default");
+});
+
+test("V5 review-referral-followup: default respect_business_hours is false", () => {
+  assert.deepEqual(readReviewReferralFollowupConfig(null), { respect_business_hours: false });
+  assert.deepEqual(readReviewReferralFollowupConfig(undefined), { respect_business_hours: false });
+  assert.deepEqual(readReviewReferralFollowupConfig({}), { respect_business_hours: false });
+});
+
+test("V5 review-referral-followup: true and false are both accepted and persist through validation", () => {
+  assert.deepEqual(validateReviewReferralFollowupConfig({ respect_business_hours: true }), { ok: true, value: { respect_business_hours: true } });
+  assert.deepEqual(validateReviewReferralFollowupConfig({ respect_business_hours: false }), { ok: true, value: { respect_business_hours: false } });
+});
+
+test("V5 review-referral-followup: invalid values are rejected, never silently coerced", () => {
+  assert.equal(validateReviewReferralFollowupConfig({ respect_business_hours: "true" }).ok, false, "string");
+  assert.equal(validateReviewReferralFollowupConfig({ respect_business_hours: 1 }).ok, false, "number");
+  assert.equal(validateReviewReferralFollowupConfig({ respect_business_hours: null }).ok, false, "null value");
+  assert.equal(validateReviewReferralFollowupConfig(null).ok, false, "null input");
+  assert.equal(validateReviewReferralFollowupConfig([true]).ok, false, "array input");
+  assert.equal(validateReviewReferralFollowupConfig({}).ok, false, "missing field");
+  assert.equal(validateReviewReferralFollowupConfig({ respect_business_hours: true, extra_field: "x" }).ok, false, "unknown property");
+});
+
+test("V5 review-referral-followup: a malformed stored config (wrong type, or an array) safely falls back to the default of false", () => {
+  assert.deepEqual(readReviewReferralFollowupConfig({ respect_business_hours: "true" }), { respect_business_hours: false });
+  assert.deepEqual(readReviewReferralFollowupConfig({ respect_business_hours: 1 }), { respect_business_hours: false });
+  assert.deepEqual(readReviewReferralFollowupConfig([true]), { respect_business_hours: false });
+  assert.deepEqual(readReviewReferralFollowupConfig("not an object"), { respect_business_hours: false });
+});
+
+test("V5 review-referral-followup: saving an identical config produces no audit plan (no-op save)", () => {
+  assert.equal(shouldAuditConfigUpdate({ respect_business_hours: false }, { respect_business_hours: false }), null);
+});
+
+test("V5 review-referral-followup: saving a changed config produces exactly one automation_config_updated plan", () => {
+  const plan = shouldAuditConfigUpdate({ respect_business_hours: false }, { respect_business_hours: true });
+  assert.deepEqual(plan, {
+    action: "automation_config_updated",
+    metadata: { previous_config: { respect_business_hours: false }, new_config: { respect_business_hours: true } },
+  });
+});
+
+test("V5 review-referral-followup: organization isolation - getAutomationConfigByOrganization keys strictly by organization_id", async () => {
+  const ORG_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const ORG_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const rows = [
+    { organization_id: ORG_A, config: { respect_business_hours: true } },
+    { organization_id: ORG_B, config: { respect_business_hours: false } },
+  ];
+  const client = {
+    from: (table: string) => {
+      assert.equal(table, "automation_settings");
+      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+    },
+  } as unknown as SupabaseClient;
+
+  const map = await getAutomationConfigByOrganization(client, "review-referral-followup");
+
+  assert.deepEqual(readReviewReferralFollowupConfig(map.get(ORG_A)), { respect_business_hours: true });
+  assert.deepEqual(readReviewReferralFollowupConfig(map.get(ORG_B)), { respect_business_hours: false });
+  assert.deepEqual(
+    readReviewReferralFollowupConfig(map.get("no-such-org")),
+    { respect_business_hours: false },
+    "an org with no row still gets the default",
+  );
+});
+
+// Note on authorization/unauthenticated/non-admin-member scenarios and the
+// "enabled cannot be changed" guarantee for updateAppointmentLifecycleConfig/
+// updateJobLifecycleConfig/updateReviewReferralFollowupConfig: identical
+// rationale as every note above - all three reuse requireOrgAdminSession/
+// assertOrgAdmin unchanged (no new authorization code was written for V5),
+// and each upsert payload is `{ organization_id, automation_id, config }`
+// only - none of them ever include `enabled`. Those guarantees are already
+// directly unit-tested against assertOrgAdmin itself in
+// lib/automation/authorization.test.ts (tests A, B, D, E).

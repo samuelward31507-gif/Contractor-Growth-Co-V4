@@ -476,6 +476,126 @@ export function validateLeadReactivationConfig(input: unknown): ConfigValidation
   return { ok: true, value: { touch_1_days: t1, touch_2_days: t2 } };
 }
 
+// ---- appointment-lifecycle: respect_business_hours ----
+//
+// Automation Configuration V5. Controls only whether the outbound gate
+// additionally requires the organization's configured business hours to be
+// open before allowing this automation's send - see the module comment
+// above InstantLeadFollowupConfig and lib/automation/outbound-gate.ts's
+// isWithinBusinessHours(). Identical shape/rationale to
+// InstantLeadFollowupConfig - a separate, independently-named type per
+// automation, not a shared/reused one, matching this file's established
+// per-automation convention.
+
+export type AppointmentLifecycleConfig = { respect_business_hours: boolean };
+
+export const DEFAULT_APPOINTMENT_LIFECYCLE_CONFIG: AppointmentLifecycleConfig = { respect_business_hours: false };
+
+/** Lenient read path - see the module comment above. Never throws. */
+export function readAppointmentLifecycleConfig(raw: unknown): AppointmentLifecycleConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...DEFAULT_APPOINTMENT_LIFECYCLE_CONFIG };
+  }
+  const value = (raw as Record<string, unknown>).respect_business_hours;
+  return {
+    respect_business_hours: typeof value === "boolean" ? value : DEFAULT_APPOINTMENT_LIFECYCLE_CONFIG.respect_business_hours,
+  };
+}
+
+const APPOINTMENT_LIFECYCLE_CONFIG_KEYS = new Set(["respect_business_hours"]);
+
+/** Strict validation path for an admin-submitted write - see the module comment above. Rejects, never coerces. */
+export function validateAppointmentLifecycleConfig(input: unknown): ConfigValidationResult<AppointmentLifecycleConfig> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "Invalid configuration." };
+  }
+  const obj = input as Record<string, unknown>;
+  const extraKeys = Object.keys(obj).filter((key) => !APPOINTMENT_LIFECYCLE_CONFIG_KEYS.has(key));
+  if (extraKeys.length > 0) {
+    return { ok: false, error: `Unknown configuration field(s): ${extraKeys.join(", ")}.` };
+  }
+  if (typeof obj.respect_business_hours !== "boolean") {
+    return { ok: false, error: "Respect business hours must be true or false." };
+  }
+  return { ok: true, value: { respect_business_hours: obj.respect_business_hours } };
+}
+
+// ---- job-lifecycle: respect_business_hours ----
+//
+// Automation Configuration V5. Same rationale as AppointmentLifecycleConfig
+// above.
+
+export type JobLifecycleConfig = { respect_business_hours: boolean };
+
+export const DEFAULT_JOB_LIFECYCLE_CONFIG: JobLifecycleConfig = { respect_business_hours: false };
+
+/** Lenient read path - see the module comment above. Never throws. */
+export function readJobLifecycleConfig(raw: unknown): JobLifecycleConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...DEFAULT_JOB_LIFECYCLE_CONFIG };
+  }
+  const value = (raw as Record<string, unknown>).respect_business_hours;
+  return {
+    respect_business_hours: typeof value === "boolean" ? value : DEFAULT_JOB_LIFECYCLE_CONFIG.respect_business_hours,
+  };
+}
+
+const JOB_LIFECYCLE_CONFIG_KEYS = new Set(["respect_business_hours"]);
+
+/** Strict validation path for an admin-submitted write - see the module comment above. Rejects, never coerces. */
+export function validateJobLifecycleConfig(input: unknown): ConfigValidationResult<JobLifecycleConfig> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "Invalid configuration." };
+  }
+  const obj = input as Record<string, unknown>;
+  const extraKeys = Object.keys(obj).filter((key) => !JOB_LIFECYCLE_CONFIG_KEYS.has(key));
+  if (extraKeys.length > 0) {
+    return { ok: false, error: `Unknown configuration field(s): ${extraKeys.join(", ")}.` };
+  }
+  if (typeof obj.respect_business_hours !== "boolean") {
+    return { ok: false, error: "Respect business hours must be true or false." };
+  }
+  return { ok: true, value: { respect_business_hours: obj.respect_business_hours } };
+}
+
+// ---- review-referral-followup: respect_business_hours ----
+//
+// Automation Configuration V5. Same rationale as AppointmentLifecycleConfig
+// above.
+
+export type ReviewReferralFollowupConfig = { respect_business_hours: boolean };
+
+export const DEFAULT_REVIEW_REFERRAL_FOLLOWUP_CONFIG: ReviewReferralFollowupConfig = { respect_business_hours: false };
+
+/** Lenient read path - see the module comment above. Never throws. */
+export function readReviewReferralFollowupConfig(raw: unknown): ReviewReferralFollowupConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...DEFAULT_REVIEW_REFERRAL_FOLLOWUP_CONFIG };
+  }
+  const value = (raw as Record<string, unknown>).respect_business_hours;
+  return {
+    respect_business_hours: typeof value === "boolean" ? value : DEFAULT_REVIEW_REFERRAL_FOLLOWUP_CONFIG.respect_business_hours,
+  };
+}
+
+const REVIEW_REFERRAL_FOLLOWUP_CONFIG_KEYS = new Set(["respect_business_hours"]);
+
+/** Strict validation path for an admin-submitted write - see the module comment above. Rejects, never coerces. */
+export function validateReviewReferralFollowupConfig(input: unknown): ConfigValidationResult<ReviewReferralFollowupConfig> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "Invalid configuration." };
+  }
+  const obj = input as Record<string, unknown>;
+  const extraKeys = Object.keys(obj).filter((key) => !REVIEW_REFERRAL_FOLLOWUP_CONFIG_KEYS.has(key));
+  if (extraKeys.length > 0) {
+    return { ok: false, error: `Unknown configuration field(s): ${extraKeys.join(", ")}.` };
+  }
+  if (typeof obj.respect_business_hours !== "boolean") {
+    return { ok: false, error: "Respect business hours must be true or false." };
+  }
+  return { ok: true, value: { respect_business_hours: obj.respect_business_hours } };
+}
+
 // ---- Shared DB access ----
 
 /** Single organization, single automation - raw config, for a dry-run preview or any other single-org read. */

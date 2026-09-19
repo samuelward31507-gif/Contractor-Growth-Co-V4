@@ -21,6 +21,12 @@ import {
   validateLostLeadNurtureConfig,
   readLeadReactivationConfig,
   validateLeadReactivationConfig,
+  readAppointmentLifecycleConfig,
+  validateAppointmentLifecycleConfig,
+  readJobLifecycleConfig,
+  validateJobLifecycleConfig,
+  readReviewReferralFollowupConfig,
+  validateReviewReferralFollowupConfig,
   shouldAuditConfigUpdate,
 } from "@/lib/automation/settings";
 import { processAppointmentReminders, previewAppointmentReminders, type ReminderPreview } from "@/lib/automation/appointment-reminders";
@@ -927,6 +933,198 @@ export async function updateLeadReactivationConfig(touch1Days: number, touch2Day
     console.error("[automation] failed to record audit log entry", {
       organizationId,
       automationId: "lead-reactivation",
+      action: auditPlan.action,
+      error: auditError.message,
+    });
+    return { success: true, config: validation.value, auditWarning: "The configuration was updated, but the audit record could not be saved." };
+  }
+
+  return { success: true, config: validation.value };
+}
+
+/**
+ * Automation Configuration V5: updates appointment-lifecycle's configured
+ * respect_business_hours flag. Same pattern as
+ * updateInstantLeadFollowupConfig above (admin-only, config-column-only,
+ * audit-on-change-only) - see that comment for the shared rationale. Only
+ * changes whether the outbound gate additionally requires business hours
+ * to be open before allowing this automation's send
+ * (lib/automation/outbound-gate.ts) - no effect on content safety,
+ * opt-out handling, duplicate-send protection, retry, execution/
+ * authorization behavior, or n8n/Twilio.
+ */
+export async function updateAppointmentLifecycleConfig(respectBusinessHours: boolean): Promise<ConfigActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  const validation = validateAppointmentLifecycleConfig({ respect_business_hours: respectBusinessHours });
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("automation_id", "appointment-lifecycle")
+    .maybeSingle();
+
+  const previousConfig = readAppointmentLifecycleConfig(existingRow?.config ?? null);
+
+  const { error: upsertError } = await supabase.from("automation_settings").upsert(
+    { organization_id: organizationId, automation_id: "appointment-lifecycle", config: validation.value },
+    { onConflict: "organization_id,automation_id" },
+  );
+
+  if (upsertError) {
+    return { error: "We couldn't update this automation's configuration. Please try again." };
+  }
+
+  revalidatePath("/automations/appointment-lifecycle");
+
+  const auditPlan = shouldAuditConfigUpdate(previousConfig, validation.value);
+  if (!auditPlan) {
+    return { success: true, config: validation.value };
+  }
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: auditPlan.action,
+    p_automation_id: "appointment-lifecycle",
+    p_metadata: auditPlan.metadata,
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId: "appointment-lifecycle",
+      action: auditPlan.action,
+      error: auditError.message,
+    });
+    return { success: true, config: validation.value, auditWarning: "The configuration was updated, but the audit record could not be saved." };
+  }
+
+  return { success: true, config: validation.value };
+}
+
+/**
+ * Automation Configuration V5: updates job-lifecycle's configured
+ * respect_business_hours flag. Same pattern as
+ * updateAppointmentLifecycleConfig above.
+ */
+export async function updateJobLifecycleConfig(respectBusinessHours: boolean): Promise<ConfigActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  const validation = validateJobLifecycleConfig({ respect_business_hours: respectBusinessHours });
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("automation_id", "job-lifecycle")
+    .maybeSingle();
+
+  const previousConfig = readJobLifecycleConfig(existingRow?.config ?? null);
+
+  const { error: upsertError } = await supabase.from("automation_settings").upsert(
+    { organization_id: organizationId, automation_id: "job-lifecycle", config: validation.value },
+    { onConflict: "organization_id,automation_id" },
+  );
+
+  if (upsertError) {
+    return { error: "We couldn't update this automation's configuration. Please try again." };
+  }
+
+  revalidatePath("/automations/job-lifecycle");
+
+  const auditPlan = shouldAuditConfigUpdate(previousConfig, validation.value);
+  if (!auditPlan) {
+    return { success: true, config: validation.value };
+  }
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: auditPlan.action,
+    p_automation_id: "job-lifecycle",
+    p_metadata: auditPlan.metadata,
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId: "job-lifecycle",
+      action: auditPlan.action,
+      error: auditError.message,
+    });
+    return { success: true, config: validation.value, auditWarning: "The configuration was updated, but the audit record could not be saved." };
+  }
+
+  return { success: true, config: validation.value };
+}
+
+/**
+ * Automation Configuration V5: updates review-referral-followup's
+ * configured respect_business_hours flag. Same pattern as
+ * updateAppointmentLifecycleConfig above.
+ */
+export async function updateReviewReferralFollowupConfig(respectBusinessHours: boolean): Promise<ConfigActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  const validation = validateReviewReferralFollowupConfig({ respect_business_hours: respectBusinessHours });
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("automation_id", "review-referral-followup")
+    .maybeSingle();
+
+  const previousConfig = readReviewReferralFollowupConfig(existingRow?.config ?? null);
+
+  const { error: upsertError } = await supabase.from("automation_settings").upsert(
+    { organization_id: organizationId, automation_id: "review-referral-followup", config: validation.value },
+    { onConflict: "organization_id,automation_id" },
+  );
+
+  if (upsertError) {
+    return { error: "We couldn't update this automation's configuration. Please try again." };
+  }
+
+  revalidatePath("/automations/review-referral-followup");
+
+  const auditPlan = shouldAuditConfigUpdate(previousConfig, validation.value);
+  if (!auditPlan) {
+    return { success: true, config: validation.value };
+  }
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: auditPlan.action,
+    p_automation_id: "review-referral-followup",
+    p_metadata: auditPlan.metadata,
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId: "review-referral-followup",
       action: auditPlan.action,
       error: auditError.message,
     });

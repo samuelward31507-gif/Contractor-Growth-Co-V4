@@ -14,6 +14,9 @@ import {
   readInstantLeadFollowupConfig,
   readLostLeadNurtureConfig,
   readLeadReactivationConfig,
+  readAppointmentLifecycleConfig,
+  readJobLifecycleConfig,
+  readReviewReferralFollowupConfig,
 } from "@/lib/automation/settings";
 import { getBusinessHours } from "@/lib/settings/queries";
 import { pageTitleClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
@@ -28,6 +31,9 @@ import { InboundCustomerReplyConfigForm } from "../_components/inbound-customer-
 import { InstantLeadFollowupConfigForm } from "../_components/instant-lead-followup-config";
 import { LostLeadNurtureConfigForm } from "../_components/lost-lead-nurture-config";
 import { LeadReactivationConfigForm } from "../_components/lead-reactivation-config";
+import { AppointmentLifecycleConfigForm } from "../_components/appointment-lifecycle-config";
+import { JobLifecycleConfigForm } from "../_components/job-lifecycle-config";
+import { ReviewReferralFollowupConfigForm } from "../_components/review-referral-followup-config";
 import { formatCount } from "../_components/format";
 import { SAFE_RETRY_AUTOMATION_IDS } from "@/lib/automation/retry-eligibility";
 
@@ -38,10 +44,19 @@ const CONFIGURABLE_AUTOMATION_IDS = new Set([
   "instant-lead-followup",
   "lost-lead-nurture",
   "lead-reactivation",
+  "appointment-lifecycle",
+  "job-lifecycle",
+  "review-referral-followup",
 ]);
 
-/** Automations whose configuration includes a business-hours toggle (V2.2) - used to decide whether to fetch business_hours at all. */
-const BUSINESS_HOURS_AUTOMATION_IDS = new Set(["inbound-customer-reply", "instant-lead-followup"]);
+/** Automations whose configuration includes a business-hours toggle (V2.2/V5) - used to decide whether to fetch business_hours at all. */
+const BUSINESS_HOURS_AUTOMATION_IDS = new Set([
+  "inbound-customer-reply",
+  "instant-lead-followup",
+  "appointment-lifecycle",
+  "job-lifecycle",
+  "review-referral-followup",
+]);
 
 /**
  * Detail view for one automation catalog entry. Reuses the same
@@ -190,10 +205,25 @@ export default async function AutomationDetailPage({ params }: { params: Promise
                 initialTouch1Days={readLostLeadNurtureConfig(rawConfig).touch_1_days}
                 initialTouch2Days={readLostLeadNurtureConfig(rawConfig).touch_2_days}
               />
-            ) : (
+            ) : definition.id === "lead-reactivation" ? (
               <LeadReactivationConfigForm
                 initialTouch1Days={readLeadReactivationConfig(rawConfig).touch_1_days}
                 initialTouch2Days={readLeadReactivationConfig(rawConfig).touch_2_days}
+              />
+            ) : definition.id === "appointment-lifecycle" ? (
+              <AppointmentLifecycleConfigForm
+                initialRespectBusinessHours={readAppointmentLifecycleConfig(rawConfig).respect_business_hours}
+                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+              />
+            ) : definition.id === "job-lifecycle" ? (
+              <JobLifecycleConfigForm
+                initialRespectBusinessHours={readJobLifecycleConfig(rawConfig).respect_business_hours}
+                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+              />
+            ) : (
+              <ReviewReferralFollowupConfigForm
+                initialRespectBusinessHours={readReviewReferralFollowupConfig(rawConfig).respect_business_hours}
+                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
               />
             )}
           </div>

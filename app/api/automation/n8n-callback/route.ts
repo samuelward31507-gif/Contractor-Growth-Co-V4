@@ -4,7 +4,14 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "@/lib/automation/executions";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { evaluateOutboundGate } from "@/lib/automation/outbound-gate";
-import { getAutomationConfig, readInstantLeadFollowupConfig, readInboundCustomerReplyConfig } from "@/lib/automation/settings";
+import {
+  getAutomationConfig,
+  readInstantLeadFollowupConfig,
+  readInboundCustomerReplyConfig,
+  readAppointmentLifecycleConfig,
+  readJobLifecycleConfig,
+  readReviewReferralFollowupConfig,
+} from "@/lib/automation/settings";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -286,6 +293,22 @@ async function respectBusinessHoursFor(service: SupabaseClient, organizationId: 
   if (eventType === "customer.message.received") {
     const raw = await getAutomationConfig(service, organizationId, "inbound-customer-reply");
     return readInboundCustomerReplyConfig(raw).respect_business_hours;
+  }
+  // Automation Configuration V5: appointment-lifecycle covers both of its
+  // catalog event types (appointment.created, appointment.no_show) under
+  // one shared config row, matching how the catalog itself groups them
+  // under the single "appointment-lifecycle" automation id.
+  if (eventType === "appointment.created" || eventType === "appointment.no_show") {
+    const raw = await getAutomationConfig(service, organizationId, "appointment-lifecycle");
+    return readAppointmentLifecycleConfig(raw).respect_business_hours;
+  }
+  if (eventType === "job.created") {
+    const raw = await getAutomationConfig(service, organizationId, "job-lifecycle");
+    return readJobLifecycleConfig(raw).respect_business_hours;
+  }
+  if (eventType === "job.post_followup") {
+    const raw = await getAutomationConfig(service, organizationId, "review-referral-followup");
+    return readReviewReferralFollowupConfig(raw).respect_business_hours;
   }
   return false;
 }
