@@ -46,36 +46,8 @@ export async function listIncidents(supabase: SupabaseClient, organizationId: st
 }
 
 /** critical > warning > info - the one deterministic ordering this layer ever applies to incidents, purely for display; never used to alter status/category itself. */
-export function severityRank(severity: IncidentSeverity): number {
+function severityRank(severity: IncidentSeverity): number {
   if (severity === "critical") return 2;
   if (severity === "warning") return 1;
   return 0;
-}
-
-export async function getIncident(supabase: SupabaseClient, organizationId: string, incidentId: string): Promise<AutomationIncident | null> {
-  const { data, error } = await supabase.from("automation_incidents").select(INCIDENT_COLUMNS).eq("organization_id", organizationId).eq("id", incidentId).maybeSingle();
-
-  if (error || !data) return null;
-  return mapIncidentRow(data as AutomationIncidentRow);
-}
-
-export type IncidentCounts = {
-  activeTotal: number;
-  critical: number;
-  warning: number;
-  info: number;
-};
-
-export async function getActiveIncidentCounts(supabase: SupabaseClient, organizationId: string): Promise<IncidentCounts> {
-  const { data, error } = await supabase.from("automation_incidents").select("severity").eq("organization_id", organizationId).in("status", ["open", "acknowledged"]).limit(MAX_INCIDENT_ROWS);
-
-  if (error || !data) return { activeTotal: 0, critical: 0, warning: 0, info: 0 };
-
-  const rows = data as { severity: IncidentSeverity }[];
-  return {
-    activeTotal: rows.length,
-    critical: rows.filter((r) => r.severity === "critical").length,
-    warning: rows.filter((r) => r.severity === "warning").length,
-    info: rows.filter((r) => r.severity === "info").length,
-  };
 }
