@@ -1,29 +1,15 @@
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { processEstimateFollowups } from "@/lib/automation/estimate-followups";
+import { isAuthorizedCronRequest } from "@/lib/automation/cron-auth";
 
 /**
- * Vercel Cron target (see vercel.json) - same CRON_SECRET fail-closed
- * pattern as app/api/automation/appointment-reminders/route.ts, including
- * the constant-time comparison.
+ * Scheduled-automation target invoked by an n8n Schedule Trigger - same
+ * CRON_SECRET fail-closed pattern as every other automation cron route,
+ * see lib/automation/cron-auth.ts.
  */
-function isAuthorized(request: NextRequest): boolean {
-  const configuredSecret = process.env.CRON_SECRET;
-  if (!configuredSecret) return false;
-
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader) return false;
-
-  const expected = Buffer.from(`Bearer ${configuredSecret}`);
-  const actual = Buffer.from(authHeader);
-  if (expected.length !== actual.length) return false;
-
-  return timingSafeEqual(expected, actual);
-}
-
 export async function GET(request: NextRequest) {
-  if (!isAuthorized(request)) {
+  if (!isAuthorizedCronRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
 
