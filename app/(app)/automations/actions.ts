@@ -13,6 +13,8 @@ import {
   validateAppointmentReminderConfig,
   readEstimateFollowupConfig,
   validateEstimateFollowupConfig,
+  readInboundCustomerReplyConfig,
+  validateInboundCustomerReplyConfig,
   shouldAuditConfigUpdate,
 } from "@/lib/automation/settings";
 import { processAppointmentReminders, previewAppointmentReminders, type ReminderPreview } from "@/lib/automation/appointment-reminders";
@@ -637,6 +639,73 @@ export async function updateEstimateFollowupConfig(followup1Hours: number, follo
     console.error("[automation] failed to record audit log entry", {
       organizationId,
       automationId: "estimate-followup",
+      action: auditPlan.action,
+      error: auditError.message,
+    });
+    return { success: true, config: validation.value, auditWarning: "The configuration was updated, but the audit record could not be saved." };
+  }
+
+  return { success: true, config: validation.value };
+}
+
+/**
+ * Automation Configuration V2.1: updates inbound-customer-reply's configured
+ * recent-message context window. Same pattern as updateAppointmentReminderConfig/
+ * updateEstimateFollowupConfig above (admin-only, config-column-only,
+ * audit-on-change-only) - see that comment for the shared rationale. Only
+ * ever changes how many recent messages are sliced into the AI's context at
+ * dispatch time (lib/automation/customer-reply.ts) - no effect on the
+ * outbound gate, content safety, opt-out handling, duplicate-send
+ * protection, execution/authorization behavior, or n8n/Twilio.
+ */
+export async function updateInboundCustomerReplyConfig(recentMessageWindow: number): Promise<ConfigActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  const validation = validateInboundCustomerReplyConfig({ recent_message_window: recentMessageWindow });
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("automation_id", "inbound-customer-reply")
+    .maybeSingle();
+
+  const previousConfig = readInboundCustomerReplyConfig(existingRow?.config ?? null);
+
+  const { error: upsertError } = await supabase.from("automation_settings").upsert(
+    { organization_id: organizationId, automation_id: "inbound-customer-reply", config: validation.value },
+    { onConflict: "organization_id,automation_id" },
+  );
+
+  if (upsertError) {
+    return { error: "We couldn't update this automation's configuration. Please try again." };
+  }
+
+  revalidatePath("/automations/inbound-customer-reply");
+
+  const auditPlan = shouldAuditConfigUpdate(previousConfig, validation.value);
+  if (!auditPlan) {
+    return { success: true, config: validation.value };
+  }
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: auditPlan.action,
+    p_automation_id: "inbound-customer-reply",
+    p_metadata: auditPlan.metadata,
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId: "inbound-customer-reply",
       action: auditPlan.action,
       error: auditError.message,
     });

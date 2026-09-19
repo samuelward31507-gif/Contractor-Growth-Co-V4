@@ -5,7 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
 import { getWorkflowNameStats, getRecentExecutionsForWorkflows, buildAutomationSummaries } from "@/lib/automation/queries";
-import { getAutomationEnabledMap, getAutomationConfig, readAppointmentReminderConfig, readEstimateFollowupConfig } from "@/lib/automation/settings";
+import {
+  getAutomationEnabledMap,
+  getAutomationConfig,
+  readAppointmentReminderConfig,
+  readEstimateFollowupConfig,
+  readInboundCustomerReplyConfig,
+} from "@/lib/automation/settings";
 import { pageTitleClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { AutomationStatusPill } from "../_components/status-pill";
 import { HowItWorks } from "../_components/how-it-works";
@@ -14,6 +20,7 @@ import { ManualRunControls } from "../_components/manual-run-controls";
 import { EnableToggle } from "../_components/enable-toggle";
 import { AppointmentReminderConfigForm } from "../_components/appointment-reminder-config";
 import { EstimateFollowupConfigForm } from "../_components/estimate-followup-config";
+import { InboundCustomerReplyConfigForm } from "../_components/inbound-customer-reply-config";
 import { formatCount } from "../_components/format";
 import { SAFE_RETRY_AUTOMATION_IDS } from "@/lib/automation/retry-eligibility";
 
@@ -60,9 +67,10 @@ export default async function AutomationDetailPage({ params }: { params: Promise
   // setAutomationEnabled re-verifies assertOrgAdmin() itself regardless.
   const canManage = membership.role === "owner" || membership.role === "admin";
 
-  // Automation Configuration V1: only these two catalog automations have
-  // any configurable value in this phase - see lib/automation/settings.ts.
-  const isConfigurable = definition.id === "appointment-reminders" || definition.id === "estimate-followup";
+  // Automation Configuration V1/V2.1: only these three catalog automations
+  // have any configurable value so far - see lib/automation/settings.ts.
+  const isConfigurable =
+    definition.id === "appointment-reminders" || definition.id === "estimate-followup" || definition.id === "inbound-customer-reply";
 
   const [statsByName, executions, enabledByAutomationId, rawConfig] = await Promise.all([
     getWorkflowNameStats(supabase, membership.organizationId),
@@ -138,11 +146,13 @@ export default async function AutomationDetailPage({ params }: { params: Promise
           <div className="mt-3">
             {definition.id === "appointment-reminders" ? (
               <AppointmentReminderConfigForm initialLeadTimeHours={readAppointmentReminderConfig(rawConfig).reminder_lead_time_hours} />
-            ) : (
+            ) : definition.id === "estimate-followup" ? (
               <EstimateFollowupConfigForm
                 initialFollowup1Hours={readEstimateFollowupConfig(rawConfig).followup_1_hours}
                 initialFollowup2Hours={readEstimateFollowupConfig(rawConfig).followup_2_hours}
               />
+            ) : (
+              <InboundCustomerReplyConfigForm initialRecentMessageWindow={readInboundCustomerReplyConfig(rawConfig).recent_message_window} />
             )}
           </div>
         </div>

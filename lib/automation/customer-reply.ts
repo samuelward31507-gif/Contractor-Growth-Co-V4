@@ -3,15 +3,32 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
 import { startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
-import { getMessages } from "@/lib/conversations/queries";
+import { getAutomationConfig, readInboundCustomerReplyConfig, type InboundCustomerReplyConfig } from "./settings";
+import { getMessages, type Message } from "@/lib/conversations/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getLead } from "@/lib/leads/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 
 export const CUSTOMER_REPLY_FOLLOWUP_WORKFLOW = "customer_reply_followup";
 
-/** Bounded so the AI gets useful context without an unbounded transcript dump. */
-const RECENT_MESSAGE_WINDOW = 10;
+export type ContractRecentMessage = { direction: Message["direction"]; sender_type: Message["sender_type"]; body: string; created_at: string };
+
+/**
+ * The pure decision behind how many, and which, recent conversation
+ * messages are included in the n8n contract - extracted so "the configured
+ * recent_message_window is what decides the slice, not the old hardcoded
+ * constant" can be unit tested directly, without a mocked Supabase client.
+ * Always keeps the most recent messages (chronological tail), matching the
+ * original `recentMessages.slice(-RECENT_MESSAGE_WINDOW)` behavior exactly.
+ */
+export function selectRecentMessages(messages: Message[], config: InboundCustomerReplyConfig): ContractRecentMessage[] {
+  return messages.slice(-config.recent_message_window).map((message) => ({
+    direction: message.direction,
+    sender_type: message.sender_type,
+    body: message.body,
+    created_at: message.created_at,
+  }));
+}
 
 export type CustomerReplyInput = {
   organizationId: string;
@@ -95,20 +112,21 @@ export async function emitCustomerReplyFollowup(
   const attempt = executionResult.execution.attempt;
   const eventId = eventResult.event.id;
 
-  const [recentMessages, contact, lead, aiSettings, businessProfile] = await Promise.all([
+  const [recentMessages, contact, lead, aiSettings, businessProfile, rawConfig] = await Promise.all([
     getMessages(supabase, input.organizationId, input.conversationId),
     getContact(supabase, input.organizationId, input.contactId),
     input.leadId ? getLead(supabase, input.organizationId, input.leadId) : Promise.resolve(null),
     getAiSettings(supabase, input.organizationId),
     getBusinessProfile(supabase, input.organizationId),
+    getAutomationConfig(supabase, input.organizationId, "inbound-customer-reply"),
   ]);
 
-  const boundedRecentMessages = recentMessages.slice(-RECENT_MESSAGE_WINDOW).map((message) => ({
-    direction: message.direction,
-    sender_type: message.sender_type,
-    body: message.body,
-    created_at: message.created_at,
-  }));
+  // Automation Configuration V2.1: only changes how many recent messages are
+  // included in the AI's context below - no effect on event creation,
+  // idempotency, execution creation, authorization, or anything past this
+  // point (the outbound gate, content safety, opt-out, and send path are
+  // untouched by this value).
+  const boundedRecentMessages = selectRecentMessages(recentMessages, readInboundCustomerReplyConfig(rawConfig));
 
   const contract: N8nWorkflowContract = {
     version: 1,

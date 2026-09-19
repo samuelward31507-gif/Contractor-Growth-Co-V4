@@ -214,6 +214,65 @@ export function validateEstimateFollowupConfig(input: unknown): ConfigValidation
   return { ok: true, value: { followup_1_hours: f1, followup_2_hours: f2 } };
 }
 
+// ---- inbound-customer-reply: recent_message_window ----
+//
+// Automation Configuration V2.1. Controls only how many recent conversation
+// messages are included in the AI's context when n8n drafts a reply - see
+// lib/automation/customer-reply.ts. This has no bearing on the outbound
+// gate, content safety, opt-out handling, duplicate-send protection,
+// execution/authorization behavior, or n8n/Twilio - it only changes the
+// size of the `recent_messages` array Trackpr slices before dispatch.
+
+export type InboundCustomerReplyConfig = { recent_message_window: number };
+
+export const DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG: InboundCustomerReplyConfig = { recent_message_window: 10 };
+
+/**
+ * Conservative, documented bounds - not derived from any hard technical
+ * constraint. Minimum of 1 keeps at least the triggering exchange for
+ * context. Maximum of 50 preserves the existing "bounded so the AI gets
+ * useful context without an unbounded transcript dump" rationale already
+ * documented in customer-reply.ts.
+ */
+export const RECENT_MESSAGE_WINDOW_MIN = 1;
+export const RECENT_MESSAGE_WINDOW_MAX = 50;
+
+/** Lenient read path - see the module comment above. Never throws. */
+export function readInboundCustomerReplyConfig(raw: unknown): InboundCustomerReplyConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG };
+  }
+  const value = (raw as Record<string, unknown>).recent_message_window;
+  if (isFiniteInteger(value) && value >= RECENT_MESSAGE_WINDOW_MIN && value <= RECENT_MESSAGE_WINDOW_MAX) {
+    return { recent_message_window: value };
+  }
+  return { ...DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG };
+}
+
+const INBOUND_CUSTOMER_REPLY_CONFIG_KEYS = new Set(["recent_message_window"]);
+
+/** Strict validation path for an admin-submitted write - see the module comment above. Rejects, never coerces. */
+export function validateInboundCustomerReplyConfig(input: unknown): ConfigValidationResult<InboundCustomerReplyConfig> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "Invalid configuration." };
+  }
+  const extraKeys = Object.keys(input as Record<string, unknown>).filter((key) => !INBOUND_CUSTOMER_REPLY_CONFIG_KEYS.has(key));
+  if (extraKeys.length > 0) {
+    return { ok: false, error: `Unknown configuration field(s): ${extraKeys.join(", ")}.` };
+  }
+  const value = (input as Record<string, unknown>).recent_message_window;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return { ok: false, error: "Recent message context must be a number." };
+  }
+  if (!Number.isInteger(value)) {
+    return { ok: false, error: "Recent message context must be a whole number." };
+  }
+  if (value < RECENT_MESSAGE_WINDOW_MIN || value > RECENT_MESSAGE_WINDOW_MAX) {
+    return { ok: false, error: `Recent message context must be between ${RECENT_MESSAGE_WINDOW_MIN} and ${RECENT_MESSAGE_WINDOW_MAX} messages.` };
+  }
+  return { ok: true, value: { recent_message_window: value } };
+}
+
 // ---- Shared DB access ----
 
 /** Single organization, single automation - raw config, for a dry-run preview or any other single-org read. */

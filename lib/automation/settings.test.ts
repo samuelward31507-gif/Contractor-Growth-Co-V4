@@ -21,6 +21,8 @@ const {
   validateAppointmentReminderConfig,
   readEstimateFollowupConfig,
   validateEstimateFollowupConfig,
+  readInboundCustomerReplyConfig,
+  validateInboundCustomerReplyConfig,
   shouldAuditConfigUpdate,
   getAutomationConfig,
   getAutomationConfigByOrganization,
@@ -256,3 +258,96 @@ test("Config 11: defaults preserve the exact pre-configuration behavior - 24h re
 test("Config: a malformed stored followup config (second <= first) falls back entirely to defaults rather than reading a broken partial state", () => {
   assert.deepEqual(readEstimateFollowupConfig({ followup_1_hours: 72, followup_2_hours: 24 }), { followup_1_hours: 24, followup_2_hours: 72 });
 });
+
+// ============================================================================
+// Automation Configuration V2.1 - inbound-customer-reply.recent_message_window
+// ============================================================================
+
+test("V2.1: default is 10 messages", () => {
+  assert.deepEqual(readInboundCustomerReplyConfig(null), { recent_message_window: 10 });
+  assert.deepEqual(readInboundCustomerReplyConfig(undefined), { recent_message_window: 10 });
+  assert.deepEqual(readInboundCustomerReplyConfig({}), { recent_message_window: 10 });
+});
+
+test("V2.1: valid values 1, 10, and 50 are accepted", () => {
+  assert.deepEqual(validateInboundCustomerReplyConfig({ recent_message_window: 1 }), { ok: true, value: { recent_message_window: 1 } });
+  assert.deepEqual(validateInboundCustomerReplyConfig({ recent_message_window: 10 }), { ok: true, value: { recent_message_window: 10 } });
+  assert.deepEqual(validateInboundCustomerReplyConfig({ recent_message_window: 50 }), { ok: true, value: { recent_message_window: 50 } });
+});
+
+test("V2.1: invalid values are rejected, never silently coerced", () => {
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 0 }).ok, false, "zero");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: -1 }).ok, false, "negative");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 51 }).ok, false, "above max");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 10.5 }).ok, false, "decimal");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: NaN }).ok, false, "NaN");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: Infinity }).ok, false, "Infinity");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: "10" }).ok, false, "string");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: null }).ok, false, "null value");
+  assert.equal(validateInboundCustomerReplyConfig(null).ok, false, "null input");
+  assert.equal(validateInboundCustomerReplyConfig([10]).ok, false, "array input");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 10, extra_field: "x" }).ok, false, "unknown property");
+});
+
+test("V2.1: a malformed stored config (out of range, wrong type, or an array) safely falls back to the default of 10", () => {
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 0 }), { recent_message_window: 10 });
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: -5 }), { recent_message_window: 10 });
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 51 }), { recent_message_window: 10 });
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 10.5 }), { recent_message_window: 10 });
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: "10" }), { recent_message_window: 10 });
+  assert.deepEqual(readInboundCustomerReplyConfig([10]), { recent_message_window: 10 });
+  assert.deepEqual(readInboundCustomerReplyConfig("not an object"), { recent_message_window: 10 });
+});
+
+test("V2.1: saving an identical config produces no audit plan (no-op save)", () => {
+  assert.equal(shouldAuditConfigUpdate({ recent_message_window: 10 }, { recent_message_window: 10 }), null);
+});
+
+test("V2.1: saving a changed config produces exactly one automation_config_updated plan with only the before/after values", () => {
+  const plan = shouldAuditConfigUpdate({ recent_message_window: 10 }, { recent_message_window: 25 });
+  assert.deepEqual(plan, {
+    action: "automation_config_updated",
+    metadata: { previous_config: { recent_message_window: 10 }, new_config: { recent_message_window: 25 } },
+  });
+});
+
+test("V2.1: organization isolation - getAutomationConfigByOrganization keys strictly by organization_id for inbound-customer-reply, one organization's window never leaks into another's lookup", async () => {
+  const ORG_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const ORG_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const rows = [
+    { organization_id: ORG_A, config: { recent_message_window: 25 } },
+    { organization_id: ORG_B, config: { recent_message_window: 3 } },
+  ];
+  const client = {
+    from: (table: string) => {
+      assert.equal(table, "automation_settings");
+      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+    },
+  } as unknown as SupabaseClient;
+
+  const map = await getAutomationConfigByOrganization(client, "inbound-customer-reply");
+
+  assert.deepEqual(readInboundCustomerReplyConfig(map.get(ORG_A)), { recent_message_window: 25 });
+  assert.deepEqual(readInboundCustomerReplyConfig(map.get(ORG_B)), { recent_message_window: 3 });
+  assert.deepEqual(readInboundCustomerReplyConfig(map.get("no-such-org")), { recent_message_window: 10 }, "an org with no row still gets the default");
+});
+
+// Note on authorization/organization-isolation-at-the-mutation-layer,
+// unauthenticated-caller, and non-admin-member scenarios for
+// updateInboundCustomerReplyConfig (app/(app)/automations/actions.ts):
+// that Server Action reuses requireOrgAdminSession/assertOrgAdmin
+// completely unchanged (no new authorization logic was written for V2.1),
+// and organizationId is always derived from the verified session, never
+// accepted as a parameter from the caller. Those guarantees are already
+// directly unit-tested against assertOrgAdmin itself in
+// lib/automation/authorization.test.ts (tests A, B, D, E) - a Server Action
+// cannot be unit tested in this repo (createClient() depends on
+// next/headers, which requires a real request context - see this
+// repository's established convention, e.g. retry.test.ts/settings.test.ts's
+// own comments), so re-asserting the identical, unmodified authorization
+// chain here would not exercise any code this phase actually changed.
+// Likewise, updateInboundCustomerReplyConfig's upsert payload is
+// `{ organization_id, automation_id: "inbound-customer-reply", config }`
+// only - it never includes `enabled` - verified by direct code inspection,
+// matching the exact established shape of updateAppointmentReminderConfig/
+// updateEstimateFollowupConfig above it in that same file.
