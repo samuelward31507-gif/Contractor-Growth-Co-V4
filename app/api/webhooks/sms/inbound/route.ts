@@ -4,6 +4,8 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { matchSmsKeyword } from "@/lib/messaging/keywords";
 import { emitCustomerReplyFollowup } from "@/lib/automation/customer-reply";
+import { sendOutboundMessage } from "@/lib/messaging/outbound";
+import { buildHelpResponseMessage } from "@/lib/messaging/help-response";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
@@ -31,15 +33,22 @@ function isValidTwilioSignature(url: string, params: Record<string, string>, sig
 }
 
 /**
- * Inbound SMS webhook. Twilio is not configured anywhere in this environment
- * yet (no TWILIO_AUTH_TOKEN), so this always fails closed at the signature
- * check today - the route exists so the communication architecture is
- * complete and testable once a real Twilio number is provisioned, without
- * requiring another round of schema/route changes at that point.
+ * Inbound SMS webhook. Organization routing (below) depends on
+ * organizations.sms_phone_number being both configured and unique - see
+ * app/(app)/settings/sms and supabase/migrations/20260919140000_sms_
+ * routing_settings.sql, which added the DB-level uniqueness/format
+ * guarantees this lookup relies on.
  *
- * AI-driven auto-response to inbound messages is explicitly out of scope
- * for this phase (see the Phase 3 audit, item J) - this route only persists
- * inbound messages and handles STOP/START/HELP compliance keywords.
+ * A normal (non-keyword) inbound message triggers the customer_reply_
+ * followup automation (emitCustomerReplyFollowup), which dispatches to n8n,
+ * runs AI qualification, and can produce a real outbound reply - gated the
+ * whole way by evaluateOutboundGate(), not by anything in this route. STOP/
+ * START/HELP are compliance keywords, not conversational content, and are
+ * deliberately excluded from that AI path entirely: STOP/START only ever
+ * toggle contacts.sms_opt_out, and HELP sends one deterministic,
+ * non-AI-generated reply (buildHelpResponseMessage) through the same
+ * sendOutboundMessage() path every other outbound send uses, never through
+ * the AI/n8n/outbound-gate pipeline.
  */
 export async function POST(request: NextRequest) {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -84,7 +93,7 @@ export async function POST(request: NextRequest) {
 
   const { data: organization } = await service
     .from("organizations")
-    .select("id")
+    .select("id, name, phone, email")
     .eq("sms_phone_number", to)
     .maybeSingle();
 
@@ -123,9 +132,10 @@ export async function POST(request: NextRequest) {
   } else if (keyword === "start" && contact.sms_opt_out) {
     await service.from("contacts").update({ sms_opt_out: false }).eq("id", contact.id);
   }
-  // HELP is recorded like any other inbound message below; auto-replying
-  // with the required help text needs real SMS sending, which this phase
-  // intentionally does not add yet.
+  // HELP is recorded like any other inbound message below and answered with
+  // one deterministic reply (see the sendOutboundMessage() call further
+  // down) - never AI-generated, never routed through customer_reply_
+  // followup.
 
   const conversation = await findOrCreateOpenConversation(service, organization.id, contact.id, "sms");
   if (!conversation) {
@@ -149,9 +159,8 @@ export async function POST(request: NextRequest) {
 
   // STOP/START/HELP are compliance keywords, not conversational content -
   // they must never trigger AI qualification/conversation processing. A
-  // normal message triggers the customer_reply_followup automation
-  // (Phase 4.2); should_send stays false throughout that flow, so this
-  // never results in an outbound SMS.
+  // normal message triggers the customer_reply_followup automation, which
+  // is gated end-to-end by evaluateOutboundGate() before any real send.
   if (!insertError && !keyword) {
     const { data: conversationLead } = await service
       .from("conversations")
@@ -166,6 +175,22 @@ export async function POST(request: NextRequest) {
       leadId: conversationLead?.lead_id ?? null,
       messageBody: body,
       providerMessageId: messageSid,
+    });
+  } else if (!insertError && keyword === "help") {
+    // Deterministic, non-AI reply. Goes through the same sendOutboundMessage()
+    // every other outbound send uses - so it still respects opt-out
+    // (redundant here since a HELP sender is by definition not opted out of
+    // receiving this exact reply, but sendOutboundMessage() re-checks
+    // regardless, never trusting the caller) and is recorded in `messages`
+    // like any other send. Never touches evaluateOutboundGate() - that gate
+    // exists to police AI-recommended sends, and this is not one.
+    await sendOutboundMessage(service, {
+      organizationId: organization.id,
+      contactId: contact.id,
+      conversationId: conversation.id,
+      channel: "sms",
+      senderType: "system",
+      body: buildHelpResponseMessage({ name: organization.name, phone: organization.phone, email: organization.email }),
     });
   }
 
