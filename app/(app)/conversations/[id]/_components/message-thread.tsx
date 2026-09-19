@@ -1,3 +1,21 @@
+"use client";
+
+// Release-audit fix: this was a Server Component using flex-direction:
+// column-reverse (grouped newest-first in DOM) purely so the thread opened
+// pre-scrolled to the latest message with no client script. Verified via
+// mobile browser testing that column-reverse + overflow-y: auto fails to
+// clip its own overflowing content in this browser - content laid out above
+// the scroll container's own top edge (visible via getBoundingClientRect:
+// message rows measured well above the container's top, e.g. top: 277.5 vs.
+// the container's own top: 387.5) painted straight over the conversation
+// header above it instead of being hidden until scrolled to. Desktop never
+// overflowed enough to reveal it. Fixed by rendering messages in normal
+// chronological order (oldest first, matching getMessages' ascending
+// query - lib/conversations/queries.ts) and scrolling the container to the
+// bottom imperatively on mount/update instead, which is the standard,
+// reliably-clipped pattern for this kind of thread.
+
+import { useEffect, useRef } from "react";
 import { AlertTriangle, Check, CheckCheck, Clock } from "lucide-react";
 import {
   SENDER_AVATAR_CLASS,
@@ -111,6 +129,15 @@ function MessageRow({ message }: { message: Message }) {
 }
 
 export function MessageThread({ messages }: { messages: Message[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [messages]);
+
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
@@ -119,11 +146,9 @@ export function MessageThread({ messages }: { messages: Message[] }) {
     );
   }
 
-  // Grouped, then the group order is reversed for rendering (see the
-  // flex-col-reverse container below) - the newest day ends up first in DOM
-  // order, which flex-col-reverse then places at the bottom of the screen,
-  // so the thread opens already scrolled to the latest message with no
-  // client-side scroll-into-view script required.
+  // Grouped in chronological order (messages arrive oldest-first from
+  // getMessages) - the ref-based scroll effect above opens the thread at
+  // the latest message instead of a reversed flex layout.
   const groups = new Map<string, Message[]>();
   for (const message of messages) {
     const label = getMessageDayLabel(message.created_at);
@@ -131,15 +156,16 @@ export function MessageThread({ messages }: { messages: Message[] }) {
     existing.push(message);
     groups.set(label, existing);
   }
-  const reversedGroups = [...groups.entries()].reverse();
+  const orderedGroups = [...groups.entries()];
 
   return (
     <div
+      ref={containerRef}
       role="log"
       aria-label="Message thread"
-      className="flex min-h-0 flex-1 flex-col-reverse gap-6 overflow-y-auto px-4 py-5 sm:px-6"
+      className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-5 sm:px-6"
     >
-      {reversedGroups.map(([label, items]) => (
+      {orderedGroups.map(([label, items]) => (
         <div key={label} className="space-y-4">
           <div className="flex items-center justify-center">
             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">

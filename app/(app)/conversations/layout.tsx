@@ -45,18 +45,20 @@ export default async function ConversationsLayout({ children }: { children: Reac
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden px-4 pt-6 sm:px-6 sm:pt-8 lg:px-10 lg:pt-10">
-      <PageHeader title="Conversations" description="Every customer conversation in one place, organized by activity." />
-      <div className="mt-6">
-        <ConversationsSummary summary={summary} />
-      </div>
       {conversations.length === 0 ? (
-        <div className="mt-6 flex flex-1 pb-6">
-          <ConversationsEmptyState />
-        </div>
+        <>
+          <PageHeader title="Conversations" description="Every customer conversation in one place, organized by activity." />
+          <div className="mt-6">
+            <ConversationsSummary summary={summary} />
+          </div>
+          <div className="mt-6 flex flex-1 pb-6">
+            <ConversationsEmptyState />
+          </div>
+        </>
       ) : (
-        <div className="mt-6 min-h-0 flex-1 border-t border-slate-200">
-          <ConversationsWorkspace conversations={withActivity}>{children}</ConversationsWorkspace>
-        </div>
+        <ConversationsWorkspace conversations={withActivity} summary={summary}>
+          {children}
+        </ConversationsWorkspace>
       )}
     </div>
   );

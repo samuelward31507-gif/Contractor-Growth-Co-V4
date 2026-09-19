@@ -1,3 +1,20 @@
+"use client";
+
+// Release-audit fix: NAV_GROUPS/AGENCY_NAV_ITEM carry a real component
+// reference per item (`icon: LucideIcon`), not a plain serializable value.
+// Passing that `item` object as a prop from a Server Component into
+// NavLink (a Client Component, below) is not allowed by React Server
+// Components - it fails at request time with "Only plain objects can be
+// passed to Client Components from Server Components," which `next build`
+// cannot catch (dynamic routes aren't rendered with real props at build
+// time) and which broke every authenticated page's desktop sidebar. This
+// file receives only plain, already-resolved primitive props from its
+// server parents (organizationName/userEmail/role/showAgencyLink - all
+// strings/booleans) and does its own data-free NAV_GROUPS import, so
+// marking it "use client" costs nothing (no server-only work happens
+// here) and keeps every prop that crosses an actual server/client boundary
+// a plain value.
+
 import { LogOut } from "lucide-react";
 import { NAV_GROUPS, AGENCY_NAV_ITEM } from "./nav-items";
 import { NavLink } from "./nav-link";
