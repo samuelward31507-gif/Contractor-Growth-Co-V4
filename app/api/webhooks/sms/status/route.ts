@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { isValidTwilioSignature } from "@/lib/messaging/twilio-signature";
 import { applyDeliveryStatusUpdate } from "@/lib/messaging/delivery-status";
+import { recordAutomationHealthSignal } from "@/lib/automation-health/service";
+import { getAutomationForWorkflowName } from "@/lib/automation/catalog";
 
 /**
  * Twilio's outbound message delivery-status callback. Registered as the
@@ -93,6 +95,31 @@ export async function POST(request: NextRequest) {
 
     if (auditError) {
       console.error("[sms][status] failed to record audit log entry", { messageId: result.messageId, error: auditError.message });
+    }
+
+    // Automation Health + Alerting V1: a terminal negative delivery outcome
+    // (failed/undelivered) for an automation-authored message is a health
+    // signal. Scoped to workflowExecutionId !== null only - a manually
+    // composed message failing delivery is a normal support matter, not an
+    // automation health concern this layer is about (see
+    // lib/automation-health/service.ts's own module comment). Each failed
+    // message is its own incident (fingerprint context = messageId, never
+    // collapsed with other messages) and is never auto-resolved by a later,
+    // different message succeeding - see recordAutomationHealthSignal's own
+    // resolution-rule documentation.
+    if ((result.toStatus === "failed" || result.toStatus === "undelivered") && result.workflowExecutionId) {
+      const { data: executionRow } = await service.from("workflow_executions").select("workflow_name").eq("id", result.workflowExecutionId).maybeSingle();
+      const automation = executionRow ? getAutomationForWorkflowName(executionRow.workflow_name) : null;
+
+      await recordAutomationHealthSignal(service, {
+        organizationId: result.organizationId,
+        category: "sms_delivery_failed",
+        severity: "warning",
+        fingerprintContext: result.messageId,
+        title: `Message delivery ${result.toStatus} for ${automation?.name ?? executionRow?.workflow_name ?? "an automation"}`,
+        automationId: automation?.id ?? null,
+        workflowExecutionId: result.workflowExecutionId,
+      });
     }
   }
 

@@ -80,7 +80,15 @@ export type DeliveryStatusOutcome =
   | { outcome: "unmapped_provider_status"; twilioStatus: string }
   | { outcome: "no_change"; status: MessageStatus }
   | { outcome: "ignored_downgrade"; currentStatus: MessageStatus; incomingStatus: MessageStatus }
-  | { outcome: "updated"; messageId: string; organizationId: string; fromStatus: MessageStatus; toStatus: MessageStatus };
+  | {
+      outcome: "updated";
+      messageId: string;
+      organizationId: string;
+      fromStatus: MessageStatus;
+      toStatus: MessageStatus;
+      /** Only set for automation-authored messages - see lib/automation-health/service.ts's own scoping of sms_delivery_failed detection to automation-sent messages only. */
+      workflowExecutionId: string | null;
+    };
 
 /**
  * The single place a Twilio delivery-status callback is applied to a
@@ -106,7 +114,7 @@ export async function applyDeliveryStatusUpdate(
 
   const { data: message } = await supabase
     .from("messages")
-    .select("id, organization_id, direction, status")
+    .select("id, organization_id, direction, status, workflow_execution_id")
     .eq("provider_message_id", input.providerMessageId)
     .maybeSingle();
 
@@ -146,5 +154,6 @@ export async function applyDeliveryStatusUpdate(
     organizationId: message.organization_id,
     fromStatus: currentStatus,
     toStatus: mapped.status,
+    workflowExecutionId: message.workflow_execution_id,
   };
 }

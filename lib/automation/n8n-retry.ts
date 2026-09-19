@@ -104,7 +104,7 @@ export async function redispatchToN8n(
 
   const dispatch = await triggerN8nWorkflow(contract);
   if (!dispatch.ok) {
-    await failWorkflowExecution(supabase, execution.id, dispatch.error);
+    await failWorkflowExecution(supabase, execution.id, dispatch.error, "n8n_dispatch_failed");
     return { ok: false, error: dispatch.error };
   }
   return { ok: true };

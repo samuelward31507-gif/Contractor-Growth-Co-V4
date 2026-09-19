@@ -27,6 +27,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
 import { getAgencyHealth } from "@/lib/agency/health";
+import { listIncidents } from "@/lib/automation-health/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { formatRate, formatCount } from "../../_components/format";
 import { StatGrid, type Stat } from "../../_components/stat-grid";
@@ -90,6 +91,12 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       </div>
     );
   }
+
+  // Only reached once `id` is confirmed to be one of THIS agency's own
+  // already-authorized organizations (the check immediately above) - never
+  // a second, independent authorization path. Uses the service-role client
+  // like every other agency read on this page.
+  const incidents = await listIncidents(service, id, { status: ["open", "acknowledged"] });
 
   const { metrics: m } = org;
 
@@ -221,6 +228,32 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
         <SectionCard title="Automation health" icon={Workflow}>
           <StatGrid stats={automationStats} columns="sm:grid-cols-3 lg:grid-cols-6" />
+        </SectionCard>
+
+        <SectionCard title="Active incidents" description={`${incidents.length} open or acknowledged`} icon={AlertTriangle}>
+          {incidents.length === 0 ? (
+            <p className="py-2 text-xs text-slate-500">No active operational incidents for this organization.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {incidents.map((incident) => (
+                <li key={incident.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">{incident.title}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      First seen {new Date(incident.firstSeenAt).toLocaleString()} · {formatCount(incident.occurrenceCount)} occurrence{incident.occurrenceCount === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                      incident.severity === "critical" ? "bg-red-50 text-red-700" : incident.severity === "warning" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {incident.severity}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </SectionCard>
 
         <SectionCard title="AI activity" icon={Bot}>

@@ -293,7 +293,7 @@ async function sendFollowup(
   });
 
   if (!sendResult.ok) {
-    await failWorkflowExecutionAsService(supabase, executionId, sendResult.error);
+    await failWorkflowExecutionAsService(supabase, executionId, sendResult.error, "sms_send_failed");
     return { estimateId: estimate.id, outcome: "failed", error: sendResult.error };
   }
 
@@ -480,7 +480,7 @@ export async function retryEstimateWorkflow(
   });
 
   if (!sendResult.ok) {
-    await failWorkflowExecution(supabase, executionId, sendResult.error);
+    await failWorkflowExecution(supabase, executionId, sendResult.error, "sms_send_failed");
     return { ok: false, error: sendResult.error };
   }
 

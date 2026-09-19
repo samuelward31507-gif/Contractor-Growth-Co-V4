@@ -3,12 +3,13 @@
  * startWorkflowExecution/startWorkflowExecutionAsService - against a mocked
  * Supabase client, no real database, no production fixtures. Run with:
  *
- *   node --test lib/automation/executions.test.ts
+ *   node --import ./lib/automation/test-loader.mjs --test lib/automation/executions.test.ts
  *
- * executions.ts has no "@/"-aliased imports (only @supabase/supabase-js
- * types), so unlike events.ts it can be loaded directly under plain
- * node --test - see lib/automation/authorization.test.ts for why this repo
- * uses node:test directly and the require()-with-explicit-.ts-path pattern.
+ * Automation Health + Alerting V1 gave executions.ts its own relative
+ * import of ./catalog (for automation lookup in the new incident-signal
+ * helpers) - extensionless relative .ts imports need the loader's
+ * resolution bridge under plain `node --test`, so this file now requires it
+ * too, matching the rest of this test suite's own documented invocation.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

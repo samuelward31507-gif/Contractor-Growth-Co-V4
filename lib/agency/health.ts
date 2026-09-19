@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAgencyOrganizationSnapshots, type AgencyAuthFailure } from "@/lib/agency/queries";
+import { getOrganizationHealth } from "@/lib/automation-health/health";
 
 /**
  * Agency-wide operational health rollup - "which clients need attention."
@@ -46,12 +47,58 @@ export type AgencyOrganizationHealth = {
   needsAttention: boolean;
 };
 
+/**
+ * Automation Health + Alerting V1 rollup - "how many client organizations
+ * have real, currently-open operational incidents, and how severe." Reuses
+ * lib/automation-health/health.ts's own getOrganizationHealth per resolved
+ * organization (the same N+1-but-parallelized shape
+ * getAgencyOrganizationSnapshots already uses for its own per-org BI reads -
+ * not a new pattern), scoped by the SAME resolveAgencyOrganizations
+ * authorization this whole module already requires before this function is
+ * ever reached. No client RLS is weakened for this: the service-role client
+ * bypasses RLS by design (as it already does for loadStuckExecutions above),
+ * but every read here is still explicitly filtered to the caller's already-
+ * authorized organization id list, never a broader scan.
+ */
+export type AgencyIncidentRollup = {
+  organizationsHealthy: number;
+  organizationsDegraded: number;
+  organizationsUnhealthy: number;
+  criticalIncidents: number;
+  warningIncidents: number;
+};
+
+async function loadIncidentRollup(serviceSupabase: SupabaseClient, organizationIds: string[]): Promise<AgencyIncidentRollup> {
+  if (organizationIds.length === 0) {
+    return { organizationsHealthy: 0, organizationsDegraded: 0, organizationsUnhealthy: 0, criticalIncidents: 0, warningIncidents: 0 };
+  }
+
+  const results = await Promise.all(organizationIds.map((organizationId) => getOrganizationHealth(serviceSupabase, organizationId)));
+
+  let organizationsHealthy = 0;
+  let organizationsDegraded = 0;
+  let organizationsUnhealthy = 0;
+  let criticalIncidents = 0;
+  let warningIncidents = 0;
+
+  for (const health of results) {
+    if (health.status === "healthy") organizationsHealthy += 1;
+    else if (health.status === "degraded") organizationsDegraded += 1;
+    else organizationsUnhealthy += 1;
+    criticalIncidents += health.criticalIncidentCount;
+    warningIncidents += health.warningIncidentCount;
+  }
+
+  return { organizationsHealthy, organizationsDegraded, organizationsUnhealthy, criticalIncidents, warningIncidents };
+}
+
 export type AgencyHealthResult =
   | {
       ok: true;
       stuckThresholdMinutes: number;
       stuck: StuckExecution[];
       organizations: AgencyOrganizationHealth[];
+      incidentRollup: AgencyIncidentRollup;
       generatedAt: string;
     }
   | AgencyAuthFailure;
@@ -142,11 +189,17 @@ export async function getAgencyHealth(
     };
   });
 
+  const incidentRollup = await loadIncidentRollup(
+    serviceSupabase,
+    organizations.map((org) => org.organizationId),
+  );
+
   return {
     ok: true,
     stuckThresholdMinutes,
     stuck,
     organizations: orgHealth,
+    incidentRollup,
     generatedAt: new Date().toISOString(),
   };
 }

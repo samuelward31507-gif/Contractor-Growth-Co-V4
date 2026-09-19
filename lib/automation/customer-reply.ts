@@ -189,7 +189,7 @@ export async function emitCustomerReplyFollowup(
   after(async () => {
     const dispatch = await triggerN8nWorkflow(contract);
     if (!dispatch.ok) {
-      const failed = await failWorkflowExecutionAsService(supabase, executionId, dispatch.error);
+      const failed = await failWorkflowExecutionAsService(supabase, executionId, dispatch.error, "n8n_dispatch_failed");
       if (!failed.ok) {
         console.error("[automation] failed to record customer reply dispatch failure", {
           executionId,

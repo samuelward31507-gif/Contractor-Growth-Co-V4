@@ -226,7 +226,7 @@ async function dispatchAppointmentWorkflow(
   after(async () => {
     const dispatch = await triggerN8nWorkflow(contract);
     if (!dispatch.ok) {
-      const failed = await failWorkflowExecution(supabase, input.executionId, dispatch.error);
+      const failed = await failWorkflowExecution(supabase, input.executionId, dispatch.error, "n8n_dispatch_failed");
       if (!failed.ok) {
         console.error("[automation] failed to record appointment workflow dispatch failure", {
           executionId: input.executionId,

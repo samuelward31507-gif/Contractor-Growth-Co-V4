@@ -1,6 +1,24 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getAutomationForWorkflowName } from "./catalog";
+import { recordAutomationHealthSignal, resolveAutomationFailureIncidents } from "../automation-health/service";
+import { automationFingerprintContext } from "../automation-health/fingerprint";
 
 export type WorkflowExecutionStatus = "running" | "completed" | "failed" | "cancelled";
+
+/**
+ * The three failure causes failWorkflowExecution/failWorkflowExecutionAsService
+ * callers can actually distinguish, from the real evidence in this codebase:
+ * a dispatch to n8n itself failing (lib/automation/n8n.ts's triggerN8nWorkflow),
+ * an outbound SMS send failing after the gate already passed
+ * (lib/messaging/outbound.ts/lib/automation/sms.ts), or any other internal
+ * failure (a missing entity reference, a data-integrity check) - the
+ * generic default. This is NOT the same list as automation-health's full
+ * IncidentCategory: workflow_stuck, n8n_callback_failed, and
+ * sms_delivery_failed are all detected from different code paths that never
+ * call failWorkflowExecution at all (see lib/automation-health/service.ts's
+ * own module comment).
+ */
+export type WorkflowFailureCategory = "workflow_failed" | "n8n_dispatch_failed" | "sms_send_failed";
 export type WorkflowExecutionTriggerSource = "event" | "manual" | "retry";
 
 export type WorkflowExecution = {
@@ -121,6 +139,40 @@ export async function startWorkflowExecution(
   return { ok: true, execution: data as WorkflowExecution };
 }
 
+/**
+ * Automation Health + Alerting V1: the single place every successful
+ * completion (whatever triggered it - event, retry, manual run, cron tick)
+ * resolves any active per-automation failure incident, per the documented
+ * resolution rule in lib/automation-health/service.ts. Never throws.
+ */
+async function emitFailureResolutionSignal(supabase: SupabaseClient, execution: WorkflowExecution): Promise<void> {
+  const automation = getAutomationForWorkflowName(execution.workflow_name);
+  await resolveAutomationFailureIncidents(supabase, execution.organization_id, automationFingerprintContext(automation?.id ?? null, execution.workflow_name));
+}
+
+/**
+ * Automation Health + Alerting V1: the single place every workflow-execution
+ * failure (whatever the cause - dispatch, send, or internal) is recorded as
+ * a health signal. `category` lets the caller distinguish the cause it
+ * actually knows (see WorkflowFailureCategory's own comment); the fingerprint
+ * always collapses per-automation, so repeated failures of the same
+ * automation increment one incident's occurrence_count rather than creating
+ * a flood of new ones. Never throws.
+ */
+async function emitFailureIncidentSignal(supabase: SupabaseClient, execution: WorkflowExecution, category: WorkflowFailureCategory, errorMessage: string): Promise<void> {
+  const automation = getAutomationForWorkflowName(execution.workflow_name);
+  await recordAutomationHealthSignal(supabase, {
+    organizationId: execution.organization_id,
+    category,
+    severity: "warning",
+    fingerprintContext: automationFingerprintContext(automation?.id ?? null, execution.workflow_name),
+    title: `${automation?.name ?? execution.workflow_name} failed`,
+    description: errorMessage,
+    automationId: automation?.id ?? null,
+    workflowExecutionId: execution.id,
+  });
+}
+
 export async function completeWorkflowExecution(
   supabase: SupabaseClient,
   executionId: string,
@@ -140,7 +192,9 @@ export async function completeWorkflowExecution(
     return { ok: false, error: mapExecutionRpcError(error?.message) };
   }
 
-  return { ok: true, execution: data as WorkflowExecution };
+  const execution = data as WorkflowExecution;
+  await emitFailureResolutionSignal(supabase, execution);
+  return { ok: true, execution };
 }
 
 /**
@@ -154,6 +208,7 @@ export async function failWorkflowExecution(
   supabase: SupabaseClient,
   executionId: string,
   errorMessage: string,
+  category: WorkflowFailureCategory = "workflow_failed",
 ): Promise<ExecutionResult> {
   const user = await requireUser(supabase);
   if (!user) return { ok: false, error: "Not authenticated." };
@@ -169,7 +224,9 @@ export async function failWorkflowExecution(
     return { ok: false, error: mapExecutionRpcError(error?.message) };
   }
 
-  return { ok: true, execution: data as WorkflowExecution };
+  const execution = data as WorkflowExecution;
+  await emitFailureIncidentSignal(supabase, execution, category, errorMessage);
+  return { ok: true, execution };
 }
 
 /**
@@ -198,7 +255,9 @@ export async function completeWorkflowExecutionAsService(
     return { ok: false, error: mapExecutionRpcError(error?.message) };
   }
 
-  return { ok: true, execution: data as WorkflowExecution };
+  const execution = data as WorkflowExecution;
+  await emitFailureResolutionSignal(supabase, execution);
+  return { ok: true, execution };
 }
 
 /**
@@ -241,6 +300,7 @@ export async function failWorkflowExecutionAsService(
   supabase: SupabaseClient,
   executionId: string,
   errorMessage: string,
+  category: WorkflowFailureCategory = "workflow_failed",
 ): Promise<ExecutionResult> {
   const { data, error } = await supabase
     .rpc("fail_workflow_execution", {
@@ -253,5 +313,7 @@ export async function failWorkflowExecutionAsService(
     return { ok: false, error: mapExecutionRpcError(error?.message) };
   }
 
-  return { ok: true, execution: data as WorkflowExecution };
+  const execution = data as WorkflowExecution;
+  await emitFailureIncidentSignal(supabase, execution, category, errorMessage);
+  return { ok: true, execution };
 }

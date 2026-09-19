@@ -15,6 +15,7 @@ import {
   readReviewReferralFollowupConfig,
 } from "@/lib/automation/settings";
 import { recordPostJobFollowupOutcome } from "@/lib/reviews-referrals/tracking";
+import { recordAutomationHealthSignal } from "@/lib/automation-health/service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -184,6 +185,32 @@ function normalizeEvent(value: EmbeddedEvent | EmbeddedEvent[] | null): Embedded
  */
 function isAlreadyProcessedError(error: string): boolean {
   return error === "Execution is not running";
+}
+
+/**
+ * Automation Health + Alerting V1: records an n8n_callback_failed signal
+ * when this route itself could not persist an n8n callback's outcome
+ * (complete_workflow_execution/fail_workflow_execution returning an
+ * unexpected, non-"already processed" error) - a genuinely urgent case,
+ * since the execution is left in an inconsistent state no later callback
+ * will retry. Fingerprint context is the execution id (not the automation):
+ * a botched callback for one execution says nothing about a different
+ * execution of the same automation, and a retried/duplicate callback for
+ * the SAME execution correctly collapses into one incident. Never throws -
+ * matches recordAutomationHealthSignal's own best-effort contract.
+ */
+async function recordCallbackFailureSignal(service: SupabaseClient, event: EmbeddedEvent, executionId: string, rpcError: string): Promise<void> {
+  const automation = getAutomationForEventType(event.event_type);
+  await recordAutomationHealthSignal(service, {
+    organizationId: event.organization_id,
+    category: "n8n_callback_failed",
+    severity: "critical",
+    fingerprintContext: executionId,
+    title: `Callback processing failed for ${automation?.name ?? event.event_type}`,
+    description: rpcError,
+    automationId: automation?.id ?? null,
+    workflowExecutionId: executionId,
+  });
 }
 
 /**
@@ -534,6 +561,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, alreadyProcessed: true });
       }
       console.error("[automation] failed to complete execution", { executionId: execution.id, error: result.error });
+      await recordCallbackFailureSignal(service, event, execution.id, result.error);
       return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
     }
     return NextResponse.json({ ok: true });
@@ -621,6 +649,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, alreadyProcessed: true });
       }
       console.error("[automation] failed to complete execution", { executionId: execution.id, error: result.error });
+      await recordCallbackFailureSignal(service, event, execution.id, result.error);
       return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
     }
     await recordReviewReferralOutcomeIfApplicable(
@@ -649,9 +678,10 @@ export async function POST(request: NextRequest) {
     // The execution must clearly reflect that delivery could not complete;
     // it must never be marked completed as if the customer-facing message
     // went out.
-    const failed = await failWorkflowExecutionAsService(service, execution.id, sendResult.error);
+    const failed = await failWorkflowExecutionAsService(service, execution.id, sendResult.error, "sms_send_failed");
     if (!failed.ok && !isAlreadyProcessedError(failed.error)) {
       console.error("[automation] failed to record execution failure", { executionId: execution.id, error: failed.error });
+      await recordCallbackFailureSignal(service, event, execution.id, failed.error);
     }
     await recordReviewReferralOutcomeIfApplicable(
       service,
@@ -673,6 +703,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, alreadyProcessed: true });
     }
     console.error("[automation] failed to complete execution", { executionId: execution.id, error: completed.error });
+    await recordCallbackFailureSignal(service, event, execution.id, completed.error);
     return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
   }
 

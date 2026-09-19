@@ -126,6 +126,41 @@ function createMockSupabase() {
           }),
         };
       }
+      if (fn === "record_automation_incident_signal") {
+        // Automation Health + Alerting V1: failWorkflowExecution now records
+        // an incident signal as a side effect of every real failure - this
+        // test's own retry/redispatch flow triggers that path (the
+        // unconfigured-n8n short-circuit above always fails the new
+        // execution), so the mock must accept it like any other real RPC
+        // call, not treat it as unexpected.
+        return {
+          single: async () => ({
+            data: {
+              id: "fake-incident-id",
+              organization_id: ORG_ID,
+              automation_id: null,
+              workflow_execution_id: (args.p_workflow_execution_id as string | null) ?? null,
+              category: args.p_category,
+              severity: args.p_severity,
+              status: "open",
+              fingerprint: args.p_fingerprint,
+              title: args.p_title,
+              description: (args.p_description as string | null) ?? null,
+              first_seen_at: new Date().toISOString(),
+              last_seen_at: new Date().toISOString(),
+              occurrence_count: 1,
+              resolved_at: null,
+              resolved_by: null,
+              acknowledged_at: null,
+              acknowledged_by: null,
+              metadata: args.p_metadata ?? {},
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            error: null,
+          }),
+        };
+      }
       throw new Error(`unexpected rpc in this test: ${fn}`);
     },
     auth: {

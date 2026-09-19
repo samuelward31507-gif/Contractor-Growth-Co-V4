@@ -263,7 +263,7 @@ async function processOneReminder(
   });
 
   if (!sendResult.ok) {
-    await failWorkflowExecutionAsService(supabase, executionId, sendResult.error);
+    await failWorkflowExecutionAsService(supabase, executionId, sendResult.error, "sms_send_failed");
     return { appointmentId: appointment.id, outcome: "failed", error: sendResult.error };
   }
 
@@ -444,7 +444,7 @@ export async function retryAppointmentReminder(
   });
 
   if (!sendResult.ok) {
-    await failWorkflowExecution(supabase, executionId, sendResult.error);
+    await failWorkflowExecution(supabase, executionId, sendResult.error, "sms_send_failed");
     return { ok: false, error: sendResult.error };
   }
 

@@ -11,6 +11,7 @@ import { ClientHealthTable } from "./_components/client-health-table";
 import { AttentionSection } from "./_components/attention-section";
 import { AutomationActivity } from "./_components/automation-activity";
 import { AiActivity } from "./_components/ai-activity";
+import { IncidentRollup } from "./_components/incident-rollup";
 
 /**
  * Agency Command Center v1 - the first functional operational view, not the
@@ -76,6 +77,7 @@ export default async function AgencyPage() {
 
       <div className="mt-4 flex flex-col gap-3.5">
         <OverviewCards summary={metrics.summary} />
+        <IncidentRollup rollup={health.incidentRollup} />
         <ClientHealthTable organizations={metrics.organizations} healthByOrg={healthByOrg} />
         <AttentionSection organizations={attentionOrganizations} stuck={health.stuck} />
         <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
