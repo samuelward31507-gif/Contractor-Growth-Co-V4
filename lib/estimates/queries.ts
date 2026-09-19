@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Contact } from "@/lib/contacts/queries";
+import type { LeadStatus, LeadTemperature } from "@/lib/leads/queries";
 
 export type EstimateStatus = "draft" | "sent" | "accepted" | "declined" | "cancelled" | "expired";
 
@@ -10,6 +12,15 @@ export const ESTIMATE_STATUSES: { value: EstimateStatus; label: string }[] = [
   { value: "cancelled", label: "Cancelled" },
   { value: "expired", label: "Expired" },
 ];
+
+export type EstimateContact = Pick<Contact, "id" | "first_name" | "last_name" | "company_name" | "phone" | "email">;
+
+export type EstimateLead = {
+  id: string;
+  service: string | null;
+  status: LeadStatus;
+  temperature: LeadTemperature;
+};
 
 export type Estimate = {
   id: string;
@@ -25,10 +36,48 @@ export type Estimate = {
   expires_at: string | null;
   created_at: string;
   updated_at: string;
+  contact: EstimateContact | null;
+  lead: EstimateLead | null;
 };
 
+// A single string literal (not `+` concatenation) - matches
+// lib/appointments/queries.ts's APPOINTMENT_COLUMNS convention: Supabase's
+// type-level select parser needs the literal type to infer typed columns.
 const ESTIMATE_COLUMNS =
-  "id, organization_id, contact_id, lead_id, title, amount, status, notes, sent_at, responded_at, expires_at, created_at, updated_at";
+  "id, organization_id, contact_id, lead_id, title, amount, status, notes, sent_at, responded_at, expires_at, created_at, updated_at, contact:contacts(id, first_name, last_name, company_name, phone, email), lead:leads(id, service, status, temperature)";
+
+type Embedded<T> = T | T[] | null;
+
+function one<T>(value: Embedded<T>): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+type RawEstimateRow = Omit<Estimate, "contact" | "lead"> & {
+  contact: Embedded<EstimateContact>;
+  lead: Embedded<EstimateLead>;
+};
+
+function normalizeEstimate(row: RawEstimateRow): Estimate {
+  return { ...row, contact: one(row.contact), lead: one(row.lead) };
+}
+
+/**
+ * Loads every estimate for the org (capped, matching the Leads/Appointments
+ * pattern), with its contact and lead embedded via the existing foreign
+ * keys. RLS already scopes rows to the caller's organization; the explicit
+ * filter keeps the query efficient and its intent obvious.
+ */
+export async function getEstimates(supabase: SupabaseClient, organizationId: string): Promise<Estimate[]> {
+  const { data } = await supabase
+    .from("estimates")
+    .select(ESTIMATE_COLUMNS)
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(1000);
+
+  return ((data ?? []) as RawEstimateRow[]).map(normalizeEstimate);
+}
 
 /**
  * Loads a single estimate scoped to the org. Mirrors getAppointment's
@@ -48,5 +97,65 @@ export async function getEstimate(
     .maybeSingle();
 
   if (error || !data) return null;
-  return data as Estimate;
+  return normalizeEstimate(data as RawEstimateRow);
+}
+
+export type EstimateFilters = {
+  query?: string;
+  status?: EstimateStatus | "all";
+};
+
+/**
+ * Filters an already-fetched, org-scoped estimate list in memory, the same
+ * approach filterLeads/filterAppointmentsByView use - a plain ilike/or()
+ * query can't match a combined contact full name against separately-stored
+ * first/last columns.
+ */
+export function filterEstimates(estimates: Estimate[], filters: EstimateFilters): Estimate[] {
+  const term = filters.query?.trim().toLowerCase() ?? "";
+
+  return estimates.filter((estimate) => {
+    if (filters.status && filters.status !== "all" && estimate.status !== filters.status) return false;
+
+    if (!term) return true;
+
+    const contact = estimate.contact;
+    const fullName = contact
+      ? [contact.first_name, contact.last_name].filter(Boolean).join(" ").toLowerCase()
+      : "";
+    const haystacks = [
+      estimate.title.toLowerCase(),
+      fullName,
+      contact?.first_name?.toLowerCase(),
+      contact?.last_name?.toLowerCase(),
+      contact?.company_name?.toLowerCase(),
+      contact?.phone?.toLowerCase(),
+      contact?.email?.toLowerCase(),
+    ];
+    return haystacks.some((value) => value?.includes(term));
+  });
+}
+
+export type EstimateSummary = {
+  total: number;
+  draftCount: number;
+  sentCount: number;
+  acceptedValue: number;
+};
+
+/**
+ * Mirrors summarizeLeads' shape: total, one "needs your attention" count
+ * (open, unsent drafts), one in-flight count, and one closed-won value
+ * total - the same restrained set of numbers Leads surfaces, not every
+ * status count.
+ */
+export function summarizeEstimates(estimates: Estimate[]): EstimateSummary {
+  return {
+    total: estimates.length,
+    draftCount: estimates.filter((estimate) => estimate.status === "draft").length,
+    sentCount: estimates.filter((estimate) => estimate.status === "sent").length,
+    acceptedValue: estimates
+      .filter((estimate) => estimate.status === "accepted")
+      .reduce((sum, estimate) => sum + (estimate.amount ?? 0), 0),
+  };
 }
