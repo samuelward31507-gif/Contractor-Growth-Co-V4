@@ -2,9 +2,11 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { filterJobs, getJobs, summarizeJobs, type JobStatus } from "@/lib/jobs/queries";
+import { getReviewRequests, getReferralRequests, summarizeReviewRequests, summarizeReferralRequests } from "@/lib/reviews-referrals/queries";
 import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
 import { JobsEmptyState } from "./_components/jobs-empty-state";
 import { JobsSummary } from "./_components/jobs-summary";
+import { ReviewReferralSummaryRow } from "./_components/review-referral-summary";
 import { JobsTable } from "./_components/jobs-table";
 import { JobsToolbar } from "./_components/jobs-toolbar";
 
@@ -34,9 +36,14 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
     redirect("/onboarding");
   }
 
-  const allJobs = await getJobs(supabase, membership.organizationId);
+  const [allJobs, reviewRequests, referralRequests] = await Promise.all([
+    getJobs(supabase, membership.organizationId),
+    getReviewRequests(supabase, membership.organizationId),
+    getReferralRequests(supabase, membership.organizationId),
+  ]);
 
   const summary = summarizeJobs(allJobs);
+  const reviewReferralSummary = { ...summarizeReviewRequests(reviewRequests), ...summarizeReferralRequests(referralRequests) };
   const filtered = filterJobs(allJobs, { query, status });
   const hasActiveFilters = Boolean(query.trim()) || status !== "all";
 
@@ -48,6 +55,7 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
       </div>
 
       <JobsSummary summary={summary} />
+      <ReviewReferralSummaryRow summary={reviewReferralSummary} />
 
       {allJobs.length === 0 ? (
         <JobsEmptyState />

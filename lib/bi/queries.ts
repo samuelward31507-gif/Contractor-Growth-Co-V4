@@ -16,6 +16,7 @@ import type {
   AutomationMetrics,
   AiMetrics,
   FollowUpMetrics,
+  ReviewReferralMetrics,
   BusinessIntelligenceSnapshot,
 } from "./types";
 
@@ -578,6 +579,75 @@ export async function getAiMetrics(
 }
 
 // ---------------------------------------------------------------------------
+// Review & Referral (Review & Referral Tracking V1)
+// ---------------------------------------------------------------------------
+
+/** null on a zero/undefined denominator - never a fabricated 0% or divide-by-zero, matching this file's Phase 5.2 rate-calculation discipline. */
+function rate(numerator: number, denominator: number): number | null {
+  if (denominator <= 0) return null;
+  return numerator / denominator;
+}
+
+/**
+ * Definition: current-state counts by review_requests.status/
+ * referral_requests.status, both scoped to the org and date-ranged by each
+ * table's own created_at (when the request was actually made, i.e. when the
+ * post-job SMS attempt resolved - see lib/reviews-referrals/tracking.ts).
+ * Reliability: directly reliable for the request/response/failed counts
+ * (deterministic, automation-authored). completed/declined/converted counts
+ * reflect an explicit contractor confirmation, not an automated inference -
+ * still directly reliable as "what the contractor recorded," but note this
+ * is a smaller, human-driven subset of activity, not a fully-automated
+ * measurement the way delivery status is.
+ */
+export async function getReviewReferralMetrics(
+  supabase: SupabaseClient,
+  organizationId: string,
+  range: ResolvedDateRange,
+): Promise<ReviewReferralMetrics> {
+  let reviewQuery = supabase.from("review_requests").select("status").eq("organization_id", organizationId).limit(MAX_ROWS);
+  if (range.from) reviewQuery = reviewQuery.gte("created_at", range.from);
+  if (range.to) reviewQuery = reviewQuery.lt("created_at", range.to);
+
+  let referralQuery = supabase.from("referral_requests").select("status").eq("organization_id", organizationId).limit(MAX_ROWS);
+  if (range.from) referralQuery = referralQuery.gte("created_at", range.from);
+  if (range.to) referralQuery = referralQuery.lt("created_at", range.to);
+
+  const [{ data: reviewData }, { data: referralData }] = await Promise.all([reviewQuery, referralQuery]);
+  const reviewRows = (reviewData ?? []) as { status: string }[];
+  const referralRows = (referralData ?? []) as { status: string }[];
+
+  const reviewsRequested = reviewRows.length;
+  const reviewsResponded = reviewRows.filter((r) => r.status === "responded").length;
+  const reviewsCompleted = reviewRows.filter((r) => r.status === "completed").length;
+  const reviewsDeclined = reviewRows.filter((r) => r.status === "declined").length;
+  const reviewsFailed = reviewRows.filter((r) => r.status === "failed").length;
+
+  const referralsRequested = referralRows.length;
+  const referralsResponded = referralRows.filter((r) => r.status === "responded").length;
+  const referralsConverted = referralRows.filter((r) => r.status === "converted").length;
+  const referralsDeclined = referralRows.filter((r) => r.status === "declined").length;
+  const referralsFailed = referralRows.filter((r) => r.status === "failed").length;
+
+  return {
+    reviewsRequested,
+    reviewsResponded,
+    reviewsCompleted,
+    reviewsDeclined,
+    reviewsFailed,
+    reviewResponseRate: rate(reviewsResponded, reviewsRequested),
+    reviewCompletionRate: rate(reviewsCompleted, reviewsRequested),
+    referralsRequested,
+    referralsResponded,
+    referralsConverted,
+    referralsDeclined,
+    referralsFailed,
+    referralResponseRate: rate(referralsResponded, referralsRequested),
+    referralConversionRate: rate(referralsConverted, referralsRequested),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot
 // ---------------------------------------------------------------------------
 
@@ -596,7 +666,7 @@ export async function getBusinessIntelligenceSnapshot(
 ): Promise<BusinessIntelligenceSnapshot> {
   const range = resolveDateRange(dateRangeInput);
 
-  const [{ leads, pipeline }, estimates, jobs, appointments, communication, { automation, followUp }, ai] = await Promise.all([
+  const [{ leads, pipeline }, estimates, jobs, appointments, communication, { automation, followUp }, ai, reviewReferral] = await Promise.all([
     getLeadAndPipelineMetrics(supabase, organizationId, range),
     getEstimateMetrics(supabase, organizationId, range),
     getJobMetrics(supabase, organizationId, range),
@@ -604,6 +674,7 @@ export async function getBusinessIntelligenceSnapshot(
     getCommunicationMetrics(supabase, organizationId, range),
     getAutomationAndFollowUpMetrics(supabase, organizationId, range),
     getAiMetrics(supabase, organizationId, range),
+    getReviewReferralMetrics(supabase, organizationId, range),
   ]);
 
   return {
@@ -618,6 +689,7 @@ export async function getBusinessIntelligenceSnapshot(
     automation,
     ai,
     followUp,
+    reviewReferral,
     generatedAt: new Date().toISOString(),
   };
 }

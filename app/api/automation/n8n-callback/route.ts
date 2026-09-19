@@ -14,6 +14,7 @@ import {
   readJobLifecycleConfig,
   readReviewReferralFollowupConfig,
 } from "@/lib/automation/settings";
+import { recordPostJobFollowupOutcome } from "@/lib/reviews-referrals/tracking";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -279,6 +280,43 @@ function leadMustHaveNoActiveEngagementFor(eventType: string): boolean {
 }
 
 /**
+ * Review & Referral Tracking V1: the only place this route calls into
+ * lib/reviews-referrals/tracking.ts, and only ever for job.post_followup -
+ * every other event type is a complete no-op here. jobId/reviewUrl are read
+ * straight from the already-validated event fields this function receives
+ * (never re-derived or re-fetched), and workflowExecutionId is always the
+ * execution this callback is for - the exact same values the gate/send path
+ * just used to decide and record the real outcome, not a second, possibly
+ * inconsistent source of truth.
+ */
+async function recordReviewReferralOutcomeIfApplicable(
+  service: SupabaseClient,
+  params: {
+    eventType: string;
+    organizationId: string;
+    jobId: string | null;
+    contactId: string | null;
+    conversationId: string | null;
+    reviewUrl: string | null;
+    executionId: string;
+  },
+  outcome:
+    | { kind: "sent"; messageId: string }
+    | { kind: "blocked"; reason: string }
+    | { kind: "send_failed"; reason: string },
+): Promise<void> {
+  if (params.eventType !== "job.post_followup" || !params.jobId) return;
+
+  const input = { organizationId: params.organizationId, jobId: params.jobId, contactId: params.contactId, conversationId: params.conversationId, reviewUrl: params.reviewUrl };
+
+  if (outcome.kind === "sent") {
+    await recordPostJobFollowupOutcome(service, input, { kind: "sent", messageId: outcome.messageId, workflowExecutionId: params.executionId });
+  } else {
+    await recordPostJobFollowupOutcome(service, input, { kind: outcome.kind, workflowExecutionId: params.executionId, reason: outcome.reason });
+  }
+}
+
+/**
  * Automation Configuration V2.2: resolves whether the gate should require
  * business hours for this specific event's automation, reading that
  * automation's own automation_settings.config fresh on every callback - no
@@ -524,6 +562,11 @@ export async function POST(request: NextRequest) {
         ? (event.payload.job_id as string)
         : null;
   const jobEligibleStatuses = jobEligibleStatusesFor(event.event_type);
+  // Review & Referral Tracking V1: the exact review_url Trackpr sent with
+  // the original request (snapshotted in the stored event payload by
+  // emitPostJobFollowup) - never re-fetched from organizations here, since
+  // the org's configured URL could have changed since the request was made.
+  const reviewUrl = typeof event.payload?.review_url === "string" ? (event.payload.review_url as string) : null;
 
   const leadEligibleStatuses = leadEligibleStatusesFor(event.event_type);
   const leadMustHaveNoActiveEngagement = leadMustHaveNoActiveEngagementFor(event.event_type);
@@ -580,6 +623,11 @@ export async function POST(request: NextRequest) {
       console.error("[automation] failed to complete execution", { executionId: execution.id, error: result.error });
       return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
     }
+    await recordReviewReferralOutcomeIfApplicable(
+      service,
+      { eventType: event.event_type, organizationId: event.organization_id, jobId, contactId, conversationId, reviewUrl, executionId: execution.id },
+      { kind: "blocked", reason: gateResult.reason },
+    );
     return NextResponse.json({ ok: true, sent: false, blockedReason: gateResult.reason });
   }
 
@@ -605,6 +653,11 @@ export async function POST(request: NextRequest) {
     if (!failed.ok && !isAlreadyProcessedError(failed.error)) {
       console.error("[automation] failed to record execution failure", { executionId: execution.id, error: failed.error });
     }
+    await recordReviewReferralOutcomeIfApplicable(
+      service,
+      { eventType: event.event_type, organizationId: event.organization_id, jobId, contactId, conversationId, reviewUrl, executionId: execution.id },
+      { kind: "send_failed", reason: sendResult.error },
+    );
     return NextResponse.json({ ok: true });
   }
 
@@ -622,6 +675,12 @@ export async function POST(request: NextRequest) {
     console.error("[automation] failed to complete execution", { executionId: execution.id, error: completed.error });
     return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
   }
+
+  await recordReviewReferralOutcomeIfApplicable(
+    service,
+    { eventType: event.event_type, organizationId: event.organization_id, jobId, contactId, conversationId, reviewUrl, executionId: execution.id },
+    { kind: "sent", messageId: sendResult.messageId },
+  );
 
   return NextResponse.json({ ok: true });
 }

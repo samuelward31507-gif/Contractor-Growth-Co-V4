@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getJob } from "@/lib/jobs/queries";
+import { getLeads } from "@/lib/leads/queries";
+import { getReviewRequestForJob, getReferralRequestForJob } from "@/lib/reviews-referrals/queries";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
@@ -11,6 +13,7 @@ import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/
 import { Icon } from "../../_components/icon";
 import { JobStatusBadge } from "../_components/status-badge";
 import { JobActions } from "./_components/job-actions";
+import { ReviewReferralPanel } from "./_components/review-referral-panel";
 
 export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">) {
   const { id } = await params;
@@ -45,6 +48,15 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
   }
 
   const customerName = job.contact ? contactDisplayName(job.contact) : "No contact";
+
+  const [reviewRequest, referralRequest, leads] = await Promise.all([
+    getReviewRequestForJob(supabase, membership.organizationId, job.id),
+    getReferralRequestForJob(supabase, membership.organizationId, job.id),
+    getLeads(supabase, membership.organizationId),
+  ]);
+  const leadOptions = leads
+    .filter((lead) => lead.id !== job.lead_id)
+    .map((lead) => ({ id: lead.id, label: lead.service || `Lead ${lead.id.slice(0, 8)}` }));
 
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
@@ -94,6 +106,8 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
           </div>
         ) : null}
       </div>
+
+      <ReviewReferralPanel jobId={job.id} reviewRequest={reviewRequest} referralRequest={referralRequest} leadOptions={leadOptions} />
 
       {job.estimate ? (
         <div className="border-t border-slate-200 pt-8">

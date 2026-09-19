@@ -239,6 +239,39 @@ export type FollowUpMetrics = {
 };
 
 // ---------------------------------------------------------------------------
+// Review & Referral metrics (Review & Referral Tracking V1)
+//
+// Every count here is a real, tracked event (a review_requests/
+// referral_requests row and its actual status), never inferred - see
+// lib/reviews-referrals/tracking.ts for exactly what can and cannot move a
+// row to each status. The two rate fields follow this file's own
+// null-on-undefined-denominator discipline: with zero requests, the rate is
+// `null` (no data), never a fabricated 0%. "Completed"/"converted" here mean
+// exactly what the product's status model means - a human (the contractor)
+// explicitly confirmed it, never an SMS-sent or AI-inferred proxy for it.
+// -----------------------------------------------------------------------
+export type ReviewReferralMetrics = {
+  reviewsRequested: number;
+  reviewsResponded: number;
+  reviewsCompleted: number;
+  reviewsDeclined: number;
+  reviewsFailed: number;
+  /** reviewsResponded / reviewsRequested, or null if reviewsRequested is 0. */
+  reviewResponseRate: number | null;
+  /** reviewsCompleted / reviewsRequested, or null if reviewsRequested is 0. */
+  reviewCompletionRate: number | null;
+  referralsRequested: number;
+  referralsResponded: number;
+  referralsConverted: number;
+  referralsDeclined: number;
+  referralsFailed: number;
+  /** referralsResponded / referralsRequested, or null if referralsRequested is 0. */
+  referralResponseRate: number | null;
+  /** referralsConverted / referralsRequested, or null if referralsRequested is 0. */
+  referralConversionRate: number | null;
+};
+
+// ---------------------------------------------------------------------------
 // Snapshot
 // ---------------------------------------------------------------------------
 
@@ -254,6 +287,7 @@ export type BusinessIntelligenceSnapshot = {
   automation: AutomationMetrics;
   ai: AiMetrics;
   followUp: FollowUpMetrics;
+  reviewReferral: ReviewReferralMetrics;
   /** Wall-clock time this snapshot was computed - not a business timestamp. */
   generatedAt: string;
 };

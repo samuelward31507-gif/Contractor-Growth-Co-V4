@@ -6,6 +6,7 @@ import { emitCustomerReplyFollowup } from "@/lib/automation/customer-reply";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { buildHelpResponseMessage } from "@/lib/messaging/help-response";
 import { isValidTwilioSignature } from "@/lib/messaging/twilio-signature";
+import { recordRequestResponses } from "@/lib/reviews-referrals/tracking";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
@@ -157,6 +158,13 @@ export async function POST(request: NextRequest) {
       messageBody: body,
       providerMessageId: messageSid,
     });
+
+    // Review & Referral Tracking V1: deterministic, non-AI bookkeeping only
+    // - records that the contact replied at all, never what they said or
+    // whether it means the review/referral succeeded. Runs alongside (not
+    // instead of) the customer-reply automation above; a no-op when there is
+    // no currently-'requested' review/referral row for this contact.
+    await recordRequestResponses(service, organization.id, contact.id);
   } else if (!insertError && keyword === "help") {
     // Deterministic, non-AI reply. Goes through the same sendOutboundMessage()
     // every other outbound send uses - so it still respects opt-out
