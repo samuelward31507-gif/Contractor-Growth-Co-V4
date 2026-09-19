@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
@@ -6,30 +5,12 @@ import { matchSmsKeyword } from "@/lib/messaging/keywords";
 import { emitCustomerReplyFollowup } from "@/lib/automation/customer-reply";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { buildHelpResponseMessage } from "@/lib/messaging/help-response";
+import { isValidTwilioSignature } from "@/lib/messaging/twilio-signature";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
 function twiml() {
   return new NextResponse(EMPTY_TWIML, { status: 200, headers: { "content-type": "text/xml" } });
-}
-
-/**
- * Twilio's request-signing scheme: HMAC-SHA1 of the full request URL with
- * every POST param (sorted by key, key+value concatenated with no
- * separator) appended, base64-encoded, compared to X-Twilio-Signature.
- * https://www.twilio.com/docs/usage/security#validating-requests
- */
-function isValidTwilioSignature(url: string, params: Record<string, string>, signature: string, authToken: string): boolean {
-  const data = Object.keys(params)
-    .sort()
-    .reduce((acc, key) => acc + key + params[key], url);
-
-  const expected = createHmac("sha1", authToken).update(Buffer.from(data, "utf-8")).digest("base64");
-
-  const expectedBuf = Buffer.from(expected);
-  const actualBuf = Buffer.from(signature);
-  if (expectedBuf.length !== actualBuf.length) return false;
-  return timingSafeEqual(expectedBuf, actualBuf);
 }
 
 /**

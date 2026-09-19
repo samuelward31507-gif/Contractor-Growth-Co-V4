@@ -44,6 +44,7 @@ export type Message = {
   body: string;
   status: MessageStatus;
   status_reason: string | null;
+  provider_error_code: string | null;
   provider_message_id: string | null;
   workflow_execution_id: string | null;
   created_at: string;
@@ -77,7 +78,7 @@ const CONVERSATION_COLUMNS =
   "id, contact_id, lead_id, channel, status, ai_enabled, created_at, updated_at, contact:contacts(id, first_name, last_name, company_name, phone, email), lead:leads(id, service, source, status, temperature, estimated_value)";
 
 const MESSAGE_COLUMNS =
-  "id, conversation_id, direction, sender_type, body, status, status_reason, provider_message_id, workflow_execution_id, created_at, updated_at";
+  "id, conversation_id, direction, sender_type, body, status, status_reason, provider_error_code, provider_message_id, workflow_execution_id, created_at, updated_at";
 
 type Embedded<T> = T | T[] | null;
 

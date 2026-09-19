@@ -19,6 +19,51 @@ export type SendSmsResult =
 // rather than only discovering an invalid number here, one layer later.
 export const E164_PATTERN = /^\+[1-9]\d{1,14}$/;
 
+const STATUS_CALLBACK_PATH = "/api/webhooks/sms/status";
+
+/**
+ * Resolves Trackpr's own stable, public base URL for constructing the
+ * Twilio StatusCallback URL - never a hardcoded domain, never a temporary
+ * per-deployment preview URL. `APP_BASE_URL` is an explicit opt-in override
+ * (e.g. for a custom domain), checked first. Absent that, this falls back
+ * to `VERCEL_PROJECT_PRODUCTION_URL` - a Vercel platform-provided system
+ * environment variable that always holds the project's stable, assigned
+ * production domain (not the per-deployment `VERCEL_URL`, which changes on
+ * every deploy) - so this requires zero manual production configuration to
+ * work correctly on Vercel. Returns null (not a guess) when neither is
+ * available, e.g. running locally with no .env override; callers must
+ * treat that as "status callbacks are not configured yet", the same
+ * graceful-degradation shape sendSms() already uses for missing Twilio
+ * credentials.
+ */
+export function resolveAppBaseUrl(): string | null {
+  const explicit = process.env.APP_BASE_URL;
+  if (explicit) return explicit.replace(/\/+$/, "");
+
+  const vercelProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (vercelProductionUrl) return `https://${vercelProductionUrl}`;
+
+  return null;
+}
+
+export type TwilioCreateMessageParams = { to: string; from: string; body: string; statusCallback?: string };
+
+/**
+ * Pure builder for the exact params object passed to the Twilio SDK's
+ * `messages.create()` - extracted so "does the outbound send actually
+ * request delivery-status callbacks" is a fast, direct unit test rather
+ * than something only provable by mocking the Twilio SDK itself.
+ * statusCallback is omitted entirely (not sent as an empty string) when no
+ * base URL is configured, matching Twilio's own API contract.
+ */
+export function buildTwilioCreateMessageParams(input: { to: string; from: string; body: string; statusCallbackUrl: string | null }): TwilioCreateMessageParams {
+  const params: TwilioCreateMessageParams = { to: input.to, from: input.from, body: input.body };
+  if (input.statusCallbackUrl) {
+    params.statusCallback = input.statusCallbackUrl;
+  }
+  return params;
+}
+
 /**
  * SMS provider boundary. Reads TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
  * TWILIO_FROM_NUMBER directly from the environment on every call - no
@@ -53,9 +98,11 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   }
 
   const client = Twilio(accountSid, authToken);
+  const baseUrl = resolveAppBaseUrl();
+  const statusCallbackUrl = baseUrl ? `${baseUrl}${STATUS_CALLBACK_PATH}` : null;
 
   try {
-    const message = await client.messages.create({ to, from: fromNumber, body: input.body });
+    const message = await client.messages.create(buildTwilioCreateMessageParams({ to, from: fromNumber, body: input.body, statusCallbackUrl }));
     return { ok: true, providerMessageId: message.sid };
   } catch (error) {
     const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;

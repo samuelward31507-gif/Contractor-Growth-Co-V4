@@ -43,6 +43,21 @@ export function ExecutionDetailView({ detail }: { detail: ExecutionDetail }) {
       <Field label="Started" value={formatDateTime(detail.startedAt)} />
       <Field label="Completed" value={detail.completedAt ? formatDateTime(detail.completedAt) : "—"} />
 
+      {detail.outboundMessage ? (
+        <>
+          <Field label="SMS delivery status" value={detail.outboundMessage.status} />
+          {detail.outboundMessage.statusReason ? (
+            <div className="col-span-full">
+              <p className="text-[10.5px] font-medium uppercase tracking-wide text-slate-400">Delivery status reason</p>
+              <p className="mt-0.5 text-xs text-red-600">
+                {detail.outboundMessage.statusReason}
+                {detail.outboundMessage.providerErrorCode ? ` (Twilio error ${detail.outboundMessage.providerErrorCode})` : ""}
+              </p>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
       {detail.errorMessage ? (
         <div className="col-span-full">
           <p className="text-[10.5px] font-medium uppercase tracking-wide text-slate-400">Error</p>

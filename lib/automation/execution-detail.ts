@@ -61,6 +61,12 @@ export function sanitizeForDisplay(value: unknown): SanitizedObject | null {
 export type ExecutionDetailStatus = "running" | "completed" | "failed" | "cancelled";
 export type ExecutionDetailTriggerSource = "event" | "manual" | "retry";
 
+export type ExecutionDetailMessage = {
+  status: string;
+  statusReason: string | null;
+  providerErrorCode: string | null;
+};
+
 export type ExecutionDetail = {
   id: string;
   workflowName: string;
@@ -75,6 +81,8 @@ export type ExecutionDetail = {
   errorMessage: string | null;
   metadata: SanitizedObject | null;
   payload: SanitizedObject | null;
+  /** The outbound SMS this execution sent, if any (Twilio SMS Delivery Status Tracking V1) - null when this execution never sent a message (e.g. blocked by the outbound gate, or not an SMS-sending automation). */
+  outboundMessage: ExecutionDetailMessage | null;
 };
 
 /**
@@ -123,6 +131,18 @@ export async function getExecutionDetail(
 
   const automation = eventType ? getAutomationForEventType(eventType) : getAutomationForWorkflowName(execution.workflow_name as string);
 
+  // Outbound messages are linked back to the exact execution that sent them
+  // via messages.workflow_execution_id (see sendOutboundMessage()) - at most
+  // one outbound message per execution, matching the DB's own unique
+  // constraint on (workflow_execution_id) for outbound direction.
+  const { data: message } = await supabase
+    .from("messages")
+    .select("status, status_reason, provider_error_code")
+    .eq("workflow_execution_id", execution.id)
+    .eq("organization_id", organizationId)
+    .eq("direction", "outbound")
+    .maybeSingle();
+
   return {
     id: execution.id,
     workflowName: execution.workflow_name,
@@ -142,5 +162,12 @@ export async function getExecutionDetail(
     errorMessage: execution.error_message ? sanitizeValue(execution.error_message, 0) as string : null,
     metadata: sanitizeForDisplay(execution.metadata),
     payload: sanitizeForDisplay(rawPayload),
+    outboundMessage: message
+      ? {
+          status: message.status as string,
+          statusReason: message.status_reason ? (sanitizeValue(message.status_reason, 0) as string) : null,
+          providerErrorCode: message.provider_error_code as string | null,
+        }
+      : null,
   };
 }

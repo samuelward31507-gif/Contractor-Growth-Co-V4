@@ -131,6 +131,9 @@ test("getExecutionDetail resolves the automation name from the parent event's ev
           }),
         };
       }
+      if (table === "messages") {
+        return { select: () => chainable({ status: "delivered", status_reason: null, provider_error_code: null }) };
+      }
       throw new Error(`unexpected table: ${table}`);
     },
   } as unknown as SupabaseClient;
@@ -144,6 +147,43 @@ test("getExecutionDetail resolves the automation name from the parent event's ev
   assert.equal(detail!.metadata?.webhook_secret, "[redacted]");
   assert.equal(detail!.payload?.api_key, "[redacted]");
   assert.equal(detail!.payload?.lead_id, "44444444-4444-4444-4444-444444444444");
+  assert.equal(detail!.outboundMessage?.status, "delivered");
+});
+
+test("getExecutionDetail returns outboundMessage: null when this execution never sent a message (e.g. blocked by the outbound gate before any messages row existed)", async () => {
+  const client = {
+    from(table: string) {
+      if (table === "workflow_executions") {
+        return {
+          select: () => chainable({
+            id: EXECUTION_ID,
+            organization_id: ORG_ID,
+            automation_event_id: EVENT_ID,
+            workflow_name: "lead_created_followup",
+            status: "completed",
+            attempt: 1,
+            started_at: "2026-01-01T00:00:00Z",
+            completed_at: "2026-01-01T00:01:00Z",
+            error_message: null,
+            metadata: null,
+            trigger_source: "event",
+          }),
+        };
+      }
+      if (table === "automation_events") {
+        return { select: () => chainable({ event_type: "lead.created", payload: {} }) };
+      }
+      if (table === "messages") {
+        return { select: () => chainable(null) };
+      }
+      throw new Error(`unexpected table: ${table}`);
+    },
+  } as unknown as SupabaseClient;
+
+  const detail = await getExecutionDetail(client, ORG_ID, EXECUTION_ID);
+
+  assert.ok(detail);
+  assert.equal(detail!.outboundMessage, null);
 });
 
 test("getExecutionDetail falls back to workflow_name when there is no parent event to resolve event_type from", async () => {
@@ -165,6 +205,9 @@ test("getExecutionDetail falls back to workflow_name when there is no parent eve
             trigger_source: "event",
           }),
         };
+      }
+      if (table === "messages") {
+        return { select: () => chainable(null) };
       }
       throw new Error(`unexpected table: ${table} (no automation_events lookup should happen with a null automation_event_id)`);
     },
