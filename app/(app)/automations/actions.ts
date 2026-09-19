@@ -10,6 +10,15 @@ import { getAutomationDefinition } from "@/lib/automation/catalog";
 export type AutomationActionState = {
   error?: string;
   success?: boolean;
+  /**
+   * Set only when the automation_settings mutation itself succeeded but the
+   * audit record could not be written - the mutation is never rolled back
+   * for an audit failure (matching this codebase's existing precedent: the
+   * n8n callback route's ai_interactions write failing does not fail or
+   * undo the workflow completion it's attached to), but the caller must
+   * never be told the action was audited when it silently wasn't.
+   */
+  auditWarning?: string;
 };
 
 /**
@@ -63,6 +72,19 @@ export async function setAutomationEnabled(automationId: string, enabled: boolea
     return { error: "Safe AI Outbound is a safety layer and cannot be disabled." };
   }
 
+  // Read the prior state before mutating, so a repeated no-op toggle (e.g.
+  // clicking "enable" on an automation that's already enabled) never writes
+  // a misleading transition into the audit log below. Missing row = enabled,
+  // matching getAutomationEnabled's own default exactly.
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("enabled")
+    .eq("organization_id", membership.organizationId)
+    .eq("automation_id", automationId)
+    .maybeSingle();
+
+  const previousEnabled = (existingRow?.enabled as boolean | undefined) ?? true;
+
   // created_at is intentionally omitted so a first insert gets its own
   // DEFAULT now() and an existing row's created_at is never touched by the
   // update branch; updated_at is likewise omitted and left entirely to the
@@ -76,16 +98,39 @@ export async function setAutomationEnabled(automationId: string, enabled: boolea
     return { error: "We couldn't update this automation. Please try again." };
   }
 
-  // Audit logging (Phase C, section 9/10) is deliberately NOT implemented
-  // here - see the Phase C report for why: audit_log has no client INSERT
-  // policy, and the only write pattern this codebase already trusts for a
-  // table in that shape is a session-callable SECURITY DEFINER RPC (the
-  // same pattern create_automation_event/start_workflow_execution use),
-  // which requires a new migration not covered by the approved Phase A
-  // schema. Rather than adding a broad client INSERT policy or reaching for
-  // service_role to sidestep that design question, this was left as an
-  // explicit, reported blocker pending that decision.
-
   revalidatePath("/automations");
+
+  if (previousEnabled === enabled) {
+    // Not a real transition - nothing to audit.
+    return { success: true };
+  }
+
+  // Phase C.1: the only sanctioned way to write an audit_log row - see
+  // supabase/migrations/20260919043750_automation_audit_logging.sql.
+  // audit_log has no client INSERT policy (by design, unchanged here), so
+  // this always goes through create_automation_audit_event, a SECURITY
+  // DEFINER RPC that re-derives the actor from auth.uid() and re-verifies
+  // is_org_admin(organizationId) itself - never trusting that this
+  // function already checked it. Logged, never treated as a mutation
+  // failure: the automation_settings change above already succeeded and is
+  // real; only the caller-visible confirmation reflects that the audit
+  // record specifically could not be saved.
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: membership.organizationId,
+    p_action: enabled ? "automation_enabled" : "automation_disabled",
+    p_automation_id: automationId,
+    p_metadata: { previous_enabled: previousEnabled, new_enabled: enabled },
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId: membership.organizationId,
+      automationId,
+      action: enabled ? "automation_enabled" : "automation_disabled",
+      error: auditError.message,
+    });
+    return { success: true, auditWarning: "The automation was updated, but the audit record could not be saved." };
+  }
+
   return { success: true };
 }
