@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { surfaceClass } from "@/lib/ui/surface";
+
+// lib/ui/surface.ts's surfaceClass ("rounded-lg bg-slate-50") is a
+// Trackpr 2.0 redesign file that's intentionally never committed this
+// phase (see the 65 pre-existing dirty files) - inlined here instead of
+// imported so this component doesn't depend on an untracked file.
+const surfaceClass = "rounded-lg bg-slate-50";
 
 /**
  * Unlike Leads/Estimates, there is no "Add Job" action here - jobs are only

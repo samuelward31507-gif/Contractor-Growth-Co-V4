@@ -1,7 +1,12 @@
-import { surfaceClass } from "@/lib/ui/surface";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
 import { AddEstimateButton } from "./add-estimate-button";
+
+// lib/ui/surface.ts's surfaceClass ("rounded-lg bg-slate-50") is a
+// Trackpr 2.0 redesign file that's intentionally never committed this
+// phase (see the 65 pre-existing dirty files) - inlined here instead of
+// imported so this component doesn't depend on an untracked file.
+const surfaceClass = "rounded-lg bg-slate-50";
 
 export function EstimatesEmptyState({ contacts, leads }: { contacts: Contact[]; leads: Lead[] }) {
   return (
