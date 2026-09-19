@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
 import { startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
+import { getAutomationEnabled } from "./settings";
 import { getLead, type LeadStatus } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
@@ -40,6 +41,7 @@ export type ReactivationOutcome =
   | { leadId: string; outcome: "no_inbound_history" }
   | { leadId: string; outcome: "not_due" }
   | { leadId: string; outcome: "skipped_duplicate" }
+  | { leadId: string; outcome: "skipped_disabled" }
   | { leadId: string; outcome: "active_engagement" }
   | { leadId: string; outcome: "not_eligible_status" }
   | { leadId: string; outcome: "failed"; error: string };
@@ -90,6 +92,13 @@ export async function processLeadReactivation(supabase: SupabaseClient, now: Dat
 async function processOneLead(supabase: SupabaseClient, lead: CandidateLead, now: Date): Promise<ReactivationOutcome> {
   const leadId = lead.id;
   const organizationId = lead.organization_id;
+
+  // Phase C: checked first, before any of the conversation/message/
+  // engagement queries below, so a disabled organization pays no further
+  // query cost for this candidate.
+  if (!(await getAutomationEnabled(supabase, organizationId, "lead-reactivation"))) {
+    return { leadId, outcome: "skipped_disabled" };
+  }
 
   if (!lead.contact_id) {
     return { leadId, outcome: "no_contact" };
@@ -241,6 +250,9 @@ async function processOneLead(supabase: SupabaseClient, lead: CandidateLead, now
     // fast-path check above and this insert - a clean, expected outcome,
     // not a failure.
     return { leadId, outcome: "skipped_duplicate" };
+  }
+  if (eventResult.skipped) {
+    return { leadId, outcome: "skipped_disabled" };
   }
 
   const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, LEAD_REACTIVATION_WORKFLOW);

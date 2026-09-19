@@ -50,6 +50,7 @@ export async function emitPostJobFollowup(
     return;
   }
   if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
 
   const job = await getJob(supabase, organizationId, jobId);
   if (!job) {

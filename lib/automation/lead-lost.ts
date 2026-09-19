@@ -38,6 +38,7 @@ export async function emitLeadLost(supabase: SupabaseClient, leadId: string): Pr
     return;
   }
   if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
 
   const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, "lead_lost_lifecycle");
   if (!executionResult.ok) {

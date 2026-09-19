@@ -1,4 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getUserOrganization } from "@/lib/auth/organization";
+import { getAutomationForEventType } from "./catalog";
+import { getAutomationEnabled } from "./settings";
 
 export type AutomationEventStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -36,7 +39,8 @@ export type CreateAutomationEventInput = {
 };
 
 export type CreateAutomationEventResult =
-  | { ok: true; event: AutomationEvent; duplicate: boolean }
+  | { ok: true; event: AutomationEvent; duplicate: boolean; skipped: false }
+  | { ok: true; event: null; duplicate: false; skipped: true }
   | { ok: false; error: string };
 
 /**
@@ -74,6 +78,29 @@ export async function createAutomationEvent(
     return { ok: false, error: "Idempotency key is too long." };
   }
 
+  // Phase C: enable/disable enforcement. getAutomationForEventType returns
+  // null for an event type no catalog automation claims (e.g. the internal
+  // lead.lost lifecycle marker) - in that case there is nothing to enforce,
+  // and behavior is byte-for-byte unchanged from before this phase,
+  // including paying no extra query. Only a catalog-mapped event type pays
+  // the one extra getUserOrganization lookup this check requires (the RPC
+  // otherwise resolves organization_id itself, internally, after this
+  // point) - a soft administrative disable, not an infrastructure error:
+  // returning ok:true/skipped:true here, never ok:false, is what keeps an
+  // admin's disable decision from ever surfacing as a failure to the
+  // triggering CRUD action.
+  const automation = getAutomationForEventType(eventType);
+  if (automation) {
+    const membership = await getUserOrganization(supabase, user.id);
+    if (!membership) {
+      return { ok: false, error: "We couldn't record this automation event." };
+    }
+    const enabled = await getAutomationEnabled(supabase, membership.organizationId, automation.id);
+    if (!enabled) {
+      return { ok: true, event: null, duplicate: false, skipped: true };
+    }
+  }
+
   const { data, error } = await supabase
     .rpc("create_automation_event", {
       p_event_type: eventType,
@@ -89,7 +116,7 @@ export async function createAutomationEvent(
   }
 
   const { is_duplicate, ...event } = data as AutomationEvent & { is_duplicate: boolean };
-  return { ok: true, event, duplicate: is_duplicate };
+  return { ok: true, event, duplicate: is_duplicate, skipped: false };
 }
 
 /**
@@ -125,6 +152,17 @@ export async function createAutomationEventAsService(
     return { ok: false, error: "Idempotency key is too long." };
   }
 
+  // Phase C: same enable/disable enforcement as createAutomationEvent above
+  // - organizationId is already a trusted parameter here, so no extra
+  // lookup is needed for this variant.
+  const automation = getAutomationForEventType(eventType);
+  if (automation) {
+    const enabled = await getAutomationEnabled(supabase, organizationId, automation.id);
+    if (!enabled) {
+      return { ok: true, event: null, duplicate: false, skipped: true };
+    }
+  }
+
   const { data, error } = await supabase
     .rpc("create_automation_event", {
       p_event_type: eventType,
@@ -141,5 +179,5 @@ export async function createAutomationEventAsService(
   }
 
   const { is_duplicate, ...event } = data as AutomationEvent & { is_duplicate: boolean };
-  return { ok: true, event, duplicate: is_duplicate };
+  return { ok: true, event, duplicate: is_duplicate, skipped: false };
 }

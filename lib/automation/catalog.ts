@@ -267,3 +267,18 @@ export const AUTOMATION_CATALOG: AutomationDefinition[] = [
 export function getAutomationDefinition(id: string): AutomationDefinition | null {
   return AUTOMATION_CATALOG.find((a) => a.id === id) ?? null;
 }
+
+/**
+ * The single event_type -> automation mapping for the whole codebase (Phase
+ * C enable/disable enforcement). Deliberately reuses eventTypes rather than
+ * a second, independently-maintained lookup table - if a future automation
+ * adds an event type to its catalog entry, enforcement picks it up
+ * automatically with no second edit required. Returns null for an event
+ * type no catalog entry claims (e.g. the internal `lead.lost` lifecycle
+ * marker, which has no dispatched workflow or user-facing automation of its
+ * own) - callers must treat null as "nothing to enforce here", never as an
+ * error, so uncatalogued internal events keep their exact existing behavior.
+ */
+export function getAutomationForEventType(eventType: string): AutomationDefinition | null {
+  return AUTOMATION_CATALOG.find((a) => a.eventTypes.includes(eventType)) ?? null;
+}

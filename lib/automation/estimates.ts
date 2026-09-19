@@ -33,6 +33,7 @@ export async function emitEstimateSent(supabase: SupabaseClient, estimateId: str
     return;
   }
   if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
 
   const organizationId = eventResult.event.organization_id;
 
@@ -169,6 +170,7 @@ export async function emitEstimateLifecycleEvent(
     return;
   }
   if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
 
   const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, `${eventType.replace(".", "_")}_lifecycle`);
   if (!executionResult.ok) {

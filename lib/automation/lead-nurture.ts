@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
 import { startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
+import { getAutomationEnabled } from "./settings";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getLead } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
@@ -25,6 +26,7 @@ export type NurtureOutcome =
   | { leadId: string; outcome: "not_lost" }
   | { leadId: string; outcome: "not_due" }
   | { leadId: string; outcome: "skipped_duplicate" }
+  | { leadId: string; outcome: "skipped_disabled" }
   | { leadId: string; outcome: "failed"; error: string };
 
 export type NurtureRunResult = {
@@ -74,6 +76,12 @@ export async function processLeadNurture(supabase: SupabaseClient, now: Date = n
 async function processOneLead(supabase: SupabaseClient, lostEvent: LostEventRow, now: Date): Promise<NurtureOutcome> {
   const leadId = lostEvent.entity_id;
   const organizationId = lostEvent.organization_id;
+
+  // Phase C: checked first, before the getLead lookup below, so a disabled
+  // organization pays no further query cost for this candidate.
+  if (!(await getAutomationEnabled(supabase, organizationId, "lost-lead-nurture"))) {
+    return { leadId, outcome: "skipped_disabled" };
+  }
 
   // Only process leads whose CURRENT status is still 'lost' (requirement:
   // "only process leads whose current status is 'lost'") - a lead that
@@ -140,6 +148,9 @@ async function processOneLead(supabase: SupabaseClient, lostEvent: LostEventRow,
   }
   if (eventResult.duplicate) {
     return { leadId, outcome: "skipped_duplicate" };
+  }
+  if (eventResult.skipped) {
+    return { leadId, outcome: "skipped_disabled" };
   }
 
   const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, LEAD_LOST_NURTURE_WORKFLOW);

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
 import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
+import { getAutomationEnabled } from "./settings";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
@@ -30,6 +31,7 @@ export type FollowupOutcome =
   | { estimateId: string; outcome: "expired" }
   | { estimateId: string; outcome: "blocked"; reason: string }
   | { estimateId: string; outcome: "skipped_duplicate" }
+  | { estimateId: string; outcome: "skipped_disabled" }
   | { estimateId: string; outcome: "not_due" }
   | { estimateId: string; outcome: "failed"; error: string };
 
@@ -90,6 +92,14 @@ async function processOneEstimate(
   now: Date,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
 ): Promise<FollowupOutcome> {
+  // Phase C: covers both branches below (expiration and follow-up) - both
+  // event types (estimate.expired, estimate.followup) belong to the same
+  // "estimate-followup" catalog automation, so one check up front is
+  // correct and avoids duplicating it in both expireEstimate/sendFollowup.
+  if (!(await getAutomationEnabled(supabase, estimate.organization_id, "estimate-followup"))) {
+    return { estimateId: estimate.id, outcome: "skipped_disabled" };
+  }
+
   if (estimate.expires_at && new Date(estimate.expires_at).getTime() <= now.getTime()) {
     return expireEstimate(supabase, estimate);
   }
@@ -139,6 +149,12 @@ async function expireEstimate(supabase: SupabaseClient, estimate: CandidateEstim
   if (eventResult.duplicate) {
     return { estimateId: estimate.id, outcome: "skipped_duplicate" };
   }
+  // Unreachable in practice - processOneEstimate's own top-of-function check
+  // already returned before calling this - but the type system correctly
+  // requires narrowing event: AutomationEvent | null before using it below.
+  if (eventResult.skipped) {
+    return { estimateId: estimate.id, outcome: "skipped_disabled" };
+  }
 
   const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, ESTIMATE_EXPIRED_WORKFLOW);
   if (executionResult.ok) {
@@ -172,6 +188,9 @@ async function sendFollowup(
   }
   if (eventResult.duplicate) {
     return { estimateId: estimate.id, outcome: "skipped_duplicate" };
+  }
+  if (eventResult.skipped) {
+    return { estimateId: estimate.id, outcome: "skipped_disabled" };
   }
 
   const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, ESTIMATE_FOLLOWUP_WORKFLOW);

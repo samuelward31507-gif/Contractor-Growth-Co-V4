@@ -90,6 +90,7 @@ export async function emitJobCreatedFromEstimate(
     return;
   }
   if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
 
   const job = await getJob(supabase, organizationId, jobId);
   if (!job) {
@@ -211,6 +212,7 @@ export async function emitJobLifecycleEvent(
     return;
   }
   if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
 
   const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, `${eventType.replace(".", "_")}_lifecycle`);
   if (!executionResult.ok) {

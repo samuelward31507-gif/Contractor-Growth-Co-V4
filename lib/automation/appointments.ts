@@ -71,6 +71,7 @@ export async function emitAppointmentCreated(supabase: SupabaseClient, appointme
     return;
   }
   if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
 
   const organizationId = eventResult.event.organization_id;
 
@@ -117,6 +118,7 @@ export async function emitAppointmentNoShow(supabase: SupabaseClient, appointmen
     return;
   }
   if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
 
   const organizationId = eventResult.event.organization_id;
 
@@ -273,6 +275,7 @@ export async function emitAppointmentLifecycleEvent(
     return;
   }
   if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
 
   const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, `${eventType.replace(".", "_")}_lifecycle`);
   if (!executionResult.ok) {

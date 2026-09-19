@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
+import { getAutomationEnabled } from "./settings";
 import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
@@ -30,6 +31,7 @@ export type ReminderOutcome =
   | { appointmentId: string; outcome: "sent"; messageId: string }
   | { appointmentId: string; outcome: "blocked"; reason: string }
   | { appointmentId: string; outcome: "skipped_duplicate" }
+  | { appointmentId: string; outcome: "skipped_disabled" }
   | { appointmentId: string; outcome: "failed"; error: string };
 
 export type ReminderRunResult = {
@@ -108,6 +110,13 @@ async function processOneReminder(
   appointment: CandidateAppointment,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
 ): Promise<ReminderOutcome> {
+  // Phase C: checked here too (not only inside createAutomationEventAsService's
+  // own chokepoint) so a disabled organization skips the businessProfile/
+  // conversation lookups below entirely, not just the event insert.
+  if (!(await getAutomationEnabled(supabase, appointment.organization_id, "appointment-reminders"))) {
+    return { appointmentId: appointment.id, outcome: "skipped_disabled" };
+  }
+
   const idempotencyKey = `appointment.reminder:${appointment.id}:${appointment.start_at}`;
 
   const eventResult = await createAutomationEventAsService(supabase, appointment.organization_id, {
@@ -128,6 +137,9 @@ async function processOneReminder(
   }
   if (eventResult.duplicate) {
     return { appointmentId: appointment.id, outcome: "skipped_duplicate" };
+  }
+  if (eventResult.skipped) {
+    return { appointmentId: appointment.id, outcome: "skipped_disabled" };
   }
 
   const executionResult = await startWorkflowExecutionAsService(

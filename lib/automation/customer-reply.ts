@@ -75,6 +75,7 @@ export async function emitCustomerReplyFollowup(
     // here would be duplicate work, not a retry.
     return;
   }
+  if (eventResult.skipped) return;
 
   const executionResult = await startWorkflowExecutionAsService(
     supabase,
