@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
@@ -7,12 +8,11 @@ import { emitJobLifecycleEvent } from "@/lib/automation/jobs";
 import { emitPostJobFollowup } from "@/lib/automation/post-job-followup";
 
 /**
- * Backend-only job status transitions for Phase 4.6. There is no Jobs UI
- * yet (app/(app)/jobs/page.tsx is still the pre-existing placeholder,
- * deliberately left untouched). Jobs themselves are only ever created by
+ * Job status transitions. Jobs themselves are only ever created by
  * lib/automation/jobs.ts's emitJobCreatedFromEstimate() (estimate accepted
  * -> exactly one job, per explicit decision) - there is no createJob action
- * here, since manual job creation is out of scope this phase.
+ * here; manual job creation is intentionally out of scope, matching the
+ * established architecture.
  */
 
 export type JobActionResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -34,6 +34,35 @@ async function requireOrganization() {
   }
 
   return { supabase, organizationId: membership.organizationId };
+}
+
+/**
+ * scheduled -> in_progress. Status-only: the job.created/job.completed/
+ * job.cancelled events are the only lifecycle events this architecture
+ * defines (see JobLifecycleEventType in lib/automation/jobs.ts) - "started"
+ * has no automation hook, so this stamps started_at for the contractor's
+ * own record-keeping and nothing else, exactly matching the jobs table
+ * migration's own comment that started_at/completed_at exist for
+ * record-keeping with no automation deriving timing from them.
+ */
+export async function markJobStarted(jobId: string): Promise<JobActionResult> {
+  const { supabase, organizationId } = await requireOrganization();
+
+  const { data, error } = await supabase
+    .from("jobs")
+    .update({ status: "in_progress", started_at: new Date().toISOString() })
+    .eq("id", jobId)
+    .eq("organization_id", organizationId)
+    .eq("status", "scheduled")
+    .select("id")
+    .maybeSingle();
+
+  if (error) return { ok: false, error: "We couldn't update this job." };
+  if (!data) return { ok: false, error: "This job could not be found or is not in an eligible state." };
+
+  revalidatePath("/jobs");
+  revalidatePath(`/jobs/${jobId}`);
+  return { ok: true, id: data.id };
 }
 
 async function transitionJob(
@@ -70,6 +99,8 @@ async function transitionJob(
     await emitJobLifecycleEvent(supabase, jobId, "job.cancelled");
   }
 
+  revalidatePath("/jobs");
+  revalidatePath(`/jobs/${jobId}`);
   return { ok: true, id: data.id };
 }
 
