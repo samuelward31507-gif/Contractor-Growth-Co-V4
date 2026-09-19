@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { getAutomationOverview, getWorkflowNameStats, buildAutomationSummaries } from "@/lib/automation/queries";
+import { getAutomationEnabledMap } from "@/lib/automation/settings";
 import { pageTitleClass, pageDescriptionClass, metaClass } from "@/lib/ui/typography";
 import { SummaryCards } from "./_components/summary-cards";
 import { AutomationList } from "./_components/automation-list";
@@ -32,12 +33,13 @@ export default async function AutomationsPage() {
     redirect("/onboarding");
   }
 
-  const [overview, statsByName] = await Promise.all([
+  const [overview, statsByName, enabledByAutomationId] = await Promise.all([
     getAutomationOverview(supabase, membership.organizationId),
     getWorkflowNameStats(supabase, membership.organizationId),
+    getAutomationEnabledMap(supabase, membership.organizationId),
   ]);
 
-  const summaries = buildAutomationSummaries(statsByName);
+  const summaries = buildAutomationSummaries(statsByName, enabledByAutomationId);
 
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">

@@ -5,13 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
 import { getWorkflowNameStats, getRecentExecutionsForWorkflows, buildAutomationSummaries } from "@/lib/automation/queries";
-import { getAutomationEnabled } from "@/lib/automation/settings";
+import { getAutomationEnabledMap } from "@/lib/automation/settings";
 import { pageTitleClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { AutomationStatusPill } from "../_components/status-pill";
 import { HowItWorks } from "../_components/how-it-works";
 import { RecentExecutions } from "../_components/recent-executions";
 import { ManualRunControls } from "../_components/manual-run-controls";
+import { EnableToggle } from "../_components/enable-toggle";
 import { formatCount } from "../_components/format";
+import { SAFE_RETRY_AUTOMATION_IDS } from "@/lib/automation/retry-eligibility";
 
 /**
  * Detail view for one automation catalog entry. Reuses the same
@@ -51,13 +53,19 @@ export default async function AutomationDetailPage({ params }: { params: Promise
   // server-side regardless of what this page renders.
   const supportsManualRun = definition.dispatch === "trackpr";
 
-  const [statsByName, executions, automationEnabled] = await Promise.all([
+  // Phase G: org admin/owner only for the enable/disable toggle - a
+  // rendering-only signal exactly like supportsManualRun above;
+  // setAutomationEnabled re-verifies assertOrgAdmin() itself regardless.
+  const canManage = membership.role === "owner" || membership.role === "admin";
+
+  const [statsByName, executions, enabledByAutomationId] = await Promise.all([
     getWorkflowNameStats(supabase, membership.organizationId),
     getRecentExecutionsForWorkflows(supabase, membership.organizationId, definition.workflowNames),
-    supportsManualRun ? getAutomationEnabled(supabase, membership.organizationId, definition.id) : Promise.resolve(true),
+    getAutomationEnabledMap(supabase, membership.organizationId),
   ]);
 
-  const summary = buildAutomationSummaries(statsByName).find((s) => s.definition.id === definition.id)!;
+  const summary = buildAutomationSummaries(statsByName, enabledByAutomationId).find((s) => s.definition.id === definition.id)!;
+  const automationEnabled = summary.enabled;
   const Icon = definition.icon;
 
   return (
@@ -76,6 +84,11 @@ export default async function AutomationDetailPage({ params }: { params: Promise
           <AutomationStatusPill status={summary.status} />
         </div>
         <p className="mt-1.5 max-w-2xl text-sm text-slate-500">{definition.description}</p>
+        {canManage && definition.kind !== "safety-layer" ? (
+          <div className="mt-3">
+            <EnableToggle automationId={definition.id} enabled={automationEnabled} />
+          </div>
+        ) : null}
       </div>
 
       {summary.failedExecutions > 0 ? (
@@ -121,7 +134,7 @@ export default async function AutomationDetailPage({ params }: { params: Promise
               <p className="mt-0.5 text-xs text-slate-500">Safe AI Outbound has no dedicated workflow - its checks run inline as part of every other automation&apos;s execution.</p>
             </div>
           ) : (
-            <RecentExecutions executions={executions} />
+            <RecentExecutions executions={executions} retrySupported={SAFE_RETRY_AUTOMATION_IDS.has(definition.id)} />
           )}
         </div>
       </div>

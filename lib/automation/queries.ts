@@ -36,6 +36,8 @@ export type WorkflowNameStats = {
   lastStatus: WorkflowExecutionStatus | null;
 };
 
+export type WorkflowExecutionTriggerSource = "event" | "manual" | "retry";
+
 export type AutomationExecutionRow = {
   id: string;
   workflowName: string;
@@ -43,11 +45,12 @@ export type AutomationExecutionRow = {
   attempt: number;
   startedAt: string;
   completedAt: string | null;
-  /** Whether this execution recorded an error - never the raw error text itself. Matches app/api/automation/health/route.ts's own precedent: upstream dispatch/provider error text has no guaranteed-safe content, so it is never surfaced client-side. */
+  triggerSource: WorkflowExecutionTriggerSource;
+  /** Whether this execution recorded an error - never the raw error text itself. Matches app/api/automation/health/route.ts's own precedent: upstream dispatch/provider error text has no guaranteed-safe content, so it is never surfaced client-side. The full, sanitized error text is available on demand via getExecutionDetail (Phase F), for a deliberate detail-view drill-down only. */
   hasError: boolean;
 };
 
-export type AutomationDisplayStatus = "active" | "attention" | "no_activity" | "not_configured";
+export type AutomationDisplayStatus = "active" | "attention" | "no_activity" | "not_configured" | "disabled";
 
 export type AutomationSummary = {
   definition: AutomationDefinition;
@@ -56,6 +59,8 @@ export type AutomationSummary = {
   failedExecutions: number;
   runningExecutions: number;
   lastExecutionAt: string | null;
+  /** Phase G: from automation_settings, defaulting to true - see lib/automation/settings.ts's own default-enabled documentation. Always true for the safety-layer capability, which has no automation_settings row of its own. */
+  enabled: boolean;
 };
 
 /**
@@ -117,7 +122,7 @@ export async function getRecentExecutionsForWorkflows(
 
   const { data, error } = await supabase
     .from("workflow_executions")
-    .select("id, workflow_name, status, attempt, started_at, completed_at, error_message")
+    .select("id, workflow_name, status, attempt, started_at, completed_at, error_message, trigger_source")
     .eq("organization_id", organizationId)
     .in("workflow_name", workflowNames)
     .order("started_at", { ascending: false })
@@ -125,17 +130,27 @@ export async function getRecentExecutionsForWorkflows(
 
   if (error || !data) return [];
 
-  return (data as { id: string; workflow_name: string; status: WorkflowExecutionStatus; attempt: number; started_at: string; completed_at: string | null; error_message: string | null }[]).map(
-    (row) => ({
-      id: row.id,
-      workflowName: row.workflow_name,
-      status: row.status,
-      attempt: row.attempt,
-      startedAt: row.started_at,
-      completedAt: row.completed_at,
-      hasError: row.error_message !== null,
-    }),
-  );
+  return (
+    data as {
+      id: string;
+      workflow_name: string;
+      status: WorkflowExecutionStatus;
+      attempt: number;
+      started_at: string;
+      completed_at: string | null;
+      error_message: string | null;
+      trigger_source: WorkflowExecutionTriggerSource;
+    }[]
+  ).map((row) => ({
+    id: row.id,
+    workflowName: row.workflow_name,
+    status: row.status,
+    attempt: row.attempt,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    triggerSource: row.trigger_source,
+    hasError: row.error_message !== null,
+  }));
 }
 
 /** Reuses lib/bi/queries.ts's existing aggregate directly - never recomputed. */
@@ -159,13 +174,20 @@ function isN8nConfigured(): boolean {
 
 /**
  * Combines the real per-workflow-name execution stats with each catalog
- * definition into one summary per automation - no fabricated status, no
- * persisted enabled/disabled state (none exists). "Active" means real
- * execution history exists and its most recent run did not fail; the one
- * safety-layer capability (no workflow of its own) is always "active" since
- * it is infrastructure, not something independently triggered.
+ * definition into one summary per automation. "Active" means real execution
+ * history exists and its most recent run did not fail; the one
+ * safety-layer capability (no workflow of its own) is always "active"/
+ * enabled since it is infrastructure, not something independently
+ * triggered or user-disableable (setAutomationEnabled itself rejects
+ * disabling it).
+ *
+ * `enabledByAutomationId` (Phase G) comes from getAutomationEnabledMap - a
+ * real, automation_settings-backed value, never fabricated - and is
+ * checked before every other status so a disabled automation always reads
+ * "disabled" regardless of what its execution history would otherwise
+ * imply.
  */
-export function buildAutomationSummaries(statsByName: Map<string, WorkflowNameStats>): AutomationSummary[] {
+export function buildAutomationSummaries(statsByName: Map<string, WorkflowNameStats>, enabledByAutomationId: Map<string, boolean>): AutomationSummary[] {
   const n8nConfigured = isN8nConfigured();
 
   return AUTOMATION_CATALOG.map((definition) => {
@@ -177,8 +199,11 @@ export function buildAutomationSummaries(statsByName: Map<string, WorkflowNameSt
         failedExecutions: 0,
         runningExecutions: 0,
         lastExecutionAt: null,
+        enabled: true,
       };
     }
+
+    const enabled = enabledByAutomationId.get(definition.id) ?? true;
 
     const relevantStats = definition.workflowNames.map((name) => statsByName.get(name)).filter((s): s is WorkflowNameStats => s !== undefined);
 
@@ -193,7 +218,9 @@ export function buildAutomationSummaries(statsByName: Map<string, WorkflowNameSt
     const mostRecentFailed = relevantStats.some((s) => s.lastStatus === "failed");
 
     let status: AutomationDisplayStatus;
-    if (definition.dispatch === "n8n" && !n8nConfigured) {
+    if (!enabled) {
+      status = "disabled";
+    } else if (definition.dispatch === "n8n" && !n8nConfigured) {
       status = "not_configured";
     } else if (totalExecutions === 0) {
       status = "no_activity";
@@ -203,6 +230,6 @@ export function buildAutomationSummaries(statsByName: Map<string, WorkflowNameSt
       status = "active";
     }
 
-    return { definition, status, totalExecutions, failedExecutions, runningExecutions, lastExecutionAt };
+    return { definition, status, totalExecutions, failedExecutions, runningExecutions, lastExecutionAt, enabled };
   });
 }

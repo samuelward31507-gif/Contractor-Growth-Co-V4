@@ -282,3 +282,15 @@ export function getAutomationDefinition(id: string): AutomationDefinition | null
 export function getAutomationForEventType(eventType: string): AutomationDefinition | null {
   return AUTOMATION_CATALOG.find((a) => a.eventTypes.includes(eventType)) ?? null;
 }
+
+/**
+ * Phase F fallback for execution-detail display: resolves a catalog
+ * automation directly from a workflow_executions.workflow_name, for the
+ * rare case an execution's automation_event_id is null (the FK is ON
+ * DELETE SET NULL) and getAutomationForEventType has no event_type to work
+ * from at all. Not used anywhere eligibility/authorization depends on -
+ * purely a display-label lookup.
+ */
+export function getAutomationForWorkflowName(workflowName: string): AutomationDefinition | null {
+  return AUTOMATION_CATALOG.find((a) => a.workflowNames.includes(workflowName)) ?? null;
+}

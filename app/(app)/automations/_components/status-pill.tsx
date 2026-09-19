@@ -1,4 +1,4 @@
-import { CheckCircle2, AlertTriangle, CircleDashed, CircleSlash } from "lucide-react";
+import { CheckCircle2, AlertTriangle, CircleDashed, CircleSlash, PauseCircle } from "lucide-react";
 import type { AutomationDisplayStatus } from "@/lib/automation/queries";
 
 const STATUS_CONFIG: Record<AutomationDisplayStatus, { label: string; className: string; icon: typeof CheckCircle2 }> = {
@@ -6,13 +6,13 @@ const STATUS_CONFIG: Record<AutomationDisplayStatus, { label: string; className:
   attention: { label: "Attention", className: "bg-amber-50 text-amber-700", icon: AlertTriangle },
   no_activity: { label: "No activity", className: "bg-slate-100 text-slate-600", icon: CircleDashed },
   not_configured: { label: "Not configured", className: "bg-slate-100 text-slate-500", icon: CircleSlash },
+  disabled: { label: "Disabled", className: "bg-slate-100 text-slate-500", icon: PauseCircle },
 };
 
 /**
  * Reads directly from AutomationDisplayStatus, already computed server-side
- * in lib/automation/queries.ts from real execution data - never re-derives
- * status here, and never renders a "Paused" state, since no persisted
- * enable/disable field exists in this system yet.
+ * in lib/automation/queries.ts from the real automation_settings.enabled
+ * value (Phase G) plus real execution data - never re-derives status here.
  */
 export function AutomationStatusPill({ status }: { status: AutomationDisplayStatus }) {
   const config = STATUS_CONFIG[status];

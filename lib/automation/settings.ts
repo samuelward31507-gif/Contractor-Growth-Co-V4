@@ -26,3 +26,27 @@ export async function getAutomationEnabled(
 
   return (data?.enabled as boolean | undefined) ?? true;
 }
+
+/**
+ * Phase G: batch variant of getAutomationEnabled for rendering an entire
+ * automation list/detail page - one query for every automation_settings
+ * row this organization has ever touched, instead of one query per catalog
+ * automation. Missing from the returned map still means enabled (same
+ * default as getAutomationEnabled) - callers should read it as
+ * `map.get(id) ?? true`, never assume a present-but-false entry is the only
+ * way to be disabled.
+ */
+export async function getAutomationEnabledMap(supabase: SupabaseClient, organizationId: string): Promise<Map<string, boolean>> {
+  const map = new Map<string, boolean>();
+
+  const { data } = await supabase
+    .from("automation_settings")
+    .select("automation_id, enabled")
+    .eq("organization_id", organizationId);
+
+  for (const row of (data ?? []) as { automation_id: string; enabled: boolean }[]) {
+    map.set(row.automation_id, row.enabled);
+  }
+
+  return map;
+}

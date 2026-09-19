@@ -38,7 +38,7 @@ export type RetryRejectionReason =
  * verify against), is rejected here until a future phase enriches its
  * stored payload to match its real contract.
  */
-const SAFE_RETRY_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followup", "instant-lead-followup"]);
+export const SAFE_RETRY_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followup", "instant-lead-followup"]);
 
 export type RetryEligibleExecution = {
   id: string;

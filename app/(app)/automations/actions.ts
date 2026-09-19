@@ -11,6 +11,7 @@ import { processAppointmentReminders, previewAppointmentReminders, type Reminder
 import { processEstimateFollowups, previewEstimateFollowups, type FollowupPreview } from "@/lib/automation/estimate-followups";
 import { retryWorkflowExecution } from "@/lib/automation/retry";
 import type { RetryRejectionReason } from "@/lib/automation/retry-eligibility";
+import { getExecutionDetail, type ExecutionDetail } from "@/lib/automation/execution-detail";
 
 /**
  * Manual run / dry run (Phase D) are only offered for the two
@@ -455,4 +456,53 @@ export async function retryExecution(executionId: string): Promise<RetryActionSt
   }
 
   return { success: true, newExecutionId: result.newExecutionId };
+}
+
+/**
+ * Resolves the caller's own session/organization only - no admin
+ * requirement. Phase F execution-detail viewing is available to any org
+ * member (read-only data about their own organization's automations), not
+ * just admins - mutations elsewhere in this file continue to use
+ * requireOrgAdminSession instead. Never accepts an organization id from the
+ * caller; always derives it from the verified session, same as every other
+ * function in this file.
+ */
+async function requireOrgSession() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const membership = await getUserOrganization(supabase, user.id);
+  if (!membership) {
+    redirect("/onboarding");
+  }
+
+  return { supabase, organizationId: membership.organizationId };
+}
+
+export type ExecutionDetailActionState = { ok: true; detail: ExecutionDetail } | { ok: false; error: string };
+
+/**
+ * Phase F: fetches one execution's sanitized detail for display. Read-only,
+ * member-accessible (not admin-only) - organization scope comes entirely
+ * from the authenticated session via requireOrgSession, using the session
+ * client throughout (RLS is_org_member is the backstop; getExecutionDetail
+ * also explicitly filters by organization_id itself). No service-role
+ * client is used anywhere in this path.
+ */
+export async function getExecutionDetailAction(executionId: string): Promise<ExecutionDetailActionState> {
+  const { supabase, organizationId } = await requireOrgSession();
+
+  const detail = await getExecutionDetail(supabase, organizationId, executionId);
+  if (!detail) {
+    return { ok: false, error: "Execution not found." };
+  }
+
+  return { ok: true, detail };
 }
