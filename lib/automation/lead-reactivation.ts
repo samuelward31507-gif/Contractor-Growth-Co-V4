@@ -3,15 +3,33 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
 import { startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
-import { getAutomationEnabled } from "./settings";
+import { getAutomationEnabled, getAutomationConfigByOrganization, readLeadReactivationConfig, type LeadReactivationConfig } from "./settings";
 import { getLead, type LeadStatus } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 
 export const LEAD_REACTIVATION_WORKFLOW = "lead_reactivation_followup";
 
-const TOUCH_1_DELAY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days since the last inbound customer message
-const TOUCH_2_DELAY_MS = 21 * 24 * 60 * 60 * 1000; // 21 days since the last inbound customer message
+/**
+ * Automation Configuration V4: the pure decision behind which touch (if
+ * any) is due, given elapsed time since the lead's last inbound message
+ * and the organization's own configured thresholds - extracted so "the
+ * configured cadence, not a hardcoded constant, drives occurrence" can be
+ * unit tested directly. At most one touch per call: if both thresholds
+ * have already been crossed, the more current one (2) is preferred over
+ * dispatching a stale first touch - matching the identical choice already
+ * made in lib/automation/lead-nurture.ts's computeNurtureOccurrence. Does
+ * not affect idempotency: the idempotency key is derived from
+ * `leadId:occurrence` only, never from elapsed time or configuration
+ * values - see processOneLead below.
+ */
+export function computeReactivationOccurrence(elapsedMs: number, config: LeadReactivationConfig): 1 | 2 | null {
+  const touch1Ms = config.touch_1_days * 24 * 60 * 60 * 1000;
+  const touch2Ms = config.touch_2_days * 24 * 60 * 60 * 1000;
+  if (elapsedMs >= touch2Ms) return 2;
+  if (elapsedMs >= touch1Ms) return 1;
+  return null;
+}
 
 // Only these statuses are reactivation candidates: 'appointment'/'estimate'
 // already have their own dedicated follow-up automations (layering a
@@ -68,11 +86,23 @@ export type ReactivationRunResult = {
  * no separate lifecycle event and no frozen timing anchor - elapsed time is
  * recomputed fresh from the live last-inbound-message timestamp on every
  * call, so a reply between touch 1 and touch 2 naturally pushes touch 2's
- * eligibility back out to 21 days after that NEW reply, with no special
- * "cancel" logic required. Candidates are scanned directly from `leads`
- * (there is no prior lifecycle event to scan, unlike processLeadNurture).
+ * eligibility back out to the organization's configured touch_2_days after
+ * that NEW reply, with no special "cancel" logic required. Candidates are
+ * scanned directly from `leads` (there is no prior lifecycle event to scan,
+ * unlike processLeadNurture).
+ *
+ * Automation Configuration V4: touch_1_days/touch_2_days are per-organization
+ * (automation_settings.config), defaulting to 7/21 for any organization
+ * that hasn't configured them - identical to the hardcoded behavior before
+ * this setting existed. Resolved once per batch via
+ * getAutomationConfigByOrganization (one query for every organization that
+ * has ever configured this automation), then reused per candidate below -
+ * mirroring the identical pattern processLeadNurture already uses, and
+ * avoiding a separate config fetch per lead.
  */
 export async function processLeadReactivation(supabase: SupabaseClient, now: Date = new Date()): Promise<ReactivationRunResult> {
+  const configByOrg = await getAutomationConfigByOrganization(supabase, "lead-reactivation");
+
   const { data: rawCandidates } = await supabase
     .from("leads")
     .select("id, organization_id, contact_id, service, source, ai_summary, status")
@@ -83,13 +113,14 @@ export async function processLeadReactivation(supabase: SupabaseClient, now: Dat
   const outcomes: ReactivationOutcome[] = [];
 
   for (const lead of candidates) {
-    outcomes.push(await processOneLead(supabase, lead, now));
+    const config = readLeadReactivationConfig(configByOrg.get(lead.organization_id) ?? null);
+    outcomes.push(await processOneLead(supabase, lead, now, config));
   }
 
   return { candidates: candidates.length, outcomes };
 }
 
-async function processOneLead(supabase: SupabaseClient, lead: CandidateLead, now: Date): Promise<ReactivationOutcome> {
+async function processOneLead(supabase: SupabaseClient, lead: CandidateLead, now: Date, config: LeadReactivationConfig): Promise<ReactivationOutcome> {
   const leadId = lead.id;
   const organizationId = lead.organization_id;
 
@@ -159,13 +190,9 @@ async function processOneLead(supabase: SupabaseClient, lead: CandidateLead, now
   // Touch 2 is independently gated on the SAME live signal, never on
   // "touch 1 already happened" - a customer reply after touch 1 resets
   // this elapsed value, which is what makes touch 2 correctly wait a fresh
-  // 21 days from that new reply rather than firing on the original clock.
-  let occurrence: 1 | 2 | null = null;
-  if (elapsed >= TOUCH_2_DELAY_MS) {
-    occurrence = 2;
-  } else if (elapsed >= TOUCH_1_DELAY_MS) {
-    occurrence = 1;
-  }
+  // touch_2_days from that new reply rather than firing on the original
+  // clock.
+  const occurrence = computeReactivationOccurrence(elapsed, config);
 
   if (!occurrence) {
     return { leadId, outcome: "not_due" };

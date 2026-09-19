@@ -27,6 +27,8 @@ const {
   validateInstantLeadFollowupConfig,
   readLostLeadNurtureConfig,
   validateLostLeadNurtureConfig,
+  readLeadReactivationConfig,
+  validateLeadReactivationConfig,
   shouldAuditConfigUpdate,
   getAutomationConfig,
   getAutomationConfigByOrganization,
@@ -559,6 +561,118 @@ test("V3: organization isolation - getAutomationConfigByOrganization keys strict
 // assertOrgAdmin unchanged (no new authorization code was written for V3),
 // and its upsert payload is
 // `{ organization_id, automation_id: "lost-lead-nurture", config }` only -
+// it never includes `enabled`. Those guarantees are already directly
+// unit-tested against assertOrgAdmin itself in
+// lib/automation/authorization.test.ts (tests A, B, D, E) - a Server Action
+// cannot be unit tested in this repo (createClient() depends on
+// next/headers, which requires a real request context), so re-asserting the
+// identical, unmodified authorization chain here would not exercise any
+// code this phase actually changed.
+
+// ============================================================================
+// Automation Configuration V4 - lead-reactivation.touch_1_days / touch_2_days
+// ============================================================================
+
+test("V4: defaults are 7 and 21 days", () => {
+  assert.deepEqual(readLeadReactivationConfig(null), { touch_1_days: 7, touch_2_days: 21 });
+  assert.deepEqual(readLeadReactivationConfig(undefined), { touch_1_days: 7, touch_2_days: 21 });
+  assert.deepEqual(readLeadReactivationConfig({}), { touch_1_days: 7, touch_2_days: 21 });
+});
+
+test("V4: valid values are accepted", () => {
+  assert.deepEqual(validateLeadReactivationConfig({ touch_1_days: 1, touch_2_days: 2 }), { ok: true, value: { touch_1_days: 1, touch_2_days: 2 } });
+  assert.deepEqual(validateLeadReactivationConfig({ touch_1_days: 7, touch_2_days: 21 }), { ok: true, value: { touch_1_days: 7, touch_2_days: 21 } });
+  assert.deepEqual(validateLeadReactivationConfig({ touch_1_days: 10, touch_2_days: 30 }), { ok: true, value: { touch_1_days: 10, touch_2_days: 30 } });
+});
+
+test("V4: minimum bound (1) is accepted, below-minimum (0) is rejected", () => {
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 1, touch_2_days: 90 }).ok, true, "1 is the minimum, valid");
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 0, touch_2_days: 90 }).ok, false, "0 is below minimum");
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 1, touch_2_days: 0 }).ok, false, "0 is below minimum for touch_2 too");
+});
+
+test("V4: maximum bound (90) is accepted, above-maximum (91) is rejected", () => {
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 1, touch_2_days: 90 }).ok, true, "90 is the maximum, valid");
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 91, touch_2_days: 92 }).ok, false, "91 is above maximum");
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 1, touch_2_days: 91 }).ok, false, "91 is above maximum for touch_2 too");
+});
+
+test("V4: invalid values are rejected, never silently coerced", () => {
+  const base = { touch_1_days: 7, touch_2_days: 21 };
+  assert.equal(validateLeadReactivationConfig({ ...base, touch_1_days: 7.5 }).ok, false, "decimal");
+  assert.equal(validateLeadReactivationConfig({ ...base, touch_1_days: "7" }).ok, false, "string");
+  assert.equal(validateLeadReactivationConfig({ ...base, touch_1_days: null }).ok, false, "null value");
+  assert.equal(validateLeadReactivationConfig(null).ok, false, "null input");
+  assert.equal(validateLeadReactivationConfig([7, 21]).ok, false, "array input");
+  assert.equal(validateLeadReactivationConfig({ ...base, touch_1_days: NaN }).ok, false, "NaN");
+  assert.equal(validateLeadReactivationConfig({ ...base, touch_1_days: Infinity }).ok, false, "Infinity");
+  assert.equal(validateLeadReactivationConfig({ ...base, touch_2_days: Infinity }).ok, false, "Infinity for touch_2");
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 7, touch_2_days: 21, extra_field: "x" }).ok, false, "unknown property");
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 7 }).ok, false, "missing touch_2_days");
+});
+
+test("V4: touch_2_days <= touch_1_days is rejected", () => {
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 21, touch_2_days: 21 }).ok, false, "equal");
+  assert.equal(validateLeadReactivationConfig({ touch_1_days: 21, touch_2_days: 7 }).ok, false, "second before first");
+});
+
+test("V4: a malformed stored config (out of range, wrong type, an array, or touch_2<=touch_1) safely falls back to the defaults of 7/21", () => {
+  assert.deepEqual(readLeadReactivationConfig({ touch_1_days: 0, touch_2_days: 21 }), { touch_1_days: 7, touch_2_days: 21 });
+  assert.deepEqual(readLeadReactivationConfig({ touch_1_days: 91, touch_2_days: 92 }), { touch_1_days: 7, touch_2_days: 21 });
+  assert.deepEqual(readLeadReactivationConfig({ touch_1_days: "7", touch_2_days: 21 }), { touch_1_days: 7, touch_2_days: 21 });
+  assert.deepEqual(readLeadReactivationConfig([7, 21]), { touch_1_days: 7, touch_2_days: 21 });
+  assert.deepEqual(readLeadReactivationConfig("not an object"), { touch_1_days: 7, touch_2_days: 21 });
+  assert.deepEqual(readLeadReactivationConfig({ touch_1_days: 21, touch_2_days: 7 }), { touch_1_days: 7, touch_2_days: 21 }, "touch_2 <= touch_1 falls back entirely");
+});
+
+test("V4: saving an identical config produces no audit plan (no-op save)", () => {
+  const config = { touch_1_days: 7, touch_2_days: 21 };
+  assert.equal(shouldAuditConfigUpdate(config, { ...config }), null);
+});
+
+test("V4: saving a changed config produces exactly one automation_config_updated plan with only the before/after values", () => {
+  const plan = shouldAuditConfigUpdate({ touch_1_days: 7, touch_2_days: 21 }, { touch_1_days: 10, touch_2_days: 30 });
+  assert.deepEqual(plan, {
+    action: "automation_config_updated",
+    metadata: {
+      previous_config: { touch_1_days: 7, touch_2_days: 21 },
+      new_config: { touch_1_days: 10, touch_2_days: 30 },
+    },
+  });
+});
+
+test("V4: organization isolation - getAutomationConfigByOrganization keys strictly by organization_id for lead-reactivation", async () => {
+  const ORG_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const ORG_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const rows = [
+    { organization_id: ORG_A, config: { touch_1_days: 10, touch_2_days: 30 } },
+    { organization_id: ORG_B, config: { touch_1_days: 3, touch_2_days: 9 } },
+  ];
+  const client = {
+    from: (table: string) => {
+      assert.equal(table, "automation_settings");
+      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+    },
+  } as unknown as SupabaseClient;
+
+  const map = await getAutomationConfigByOrganization(client, "lead-reactivation");
+
+  assert.deepEqual(readLeadReactivationConfig(map.get(ORG_A)), { touch_1_days: 10, touch_2_days: 30 });
+  assert.deepEqual(readLeadReactivationConfig(map.get(ORG_B)), { touch_1_days: 3, touch_2_days: 9 });
+  assert.deepEqual(
+    readLeadReactivationConfig(map.get("no-such-org")),
+    { touch_1_days: 7, touch_2_days: 21 },
+    "an org with no row still gets the default",
+  );
+});
+
+// Note on authorization/unauthenticated/non-admin-member scenarios and the
+// "enabled cannot be changed" guarantee for updateLeadReactivationConfig:
+// identical rationale as the notes above for updateLostLeadNurtureConfig/
+// updateInstantLeadFollowupConfig - it reuses requireOrgAdminSession/
+// assertOrgAdmin unchanged (no new authorization code was written for V4),
+// and its upsert payload is
+// `{ organization_id, automation_id: "lead-reactivation", config }` only -
 // it never includes `enabled`. Those guarantees are already directly
 // unit-tested against assertOrgAdmin itself in
 // lib/automation/authorization.test.ts (tests A, B, D, E) - a Server Action
