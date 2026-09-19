@@ -25,6 +25,8 @@ const {
   validateInboundCustomerReplyConfig,
   readInstantLeadFollowupConfig,
   validateInstantLeadFollowupConfig,
+  readLostLeadNurtureConfig,
+  validateLostLeadNurtureConfig,
   shouldAuditConfigUpdate,
   getAutomationConfig,
   getAutomationConfigByOrganization,
@@ -452,3 +454,115 @@ test("V2.2: organization isolation - getAutomationConfigByOrganization keys stri
 // - it reuses requireOrgAdminSession/assertOrgAdmin unchanged, and its
 // upsert payload is `{ organization_id, automation_id: "instant-lead-followup", config }`
 // only.
+
+// ============================================================================
+// Automation Configuration V3 - lost-lead-nurture.touch_1_days / touch_2_days
+// ============================================================================
+
+test("V3: defaults are 3 and 14 days", () => {
+  assert.deepEqual(readLostLeadNurtureConfig(null), { touch_1_days: 3, touch_2_days: 14 });
+  assert.deepEqual(readLostLeadNurtureConfig(undefined), { touch_1_days: 3, touch_2_days: 14 });
+  assert.deepEqual(readLostLeadNurtureConfig({}), { touch_1_days: 3, touch_2_days: 14 });
+});
+
+test("V3: valid values are accepted", () => {
+  assert.deepEqual(validateLostLeadNurtureConfig({ touch_1_days: 1, touch_2_days: 2 }), { ok: true, value: { touch_1_days: 1, touch_2_days: 2 } });
+  assert.deepEqual(validateLostLeadNurtureConfig({ touch_1_days: 3, touch_2_days: 14 }), { ok: true, value: { touch_1_days: 3, touch_2_days: 14 } });
+  assert.deepEqual(validateLostLeadNurtureConfig({ touch_1_days: 5, touch_2_days: 20 }), { ok: true, value: { touch_1_days: 5, touch_2_days: 20 } });
+});
+
+test("V3: minimum bound (1) is accepted, below-minimum (0) is rejected", () => {
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 1, touch_2_days: 90 }).ok, true, "1 is the minimum, valid");
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 0, touch_2_days: 90 }).ok, false, "0 is below minimum");
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 1, touch_2_days: 0 }).ok, false, "0 is below minimum for touch_2 too");
+});
+
+test("V3: maximum bound (90) is accepted, above-maximum (91) is rejected", () => {
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 1, touch_2_days: 90 }).ok, true, "90 is the maximum, valid");
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 91, touch_2_days: 92 }).ok, false, "91 is above maximum");
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 1, touch_2_days: 91 }).ok, false, "91 is above maximum for touch_2 too");
+});
+
+test("V3: invalid values are rejected, never silently coerced", () => {
+  const base = { touch_1_days: 3, touch_2_days: 14 };
+  assert.equal(validateLostLeadNurtureConfig({ ...base, touch_1_days: 3.5 }).ok, false, "decimal");
+  assert.equal(validateLostLeadNurtureConfig({ ...base, touch_1_days: "3" }).ok, false, "string");
+  assert.equal(validateLostLeadNurtureConfig({ ...base, touch_1_days: null }).ok, false, "null value");
+  assert.equal(validateLostLeadNurtureConfig(null).ok, false, "null input");
+  assert.equal(validateLostLeadNurtureConfig([3, 14]).ok, false, "array input");
+  assert.equal(validateLostLeadNurtureConfig({ ...base, touch_1_days: NaN }).ok, false, "NaN");
+  assert.equal(validateLostLeadNurtureConfig({ ...base, touch_1_days: Infinity }).ok, false, "Infinity");
+  assert.equal(validateLostLeadNurtureConfig({ ...base, touch_2_days: Infinity }).ok, false, "Infinity for touch_2");
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 3, touch_2_days: 14, extra_field: "x" }).ok, false, "unknown property");
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 3 }).ok, false, "missing touch_2_days");
+});
+
+test("V3: touch_2_days <= touch_1_days is rejected", () => {
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 14, touch_2_days: 14 }).ok, false, "equal");
+  assert.equal(validateLostLeadNurtureConfig({ touch_1_days: 14, touch_2_days: 3 }).ok, false, "second before first");
+});
+
+test("V3: a malformed stored config (out of range, wrong type, an array, or touch_2<=touch_1) safely falls back to the defaults of 3/14", () => {
+  assert.deepEqual(readLostLeadNurtureConfig({ touch_1_days: 0, touch_2_days: 14 }), { touch_1_days: 3, touch_2_days: 14 });
+  assert.deepEqual(readLostLeadNurtureConfig({ touch_1_days: 91, touch_2_days: 92 }), { touch_1_days: 3, touch_2_days: 14 });
+  assert.deepEqual(readLostLeadNurtureConfig({ touch_1_days: "3", touch_2_days: 14 }), { touch_1_days: 3, touch_2_days: 14 });
+  assert.deepEqual(readLostLeadNurtureConfig([3, 14]), { touch_1_days: 3, touch_2_days: 14 });
+  assert.deepEqual(readLostLeadNurtureConfig("not an object"), { touch_1_days: 3, touch_2_days: 14 });
+  assert.deepEqual(readLostLeadNurtureConfig({ touch_1_days: 14, touch_2_days: 3 }), { touch_1_days: 3, touch_2_days: 14 }, "touch_2 <= touch_1 falls back entirely");
+});
+
+test("V3: saving an identical config produces no audit plan (no-op save)", () => {
+  const config = { touch_1_days: 3, touch_2_days: 14 };
+  assert.equal(shouldAuditConfigUpdate(config, { ...config }), null);
+});
+
+test("V3: saving a changed config produces exactly one automation_config_updated plan with only the before/after values", () => {
+  const plan = shouldAuditConfigUpdate({ touch_1_days: 3, touch_2_days: 14 }, { touch_1_days: 5, touch_2_days: 20 });
+  assert.deepEqual(plan, {
+    action: "automation_config_updated",
+    metadata: {
+      previous_config: { touch_1_days: 3, touch_2_days: 14 },
+      new_config: { touch_1_days: 5, touch_2_days: 20 },
+    },
+  });
+});
+
+test("V3: organization isolation - getAutomationConfigByOrganization keys strictly by organization_id for lost-lead-nurture", async () => {
+  const ORG_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const ORG_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const rows = [
+    { organization_id: ORG_A, config: { touch_1_days: 5, touch_2_days: 20 } },
+    { organization_id: ORG_B, config: { touch_1_days: 2, touch_2_days: 7 } },
+  ];
+  const client = {
+    from: (table: string) => {
+      assert.equal(table, "automation_settings");
+      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+    },
+  } as unknown as SupabaseClient;
+
+  const map = await getAutomationConfigByOrganization(client, "lost-lead-nurture");
+
+  assert.deepEqual(readLostLeadNurtureConfig(map.get(ORG_A)), { touch_1_days: 5, touch_2_days: 20 });
+  assert.deepEqual(readLostLeadNurtureConfig(map.get(ORG_B)), { touch_1_days: 2, touch_2_days: 7 });
+  assert.deepEqual(
+    readLostLeadNurtureConfig(map.get("no-such-org")),
+    { touch_1_days: 3, touch_2_days: 14 },
+    "an org with no row still gets the default",
+  );
+});
+
+// Note on authorization/unauthenticated/non-admin-member scenarios and the
+// "enabled cannot be changed" guarantee for updateLostLeadNurtureConfig:
+// identical rationale as the notes above for updateInboundCustomerReplyConfig/
+// updateInstantLeadFollowupConfig - it reuses requireOrgAdminSession/
+// assertOrgAdmin unchanged (no new authorization code was written for V3),
+// and its upsert payload is
+// `{ organization_id, automation_id: "lost-lead-nurture", config }` only -
+// it never includes `enabled`. Those guarantees are already directly
+// unit-tested against assertOrgAdmin itself in
+// lib/automation/authorization.test.ts (tests A, B, D, E) - a Server Action
+// cannot be unit tested in this repo (createClient() depends on
+// next/headers, which requires a real request context), so re-asserting the
+// identical, unmodified authorization chain here would not exercise any
+// code this phase actually changed.

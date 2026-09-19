@@ -12,6 +12,7 @@ import {
   readEstimateFollowupConfig,
   readInboundCustomerReplyConfig,
   readInstantLeadFollowupConfig,
+  readLostLeadNurtureConfig,
 } from "@/lib/automation/settings";
 import { getBusinessHours } from "@/lib/settings/queries";
 import { pageTitleClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
@@ -24,10 +25,17 @@ import { AppointmentReminderConfigForm } from "../_components/appointment-remind
 import { EstimateFollowupConfigForm } from "../_components/estimate-followup-config";
 import { InboundCustomerReplyConfigForm } from "../_components/inbound-customer-reply-config";
 import { InstantLeadFollowupConfigForm } from "../_components/instant-lead-followup-config";
+import { LostLeadNurtureConfigForm } from "../_components/lost-lead-nurture-config";
 import { formatCount } from "../_components/format";
 import { SAFE_RETRY_AUTOMATION_IDS } from "@/lib/automation/retry-eligibility";
 
-const CONFIGURABLE_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followup", "inbound-customer-reply", "instant-lead-followup"]);
+const CONFIGURABLE_AUTOMATION_IDS = new Set([
+  "appointment-reminders",
+  "estimate-followup",
+  "inbound-customer-reply",
+  "instant-lead-followup",
+  "lost-lead-nurture",
+]);
 
 /** Automations whose configuration includes a business-hours toggle (V2.2) - used to decide whether to fetch business_hours at all. */
 const BUSINESS_HOURS_AUTOMATION_IDS = new Set(["inbound-customer-reply", "instant-lead-followup"]);
@@ -169,10 +177,15 @@ export default async function AutomationDetailPage({ params }: { params: Promise
                 initialRespectBusinessHours={readInboundCustomerReplyConfig(rawConfig).respect_business_hours}
                 hasBusinessHoursConfigured={hasBusinessHoursConfigured}
               />
-            ) : (
+            ) : definition.id === "instant-lead-followup" ? (
               <InstantLeadFollowupConfigForm
                 initialRespectBusinessHours={readInstantLeadFollowupConfig(rawConfig).respect_business_hours}
                 hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+              />
+            ) : (
+              <LostLeadNurtureConfigForm
+                initialTouch1Days={readLostLeadNurtureConfig(rawConfig).touch_1_days}
+                initialTouch2Days={readLostLeadNurtureConfig(rawConfig).touch_2_days}
               />
             )}
           </div>

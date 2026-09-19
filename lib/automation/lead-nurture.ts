@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
 import { startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
-import { getAutomationEnabled } from "./settings";
+import { getAutomationEnabled, getAutomationConfigByOrganization, readLostLeadNurtureConfig, type LostLeadNurtureConfig } from "./settings";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getLead } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
@@ -11,8 +11,23 @@ import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 
 export const LEAD_LOST_NURTURE_WORKFLOW = "lead_lost_nurture_followup";
 
-const TOUCH_1_DELAY_MS = 72 * 60 * 60 * 1000; // 72 hours after lead.lost
-const TOUCH_2_DELAY_MS = 14 * 24 * 60 * 60 * 1000; // 14 days after lead.lost
+/**
+ * Automation Configuration V3: the pure decision behind which touch (if
+ * any) is due, given elapsed time since a lead went lost and the
+ * organization's own configured thresholds - extracted so "the configured
+ * cadence, not a hardcoded constant, drives occurrence" can be unit tested
+ * directly. At most one touch per call: if both thresholds have already
+ * been crossed, the more current one (2) is preferred over dispatching a
+ * stale first touch - matching the identical choice already made in
+ * lib/automation/estimate-followups.ts's computeFollowupOccurrence.
+ */
+export function computeNurtureOccurrence(elapsedMs: number, config: LostLeadNurtureConfig): 1 | 2 | null {
+  const touch1Ms = config.touch_1_days * 24 * 60 * 60 * 1000;
+  const touch2Ms = config.touch_2_days * 24 * 60 * 60 * 1000;
+  if (elapsedMs >= touch2Ms) return 2;
+  if (elapsedMs >= touch1Ms) return 1;
+  return null;
+}
 
 type LostEventRow = {
   id: string;
@@ -50,13 +65,23 @@ export type NurtureRunResult = {
  * Uses each lead's own `lead.lost` automation_events row as the timing
  * anchor (its `created_at`) rather than any column on `leads` itself - see
  * lib/automation/lead-lost.ts for why leads.updated_at is unsafe to use
- * for this. At most one touch per lead per call: if both the 72-hour and
- * 14-day thresholds are already due (e.g. the cron was down for a while),
- * the more current one (touch 2) is preferred over dispatching a stale
- * first touch, mirroring the identical choice already made in
+ * for this. At most one touch per lead per call: if both configured
+ * thresholds are already due (e.g. the cron was down for a while), the
+ * more current one (touch 2) is preferred over dispatching a stale first
+ * touch, mirroring the identical choice already made in
  * processEstimateFollowups.
+ *
+ * Automation Configuration V3: touch_1_days/touch_2_days are per-organization
+ * (automation_settings.config), defaulting to 3/14 for any organization
+ * that hasn't configured them - identical to the hardcoded behavior before
+ * this setting existed. This query spans every organization at once (the
+ * real cron path), so each candidate's own organization's configured
+ * thresholds are applied via getAutomationConfigByOrganization's map,
+ * mirroring the identical pattern processEstimateFollowups already uses.
  */
 export async function processLeadNurture(supabase: SupabaseClient, now: Date = new Date()): Promise<NurtureRunResult> {
+  const configByOrg = await getAutomationConfigByOrganization(supabase, "lost-lead-nurture");
+
   const { data: lostEvents } = await supabase
     .from("automation_events")
     .select("id, organization_id, entity_id, created_at")
@@ -67,13 +92,14 @@ export async function processLeadNurture(supabase: SupabaseClient, now: Date = n
   const outcomes: NurtureOutcome[] = [];
 
   for (const event of events) {
-    outcomes.push(await processOneLead(supabase, event, now));
+    const config = readLostLeadNurtureConfig(configByOrg.get(event.organization_id) ?? null);
+    outcomes.push(await processOneLead(supabase, event, now, config));
   }
 
   return { candidates: events.length, outcomes };
 }
 
-async function processOneLead(supabase: SupabaseClient, lostEvent: LostEventRow, now: Date): Promise<NurtureOutcome> {
+async function processOneLead(supabase: SupabaseClient, lostEvent: LostEventRow, now: Date, config: LostLeadNurtureConfig): Promise<NurtureOutcome> {
   const leadId = lostEvent.entity_id;
   const organizationId = lostEvent.organization_id;
 
@@ -95,12 +121,7 @@ async function processOneLead(supabase: SupabaseClient, lostEvent: LostEventRow,
   const lostAt = new Date(lostEvent.created_at).getTime();
   const elapsed = now.getTime() - lostAt;
 
-  let occurrence: 1 | 2 | null = null;
-  if (elapsed >= TOUCH_2_DELAY_MS) {
-    occurrence = 2;
-  } else if (elapsed >= TOUCH_1_DELAY_MS) {
-    occurrence = 1;
-  }
+  const occurrence = computeNurtureOccurrence(elapsed, config);
 
   if (!occurrence) {
     return { leadId, outcome: "not_due" };

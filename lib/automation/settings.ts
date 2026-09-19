@@ -339,6 +339,70 @@ export function validateInstantLeadFollowupConfig(input: unknown): ConfigValidat
   return { ok: true, value: { respect_business_hours: obj.respect_business_hours } };
 }
 
+// ---- lost-lead-nurture: touch_1_days / touch_2_days ----
+//
+// Automation Configuration V3. Controls only the elapsed-time thresholds
+// lib/automation/lead-nurture.ts uses to decide whether a lost lead is due
+// its first or second nurture touch - see computeNurtureOccurrence() there.
+// Has no bearing on the outbound gate, content safety, opt-out handling,
+// duplicate-send protection, retry, execution/authorization behavior,
+// business-hours logic, or n8n/Twilio.
+
+export type LostLeadNurtureConfig = { touch_1_days: number; touch_2_days: number };
+
+export const DEFAULT_LOST_LEAD_NURTURE_CONFIG: LostLeadNurtureConfig = { touch_1_days: 3, touch_2_days: 14 };
+
+/** Same "conservative, documented, not technically derived" rationale as the other timing bounds above. 90 days is a generous but bounded ceiling for a nurture cadence. */
+export const NURTURE_TOUCH_DAYS_MIN = 1;
+export const NURTURE_TOUCH_DAYS_MAX = 90;
+
+/** Lenient read path - see the module comment above. Never throws. Also silently falls back to defaults if touch_2 <= touch_1 (touch 2 must fire strictly after touch 1, or touch 1 would never be reachable - see computeNurtureOccurrence's logic), mirroring readEstimateFollowupConfig's identical cross-field rationale. */
+export function readLostLeadNurtureConfig(raw: unknown): LostLeadNurtureConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...DEFAULT_LOST_LEAD_NURTURE_CONFIG };
+  }
+  const obj = raw as Record<string, unknown>;
+  const t1 = obj.touch_1_days;
+  const t2 = obj.touch_2_days;
+  const validT1 = isFiniteInteger(t1) && t1 >= NURTURE_TOUCH_DAYS_MIN && t1 <= NURTURE_TOUCH_DAYS_MAX;
+  const validT2 = isFiniteInteger(t2) && t2 >= NURTURE_TOUCH_DAYS_MIN && t2 <= NURTURE_TOUCH_DAYS_MAX;
+  if (validT1 && validT2 && (t2 as number) > (t1 as number)) {
+    return { touch_1_days: t1 as number, touch_2_days: t2 as number };
+  }
+  return { ...DEFAULT_LOST_LEAD_NURTURE_CONFIG };
+}
+
+const LOST_LEAD_NURTURE_CONFIG_KEYS = new Set(["touch_1_days", "touch_2_days"]);
+
+/** Strict validation path for an admin-submitted write - see the module comment above. Rejects, never coerces. */
+export function validateLostLeadNurtureConfig(input: unknown): ConfigValidationResult<LostLeadNurtureConfig> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "Invalid configuration." };
+  }
+  const obj = input as Record<string, unknown>;
+  const extraKeys = Object.keys(obj).filter((key) => !LOST_LEAD_NURTURE_CONFIG_KEYS.has(key));
+  if (extraKeys.length > 0) {
+    return { ok: false, error: `Unknown configuration field(s): ${extraKeys.join(", ")}.` };
+  }
+  const t1 = obj.touch_1_days;
+  const t2 = obj.touch_2_days;
+
+  if (typeof t1 !== "number" || !Number.isFinite(t1)) return { ok: false, error: "First follow-up must be a number." };
+  if (typeof t2 !== "number" || !Number.isFinite(t2)) return { ok: false, error: "Second follow-up must be a number." };
+  if (!Number.isInteger(t1) || !Number.isInteger(t2)) return { ok: false, error: "Follow-up timing must be whole numbers of days." };
+  if (t1 < NURTURE_TOUCH_DAYS_MIN || t1 > NURTURE_TOUCH_DAYS_MAX) {
+    return { ok: false, error: `First follow-up must be between ${NURTURE_TOUCH_DAYS_MIN} and ${NURTURE_TOUCH_DAYS_MAX} days.` };
+  }
+  if (t2 < NURTURE_TOUCH_DAYS_MIN || t2 > NURTURE_TOUCH_DAYS_MAX) {
+    return { ok: false, error: `Second follow-up must be between ${NURTURE_TOUCH_DAYS_MIN} and ${NURTURE_TOUCH_DAYS_MAX} days.` };
+  }
+  if (t2 <= t1) {
+    return { ok: false, error: "Second follow-up must be later than the first follow-up." };
+  }
+
+  return { ok: true, value: { touch_1_days: t1, touch_2_days: t2 } };
+}
+
 // ---- Shared DB access ----
 
 /** Single organization, single automation - raw config, for a dry-run preview or any other single-org read. */

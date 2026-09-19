@@ -17,6 +17,8 @@ import {
   validateInboundCustomerReplyConfig,
   readInstantLeadFollowupConfig,
   validateInstantLeadFollowupConfig,
+  readLostLeadNurtureConfig,
+  validateLostLeadNurtureConfig,
   shouldAuditConfigUpdate,
 } from "@/lib/automation/settings";
 import { processAppointmentReminders, previewAppointmentReminders, type ReminderPreview } from "@/lib/automation/appointment-reminders";
@@ -783,6 +785,75 @@ export async function updateInstantLeadFollowupConfig(respectBusinessHours: bool
     console.error("[automation] failed to record audit log entry", {
       organizationId,
       automationId: "instant-lead-followup",
+      action: auditPlan.action,
+      error: auditError.message,
+    });
+    return { success: true, config: validation.value, auditWarning: "The configuration was updated, but the audit record could not be saved." };
+  }
+
+  return { success: true, config: validation.value };
+}
+
+/**
+ * Automation Configuration V3: updates lost-lead-nurture's configured touch
+ * timing. Same pattern as updateAppointmentReminderConfig/
+ * updateEstimateFollowupConfig/updateInboundCustomerReplyConfig/
+ * updateInstantLeadFollowupConfig above (admin-only, config-column-only,
+ * audit-on-change-only) - see that comment for the shared rationale. Only
+ * changes the elapsed-time thresholds lib/automation/lead-nurture.ts uses
+ * to decide when a lost lead is due its first/second nurture touch - no
+ * effect on eligibility rules, lead status checks, idempotency, event
+ * creation, execution handling, the outbound gate, content safety,
+ * opt-out handling, duplicate-send protection, retry, or n8n/Twilio.
+ */
+export async function updateLostLeadNurtureConfig(touch1Days: number, touch2Days: number): Promise<ConfigActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  const validation = validateLostLeadNurtureConfig({ touch_1_days: touch1Days, touch_2_days: touch2Days });
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("automation_id", "lost-lead-nurture")
+    .maybeSingle();
+
+  const previousConfig = readLostLeadNurtureConfig(existingRow?.config ?? null);
+
+  const { error: upsertError } = await supabase.from("automation_settings").upsert(
+    { organization_id: organizationId, automation_id: "lost-lead-nurture", config: validation.value },
+    { onConflict: "organization_id,automation_id" },
+  );
+
+  if (upsertError) {
+    return { error: "We couldn't update this automation's configuration. Please try again." };
+  }
+
+  revalidatePath("/automations/lost-lead-nurture");
+
+  const auditPlan = shouldAuditConfigUpdate(previousConfig, validation.value);
+  if (!auditPlan) {
+    return { success: true, config: validation.value };
+  }
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: auditPlan.action,
+    p_automation_id: "lost-lead-nurture",
+    p_metadata: auditPlan.metadata,
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId: "lost-lead-nurture",
       action: auditPlan.action,
       error: auditError.message,
     });
