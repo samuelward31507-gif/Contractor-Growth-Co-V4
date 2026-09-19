@@ -139,6 +139,20 @@ export async function POST(request: NextRequest) {
     provider_message_id: messageSid,
   });
 
+  // Production-readiness audit fix: the SELECT-then-INSERT check above is
+  // only a fast path, not a transactional guarantee - Twilio retrying this
+  // exact webhook under response latency (normal, expected) can land two
+  // concurrent requests here, both past the SELECT, racing on INSERT. The
+  // real, race-safe guarantee is messages_provider_message_id_unique (see
+  // that migration): a 23505 here means a concurrent request already won
+  // and fully recorded this exact physical SMS, so this request must treat
+  // it exactly like the early `existing` short-circuit above - a clean,
+  // idempotent no-op - and must NOT also run the automation/HELP-reply
+  // logic below for a message another request is already handling.
+  if (insertError?.code === "23505") {
+    return twiml();
+  }
+
   if (insertError) {
     console.error("[sms][inbound] failed to record message", { organizationId: organization.id, error: insertError.message });
   }

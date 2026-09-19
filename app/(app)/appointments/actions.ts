@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { APPOINTMENT_STATUSES, type AppointmentStatus } from "@/lib/appointments/queries";
+import { checkAppointmentOverlap } from "@/lib/appointments/overlap";
 import { emitAppointmentCreated, emitAppointmentNoShow, emitAppointmentLifecycleEvent } from "@/lib/automation/appointments";
 
 export type AppointmentFormState = {
@@ -146,6 +147,7 @@ async function validateRelationships(
   supabase: Awaited<ReturnType<typeof createClient>>,
   organizationId: string,
   input: AppointmentInput,
+  excludeId?: string,
 ): Promise<string | null> {
   const contactValid = await verifyContactInOrganization(supabase, organizationId, input.contact_id);
   if (!contactValid) {
@@ -157,6 +159,11 @@ async function validateRelationships(
     if (!leadValid) {
       return "Select a valid lead for this contact.";
     }
+  }
+
+  const hasOverlap = await checkAppointmentOverlap(supabase, organizationId, input, excludeId);
+  if (hasOverlap) {
+    return "This time conflicts with another appointment. Choose a different time.";
   }
 
   return null;
@@ -212,7 +219,7 @@ export async function updateAppointment(
 
   const { supabase, organizationId } = await requireOrganization();
 
-  const relationshipError = await validateRelationships(supabase, organizationId, input);
+  const relationshipError = await validateRelationships(supabase, organizationId, input, id);
   if (relationshipError) {
     return { error: relationshipError };
   }
