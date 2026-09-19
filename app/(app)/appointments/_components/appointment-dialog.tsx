@@ -2,7 +2,8 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass } from "@/lib/ui/form";
+import { errorBannerClass, ghostButtonClass, inputClass, labelClass, primaryButtonAutoClass } from "@/lib/ui/form";
+import { Dialog, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
 import { APPOINTMENT_STATUSES, type Appointment } from "@/lib/appointments/queries";
@@ -52,19 +53,12 @@ export function AppointmentDialog({
   }, [state.success, onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label="Close"
-        className="absolute inset-0 bg-slate-900/40"
-        onClick={onClose}
-      />
-      <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
-        <h2 className="text-lg font-semibold tracking-tight text-slate-900">
-          {mode === "create" ? "Add Appointment" : "Edit Appointment"}
-        </h2>
+    <Dialog onClose={onClose} className="max-h-[90vh] max-w-md overflow-y-auto" labelledBy="appointment-dialog-title">
+      <DialogTitle id="appointment-dialog-title">
+        {mode === "create" ? "Add Appointment" : "Edit Appointment"}
+      </DialogTitle>
 
-        <form action={formAction} className="mt-4 space-y-4">
+      <form action={formAction} className="mt-4 space-y-4">
           {mode === "edit" && appointment ? <input type="hidden" name="id" value={appointment.id} /> : null}
 
           {state.error ? (
@@ -169,12 +163,8 @@ export function AppointmentDialog({
             />
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
-            >
+          <DialogFooter>
+            <button type="button" onClick={onClose} className={ghostButtonClass}>
               Cancel
             </button>
             <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
@@ -186,9 +176,8 @@ export function AppointmentDialog({
                   ? "Create Appointment"
                   : "Save Changes"}
             </button>
-          </div>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

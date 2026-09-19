@@ -27,7 +27,7 @@ const KIND_STYLE: Record<AttentionItem["kind"], string> = {
  */
 export function AttentionPanel({ items }: { items: AttentionItem[] }) {
   return (
-    <div className="border-t border-slate-200 pt-8">
+    <div>
       <div className="flex items-baseline justify-between">
         <h2 className={primarySectionTitleClass}>Needs your attention</h2>
         {items.length > 0 ? <span className={metaClass}>{items.length}</span> : null}

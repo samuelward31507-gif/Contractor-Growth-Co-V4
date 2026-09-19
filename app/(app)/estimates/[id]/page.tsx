@@ -96,13 +96,19 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
         </div>
       ) : null}
 
+      {/* VALUE: the money figure gets the strongest number treatment on the
+          page, same convention as the Leads detail page's "Estimated value" -
+          this is a quoted amount, not collected revenue. */}
+      <div className="border-t border-slate-200 pt-8">
+        <p className="text-xs text-slate-500">Amount</p>
+        <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-slate-900">
+          {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
+        </p>
+      </div>
+
       <div className="border-t border-slate-200 pt-8">
         <h2 className={subsectionTitleClass}>Estimate</h2>
         <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-          <div>
-            <dt className={detailLabelClass}>Amount</dt>
-            <dd className={detailValueClass}>{estimate.amount != null ? formatCurrency(estimate.amount) : "—"}</dd>
-          </div>
           <div>
             <dt className={detailLabelClass}>Created</dt>
             <dd className={detailValueClass}>{formatContactDate(estimate.created_at)}</dd>

@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import { LEAD_STATUSES, LEAD_TEMPERATURES } from "@/lib/leads/queries";
 import type { LeadSort } from "../page";
@@ -86,8 +86,21 @@ export function LeadsToolbar({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search by name, phone, email, company, service…"
           aria-label="Search leads"
-          className={`${inputClass} pl-9`}
+          className={`${inputClass} pl-9 ${query ? "pr-8" : ""}`}
         />
+        {query ? (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              navigate("", status, temperature, sort);
+            }}
+            aria-label="Clear search"
+            className="absolute right-2.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        ) : null}
       </div>
 
       <select

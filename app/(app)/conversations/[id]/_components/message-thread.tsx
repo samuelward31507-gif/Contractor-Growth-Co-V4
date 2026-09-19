@@ -163,20 +163,27 @@ export function MessageThread({ messages }: { messages: Message[] }) {
       ref={containerRef}
       role="log"
       aria-label="Message thread"
-      className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-5 sm:px-6"
+      className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6"
     >
-      {orderedGroups.map(([label, items]) => (
-        <div key={label} className="space-y-4">
-          <div className="flex items-center justify-center">
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
-              {label}
-            </span>
+      {/* Capped width so bubbles stay readable instead of stretching edge
+          to edge on wide/xl desktop viewports - the scroll surface itself
+          stays full-width, only the message column is constrained and
+          centered, matching how premium messaging products read on large
+          screens. */}
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+        {orderedGroups.map(([label, items]) => (
+          <div key={label} className="space-y-4">
+            <div className="flex items-center justify-center">
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+                {label}
+              </span>
+            </div>
+            {items.map((message) => (
+              <MessageRow key={message.id} message={message} />
+            ))}
           </div>
-          {items.map((message) => (
-            <MessageRow key={message.id} message={message} />
-          ))}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

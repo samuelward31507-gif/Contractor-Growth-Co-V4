@@ -94,7 +94,7 @@ test("filterEstimates: query and status combine with AND semantics", () => {
 
 test("summarizeEstimates: totals and per-status counts on an empty list", () => {
   const summary = summarizeEstimates([]);
-  assert.deepEqual(summary, { total: 0, draftCount: 0, sentCount: 0, acceptedValue: 0 });
+  assert.deepEqual(summary, { total: 0, draftCount: 0, sentCount: 0, openValue: 0, acceptedValue: 0 });
 });
 
 test("summarizeEstimates: counts drafts and sent separately from other statuses", () => {
@@ -118,4 +118,16 @@ test("summarizeEstimates: acceptedValue sums only accepted estimates' amounts, t
     makeEstimate({ id: "d", status: "sent", amount: 9999 }),
   ];
   assert.equal(summarizeEstimates(estimates).acceptedValue, 1500);
+});
+
+test("summarizeEstimates: openValue sums only draft/sent estimates' amounts, excluding accepted/declined/cancelled and treating null as zero", () => {
+  const estimates = [
+    makeEstimate({ id: "a", status: "draft", amount: 1000 }),
+    makeEstimate({ id: "b", status: "sent", amount: 2000 }),
+    makeEstimate({ id: "c", status: "sent", amount: null }),
+    makeEstimate({ id: "d", status: "accepted", amount: 9999 }),
+    makeEstimate({ id: "e", status: "declined", amount: 9999 }),
+    makeEstimate({ id: "f", status: "cancelled", amount: 9999 }),
+  ];
+  assert.equal(summarizeEstimates(estimates).openValue, 3000);
 });

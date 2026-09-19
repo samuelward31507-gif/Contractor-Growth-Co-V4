@@ -39,7 +39,7 @@ export function ClientHealthTable({
             {organizations.map((org) => {
               const health = healthByOrg.get(org.organizationId);
               return (
-                <tr key={org.organizationId} className="group">
+                <tr key={org.organizationId} className={`group ${health?.needsAttention ? "bg-amber-50/40" : ""}`}>
                   <td className="py-2 pl-4 pr-4 sm:pl-5">
                     <Link
                       href={`/agency/organizations/${org.organizationId}`}

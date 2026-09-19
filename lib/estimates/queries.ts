@@ -140,20 +140,29 @@ export type EstimateSummary = {
   total: number;
   draftCount: number;
   sentCount: number;
+  openValue: number;
   acceptedValue: number;
 };
 
+/** Estimates still awaiting a customer decision - not yet accepted, declined, cancelled, or expired. */
+const OPEN_ESTIMATE_STATUSES = new Set<EstimateStatus>(["draft", "sent"]);
+
 /**
  * Mirrors summarizeLeads' shape: total, one "needs your attention" count
- * (open, unsent drafts), one in-flight count, and one closed-won value
- * total - the same restrained set of numbers Leads surfaces, not every
- * status count.
+ * (open, unsent drafts), one in-flight count, an open pipeline value total
+ * (the same OPEN_LEAD_STATUSES-style derivation lib/leads/queries.ts's
+ * summarizeLeads already uses for openValue, applied to estimates' own
+ * draft/sent statuses), and one closed-won value total - the same
+ * restrained set of numbers Leads surfaces, not every status count.
  */
 export function summarizeEstimates(estimates: Estimate[]): EstimateSummary {
   return {
     total: estimates.length,
     draftCount: estimates.filter((estimate) => estimate.status === "draft").length,
     sentCount: estimates.filter((estimate) => estimate.status === "sent").length,
+    openValue: estimates
+      .filter((estimate) => OPEN_ESTIMATE_STATUSES.has(estimate.status))
+      .reduce((sum, estimate) => sum + (estimate.amount ?? 0), 0),
     acceptedValue: estimates
       .filter((estimate) => estimate.status === "accepted")
       .reduce((sum, estimate) => sum + (estimate.amount ?? 0), 0),

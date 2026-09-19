@@ -4,16 +4,9 @@ import { useActionState, useState } from "react";
 import { MessageSquare, Info, AlertTriangle } from "lucide-react";
 import { SectionCard } from "@/lib/ui/section-card";
 import { Badge } from "@/lib/ui/badge";
-import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass, successBannerClass } from "@/lib/ui/form";
+import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass, secondaryButtonAutoClass, successBannerClass } from "@/lib/ui/form";
 import { detailLabelClass, detailValueClass, metaClass } from "@/lib/ui/typography";
 import { updateSmsPhoneNumber, clearSmsPhoneNumber, type SmsRoutingActionState } from "../actions";
-
-// Not in lib/ui/form.ts (no shared "secondary button" primitive exists yet) -
-// matches the exact secondary-button treatment other settings dialogs use
-// (see service-dialog.tsx's Cancel button / services-section.tsx's "Add
-// service" button) so this reads consistently with the rest of Settings.
-const secondaryButtonClass =
-  "inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400";
 
 const initialState: SmsRoutingActionState = {};
 
@@ -104,7 +97,7 @@ export function SmsRoutingSection({
                   type="submit"
                   formAction={clearAction}
                   disabled={!canEdit || isPending}
-                  className={secondaryButtonClass}
+                  className={secondaryButtonAutoClass}
                   onClick={() => setPendingValue("")}
                 >
                   {isClearing ? "Clearing…" : "Clear number"}

@@ -78,9 +78,9 @@ export default async function AgencyPage() {
 
       <div className="mt-4 flex flex-col gap-3.5">
         <OverviewCards summary={metrics.summary} />
+        <AttentionSection organizations={attentionOrganizations} stuck={health.stuck} />
         <IncidentRollup rollup={health.incidentRollup} />
         <ClientHealthTable organizations={metrics.organizations} healthByOrg={healthByOrg} />
-        <AttentionSection organizations={attentionOrganizations} stuck={health.stuck} />
         <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
           <AutomationActivity summary={metrics.summary} stuckCount={health.stuck.length} />
           <AiActivity summary={metrics.summary} aiTokenUsageUnavailable={metrics.dataQuality.aiTokenUsageUnavailable} />

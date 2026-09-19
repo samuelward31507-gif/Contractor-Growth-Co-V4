@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { errorBannerClass } from "@/lib/ui/form";
+import { destructiveButtonAutoClass, errorBannerClass, ghostButtonClass, primaryButtonAutoClass } from "@/lib/ui/form";
+import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
 import type { Job } from "@/lib/jobs/queries";
 import { markJobCancelled, markJobCompleted, markJobStarted } from "../../actions";
 
@@ -87,41 +88,25 @@ export function JobActions({ job }: { job: Job }) {
       {error ? <p className={errorBannerClass}>{error}</p> : null}
 
       {confirming ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label="Close"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setConfirming(null)}
-          />
-          <div className="relative w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
-            <h2 className="text-lg font-semibold tracking-tight text-slate-900">{CONFIRM_COPY[confirming].title}</h2>
-            <p className="mt-2 text-sm text-slate-500">{CONFIRM_COPY[confirming].body}</p>
-            <div className="mt-5 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirming(null)}
-                className="rounded-lg px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
-              >
-                Never mind
-              </button>
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={() =>
-                  run(() => (confirming === "complete" ? markJobCompleted(job.id) : markJobCancelled(job.id)))
-                }
-                className={
-                  confirming === "complete"
-                    ? "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                    : "inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
-                }
-              >
-                {isPending ? "Saving…" : CONFIRM_COPY[confirming].confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
+        <Dialog onClose={() => setConfirming(null)} labelledBy="job-confirm-title">
+          <DialogTitle id="job-confirm-title">{CONFIRM_COPY[confirming].title}</DialogTitle>
+          <DialogDescription>{CONFIRM_COPY[confirming].body}</DialogDescription>
+          <DialogFooter>
+            <button type="button" onClick={() => setConfirming(null)} className={ghostButtonClass}>
+              Never mind
+            </button>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() =>
+                run(() => (confirming === "complete" ? markJobCompleted(job.id) : markJobCancelled(job.id)))
+              }
+              className={confirming === "complete" ? primaryButtonAutoClass : destructiveButtonAutoClass}
+            >
+              {isPending ? "Saving…" : CONFIRM_COPY[confirming].confirmLabel}
+            </button>
+          </DialogFooter>
+        </Dialog>
       ) : null}
     </div>
   );

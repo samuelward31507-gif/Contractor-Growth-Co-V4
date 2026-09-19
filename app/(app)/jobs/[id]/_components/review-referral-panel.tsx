@@ -2,18 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { errorBannerClass, inputClass } from "@/lib/ui/form";
+import { errorBannerClass, inputClass, primaryButtonSmallClass, secondaryButtonSmallClass } from "@/lib/ui/form";
 import { detailLabelClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
 import type { ReviewRequest, ReferralRequest } from "@/lib/reviews-referrals/queries";
 import { REVIEW_STATUS_LABELS, REFERRAL_STATUS_LABELS } from "@/lib/reviews-referrals/format";
 import { REVIEW_STATUS_TONE, REVIEW_STATUS_ICON, REFERRAL_STATUS_TONE, REFERRAL_STATUS_ICON } from "../../_components/status";
 import { markReviewCompleted, markReviewDeclined, markReferralConverted, markReferralDeclined } from "../../actions";
-
-const primaryBtn =
-  "inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
-const secondaryBtn =
-  "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * The only place a review/referral request can ever be moved to a terminal
@@ -73,10 +68,10 @@ export function ReviewReferralPanel({
             {reviewRequest.failure_reason ? <p className="mt-1.5 text-xs text-red-600">{reviewRequest.failure_reason}</p> : null}
             {reviewResolvable ? (
               <div className="mt-2 flex gap-2">
-                <button type="button" disabled={isPending} onClick={() => run(() => markReviewCompleted(jobId))} className={primaryBtn}>
+                <button type="button" disabled={isPending} onClick={() => run(() => markReviewCompleted(jobId))} className={primaryButtonSmallClass}>
                   Mark Review Left
                 </button>
-                <button type="button" disabled={isPending} onClick={() => run(() => markReviewDeclined(jobId))} className={secondaryBtn}>
+                <button type="button" disabled={isPending} onClick={() => run(() => markReviewDeclined(jobId))} className={secondaryButtonSmallClass}>
                   Mark Declined
                 </button>
               </div>
@@ -111,10 +106,10 @@ export function ReviewReferralPanel({
                     ))}
                   </select>
                 ) : null}
-                <button type="button" disabled={isPending} onClick={() => run(() => markReferralConverted(jobId, selectedLeadId || null))} className={primaryBtn}>
+                <button type="button" disabled={isPending} onClick={() => run(() => markReferralConverted(jobId, selectedLeadId || null))} className={primaryButtonSmallClass}>
                   Mark Converted
                 </button>
-                <button type="button" disabled={isPending} onClick={() => run(() => markReferralDeclined(jobId))} className={secondaryBtn}>
+                <button type="button" disabled={isPending} onClick={() => run(() => markReferralDeclined(jobId))} className={secondaryButtonSmallClass}>
                   Mark Declined
                 </button>
               </div>

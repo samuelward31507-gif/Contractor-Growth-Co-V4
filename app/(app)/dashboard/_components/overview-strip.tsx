@@ -15,7 +15,7 @@ const STATS: { key: keyof OverviewMetrics; label: string }[] = [
  */
 export function OverviewStrip({ overview }: { overview: OverviewMetrics }) {
   return (
-    <div>
+    <div className="border-t border-slate-200 pt-8">
       <p className={sectionLabelClass}>Business activity</p>
       <dl className="mt-3 flex flex-wrap gap-x-10 gap-y-4">
         {STATS.map(({ key, label }) => (

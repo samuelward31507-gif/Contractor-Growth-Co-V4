@@ -1,9 +1,16 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { CalendarCheck2, CalendarClock, ChevronRight, History, SearchX } from "lucide-react";
 import { sectionLabelClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
+import { EmptyState } from "@/lib/ui/empty-state";
 import { contactDisplayName, contactInitials } from "@/lib/contacts/format";
-import { formatAppointmentDate, formatAppointmentTimeRange, getDayGroupLabel, STATUS_LABELS } from "@/lib/appointments/format";
+import {
+  formatAppointmentDate,
+  formatAppointmentTime,
+  formatAppointmentTimeRange,
+  getDayGroupLabel,
+  STATUS_LABELS,
+} from "@/lib/appointments/format";
 import type { Appointment, AppointmentView } from "@/lib/appointments/queries";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "./status";
 
@@ -24,6 +31,12 @@ function AppointmentRow({
         href={`/appointments/${appointment.id}`}
         className="group flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50"
       >
+        {/* Leading time column - this list reads as "the contractor's day"
+            first and foremost, so the answer to "when" is the first thing
+            scanned in each row, not buried in the subtext line below. */}
+        <span className="w-14 shrink-0 text-sm font-semibold tabular-nums text-slate-900">
+          {formatAppointmentTime(appointment.start_at, timeZone)}
+        </span>
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
           {appointment.contact ? contactInitials(appointment.contact) : "?"}
         </span>
@@ -60,19 +73,40 @@ export function AppointmentsList({
   timeZone?: string;
 }) {
   if (appointments.length === 0) {
-    const emptyMessage =
+    if (hasActiveFilters) {
+      return (
+        <div className="px-2">
+          <EmptyState
+            icon={SearchX}
+            title="No appointments match your filters."
+            description="Try a different search term, or clear your filters to see the full list."
+          />
+        </div>
+      );
+    }
+
+    const empty =
       view === "today"
-        ? "No appointments today."
+        ? {
+            icon: CalendarCheck2,
+            title: "Nothing on the schedule today.",
+            description: "Today's calendar is clear. New appointments will show up here as soon as they're booked.",
+          }
         : view === "past"
-          ? "No past appointments."
-          : "No upcoming appointments.";
+          ? {
+              icon: History,
+              title: "No past appointments yet.",
+              description: "Completed and past visits will appear here once you've had your first appointment.",
+            }
+          : {
+              icon: CalendarClock,
+              title: "No upcoming appointments.",
+              description: "Appointments you schedule will show up here, soonest first.",
+            };
 
     return (
-      <div className="px-2 py-14 text-center">
-        <p className="text-sm font-medium text-slate-900">{emptyMessage}</p>
-        {hasActiveFilters ? (
-          <p className="mt-1 text-sm text-slate-500">Try a different search term or clear your filters.</p>
-        ) : null}
+      <div className="px-2">
+        <EmptyState icon={empty.icon} title={empty.title} description={empty.description} />
       </div>
     );
   }

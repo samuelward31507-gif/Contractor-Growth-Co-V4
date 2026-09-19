@@ -55,7 +55,11 @@ export function ConversationsList({
               href={`/conversations/${conversation.id}`}
               aria-current={isActive ? "page" : undefined}
               className={`flex items-start gap-3 px-4 py-3 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-slate-900 ${
-                isActive ? "bg-slate-100" : awaitingReply ? "bg-blue-50/70 hover:bg-blue-50" : "hover:bg-slate-50"
+                isActive
+                  ? "bg-slate-100 shadow-[inset_2px_0_0_0_#0f172a]"
+                  : awaitingReply
+                    ? "bg-blue-50/70 hover:bg-blue-50"
+                    : "hover:bg-slate-50"
               }`}
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">

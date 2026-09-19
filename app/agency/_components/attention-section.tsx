@@ -36,7 +36,12 @@ export function AttentionSection({
   }
 
   return (
-    <SectionCard title="Attention required" description={`${organizations.length} client${organizations.length === 1 ? "" : "s"} flagged`} icon={AlertTriangle}>
+    <SectionCard
+      className="border-amber-300 ring-1 ring-amber-100"
+      title="Attention required"
+      description={`${organizations.length} client${organizations.length === 1 ? "" : "s"} flagged`}
+      icon={AlertTriangle}
+    >
       <div className="space-y-3.5">
         {organizations.length > 0 ? (
           <ul className="divide-y divide-slate-100 rounded-lg border border-amber-200 bg-amber-50/30">

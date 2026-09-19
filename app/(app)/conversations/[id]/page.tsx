@@ -97,7 +97,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
         <Link
           href="/conversations"
           aria-label="Back to Conversations"
-          className="text-slate-400 transition-colors hover:text-slate-600 lg:hidden"
+          className="-m-2 rounded-md p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 lg:hidden"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />
         </Link>

@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { Pencil, Trash2, Plus } from "lucide-react";
+import { secondaryButtonAutoClass } from "@/lib/ui/form";
 import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import type { Service } from "@/lib/settings/queries";
 import { toggleServiceActive, type DeleteState } from "../actions";
@@ -40,7 +41,7 @@ function ServiceRow({
           <button
             type="submit"
             disabled={!canEdit || isPending}
-            className="inline-flex items-center gap-1.5 text-sm text-slate-600 transition-colors disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 rounded-md text-sm text-slate-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed"
           >
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${service.is_active ? "bg-emerald-500" : "bg-slate-300"}`} aria-hidden />
             {isPending ? "Updating…" : service.is_active ? "Active" : "Inactive"}
@@ -53,7 +54,7 @@ function ServiceRow({
               type="button"
               onClick={onEdit}
               aria-label="Edit service"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
             >
               <Pencil className="h-4 w-4" aria-hidden />
             </button>
@@ -61,7 +62,7 @@ function ServiceRow({
               type="button"
               onClick={onDelete}
               aria-label="Delete service"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/20"
             >
               <Trash2 className="h-4 w-4" aria-hidden />
             </button>
@@ -85,11 +86,7 @@ export function ServicesSection({ services, canEdit }: { services: Service[]; ca
           <p className={`mt-1 ${metaClass}`}>Services your business provides.</p>
         </div>
         {canEdit ? (
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
+          <button type="button" onClick={() => setAddOpen(true)} className={secondaryButtonAutoClass}>
             <Plus className="h-4 w-4" aria-hidden />
             Add service
           </button>

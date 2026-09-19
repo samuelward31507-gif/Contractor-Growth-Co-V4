@@ -16,10 +16,15 @@ export function AppointmentsToolbar({
   initialQuery,
   initialStatus,
   view,
+  todayCount,
 }: {
   initialQuery: string;
   initialStatus: string;
   view: AppointmentView;
+  /** Real, already-computed count (AppointmentSummary.today) - surfaced on
+   *  the tab itself so a full day doesn't get buried behind a click when
+   *  "Upcoming" is the default view. */
+  todayCount?: number;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [status, setStatus] = useState(initialStatus);
@@ -74,7 +79,14 @@ export function AppointmentsToolbar({
                 : "text-slate-500 hover:text-slate-900"
             }`}
           >
-            {item.label}
+            <span className="inline-flex items-center gap-1.5">
+              {item.label}
+              {item.value === "today" && todayCount ? (
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-slate-900 px-1 text-[10px] font-semibold text-white">
+                  {todayCount}
+                </span>
+              ) : null}
+            </span>
           </button>
         ))}
       </div>

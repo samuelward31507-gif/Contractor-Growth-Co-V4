@@ -17,3 +17,34 @@ export const errorBannerClass =
 
 export const successBannerClass =
   "rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-700";
+
+// Premium-polish pass: the button hierarchy every route should reach for
+// instead of hand-rolling its own "secondary"/"destructive" button classes
+// (review-referral-panel.tsx, several dialogs, etc. each had their own
+// near-identical copy). Four tiers - primary, secondary, ghost (tertiary),
+// destructive - so a page never lets every button compete for attention;
+// each has a `*AutoClass` variant (inline width) alongside the full-width
+// default used by single-action dialogs/forms.
+export const secondaryButtonClass =
+  "inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
+
+export const secondaryButtonAutoClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
+
+/** Tertiary - no border/fill until hovered. For low-emphasis actions (Cancel, Clear filters) that must never visually compete with a primary/secondary action beside them. */
+export const ghostButtonClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50";
+
+export const destructiveButtonAutoClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300";
+
+export const destructiveGhostButtonAutoClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50";
+
+// Compact variants for dense inline contexts (a detail-page action row, a
+// table row's actions) where the full py-2.5 buttons above are too tall.
+export const primaryButtonSmallClass =
+  "inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
+
+export const secondaryButtonSmallClass =
+  "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";

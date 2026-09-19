@@ -83,13 +83,20 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
         <JobActions job={job} />
       </div>
 
+      {/* VALUE: the money figure gets the strongest number treatment on the
+          page, same convention as the Leads/Estimates detail pages' own
+          headline amount - this is a contracted amount, not collected
+          revenue. */}
+      <div className="border-t border-slate-200 pt-8">
+        <p className="text-xs text-slate-500">Amount</p>
+        <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-slate-900">
+          {job.amount != null ? formatCurrency(job.amount) : "—"}
+        </p>
+      </div>
+
       <div className="border-t border-slate-200 pt-8">
         <h2 className={subsectionTitleClass}>Job</h2>
         <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-          <div>
-            <dt className={detailLabelClass}>Amount</dt>
-            <dd className={detailValueClass}>{job.amount != null ? formatCurrency(job.amount) : "—"}</dd>
-          </div>
           <div>
             <dt className={detailLabelClass}>Created</dt>
             <dd className={detailValueClass}>{formatContactDate(job.created_at)}</dd>
@@ -110,8 +117,6 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
           </div>
         ) : null}
       </div>
-
-      <ReviewReferralPanel jobId={job.id} reviewRequest={reviewRequest} referralRequest={referralRequest} leadOptions={leadOptions} />
 
       {job.estimate ? (
         <div className="border-t border-slate-200 pt-8">
@@ -198,6 +203,12 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
           </dl>
         </div>
       ) : null}
+
+      {/* Review/referral is the final stage of a job's lifecycle - the
+          customer-facing outcome after everything above (schedule, linked
+          estimate, customer, originating lead) has already been read - so it
+          reads last, not ahead of the record's own facts. */}
+      <ReviewReferralPanel jobId={job.id} reviewRequest={reviewRequest} referralRequest={referralRequest} leadOptions={leadOptions} />
 
       <p className="text-xs text-slate-400">
         Added {formatContactDate(job.created_at)}

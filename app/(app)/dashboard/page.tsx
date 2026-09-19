@@ -67,11 +67,11 @@ export default async function DashboardPage() {
         <p className={`mt-1.5 ${pageDescriptionClass}`}>{statusLine(data.attentionItems.length)}</p>
       </div>
 
+      <AttentionPanel items={data.attentionItems} />
+
       <OverviewStrip overview={data.overview} />
 
       <KeyMetrics snapshot={businessMetrics} />
-
-      <AttentionPanel items={data.attentionItems} />
 
       <AiInsightsPanel cached={cachedInsights} />
 

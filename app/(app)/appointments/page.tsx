@@ -77,7 +77,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
         <AppointmentsEmptyState contacts={contacts} leads={leads} />
       ) : (
         <div className="border-t border-slate-200 pt-8">
-          <AppointmentsToolbar initialQuery={query} initialStatus={status} view={view} />
+          <AppointmentsToolbar initialQuery={query} initialStatus={status} view={view} todayCount={summary.today} />
           <div className="mt-5">
             <AppointmentsList
               appointments={filtered}

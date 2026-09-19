@@ -3,7 +3,8 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { X, Plus } from "lucide-react";
-import { errorBannerClass, inputClass } from "@/lib/ui/form";
+import { destructiveButtonAutoClass, errorBannerClass, ghostButtonClass, inputClass } from "@/lib/ui/form";
+import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
 import type { ServiceArea } from "@/lib/settings/queries";
 import { createServiceArea, deleteServiceArea, type DeleteState, type SettingsActionState } from "../actions";
 
@@ -14,33 +15,24 @@ function DeleteAreaDialog({ area, onClose }: { area: ServiceArea; onClose: () =>
   const [state, formAction, isPending] = useActionState(deleteServiceArea, initialDeleteState);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" aria-label="Close" className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
-      <div className="relative w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
-        <h2 className="text-lg font-semibold tracking-tight text-slate-900">Remove &quot;{area.name}&quot;?</h2>
-        <p className="mt-2 text-sm text-slate-500">This area will no longer be listed as served.</p>
+    <Dialog onClose={onClose} labelledBy="delete-area-title">
+      <DialogTitle id="delete-area-title">Remove &quot;{area.name}&quot;?</DialogTitle>
+      <DialogDescription>This area will no longer be listed as served.</DialogDescription>
 
-        {state.error ? <p className={`mt-4 ${errorBannerClass}`}>{state.error}</p> : null}
+      {state.error ? <p className={`mt-4 ${errorBannerClass}`}>{state.error}</p> : null}
 
-        <form action={formAction} className="mt-5 flex items-center justify-end gap-3">
-          <input type="hidden" name="id" value={area.id} />
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
-          >
+      <form action={formAction}>
+        <input type="hidden" name="id" value={area.id} />
+        <DialogFooter>
+          <button type="button" onClick={onClose} className={ghostButtonClass}>
             Cancel
           </button>
-          <button
-            type="submit"
-            disabled={isPending}
-            className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
-          >
+          <button type="submit" disabled={isPending} className={destructiveButtonAutoClass}>
             {isPending ? "Removing…" : "Remove area"}
           </button>
-        </form>
-      </div>
-    </div>
+        </DialogFooter>
+      </form>
+    </Dialog>
   );
 }
 
