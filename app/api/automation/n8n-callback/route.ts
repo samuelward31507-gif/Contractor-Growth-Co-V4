@@ -4,6 +4,8 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "@/lib/automation/executions";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { evaluateOutboundGate } from "@/lib/automation/outbound-gate";
+import { getAutomationConfig, readInstantLeadFollowupConfig, readInboundCustomerReplyConfig } from "@/lib/automation/settings";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_MESSAGE_LENGTH = 1600;
@@ -267,6 +269,27 @@ function leadMustHaveNoActiveEngagementFor(eventType: string): boolean {
   return eventType === "lead.reactivation";
 }
 
+/**
+ * Automation Configuration V2.2: resolves whether the gate should require
+ * business hours for this specific event's automation, reading that
+ * automation's own automation_settings.config fresh on every callback - no
+ * caching. Only instant-lead-followup (lead.created) and
+ * inbound-customer-reply (customer.message.received) have this setting;
+ * every other event type is unaffected and returns false, exactly like
+ * omitting respectBusinessHours entirely from the gate call.
+ */
+async function respectBusinessHoursFor(service: SupabaseClient, organizationId: string, eventType: string): Promise<boolean> {
+  if (eventType === "lead.created") {
+    const raw = await getAutomationConfig(service, organizationId, "instant-lead-followup");
+    return readInstantLeadFollowupConfig(raw).respect_business_hours;
+  }
+  if (eventType === "customer.message.received") {
+    const raw = await getAutomationConfig(service, organizationId, "inbound-customer-reply");
+    return readInboundCustomerReplyConfig(raw).respect_business_hours;
+  }
+  return false;
+}
+
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
@@ -456,6 +479,7 @@ export async function POST(request: NextRequest) {
 
   const leadEligibleStatuses = leadEligibleStatusesFor(event.event_type);
   const leadMustHaveNoActiveEngagement = leadMustHaveNoActiveEngagementFor(event.event_type);
+  const respectBusinessHours = await respectBusinessHoursFor(service, event.organization_id, event.event_type);
 
   // Trackpr is the final send authority: the AI/n8n may recommend sending,
   // but nothing reaches the customer without independently passing this
@@ -480,6 +504,7 @@ export async function POST(request: NextRequest) {
     jobEligibleStatuses: jobEligibleStatuses ?? undefined,
     leadEligibleStatuses: leadEligibleStatuses ?? undefined,
     leadMustHaveNoActiveEngagement: leadMustHaveNoActiveEngagement || undefined,
+    respectBusinessHours: respectBusinessHours || undefined,
   });
 
   if (!gateResult.allowed) {

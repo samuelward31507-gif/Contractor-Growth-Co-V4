@@ -23,6 +23,8 @@ const {
   validateEstimateFollowupConfig,
   readInboundCustomerReplyConfig,
   validateInboundCustomerReplyConfig,
+  readInstantLeadFollowupConfig,
+  validateInstantLeadFollowupConfig,
   shouldAuditConfigUpdate,
   getAutomationConfig,
   getAutomationConfigByOrganization,
@@ -261,53 +263,76 @@ test("Config: a malformed stored followup config (second <= first) falls back en
 
 // ============================================================================
 // Automation Configuration V2.1 - inbound-customer-reply.recent_message_window
+// (V2.2 added a second field, respect_business_hours - see the V2.2 section
+// below for tests specific to that field.)
 // ============================================================================
 
-test("V2.1: default is 10 messages", () => {
-  assert.deepEqual(readInboundCustomerReplyConfig(null), { recent_message_window: 10 });
-  assert.deepEqual(readInboundCustomerReplyConfig(undefined), { recent_message_window: 10 });
-  assert.deepEqual(readInboundCustomerReplyConfig({}), { recent_message_window: 10 });
+test("V2.1: default is 10 messages, respect_business_hours defaults to false", () => {
+  assert.deepEqual(readInboundCustomerReplyConfig(null), { recent_message_window: 10, respect_business_hours: false });
+  assert.deepEqual(readInboundCustomerReplyConfig(undefined), { recent_message_window: 10, respect_business_hours: false });
+  assert.deepEqual(readInboundCustomerReplyConfig({}), { recent_message_window: 10, respect_business_hours: false });
 });
 
 test("V2.1: valid values 1, 10, and 50 are accepted", () => {
-  assert.deepEqual(validateInboundCustomerReplyConfig({ recent_message_window: 1 }), { ok: true, value: { recent_message_window: 1 } });
-  assert.deepEqual(validateInboundCustomerReplyConfig({ recent_message_window: 10 }), { ok: true, value: { recent_message_window: 10 } });
-  assert.deepEqual(validateInboundCustomerReplyConfig({ recent_message_window: 50 }), { ok: true, value: { recent_message_window: 50 } });
+  assert.deepEqual(validateInboundCustomerReplyConfig({ recent_message_window: 1, respect_business_hours: false }), {
+    ok: true,
+    value: { recent_message_window: 1, respect_business_hours: false },
+  });
+  assert.deepEqual(validateInboundCustomerReplyConfig({ recent_message_window: 10, respect_business_hours: false }), {
+    ok: true,
+    value: { recent_message_window: 10, respect_business_hours: false },
+  });
+  assert.deepEqual(validateInboundCustomerReplyConfig({ recent_message_window: 50, respect_business_hours: true }), {
+    ok: true,
+    value: { recent_message_window: 50, respect_business_hours: true },
+  });
 });
 
 test("V2.1: invalid values are rejected, never silently coerced", () => {
-  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 0 }).ok, false, "zero");
-  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: -1 }).ok, false, "negative");
-  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 51 }).ok, false, "above max");
-  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 10.5 }).ok, false, "decimal");
-  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: NaN }).ok, false, "NaN");
-  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: Infinity }).ok, false, "Infinity");
-  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: "10" }).ok, false, "string");
-  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: null }).ok, false, "null value");
+  const base = { respect_business_hours: false };
+  assert.equal(validateInboundCustomerReplyConfig({ ...base, recent_message_window: 0 }).ok, false, "zero");
+  assert.equal(validateInboundCustomerReplyConfig({ ...base, recent_message_window: -1 }).ok, false, "negative");
+  assert.equal(validateInboundCustomerReplyConfig({ ...base, recent_message_window: 51 }).ok, false, "above max");
+  assert.equal(validateInboundCustomerReplyConfig({ ...base, recent_message_window: 10.5 }).ok, false, "decimal");
+  assert.equal(validateInboundCustomerReplyConfig({ ...base, recent_message_window: NaN }).ok, false, "NaN");
+  assert.equal(validateInboundCustomerReplyConfig({ ...base, recent_message_window: Infinity }).ok, false, "Infinity");
+  assert.equal(validateInboundCustomerReplyConfig({ ...base, recent_message_window: "10" }).ok, false, "string");
+  assert.equal(validateInboundCustomerReplyConfig({ ...base, recent_message_window: null }).ok, false, "null value");
   assert.equal(validateInboundCustomerReplyConfig(null).ok, false, "null input");
   assert.equal(validateInboundCustomerReplyConfig([10]).ok, false, "array input");
-  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 10, extra_field: "x" }).ok, false, "unknown property");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 10, respect_business_hours: false, extra_field: "x" }).ok, false, "unknown property");
+  assert.equal(validateInboundCustomerReplyConfig({ recent_message_window: 10 }).ok, false, "missing respect_business_hours");
 });
 
-test("V2.1: a malformed stored config (out of range, wrong type, or an array) safely falls back to the default of 10", () => {
-  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 0 }), { recent_message_window: 10 });
-  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: -5 }), { recent_message_window: 10 });
-  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 51 }), { recent_message_window: 10 });
-  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 10.5 }), { recent_message_window: 10 });
-  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: "10" }), { recent_message_window: 10 });
-  assert.deepEqual(readInboundCustomerReplyConfig([10]), { recent_message_window: 10 });
-  assert.deepEqual(readInboundCustomerReplyConfig("not an object"), { recent_message_window: 10 });
+test("V2.1: a malformed stored config (out of range, wrong type, or an array) safely falls back to the default of 10, independently of respect_business_hours", () => {
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 0 }), { recent_message_window: 10, respect_business_hours: false });
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: -5 }), { recent_message_window: 10, respect_business_hours: false });
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 51 }), { recent_message_window: 10, respect_business_hours: false });
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 10.5 }), { recent_message_window: 10, respect_business_hours: false });
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: "10" }), { recent_message_window: 10, respect_business_hours: false });
+  assert.deepEqual(readInboundCustomerReplyConfig([10]), { recent_message_window: 10, respect_business_hours: false });
+  assert.deepEqual(readInboundCustomerReplyConfig("not an object"), { recent_message_window: 10, respect_business_hours: false });
+  // A V2.1-era stored config (saved before respect_business_hours existed)
+  // must keep reading its window correctly, with the new field defaulting.
+  assert.deepEqual(readInboundCustomerReplyConfig({ recent_message_window: 25 }), { recent_message_window: 25, respect_business_hours: false });
 });
 
 test("V2.1: saving an identical config produces no audit plan (no-op save)", () => {
-  assert.equal(shouldAuditConfigUpdate({ recent_message_window: 10 }, { recent_message_window: 10 }), null);
+  const config = { recent_message_window: 10, respect_business_hours: false };
+  assert.equal(shouldAuditConfigUpdate(config, { ...config }), null);
 });
 
 test("V2.1: saving a changed config produces exactly one automation_config_updated plan with only the before/after values", () => {
-  const plan = shouldAuditConfigUpdate({ recent_message_window: 10 }, { recent_message_window: 25 });
+  const plan = shouldAuditConfigUpdate(
+    { recent_message_window: 10, respect_business_hours: false },
+    { recent_message_window: 25, respect_business_hours: false },
+  );
   assert.deepEqual(plan, {
     action: "automation_config_updated",
-    metadata: { previous_config: { recent_message_window: 10 }, new_config: { recent_message_window: 25 } },
+    metadata: {
+      previous_config: { recent_message_window: 10, respect_business_hours: false },
+      new_config: { recent_message_window: 25, respect_business_hours: false },
+    },
   });
 });
 
@@ -315,8 +340,8 @@ test("V2.1: organization isolation - getAutomationConfigByOrganization keys stri
   const ORG_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
   const ORG_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
   const rows = [
-    { organization_id: ORG_A, config: { recent_message_window: 25 } },
-    { organization_id: ORG_B, config: { recent_message_window: 3 } },
+    { organization_id: ORG_A, config: { recent_message_window: 25, respect_business_hours: true } },
+    { organization_id: ORG_B, config: { recent_message_window: 3, respect_business_hours: false } },
   ];
   const client = {
     from: (table: string) => {
@@ -327,9 +352,13 @@ test("V2.1: organization isolation - getAutomationConfigByOrganization keys stri
 
   const map = await getAutomationConfigByOrganization(client, "inbound-customer-reply");
 
-  assert.deepEqual(readInboundCustomerReplyConfig(map.get(ORG_A)), { recent_message_window: 25 });
-  assert.deepEqual(readInboundCustomerReplyConfig(map.get(ORG_B)), { recent_message_window: 3 });
-  assert.deepEqual(readInboundCustomerReplyConfig(map.get("no-such-org")), { recent_message_window: 10 }, "an org with no row still gets the default");
+  assert.deepEqual(readInboundCustomerReplyConfig(map.get(ORG_A)), { recent_message_window: 25, respect_business_hours: true });
+  assert.deepEqual(readInboundCustomerReplyConfig(map.get(ORG_B)), { recent_message_window: 3, respect_business_hours: false });
+  assert.deepEqual(
+    readInboundCustomerReplyConfig(map.get("no-such-org")),
+    { recent_message_window: 10, respect_business_hours: false },
+    "an org with no row still gets the default",
+  );
 });
 
 // Note on authorization/organization-isolation-at-the-mutation-layer,
@@ -351,3 +380,75 @@ test("V2.1: organization isolation - getAutomationConfigByOrganization keys stri
 // only - it never includes `enabled` - verified by direct code inspection,
 // matching the exact established shape of updateAppointmentReminderConfig/
 // updateEstimateFollowupConfig above it in that same file.
+
+// ============================================================================
+// Automation Configuration V2.2 - instant-lead-followup.respect_business_hours
+// ============================================================================
+
+test("V2.2: default respect_business_hours is false", () => {
+  assert.deepEqual(readInstantLeadFollowupConfig(null), { respect_business_hours: false });
+  assert.deepEqual(readInstantLeadFollowupConfig(undefined), { respect_business_hours: false });
+  assert.deepEqual(readInstantLeadFollowupConfig({}), { respect_business_hours: false });
+});
+
+test("V2.2: true and false are both accepted", () => {
+  assert.deepEqual(validateInstantLeadFollowupConfig({ respect_business_hours: true }), { ok: true, value: { respect_business_hours: true } });
+  assert.deepEqual(validateInstantLeadFollowupConfig({ respect_business_hours: false }), { ok: true, value: { respect_business_hours: false } });
+});
+
+test("V2.2: invalid values are rejected, never silently coerced", () => {
+  assert.equal(validateInstantLeadFollowupConfig({ respect_business_hours: "true" }).ok, false, "string");
+  assert.equal(validateInstantLeadFollowupConfig({ respect_business_hours: 1 }).ok, false, "number");
+  assert.equal(validateInstantLeadFollowupConfig({ respect_business_hours: null }).ok, false, "null value");
+  assert.equal(validateInstantLeadFollowupConfig(null).ok, false, "null input");
+  assert.equal(validateInstantLeadFollowupConfig([true]).ok, false, "array input");
+  assert.equal(validateInstantLeadFollowupConfig({}).ok, false, "missing field");
+  assert.equal(validateInstantLeadFollowupConfig({ respect_business_hours: true, extra_field: "x" }).ok, false, "unknown property");
+});
+
+test("V2.2: a malformed stored config (wrong type, or an array) safely falls back to the default of false", () => {
+  assert.deepEqual(readInstantLeadFollowupConfig({ respect_business_hours: "true" }), { respect_business_hours: false });
+  assert.deepEqual(readInstantLeadFollowupConfig({ respect_business_hours: 1 }), { respect_business_hours: false });
+  assert.deepEqual(readInstantLeadFollowupConfig([true]), { respect_business_hours: false });
+  assert.deepEqual(readInstantLeadFollowupConfig("not an object"), { respect_business_hours: false });
+});
+
+test("V2.2: saving an identical config produces no audit plan (no-op save)", () => {
+  assert.equal(shouldAuditConfigUpdate({ respect_business_hours: false }, { respect_business_hours: false }), null);
+});
+
+test("V2.2: saving a changed config produces exactly one automation_config_updated plan with only the before/after values", () => {
+  const plan = shouldAuditConfigUpdate({ respect_business_hours: false }, { respect_business_hours: true });
+  assert.deepEqual(plan, {
+    action: "automation_config_updated",
+    metadata: { previous_config: { respect_business_hours: false }, new_config: { respect_business_hours: true } },
+  });
+});
+
+test("V2.2: organization isolation - getAutomationConfigByOrganization keys strictly by organization_id for instant-lead-followup", async () => {
+  const ORG_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const ORG_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const rows = [
+    { organization_id: ORG_A, config: { respect_business_hours: true } },
+    { organization_id: ORG_B, config: { respect_business_hours: false } },
+  ];
+  const client = {
+    from: (table: string) => {
+      assert.equal(table, "automation_settings");
+      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+    },
+  } as unknown as SupabaseClient;
+
+  const map = await getAutomationConfigByOrganization(client, "instant-lead-followup");
+
+  assert.deepEqual(readInstantLeadFollowupConfig(map.get(ORG_A)), { respect_business_hours: true });
+  assert.deepEqual(readInstantLeadFollowupConfig(map.get(ORG_B)), { respect_business_hours: false });
+  assert.deepEqual(readInstantLeadFollowupConfig(map.get("no-such-org")), { respect_business_hours: false }, "an org with no row still gets the default");
+});
+
+// Note on authorization/unauthenticated/non-admin-member scenarios and the
+// "enabled cannot be changed" guarantee for updateInstantLeadFollowupConfig:
+// identical rationale as the note above for updateInboundCustomerReplyConfig
+// - it reuses requireOrgAdminSession/assertOrgAdmin unchanged, and its
+// upsert payload is `{ organization_id, automation_id: "instant-lead-followup", config }`
+// only.

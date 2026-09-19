@@ -11,7 +11,9 @@ import {
   readAppointmentReminderConfig,
   readEstimateFollowupConfig,
   readInboundCustomerReplyConfig,
+  readInstantLeadFollowupConfig,
 } from "@/lib/automation/settings";
+import { getBusinessHours } from "@/lib/settings/queries";
 import { pageTitleClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { AutomationStatusPill } from "../_components/status-pill";
 import { HowItWorks } from "../_components/how-it-works";
@@ -21,8 +23,14 @@ import { EnableToggle } from "../_components/enable-toggle";
 import { AppointmentReminderConfigForm } from "../_components/appointment-reminder-config";
 import { EstimateFollowupConfigForm } from "../_components/estimate-followup-config";
 import { InboundCustomerReplyConfigForm } from "../_components/inbound-customer-reply-config";
+import { InstantLeadFollowupConfigForm } from "../_components/instant-lead-followup-config";
 import { formatCount } from "../_components/format";
 import { SAFE_RETRY_AUTOMATION_IDS } from "@/lib/automation/retry-eligibility";
+
+const CONFIGURABLE_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followup", "inbound-customer-reply", "instant-lead-followup"]);
+
+/** Automations whose configuration includes a business-hours toggle (V2.2) - used to decide whether to fetch business_hours at all. */
+const BUSINESS_HOURS_AUTOMATION_IDS = new Set(["inbound-customer-reply", "instant-lead-followup"]);
 
 /**
  * Detail view for one automation catalog entry. Reuses the same
@@ -67,17 +75,21 @@ export default async function AutomationDetailPage({ params }: { params: Promise
   // setAutomationEnabled re-verifies assertOrgAdmin() itself regardless.
   const canManage = membership.role === "owner" || membership.role === "admin";
 
-  // Automation Configuration V1/V2.1: only these three catalog automations
-  // have any configurable value so far - see lib/automation/settings.ts.
-  const isConfigurable =
-    definition.id === "appointment-reminders" || definition.id === "estimate-followup" || definition.id === "inbound-customer-reply";
+  // Automation Configuration V1/V2.1/V2.2: only these four catalog
+  // automations have any configurable value so far - see
+  // lib/automation/settings.ts.
+  const isConfigurable = CONFIGURABLE_AUTOMATION_IDS.has(definition.id);
+  const needsBusinessHours = BUSINESS_HOURS_AUTOMATION_IDS.has(definition.id);
 
-  const [statsByName, executions, enabledByAutomationId, rawConfig] = await Promise.all([
+  const [statsByName, executions, enabledByAutomationId, rawConfig, businessHours] = await Promise.all([
     getWorkflowNameStats(supabase, membership.organizationId),
     getRecentExecutionsForWorkflows(supabase, membership.organizationId, definition.workflowNames),
     getAutomationEnabledMap(supabase, membership.organizationId),
     isConfigurable ? getAutomationConfig(supabase, membership.organizationId, definition.id) : Promise.resolve(null),
+    needsBusinessHours ? getBusinessHours(supabase, membership.organizationId) : Promise.resolve([]),
   ]);
+
+  const hasBusinessHoursConfigured = businessHours.length > 0;
 
   const summary = buildAutomationSummaries(statsByName, enabledByAutomationId).find((s) => s.definition.id === definition.id)!;
   const automationEnabled = summary.enabled;
@@ -151,8 +163,17 @@ export default async function AutomationDetailPage({ params }: { params: Promise
                 initialFollowup1Hours={readEstimateFollowupConfig(rawConfig).followup_1_hours}
                 initialFollowup2Hours={readEstimateFollowupConfig(rawConfig).followup_2_hours}
               />
+            ) : definition.id === "inbound-customer-reply" ? (
+              <InboundCustomerReplyConfigForm
+                initialRecentMessageWindow={readInboundCustomerReplyConfig(rawConfig).recent_message_window}
+                initialRespectBusinessHours={readInboundCustomerReplyConfig(rawConfig).respect_business_hours}
+                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+              />
             ) : (
-              <InboundCustomerReplyConfigForm initialRecentMessageWindow={readInboundCustomerReplyConfig(rawConfig).recent_message_window} />
+              <InstantLeadFollowupConfigForm
+                initialRespectBusinessHours={readInstantLeadFollowupConfig(rawConfig).respect_business_hours}
+                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+              />
             )}
           </div>
         </div>

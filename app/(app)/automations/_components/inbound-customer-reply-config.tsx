@@ -3,52 +3,73 @@
 import { useState, useTransition } from "react";
 import { updateInboundCustomerReplyConfig } from "../actions";
 import { RECENT_MESSAGE_WINDOW_MIN, RECENT_MESSAGE_WINDOW_MAX, DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG } from "@/lib/automation/settings";
+import { BusinessHoursToggleField } from "./business-hours-toggle-field";
 
 const DEFAULT_WINDOW = DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG.recent_message_window;
+const DEFAULT_RESPECT_HOURS = DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG.respect_business_hours;
 
 /**
- * Automation Configuration V2.1 - only ever rendered for org admins (the
- * page checks membership.role before rendering this at all, same gate as
- * EnableToggle/AppointmentReminderConfigForm/EstimateFollowupConfigForm).
- * `initialRecentMessageWindow` is the real, server-fetched, default-applied
- * value - never a fake, frontend-only initial state.
+ * Automation Configuration V2.1/V2.2 - only ever rendered for org admins
+ * (the page checks membership.role before rendering this at all, same gate
+ * as EnableToggle/AppointmentReminderConfigForm/EstimateFollowupConfigForm).
+ * `initialRecentMessageWindow`/`initialRespectBusinessHours` are the real,
+ * server-fetched, default-applied values - never fake, frontend-only
+ * initial state. Both fields save together as one config object (the
+ * established V1/V2.1 upsert pattern replaces the whole stored config).
  *
- * This only changes how many recent conversation messages are included in
- * the AI's context when drafting a reply - it has no effect on the outbound
- * gate, content safety, opt-out handling, duplicate-send protection, or any
- * message already sent.
+ * recent_message_window only changes how many recent conversation messages
+ * are included in the AI's context when drafting a reply.
+ * respect_business_hours only changes whether the outbound gate
+ * additionally requires the organization's business hours to be open
+ * before allowing this automation's send. Neither has any effect on the
+ * outbound gate's other checks, content safety, opt-out handling,
+ * duplicate-send protection, or any message already sent.
  */
-export function InboundCustomerReplyConfigForm({ initialRecentMessageWindow }: { initialRecentMessageWindow: number }) {
-  const [savedValue, setSavedValue] = useState(initialRecentMessageWindow);
+export function InboundCustomerReplyConfigForm({
+  initialRecentMessageWindow,
+  initialRespectBusinessHours,
+  hasBusinessHoursConfigured,
+}: {
+  initialRecentMessageWindow: number;
+  initialRespectBusinessHours: boolean;
+  hasBusinessHoursConfigured: boolean;
+}) {
+  const [savedWindow, setSavedWindow] = useState(initialRecentMessageWindow);
+  const [savedRespectHours, setSavedRespectHours] = useState(initialRespectBusinessHours);
   const [inputValue, setInputValue] = useState(String(initialRecentMessageWindow));
+  const [respectHours, setRespectHours] = useState(initialRespectBusinessHours);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const isDirty = inputValue !== String(savedValue);
+  const isDirty = inputValue !== String(savedWindow) || respectHours !== savedRespectHours;
+  const isAtDefault = savedWindow === DEFAULT_WINDOW && savedRespectHours === DEFAULT_RESPECT_HOURS;
 
-  function commit(parsed: number) {
+  function commit(parsedWindow: number, respectBusinessHours: boolean) {
     setError(null);
     setSuccess(false);
 
-    if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    if (!Number.isFinite(parsedWindow) || !Number.isInteger(parsedWindow)) {
       setError("Recent message context must be a whole number.");
       return;
     }
-    if (parsed < RECENT_MESSAGE_WINDOW_MIN || parsed > RECENT_MESSAGE_WINDOW_MAX) {
+    if (parsedWindow < RECENT_MESSAGE_WINDOW_MIN || parsedWindow > RECENT_MESSAGE_WINDOW_MAX) {
       setError(`Recent message context must be between ${RECENT_MESSAGE_WINDOW_MIN} and ${RECENT_MESSAGE_WINDOW_MAX} messages.`);
       return;
     }
 
     startTransition(async () => {
-      const result = await updateInboundCustomerReplyConfig(parsed);
+      const result = await updateInboundCustomerReplyConfig(parsedWindow, respectBusinessHours);
       if (result.error) {
         setError(result.error);
         return;
       }
-      const newValue = (result.config?.recent_message_window as number | undefined) ?? parsed;
-      setSavedValue(newValue);
-      setInputValue(String(newValue));
+      const newWindow = (result.config?.recent_message_window as number | undefined) ?? parsedWindow;
+      const newRespectHours = (result.config?.respect_business_hours as boolean | undefined) ?? respectBusinessHours;
+      setSavedWindow(newWindow);
+      setSavedRespectHours(newRespectHours);
+      setInputValue(String(newWindow));
+      setRespectHours(newRespectHours);
       setSuccess(true);
       if (result.auditWarning) {
         setError(result.auditWarning);
@@ -57,12 +78,13 @@ export function InboundCustomerReplyConfigForm({ initialRecentMessageWindow }: {
   }
 
   function handleSave() {
-    commit(Number(inputValue));
+    commit(Number(inputValue), respectHours);
   }
 
   function handleReset() {
     setInputValue(String(DEFAULT_WINDOW));
-    commit(DEFAULT_WINDOW);
+    setRespectHours(DEFAULT_RESPECT_HOURS);
+    commit(DEFAULT_WINDOW, DEFAULT_RESPECT_HOURS);
   }
 
   return (
@@ -82,6 +104,19 @@ export function InboundCustomerReplyConfigForm({ initialRecentMessageWindow }: {
           className="w-20 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 focus:border-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         />
         <span className="text-sm text-slate-700">messages</span>
+      </div>
+
+      <BusinessHoursToggleField
+        checked={respectHours}
+        onChange={(next) => {
+          setRespectHours(next);
+          setSuccess(false);
+        }}
+        disabled={isPending}
+        hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+      />
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={handleSave}
@@ -93,7 +128,7 @@ export function InboundCustomerReplyConfigForm({ initialRecentMessageWindow }: {
         <button
           type="button"
           onClick={handleReset}
-          disabled={isPending || savedValue === DEFAULT_WINDOW}
+          disabled={isPending || isAtDefault}
           className="rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-slate-500"
         >
           Reset to default

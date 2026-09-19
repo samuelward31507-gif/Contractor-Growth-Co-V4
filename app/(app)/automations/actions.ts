@@ -15,6 +15,8 @@ import {
   validateEstimateFollowupConfig,
   readInboundCustomerReplyConfig,
   validateInboundCustomerReplyConfig,
+  readInstantLeadFollowupConfig,
+  validateInstantLeadFollowupConfig,
   shouldAuditConfigUpdate,
 } from "@/lib/automation/settings";
 import { processAppointmentReminders, previewAppointmentReminders, type ReminderPreview } from "@/lib/automation/appointment-reminders";
@@ -649,23 +651,30 @@ export async function updateEstimateFollowupConfig(followup1Hours: number, follo
 }
 
 /**
- * Automation Configuration V2.1: updates inbound-customer-reply's configured
- * recent-message context window. Same pattern as updateAppointmentReminderConfig/
- * updateEstimateFollowupConfig above (admin-only, config-column-only,
- * audit-on-change-only) - see that comment for the shared rationale. Only
- * ever changes how many recent messages are sliced into the AI's context at
- * dispatch time (lib/automation/customer-reply.ts) - no effect on the
- * outbound gate, content safety, opt-out handling, duplicate-send
- * protection, execution/authorization behavior, or n8n/Twilio.
+ * Automation Configuration V2.1/V2.2: updates inbound-customer-reply's
+ * configured recent-message context window and (V2.2) whether it respects
+ * the organization's business hours. Same pattern as
+ * updateAppointmentReminderConfig/updateEstimateFollowupConfig above
+ * (admin-only, config-column-only, audit-on-change-only) - see that comment
+ * for the shared rationale. recent_message_window only changes how many
+ * recent messages are sliced into the AI's context at dispatch time
+ * (lib/automation/customer-reply.ts); respect_business_hours only changes
+ * whether the outbound gate additionally requires business hours to be
+ * open (lib/automation/outbound-gate.ts). Neither touches content safety,
+ * opt-out handling, duplicate-send protection, retry, execution/
+ * authorization behavior, or n8n/Twilio.
  */
-export async function updateInboundCustomerReplyConfig(recentMessageWindow: number): Promise<ConfigActionState> {
+export async function updateInboundCustomerReplyConfig(recentMessageWindow: number, respectBusinessHours: boolean): Promise<ConfigActionState> {
   const session = await requireOrgAdminSession();
   if (!session.ok) {
     return { error: session.error };
   }
   const { supabase, organizationId } = session;
 
-  const validation = validateInboundCustomerReplyConfig({ recent_message_window: recentMessageWindow });
+  const validation = validateInboundCustomerReplyConfig({
+    recent_message_window: recentMessageWindow,
+    respect_business_hours: respectBusinessHours,
+  });
   if (!validation.ok) {
     return { error: validation.error };
   }
@@ -706,6 +715,74 @@ export async function updateInboundCustomerReplyConfig(recentMessageWindow: numb
     console.error("[automation] failed to record audit log entry", {
       organizationId,
       automationId: "inbound-customer-reply",
+      action: auditPlan.action,
+      error: auditError.message,
+    });
+    return { success: true, config: validation.value, auditWarning: "The configuration was updated, but the audit record could not be saved." };
+  }
+
+  return { success: true, config: validation.value };
+}
+
+/**
+ * Automation Configuration V2.2: updates instant-lead-followup's configured
+ * respect_business_hours flag. Same pattern as updateAppointmentReminderConfig/
+ * updateEstimateFollowupConfig/updateInboundCustomerReplyConfig above
+ * (admin-only, config-column-only, audit-on-change-only) - see that comment
+ * for the shared rationale. Only changes whether the outbound gate
+ * additionally requires business hours to be open before allowing this
+ * automation's send (lib/automation/outbound-gate.ts) - no effect on
+ * content safety, opt-out handling, duplicate-send protection, retry,
+ * execution/authorization behavior, or n8n/Twilio.
+ */
+export async function updateInstantLeadFollowupConfig(respectBusinessHours: boolean): Promise<ConfigActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  const validation = validateInstantLeadFollowupConfig({ respect_business_hours: respectBusinessHours });
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("automation_id", "instant-lead-followup")
+    .maybeSingle();
+
+  const previousConfig = readInstantLeadFollowupConfig(existingRow?.config ?? null);
+
+  const { error: upsertError } = await supabase.from("automation_settings").upsert(
+    { organization_id: organizationId, automation_id: "instant-lead-followup", config: validation.value },
+    { onConflict: "organization_id,automation_id" },
+  );
+
+  if (upsertError) {
+    return { error: "We couldn't update this automation's configuration. Please try again." };
+  }
+
+  revalidatePath("/automations/instant-lead-followup");
+
+  const auditPlan = shouldAuditConfigUpdate(previousConfig, validation.value);
+  if (!auditPlan) {
+    return { success: true, config: validation.value };
+  }
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: auditPlan.action,
+    p_automation_id: "instant-lead-followup",
+    p_metadata: auditPlan.metadata,
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId: "instant-lead-followup",
       action: auditPlan.action,
       error: auditError.message,
     });

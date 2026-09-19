@@ -34,7 +34,7 @@ function makeMessages(count: number) {
 test("V2.1: the default config (10) selects exactly the last 10 of a longer history - reproducing the old hardcoded RECENT_MESSAGE_WINDOW behavior exactly", () => {
   const messages = makeMessages(30);
 
-  const selected = selectRecentMessages(messages, { recent_message_window: 10 });
+  const selected = selectRecentMessages(messages, { recent_message_window: 10, respect_business_hours: false });
 
   assert.equal(selected.length, 10);
   assert.equal(selected[0]?.body, "message 20");
@@ -44,7 +44,7 @@ test("V2.1: the default config (10) selects exactly the last 10 of a longer hist
 test("V2.1: a smaller configured window (3) selects fewer messages than the default would - proving the configured value, not a hardcoded constant, drives the slice", () => {
   const messages = makeMessages(30);
 
-  const selected = selectRecentMessages(messages, { recent_message_window: 3 });
+  const selected = selectRecentMessages(messages, { recent_message_window: 3, respect_business_hours: false });
 
   assert.equal(selected.length, 3);
   assert.deepEqual(
@@ -56,7 +56,7 @@ test("V2.1: a smaller configured window (3) selects fewer messages than the defa
 test("V2.1: a larger configured window (25) selects more messages than the default would", () => {
   const messages = makeMessages(30);
 
-  const selected = selectRecentMessages(messages, { recent_message_window: 25 });
+  const selected = selectRecentMessages(messages, { recent_message_window: 25, respect_business_hours: false });
 
   assert.equal(selected.length, 25);
   assert.equal(selected[0]?.body, "message 5");
@@ -65,7 +65,7 @@ test("V2.1: a larger configured window (25) selects more messages than the defau
 test("V2.1: a configured window larger than the actual history returns the entire history, never throws or pads", () => {
   const messages = makeMessages(4);
 
-  const selected = selectRecentMessages(messages, { recent_message_window: 50 });
+  const selected = selectRecentMessages(messages, { recent_message_window: 50, respect_business_hours: false });
 
   assert.equal(selected.length, 4);
 });
@@ -73,7 +73,7 @@ test("V2.1: a configured window larger than the actual history returns the entir
 test("V2.1: each selected entry carries only the four contract fields (direction, sender_type, body, created_at) - no extra message columns leak through", () => {
   const messages = makeMessages(2);
 
-  const selected = selectRecentMessages(messages, { recent_message_window: 2 });
+  const selected = selectRecentMessages(messages, { recent_message_window: 2, respect_business_hours: false });
 
   for (const entry of selected) {
     assert.deepEqual(Object.keys(entry).sort(), ["body", "created_at", "direction", "sender_type"]);

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateContentSafety } from "./content-safety";
+import { getBusinessHours, getOrganizationTimezone, type BusinessHour } from "@/lib/settings/queries";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
 import type { JobStatus } from "@/lib/jobs/queries";
@@ -86,6 +87,16 @@ export type OutboundGateInput = {
    * than "is this one specific entity still in an eligible status".
    */
   leadMustHaveNoActiveEngagement?: boolean;
+  /**
+   * Automation Configuration V2.2: when true, the gate additionally
+   * requires the organization's configured business hours to be open right
+   * now (see isWithinBusinessHours below) before allowing this send.
+   * Omitted/false for every automation that hasn't opted in - zero
+   * behavior change for anything else. The caller (the n8n callback route)
+   * resolves this from that automation's own automation_settings.config at
+   * evaluation time - read fresh on every call, never cached.
+   */
+  respectBusinessHours?: boolean;
 };
 
 export type OutboundGateDenialReason =
@@ -120,7 +131,8 @@ export type OutboundGateDenialReason =
   | "job_wrong_organization"
   | "job_status_ineligible"
   | "lead_status_ineligible"
-  | "lead_has_active_engagement";
+  | "lead_has_active_engagement"
+  | "outside_business_hours";
 
 export type OutboundGateResult =
   | { allowed: true; contactId: string; conversationId: string; body: string }
@@ -128,6 +140,62 @@ export type OutboundGateResult =
 
 function deny(reason: OutboundGateDenialReason, detail?: string): OutboundGateResult {
   return { allowed: false, reason, detail };
+}
+
+function localDayOfWeek(now: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(now).toLowerCase();
+}
+
+function localMinutesSinceMidnight(now: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
+  return hour * 60 + minute;
+}
+
+/** Reads only the "HH:MM" prefix - tolerant of both "09:00" and Postgres's "09:00:00" time-column serialization. */
+function parseTimeToMinutes(time: string | null): number | null {
+  if (!time) return null;
+  const match = /^(\d{1,2}):(\d{2})/.exec(time);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+/**
+ * Automation Configuration V2.2: the pure decision behind whether "now" (in
+ * the organization's own timezone) falls within its configured business
+ * hours. Extracted so this can be unit tested directly with controlled
+ * Date/timezone/hours inputs, without a mocked Supabase client or relying
+ * on the real wall clock. Uses Intl.DateTimeFormat rather than a fixed UTC
+ * offset, so it stays correct across DST transitions.
+ *
+ * An empty `hours` array means the organization has never configured any
+ * business hours at all - per the V2.2 requirement, this must never
+ * silently block a send, so it is treated as "always open" (requirement 6).
+ * Once at least one day has been configured, every other day - including
+ * one with no saved row at all, or an explicit is_open: false row - is
+ * correctly "closed" and blocks the send (requirement 5). This is the same
+ * distinction the config UI's "No business hours are configured" message is
+ * keyed off of (hours.length === 0).
+ *
+ * The existing business-hours editor (app/(app)/settings/actions.ts)
+ * rejects close_time <= open_time at save time, so no saved day can ever
+ * span past midnight - this is intentionally a same-calendar-day comparison
+ * only, with no overnight/wraparound handling, matching that constraint.
+ */
+export function isWithinBusinessHours(now: Date, timeZone: string, hours: BusinessHour[]): boolean {
+  if (hours.length === 0) return true;
+
+  const day = localDayOfWeek(now, timeZone);
+  const today = hours.find((hour) => hour.day_of_week === day);
+  if (!today || !today.is_open) return false;
+
+  const openMinutes = parseTimeToMinutes(today.open_time);
+  const closeMinutes = parseTimeToMinutes(today.close_time);
+  if (openMinutes === null || closeMinutes === null) return false;
+
+  const nowMinutes = localMinutesSinceMidnight(now, timeZone);
+  return nowMinutes >= openMinutes && nowMinutes < closeMinutes;
 }
 
 /**
@@ -308,6 +376,21 @@ export async function evaluateOutboundGate(
     const eligible = input.jobEligibleStatuses ?? [];
     if (!eligible.includes(job.status as JobStatus)) {
       return deny("job_status_ineligible", `job status is ${job.status}`);
+    }
+  }
+
+  // Automation Configuration V2.2: runs last, after every other check above
+  // has already passed - this can only ever additionally narrow an
+  // otherwise-allowed send, never bypass opt-out, content safety,
+  // needs_human, duplicate-send protection, or any execution/organization
+  // validation above it. Read fresh on every call - no caching.
+  if (input.respectBusinessHours) {
+    const [hours, timeZone] = await Promise.all([
+      getBusinessHours(supabase, input.organizationId),
+      getOrganizationTimezone(supabase, input.organizationId),
+    ]);
+    if (!isWithinBusinessHours(new Date(), timeZone ?? "UTC", hours)) {
+      return deny("outside_business_hours");
     }
   }
 

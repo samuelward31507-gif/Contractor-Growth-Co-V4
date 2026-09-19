@@ -214,18 +214,24 @@ export function validateEstimateFollowupConfig(input: unknown): ConfigValidation
   return { ok: true, value: { followup_1_hours: f1, followup_2_hours: f2 } };
 }
 
-// ---- inbound-customer-reply: recent_message_window ----
+// ---- inbound-customer-reply: recent_message_window, respect_business_hours ----
 //
-// Automation Configuration V2.1. Controls only how many recent conversation
-// messages are included in the AI's context when n8n drafts a reply - see
-// lib/automation/customer-reply.ts. This has no bearing on the outbound
-// gate, content safety, opt-out handling, duplicate-send protection,
-// execution/authorization behavior, or n8n/Twilio - it only changes the
-// size of the `recent_messages` array Trackpr slices before dispatch.
+// Automation Configuration V2.1/V2.2. recent_message_window controls only
+// how many recent conversation messages are included in the AI's context
+// when n8n drafts a reply - see lib/automation/customer-reply.ts.
+// respect_business_hours (V2.2) controls only whether the outbound gate
+// additionally requires the organization's configured business hours to be
+// open before allowing this automation's send - see
+// lib/automation/outbound-gate.ts's isWithinBusinessHours(). Neither field
+// has any bearing on content safety, opt-out handling, duplicate-send
+// protection, retry, execution/authorization behavior, or n8n/Twilio.
 
-export type InboundCustomerReplyConfig = { recent_message_window: number };
+export type InboundCustomerReplyConfig = { recent_message_window: number; respect_business_hours: boolean };
 
-export const DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG: InboundCustomerReplyConfig = { recent_message_window: 10 };
+export const DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG: InboundCustomerReplyConfig = {
+  recent_message_window: 10,
+  respect_business_hours: false,
+};
 
 /**
  * Conservative, documented bounds - not derived from any hard technical
@@ -237,40 +243,100 @@ export const DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG: InboundCustomerReplyConfig =
 export const RECENT_MESSAGE_WINDOW_MIN = 1;
 export const RECENT_MESSAGE_WINDOW_MAX = 50;
 
-/** Lenient read path - see the module comment above. Never throws. */
+/**
+ * Lenient read path - see the module comment above. Never throws. Each
+ * field is defaulted independently (not a joint fallback like
+ * readEstimateFollowupConfig's f1/f2 pair) - the two fields have no
+ * cross-field constraint, and an organization that saved a V2.1-era config
+ * (recent_message_window only, before respect_business_hours existed) must
+ * keep reading recent_message_window correctly, with respect_business_hours
+ * simply defaulting to false, rather than the whole stored object being
+ * treated as malformed.
+ */
 export function readInboundCustomerReplyConfig(raw: unknown): InboundCustomerReplyConfig {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ...DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG };
   }
-  const value = (raw as Record<string, unknown>).recent_message_window;
-  if (isFiniteInteger(value) && value >= RECENT_MESSAGE_WINDOW_MIN && value <= RECENT_MESSAGE_WINDOW_MAX) {
-    return { recent_message_window: value };
-  }
-  return { ...DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG };
+  const obj = raw as Record<string, unknown>;
+
+  const windowValue = obj.recent_message_window;
+  const recentMessageWindow =
+    isFiniteInteger(windowValue) && windowValue >= RECENT_MESSAGE_WINDOW_MIN && windowValue <= RECENT_MESSAGE_WINDOW_MAX
+      ? windowValue
+      : DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG.recent_message_window;
+
+  const respectBusinessHours =
+    typeof obj.respect_business_hours === "boolean" ? obj.respect_business_hours : DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG.respect_business_hours;
+
+  return { recent_message_window: recentMessageWindow, respect_business_hours: respectBusinessHours };
 }
 
-const INBOUND_CUSTOMER_REPLY_CONFIG_KEYS = new Set(["recent_message_window"]);
+const INBOUND_CUSTOMER_REPLY_CONFIG_KEYS = new Set(["recent_message_window", "respect_business_hours"]);
 
-/** Strict validation path for an admin-submitted write - see the module comment above. Rejects, never coerces. */
+/** Strict validation path for an admin-submitted write - see the module comment above. Rejects, never coerces. Requires both fields present. */
 export function validateInboundCustomerReplyConfig(input: unknown): ConfigValidationResult<InboundCustomerReplyConfig> {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, error: "Invalid configuration." };
   }
-  const extraKeys = Object.keys(input as Record<string, unknown>).filter((key) => !INBOUND_CUSTOMER_REPLY_CONFIG_KEYS.has(key));
+  const obj = input as Record<string, unknown>;
+  const extraKeys = Object.keys(obj).filter((key) => !INBOUND_CUSTOMER_REPLY_CONFIG_KEYS.has(key));
   if (extraKeys.length > 0) {
     return { ok: false, error: `Unknown configuration field(s): ${extraKeys.join(", ")}.` };
   }
-  const value = (input as Record<string, unknown>).recent_message_window;
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  const windowValue = obj.recent_message_window;
+  if (typeof windowValue !== "number" || !Number.isFinite(windowValue)) {
     return { ok: false, error: "Recent message context must be a number." };
   }
-  if (!Number.isInteger(value)) {
+  if (!Number.isInteger(windowValue)) {
     return { ok: false, error: "Recent message context must be a whole number." };
   }
-  if (value < RECENT_MESSAGE_WINDOW_MIN || value > RECENT_MESSAGE_WINDOW_MAX) {
+  if (windowValue < RECENT_MESSAGE_WINDOW_MIN || windowValue > RECENT_MESSAGE_WINDOW_MAX) {
     return { ok: false, error: `Recent message context must be between ${RECENT_MESSAGE_WINDOW_MIN} and ${RECENT_MESSAGE_WINDOW_MAX} messages.` };
   }
-  return { ok: true, value: { recent_message_window: value } };
+  if (typeof obj.respect_business_hours !== "boolean") {
+    return { ok: false, error: "Respect business hours must be true or false." };
+  }
+  return { ok: true, value: { recent_message_window: windowValue, respect_business_hours: obj.respect_business_hours } };
+}
+
+// ---- instant-lead-followup: respect_business_hours ----
+//
+// Automation Configuration V2.2. Controls only whether the outbound gate
+// additionally requires the organization's configured business hours to be
+// open before allowing this automation's send - see the module comment
+// above and lib/automation/outbound-gate.ts's isWithinBusinessHours().
+
+export type InstantLeadFollowupConfig = { respect_business_hours: boolean };
+
+export const DEFAULT_INSTANT_LEAD_FOLLOWUP_CONFIG: InstantLeadFollowupConfig = { respect_business_hours: false };
+
+/** Lenient read path - see the module comment above. Never throws. */
+export function readInstantLeadFollowupConfig(raw: unknown): InstantLeadFollowupConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...DEFAULT_INSTANT_LEAD_FOLLOWUP_CONFIG };
+  }
+  const value = (raw as Record<string, unknown>).respect_business_hours;
+  return {
+    respect_business_hours: typeof value === "boolean" ? value : DEFAULT_INSTANT_LEAD_FOLLOWUP_CONFIG.respect_business_hours,
+  };
+}
+
+const INSTANT_LEAD_FOLLOWUP_CONFIG_KEYS = new Set(["respect_business_hours"]);
+
+/** Strict validation path for an admin-submitted write - see the module comment above. Rejects, never coerces. */
+export function validateInstantLeadFollowupConfig(input: unknown): ConfigValidationResult<InstantLeadFollowupConfig> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "Invalid configuration." };
+  }
+  const obj = input as Record<string, unknown>;
+  const extraKeys = Object.keys(obj).filter((key) => !INSTANT_LEAD_FOLLOWUP_CONFIG_KEYS.has(key));
+  if (extraKeys.length > 0) {
+    return { ok: false, error: `Unknown configuration field(s): ${extraKeys.join(", ")}.` };
+  }
+  if (typeof obj.respect_business_hours !== "boolean") {
+    return { ok: false, error: "Respect business hours must be true or false." };
+  }
+  return { ok: true, value: { respect_business_hours: obj.respect_business_hours } };
 }
 
 // ---- Shared DB access ----
