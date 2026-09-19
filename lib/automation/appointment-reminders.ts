@@ -5,6 +5,8 @@ import {
   startWorkflowExecutionAsService,
   completeWorkflowExecutionAsService,
   failWorkflowExecutionAsService,
+  completeWorkflowExecution,
+  failWorkflowExecution,
   type WorkflowExecutionTriggerSource,
 } from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
@@ -291,4 +293,118 @@ export async function previewAppointmentReminders(
   const body = composeReminderBody(appointment, timezone);
 
   return { outcome: "would_send", appointmentId: appointment.id, body };
+}
+
+/**
+ * Phase E retry redispatch for a failed appointment_reminder execution.
+ * Deliberately duplicates processOneReminder's post-event-creation tail
+ * (compose -> gate -> send -> complete/fail) rather than refactoring that
+ * already-shipped function to share code, to guarantee zero behavior change
+ * to the existing cron path - see the Phase E report. Never creates a new
+ * automation_events row (the caller already reused the existing event via
+ * start_workflow_execution) and never sends anything before the caller's
+ * new execution row already exists. Uses the session-scoped
+ * completeWorkflowExecution/failWorkflowExecution (not the AsService
+ * variants) since retry always runs with a real admin session, re-verifying
+ * is_org_member as defense in depth.
+ *
+ * Returns whether the retry handoff itself was successfully initiated -
+ * NOT whether the underlying automation "eventually completed". A message
+ * correctly BLOCKED by the outbound gate (e.g. the appointment is no longer
+ * in an eligible status) is `{ ok: true }`: the retry mechanism did exactly
+ * what it should. Only a genuine failure of the retry itself (missing
+ * reference, entity no longer exists, the send call failing) is
+ * `{ ok: false }`.
+ */
+export async function retryAppointmentReminder(
+  supabase: SupabaseClient,
+  event: { organizationId: string; entityType: string | null; entityId: string | null; payload: Record<string, unknown> },
+  executionId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const appointmentId =
+    event.entityType === "appointment"
+      ? event.entityId
+      : typeof event.payload?.appointment_id === "string"
+        ? (event.payload.appointment_id as string)
+        : null;
+
+  if (!appointmentId) {
+    await failWorkflowExecution(supabase, executionId, "Missing appointment reference.");
+    return { ok: false, error: "Missing appointment reference." };
+  }
+
+  const { data: appointment } = await supabase
+    .from("appointments")
+    .select("id, organization_id, contact_id, lead_id, title, start_at, end_at, status, updated_at")
+    .eq("id", appointmentId)
+    .eq("organization_id", event.organizationId)
+    .maybeSingle();
+
+  if (!appointment) {
+    await failWorkflowExecution(supabase, executionId, "The appointment no longer exists.");
+    return { ok: false, error: "The appointment no longer exists." };
+  }
+
+  const businessProfile = await getBusinessProfile(supabase, event.organizationId);
+  const timezone = businessProfile?.timezone ?? "UTC";
+
+  let conversationId: string | null = null;
+  if (appointment.contact_id) {
+    const conversation = await findOrCreateOpenConversation(
+      supabase,
+      event.organizationId,
+      appointment.contact_id,
+      "sms",
+      appointment.lead_id,
+    );
+    conversationId = conversation?.id ?? null;
+  }
+
+  const body = composeReminderBody(appointment as CandidateAppointment, timezone);
+
+  const gateResult = await evaluateOutboundGate(supabase, {
+    organizationId: event.organizationId,
+    executionId,
+    contactId: appointment.contact_id,
+    conversationId,
+    leadId: appointment.lead_id,
+    aiResult: { should_send: true, response_message: body, needs_human: false },
+    appointmentId: appointment.id,
+    appointmentEligibleStatuses: ELIGIBLE_STATUSES,
+  });
+
+  if (!gateResult.allowed) {
+    await completeWorkflowExecution(supabase, executionId, {
+      should_send: false,
+      blocked_reason: gateResult.reason,
+      blocked_detail: gateResult.detail ?? null,
+      appointment_id: appointment.id,
+    });
+    return { ok: true };
+  }
+
+  const sendResult = await sendOutboundMessage(supabase, {
+    organizationId: event.organizationId,
+    contactId: gateResult.contactId,
+    conversationId: gateResult.conversationId,
+    channel: "sms",
+    body: gateResult.body,
+    senderType: "ai",
+    workflowExecutionId: executionId,
+  });
+
+  if (!sendResult.ok) {
+    await failWorkflowExecution(supabase, executionId, sendResult.error);
+    return { ok: false, error: sendResult.error };
+  }
+
+  await completeWorkflowExecution(supabase, executionId, {
+    should_send: true,
+    message_id: sendResult.messageId,
+    conversation_id: sendResult.conversationId,
+    provider_message_id: sendResult.providerMessageId,
+    appointment_id: appointment.id,
+  });
+
+  return { ok: true };
 }

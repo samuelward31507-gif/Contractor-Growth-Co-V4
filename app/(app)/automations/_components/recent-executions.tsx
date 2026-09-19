@@ -1,5 +1,7 @@
 import { CheckCircle2, XCircle, Loader2, CircleSlash } from "lucide-react";
 import { formatDateTime, formatDurationMs } from "./format";
+import { RetryButton } from "./retry-button";
+import { MAX_WORKFLOW_RETRY_ATTEMPTS } from "@/lib/automation/executions";
 import type { AutomationExecutionRow, WorkflowExecutionStatus } from "@/lib/automation/queries";
 
 const STATUS_ICON: Record<WorkflowExecutionStatus, typeof CheckCircle2> = {
@@ -43,12 +45,16 @@ export function RecentExecutions({ executions }: { executions: AutomationExecuti
             <th className="py-2 pr-4 font-medium">Completed</th>
             <th className="py-2 pr-4 font-medium">Duration</th>
             <th className="py-2 pr-4 font-medium">Attempt</th>
+            <th className="py-2 pr-4 font-medium">Retry</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {executions.map((execution) => {
             const Icon = STATUS_ICON[execution.status];
             const durationMs = execution.completedAt ? new Date(execution.completedAt).getTime() - new Date(execution.startedAt).getTime() : null;
+            // Rendering-only heuristic - the server action independently
+            // re-verifies every eligibility rule regardless of this.
+            const retryEligible = execution.status === "failed" && execution.attempt < MAX_WORKFLOW_RETRY_ATTEMPTS;
             return (
               <tr key={execution.id}>
                 <td className="py-2 pl-4 pr-4">
@@ -61,6 +67,7 @@ export function RecentExecutions({ executions }: { executions: AutomationExecuti
                 <td className="py-2 pr-4 tabular-nums text-slate-700">{execution.completedAt ? formatDateTime(execution.completedAt) : "—"}</td>
                 <td className="py-2 pr-4 tabular-nums text-slate-500">{durationMs !== null ? formatDurationMs(durationMs) : "—"}</td>
                 <td className="py-2 pr-4 tabular-nums text-slate-500">{execution.attempt}</td>
+                <td className="py-2 pr-4">{retryEligible ? <RetryButton executionId={execution.id} /> : <span className="text-xs text-slate-300">—</span>}</td>
               </tr>
             );
           })}

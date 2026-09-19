@@ -4,6 +4,8 @@ import {
   startWorkflowExecutionAsService,
   completeWorkflowExecutionAsService,
   failWorkflowExecutionAsService,
+  completeWorkflowExecution,
+  failWorkflowExecution,
   type WorkflowExecutionTriggerSource,
 } from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
@@ -355,4 +357,126 @@ export async function previewEstimateFollowups(
   }
 
   return { outcome: "no_candidates" };
+}
+
+/**
+ * Phase E retry redispatch for a failed estimate_followup or
+ * estimate_expired_lifecycle execution. Deliberately duplicates
+ * sendFollowup/expireEstimate's post-event-creation tails rather than
+ * refactoring those already-shipped functions to share code, to guarantee
+ * zero behavior change to the existing cron path - see the Phase E report.
+ * Uses the session-scoped completeWorkflowExecution/failWorkflowExecution
+ * (not the AsService variants), since retry always runs with a real admin
+ * session.
+ *
+ * Returns whether the retry handoff itself was successfully initiated -
+ * NOT whether the underlying automation "eventually completed". A message
+ * correctly BLOCKED by the outbound gate, or a normal lifecycle-only
+ * expiration, is `{ ok: true }`: the retry mechanism did exactly what it
+ * should. Only a genuine failure of the retry itself (missing reference,
+ * entity no longer exists, missing occurrence, the send call failing) is
+ * `{ ok: false }`.
+ */
+export async function retryEstimateWorkflow(
+  supabase: SupabaseClient,
+  event: { organizationId: string; entityType: string | null; entityId: string | null; payload: Record<string, unknown> },
+  executionId: string,
+  workflowName: "estimate_followup" | "estimate_expired_lifecycle",
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const estimateId =
+    event.entityType === "estimate"
+      ? event.entityId
+      : typeof event.payload?.estimate_id === "string"
+        ? (event.payload.estimate_id as string)
+        : null;
+
+  if (!estimateId) {
+    await failWorkflowExecution(supabase, executionId, "Missing estimate reference.");
+    return { ok: false, error: "Missing estimate reference." };
+  }
+
+  const { data: estimate } = await supabase
+    .from("estimates")
+    .select("id, organization_id, contact_id, lead_id, title, status, sent_at, expires_at")
+    .eq("id", estimateId)
+    .eq("organization_id", event.organizationId)
+    .maybeSingle();
+
+  if (!estimate) {
+    await failWorkflowExecution(supabase, executionId, "The estimate no longer exists.");
+    return { ok: false, error: "The estimate no longer exists." };
+  }
+
+  if (workflowName === "estimate_expired_lifecycle") {
+    await supabase.from("estimates").update({ status: "expired" }).eq("id", estimate.id).eq("status", "sent");
+    await completeWorkflowExecution(supabase, executionId, { lifecycle_only: true, estimate_id: estimate.id });
+    return { ok: true };
+  }
+
+  // estimate_followup: reuse the occurrence already recorded on the
+  // original event's payload (set once, at whichever check-in was actually
+  // due) rather than recomputing it from elapsed time again, which could
+  // have moved on to occurrence 2 by now and would then retry a different
+  // message than the one that actually failed.
+  const occurrence = event.payload?.occurrence === 1 || event.payload?.occurrence === 2 ? (event.payload.occurrence as 1 | 2) : null;
+  if (!occurrence) {
+    await failWorkflowExecution(supabase, executionId, "Missing follow-up occurrence.");
+    return { ok: false, error: "Missing follow-up occurrence." };
+  }
+
+  let conversationId: string | null = null;
+  if (estimate.contact_id) {
+    const conversation = await findOrCreateOpenConversation(supabase, event.organizationId, estimate.contact_id, "sms", estimate.lead_id);
+    conversationId = conversation?.id ?? null;
+  }
+
+  const body = composeFollowupBody(estimate as CandidateEstimate, occurrence);
+
+  const gateResult = await evaluateOutboundGate(supabase, {
+    organizationId: event.organizationId,
+    executionId,
+    contactId: estimate.contact_id,
+    conversationId,
+    leadId: estimate.lead_id,
+    aiResult: { should_send: true, response_message: body, needs_human: false },
+    estimateId: estimate.id,
+    estimateEligibleStatuses: ACTIVE_STATUSES,
+  });
+
+  if (!gateResult.allowed) {
+    await completeWorkflowExecution(supabase, executionId, {
+      should_send: false,
+      blocked_reason: gateResult.reason,
+      blocked_detail: gateResult.detail ?? null,
+      estimate_id: estimate.id,
+      occurrence,
+    });
+    return { ok: true };
+  }
+
+  const sendResult = await sendOutboundMessage(supabase, {
+    organizationId: event.organizationId,
+    contactId: gateResult.contactId,
+    conversationId: gateResult.conversationId,
+    channel: "sms",
+    body: gateResult.body,
+    senderType: "ai",
+    workflowExecutionId: executionId,
+  });
+
+  if (!sendResult.ok) {
+    await failWorkflowExecution(supabase, executionId, sendResult.error);
+    return { ok: false, error: sendResult.error };
+  }
+
+  await completeWorkflowExecution(supabase, executionId, {
+    should_send: true,
+    message_id: sendResult.messageId,
+    conversation_id: sendResult.conversationId,
+    provider_message_id: sendResult.providerMessageId,
+    estimate_id: estimate.id,
+    occurrence,
+  });
+
+  return { ok: true };
 }
