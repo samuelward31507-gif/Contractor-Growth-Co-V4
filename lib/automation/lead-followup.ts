@@ -4,6 +4,7 @@ import { createAutomationEvent } from "./events";
 import { startWorkflowExecution, failWorkflowExecution } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
 import { getContact } from "@/lib/contacts/queries";
+import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 import type { LeadStatus, LeadTemperature } from "@/lib/leads/queries";
 
@@ -37,6 +38,20 @@ export async function emitLeadCreatedFollowup(
   supabase: SupabaseClient,
   input: LeadCreatedInput,
 ): Promise<void> {
+  // Instant Lead Follow-Up V1 (Safe Automatic SMS): the conversation is
+  // found/created *before* the event is stored, and its id is included in
+  // the persisted automation_events.payload - not only in the transient
+  // n8n dispatch contract - because the n8n callback route derives
+  // contactId/conversationId for the outbound gate from the DATABASE row's
+  // payload (a fresh join on workflow_executions.automation_events), never
+  // from anything embedded in the callback request body itself. Omitting
+  // it here (as this function previously did, when should_send was always
+  // hardcoded false in n8n and nothing ever needed it) would make every
+  // real send attempt fail closed on "missing_conversation_id" - confirmed
+  // by a real, controlled draft-workflow execution during this feature's
+  // implementation, not assumed.
+  const conversation = await findOrCreateOpenConversation(supabase, input.organizationId, input.contactId, "sms", input.leadId);
+
   const eventResult = await createAutomationEvent(supabase, {
     eventType: "lead.created",
     entityType: "lead",
@@ -44,6 +59,7 @@ export async function emitLeadCreatedFollowup(
     payload: {
       lead_id: input.leadId,
       contact_id: input.contactId,
+      conversation_id: conversation?.id ?? null,
       organization_id: input.organizationId,
       source: input.source,
       service: input.service,

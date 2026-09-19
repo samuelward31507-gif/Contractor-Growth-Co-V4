@@ -4,8 +4,10 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "@/lib/automation/executions";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { evaluateOutboundGate } from "@/lib/automation/outbound-gate";
+import { getAutomationForEventType } from "@/lib/automation/catalog";
 import {
   getAutomationConfig,
+  getAutomationEnabled,
   readInstantLeadFollowupConfig,
   readInboundCustomerReplyConfig,
   readAppointmentLifecycleConfig,
@@ -313,6 +315,29 @@ async function respectBusinessHoursFor(service: SupabaseClient, organizationId: 
   return false;
 }
 
+/**
+ * Instant Lead Follow-Up V1 (Safe Automatic SMS): re-resolves whether the
+ * automation this event's type maps to is still enabled, live, at send
+ * time - never trusted from the event-creation-time check alone (see
+ * createAutomationEvent/createAutomationEventAsService), which only proves
+ * it was enabled when the event was first created, not that it still is by
+ * the time n8n's callback lands. Uses the exact same
+ * getAutomationForEventType/getAutomationEnabled lookup those functions
+ * already use - not a second, divergent enable/disable mechanism.
+ * Undefined (no catalog automation maps to this event type at all) is
+ * treated by the gate as "no additional restriction", identical to how it
+ * treats respectBusinessHours being omitted.
+ */
+async function automationEnabledFor(
+  service: SupabaseClient,
+  organizationId: string,
+  eventType: string,
+): Promise<boolean | undefined> {
+  const automation = getAutomationForEventType(eventType);
+  if (!automation) return undefined;
+  return getAutomationEnabled(service, organizationId, automation.id);
+}
+
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
@@ -503,6 +528,7 @@ export async function POST(request: NextRequest) {
   const leadEligibleStatuses = leadEligibleStatusesFor(event.event_type);
   const leadMustHaveNoActiveEngagement = leadMustHaveNoActiveEngagementFor(event.event_type);
   const respectBusinessHours = await respectBusinessHoursFor(service, event.organization_id, event.event_type);
+  const automationEnabled = await automationEnabledFor(service, event.organization_id, event.event_type);
 
   // Trackpr is the final send authority: the AI/n8n may recommend sending,
   // but nothing reaches the customer without independently passing this
@@ -528,6 +554,7 @@ export async function POST(request: NextRequest) {
     leadEligibleStatuses: leadEligibleStatuses ?? undefined,
     leadMustHaveNoActiveEngagement: leadMustHaveNoActiveEngagement || undefined,
     respectBusinessHours: respectBusinessHours || undefined,
+    automationEnabled,
   });
 
   if (!gateResult.allowed) {

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateContentSafety } from "./content-safety";
+import { E164_PATTERN } from "./sms";
 import { getBusinessHours, getOrganizationTimezone, type BusinessHour } from "@/lib/settings/queries";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
@@ -97,6 +98,24 @@ export type OutboundGateInput = {
    * evaluation time - read fresh on every call, never cached.
    */
   respectBusinessHours?: boolean;
+  /**
+   * Instant Lead Follow-Up V1 (Safe Automatic SMS): whether the automation
+   * this event/execution belongs to is still enabled, re-checked live at
+   * send time rather than trusted from when the event was first created.
+   * createAutomationEvent()/createAutomationEventAsService() already check
+   * this once at event-creation time and skip creating the event entirely
+   * if disabled - this is a second, later check closing the narrow window
+   * where a contractor disables an automation after its event/execution was
+   * already created and dispatched to n8n, but before n8n's callback lands.
+   * The caller resolves this via getAutomationForEventType/
+   * getAutomationEnabled, the same lookup createAutomationEvent already
+   * uses - never a second, divergent enable/disable mechanism. Omitted
+   * (undefined) means "no automation-id could be resolved for this event
+   * type" (e.g. an internal lifecycle marker with no catalog entry) and is
+   * treated as no additional restriction, exactly like respectBusinessHours
+   * being omitted - explicit `false` is the only value that blocks.
+   */
+  automationEnabled?: boolean;
 };
 
 export type OutboundGateDenialReason =
@@ -132,7 +151,9 @@ export type OutboundGateDenialReason =
   | "job_status_ineligible"
   | "lead_status_ineligible"
   | "lead_has_active_engagement"
-  | "outside_business_hours";
+  | "outside_business_hours"
+  | "automation_disabled"
+  | "invalid_destination";
 
 export type OutboundGateResult =
   | { allowed: true; contactId: string; conversationId: string; body: string }
@@ -225,6 +246,10 @@ export async function evaluateOutboundGate(
   // unconditional block, not a soft signal.
   if (aiResult.needs_human) return deny("needs_human");
 
+  // Instant Lead Follow-Up V1: explicit false blocks - undefined (no
+  // automation-id resolvable for this event type) is not a restriction.
+  if (input.automationEnabled === false) return deny("automation_disabled");
+
   const body = (aiResult.response_message ?? "").trim();
   if (!body) return deny("missing_response_message");
   if (body.length > MAX_MESSAGE_LENGTH) return deny("response_message_too_long");
@@ -238,7 +263,7 @@ export async function evaluateOutboundGate(
   const [{ data: contact }, { data: conversation }, { data: execution }] = await Promise.all([
     supabase
       .from("contacts")
-      .select("id, organization_id, sms_opt_out")
+      .select("id, organization_id, sms_opt_out, phone")
       .eq("id", input.contactId)
       .maybeSingle(),
     supabase
@@ -255,6 +280,13 @@ export async function evaluateOutboundGate(
 
   if (!contact || contact.organization_id !== input.organizationId) return deny("contact_not_found");
   if (contact.sms_opt_out) return deny("contact_opted_out");
+  // Same E.164 shape check sendSms() itself applies (lib/automation/sms.ts) -
+  // duplicated here as a named, deterministic gate reason so an invalid
+  // destination is denied before ever reaching the provider boundary,
+  // rather than only surfacing as a generic provider-rejection error one
+  // layer later. sendSms()'s own check remains in place unchanged as
+  // defense-in-depth for any caller that reaches it directly.
+  if (!contact.phone || !E164_PATTERN.test(contact.phone.trim())) return deny("invalid_destination");
 
   if (!conversation) return deny("conversation_not_found");
   if (conversation.organization_id !== input.organizationId) return deny("conversation_wrong_organization");

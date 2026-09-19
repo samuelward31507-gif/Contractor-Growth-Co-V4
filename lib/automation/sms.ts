@@ -13,8 +13,11 @@ export type SendSmsResult =
 // Loose E.164 shape check only (leading +, 2-15 digits, no leading zero) -
 // not a full validation library. This never rewrites or "fixes" a number;
 // it only decides whether to attempt a send at all, so an already-correct
-// international number is never mangled.
-const E164_PATTERN = /^\+[1-9]\d{1,14}$/;
+// international number is never mangled. Exported so evaluateOutboundGate
+// can apply the exact same check as a named, deterministic gate reason
+// ("invalid_destination") before ever reaching this provider boundary,
+// rather than only discovering an invalid number here, one layer later.
+export const E164_PATTERN = /^\+[1-9]\d{1,14}$/;
 
 /**
  * SMS provider boundary. Reads TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
