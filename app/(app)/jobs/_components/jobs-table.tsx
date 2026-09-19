@@ -2,7 +2,6 @@ import Link from "next/link";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import type { Job } from "@/lib/jobs/queries";
-import { Icon } from "../../_components/icon";
 import { JobStatusBadge } from "./status-badge";
 
 const ROW_GRID = "grid-cols-[minmax(0,1fr)_112px_96px_92px_20px]";
@@ -56,10 +55,22 @@ export function JobsTable({ jobs, hasActiveFilters }: { jobs: Job[]; hasActiveFi
                 {job.amount != null ? formatCurrency(job.amount) : "—"}
               </span>
               <span className="text-xs tabular-nums text-slate-400">{formatContactDate(job.created_at)}</span>
-              <Icon
-                name="chevron-right"
+              {/* "chevron-right" isn't in the committed Icon set yet (it's
+                  a Trackpr 2.0 redesign addition, intentionally
+                  uncommitted this phase) - inlined directly rather than
+                  depending on that in-flight change. */}
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
                 className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
-              />
+              >
+                <path d="M9 5.25L15 12l-6 6.75" />
+              </svg>
             </Link>
           ))}
         </div>

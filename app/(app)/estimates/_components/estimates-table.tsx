@@ -67,10 +67,22 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
                 {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
               </span>
               <span className="text-xs tabular-nums text-slate-400">{formatContactDate(estimate.created_at)}</span>
-              <Icon
-                name="chevron-right"
+              {/* "chevron-right" isn't in the committed Icon set yet (it's
+                  a Trackpr 2.0 redesign addition, intentionally
+                  uncommitted this phase) - inlined directly rather than
+                  depending on that in-flight change. */}
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
                 className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
-              />
+              >
+                <path d="M9 5.25L15 12l-6 6.75" />
+              </svg>
             </Link>
           ))}
         </div>
