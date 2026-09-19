@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { cardClass } from "@/lib/ui/card";
+import { ChevronRight } from "lucide-react";
+import { sectionLabelClass } from "@/lib/ui/typography";
+import { Badge } from "@/lib/ui/badge";
 import { contactDisplayName, contactInitials } from "@/lib/contacts/format";
-import { formatAppointmentDate, formatAppointmentTimeRange, getDayGroupLabel } from "@/lib/appointments/format";
+import { formatAppointmentDate, formatAppointmentTimeRange, getDayGroupLabel, STATUS_LABELS } from "@/lib/appointments/format";
 import type { Appointment, AppointmentView } from "@/lib/appointments/queries";
-import { AppointmentStatusBadge } from "./status-badge";
+import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "./status";
 
 function AppointmentRow({
   appointment,
@@ -20,21 +22,27 @@ function AppointmentRow({
     <li>
       <Link
         href={`/appointments/${appointment.id}`}
-        className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-slate-50 sm:px-5"
+        className="group flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50"
       >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
           {appointment.contact ? contactInitials(appointment.contact) : "?"}
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-2">
             <span className="truncate text-sm font-medium text-slate-900">{name}</span>
-            <AppointmentStatusBadge status={appointment.status} />
+            <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]} icon={APPOINTMENT_STATUS_ICON[appointment.status]}>
+              {STATUS_LABELS[appointment.status]}
+            </Badge>
           </span>
           <span className="mt-0.5 block truncate text-xs text-slate-500">
             {showDate ? `${formatAppointmentDate(appointment.start_at, timeZone)} · ` : ""}
             {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)} · {appointment.title}
           </span>
         </span>
+        <ChevronRight
+          aria-hidden
+          className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500"
+        />
       </Link>
     </li>
   );
@@ -60,7 +68,7 @@ export function AppointmentsList({
           : "No upcoming appointments.";
 
     return (
-      <div className={`${cardClass} px-5 py-12 text-center`}>
+      <div className="px-2 py-14 text-center">
         <p className="text-sm font-medium text-slate-900">{emptyMessage}</p>
         {hasActiveFilters ? (
           <p className="mt-1 text-sm text-slate-500">Try a different search term or clear your filters.</p>
@@ -74,18 +82,11 @@ export function AppointmentsList({
     const ordered = view === "past" ? [...appointments].reverse() : appointments;
 
     return (
-      <div className={cardClass}>
-        <ul className="divide-y divide-slate-100">
-          {ordered.map((appointment) => (
-            <AppointmentRow
-              key={appointment.id}
-              appointment={appointment}
-              showDate={view === "past"}
-              timeZone={timeZone}
-            />
-          ))}
-        </ul>
-      </div>
+      <ul className="divide-y divide-slate-100">
+        {ordered.map((appointment) => (
+          <AppointmentRow key={appointment.id} appointment={appointment} showDate={view === "past"} timeZone={timeZone} />
+        ))}
+      </ul>
     );
   }
 
@@ -98,17 +99,15 @@ export function AppointmentsList({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {[...groups.entries()].map(([label, items]) => (
         <div key={label}>
-          <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</h3>
-          <div className={cardClass}>
-            <ul className="divide-y divide-slate-100">
-              {items.map((appointment) => (
-                <AppointmentRow key={appointment.id} appointment={appointment} showDate={false} timeZone={timeZone} />
-              ))}
-            </ul>
-          </div>
+          <p className={sectionLabelClass}>{label}</p>
+          <ul className="mt-3 divide-y divide-slate-100">
+            {items.map((appointment) => (
+              <AppointmentRow key={appointment.id} appointment={appointment} showDate={false} timeZone={timeZone} />
+            ))}
+          </ul>
         </div>
       ))}
     </div>

@@ -20,17 +20,16 @@ export default async function OnboardingPage() {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-slate-50 px-6 py-12">
-      <div className="w-full max-w-md space-y-8 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="space-y-1.5 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Set up your business
-          </h1>
-          <p className="text-sm text-slate-500">
-            Tell us about your contracting business to finish setting up Trackpr.
-          </p>
+    <div className="flex flex-1 flex-col items-center justify-center bg-white px-6 py-16">
+      <div className="w-full max-w-sm">
+        <span className="text-[15px] font-semibold tracking-tight text-slate-900">Trackpr</span>
+        <div className="mt-8 space-y-1.5">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Welcome to Trackpr.</h1>
+          <p className="text-sm text-slate-500">Let&apos;s set up your business to finish getting started.</p>
         </div>
-        <OnboardingForm />
+        <div className="mt-8">
+          <OnboardingForm />
+        </div>
       </div>
     </div>
   );

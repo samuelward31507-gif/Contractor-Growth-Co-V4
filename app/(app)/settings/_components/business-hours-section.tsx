@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { errorBannerClass, inputClass, primaryButtonAutoClass, successBannerClass } from "@/lib/ui/form";
-import { cardClass, cardHeaderClass, cardSubtleClass, cardTitleClass } from "@/lib/ui/card";
+import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { DAYS_OF_WEEK, type BusinessHour, type DayOfWeek } from "@/lib/settings/queries";
 import { updateBusinessHours, type SettingsActionState } from "../actions";
 
@@ -20,17 +20,11 @@ export function BusinessHoursSection({
   const [state, formAction, isPending] = useActionState(updateBusinessHours, initialState);
 
   return (
-    <section className={cardClass}>
-      <div className={cardHeaderClass}>
-        <div>
-          <h2 className={cardTitleClass}>Business Hours</h2>
-          <p className={`mt-0.5 ${cardSubtleClass}`}>
-            Weekly operating schedule, shown in {timezone.replace(/_/g, " ")}.
-          </p>
-        </div>
-      </div>
+    <section>
+      <h2 className={subsectionTitleClass}>Business hours</h2>
+      <p className={`mt-1 ${metaClass}`}>Weekly operating schedule, shown in {timezone.replace(/_/g, " ")}.</p>
 
-      <form action={formAction} className="p-5">
+      <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
           {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Business hours saved.</p> : null}
@@ -77,7 +71,7 @@ export function BusinessHoursSection({
           {canEdit ? (
             <div className="flex justify-end pt-4">
               <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
-                {isPending ? "Saving…" : "Save Business Hours"}
+                {isPending ? "Saving…" : "Save changes"}
               </button>
             </div>
           ) : null}

@@ -1,9 +1,9 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { cardClass, cardHeaderClass, cardSubtleClass, cardTitleClass } from "@/lib/ui/card";
+import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
+import { X, Plus } from "lucide-react";
 import { errorBannerClass, inputClass } from "@/lib/ui/form";
-import { Icon } from "../../_components/icon";
 import type { ServiceArea } from "@/lib/settings/queries";
 import { createServiceArea, deleteServiceArea, type DeleteState, type SettingsActionState } from "../actions";
 
@@ -36,7 +36,7 @@ function DeleteAreaDialog({ area, onClose }: { area: ServiceArea; onClose: () =>
             disabled={isPending}
             className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
           >
-            {isPending ? "Removing…" : "Remove Area"}
+            {isPending ? "Removing…" : "Remove area"}
           </button>
         </form>
       </div>
@@ -56,15 +56,11 @@ export function ServiceAreasSection({ areas, canEdit }: { areas: ServiceArea[]; 
   }, [state.success]);
 
   return (
-    <section className={cardClass}>
-      <div className={cardHeaderClass}>
-        <div>
-          <h2 className={cardTitleClass}>Service Area</h2>
-          <p className={`mt-0.5 ${cardSubtleClass}`}>Cities and areas your business serves.</p>
-        </div>
-      </div>
+    <section>
+      <h2 className={subsectionTitleClass}>Service area</h2>
+      <p className={`mt-1 ${metaClass}`}>Cities and areas your business serves.</p>
 
-      <div className="p-5">
+      <div className="mt-4">
         {state.error ? <p className={`mb-4 ${errorBannerClass}`}>{state.error}</p> : null}
 
         {areas.length === 0 ? (
@@ -84,7 +80,7 @@ export function ServiceAreasSection({ areas, canEdit }: { areas: ServiceArea[]; 
                     aria-label={`Remove ${area.name}`}
                     className="flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700"
                   >
-                    <Icon name="close" className="h-3 w-3" />
+                    <X className="h-3 w-3" aria-hidden />
                   </button>
                 ) : null}
               </li>
@@ -94,19 +90,14 @@ export function ServiceAreasSection({ areas, canEdit }: { areas: ServiceArea[]; 
 
         {canEdit ? (
           <form ref={formRef} action={formAction} className="mt-4 flex gap-2">
-            <input
-              type="text"
-              name="name"
-              placeholder="e.g. Colorado Springs"
-              className={`${inputClass} max-w-xs`}
-            />
+            <input type="text" name="name" placeholder="e.g. Colorado Springs" className={`${inputClass} max-w-xs`} />
             <button
               type="submit"
               disabled={isPending}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex shrink-0 items-center gap-2 rounded-md border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Icon name="plus" className="h-4 w-4" />
-              {isPending ? "Adding…" : "Add Area"}
+              <Plus className="h-4 w-4" aria-hidden />
+              {isPending ? "Adding…" : "Add area"}
             </button>
           </form>
         ) : null}

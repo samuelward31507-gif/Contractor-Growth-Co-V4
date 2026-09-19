@@ -1,7 +1,7 @@
 import { AlertOctagon, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { SectionCard } from "@/lib/ui/section-card";
 import { formatCount } from "./format";
 import { StatGrid, type Stat } from "./stat-grid";
-import { SectionCard } from "./section-card";
 import type { AgencyIncidentRollup } from "@/lib/agency/health";
 
 /**

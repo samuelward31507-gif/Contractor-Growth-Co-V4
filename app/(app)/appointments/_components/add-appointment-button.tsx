@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Plus } from "lucide-react";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
-import { Icon } from "../../_components/icon";
 import { AppointmentDialog } from "./appointment-dialog";
 
 export function AddAppointmentButton({ contacts, leads }: { contacts: Contact[]; leads: Lead[] }) {
@@ -28,7 +28,7 @@ export function AddAppointmentButton({ contacts, leads }: { contacts: Contact[];
         onClick={() => setOpen(true)}
         className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
       >
-        <Icon name="plus" className="h-4 w-4" />
+        <Plus aria-hidden className="h-4 w-4" />
         Add Appointment
       </button>
       {open ? (

@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { Users2, ChevronRight } from "lucide-react";
+import { Users2, ChevronRight, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
+import { SectionCard } from "@/lib/ui/section-card";
+import { Badge } from "@/lib/ui/badge";
 import { formatCount } from "./format";
-import { SectionCard } from "./section-card";
-import { StatusPill } from "./status-pill";
 import type { AgencyOrganizationSnapshot } from "@/lib/agency/queries";
 import type { AgencyOrganizationHealth } from "@/lib/agency/health";
 
@@ -66,7 +66,11 @@ export function ClientHealthTable({
                   </td>
                   <td className="py-2 pr-4 tabular-nums text-slate-700">{health ? formatCount(health.aiInteractions) : "—"}</td>
                   <td className="py-2 pr-4 sm:pr-5">
-                    {health?.needsAttention ? <StatusPill tone="attention" label="Needs attention" /> : <StatusPill tone="healthy" label="Healthy" />}
+                    {health?.needsAttention ? (
+                      <Badge tone="warning" icon={AlertTriangle}>Needs attention</Badge>
+                    ) : (
+                      <Badge tone="success" icon={CheckCircle2}>Healthy</Badge>
+                    )}
                   </td>
                 </tr>
               );

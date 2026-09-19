@@ -8,11 +8,11 @@ const SKELETON_CARDS = Array.from({ length: 8 });
 export default function AgencyLoading() {
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
-      <div className="flex items-center gap-2.5">
-        <div className="h-8 w-8 animate-pulse rounded-lg bg-slate-100" />
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-9 animate-pulse rounded-lg bg-slate-100" />
         <div>
-          <div className="h-4 w-52 animate-pulse rounded bg-slate-100" />
-          <div className="mt-1.5 h-3 w-40 animate-pulse rounded bg-slate-100" />
+          <div className="h-5 w-56 animate-pulse rounded bg-slate-100" />
+          <div className="mt-2 h-3 w-40 animate-pulse rounded bg-slate-100" />
         </div>
       </div>
 

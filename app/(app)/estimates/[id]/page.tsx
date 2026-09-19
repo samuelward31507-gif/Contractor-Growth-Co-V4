@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
@@ -8,10 +9,12 @@ import { getEstimate } from "@/lib/estimates/queries";
 import { getJobByEstimateId } from "@/lib/jobs/queries";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
+import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
-import { Icon } from "../../_components/icon";
-import { EstimateStatusBadge } from "../_components/status-badge";
+import { Badge } from "@/lib/ui/badge";
+import { successBannerClass } from "@/lib/ui/form";
+import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../_components/status";
 import { EstimateActions } from "./_components/estimate-actions";
 
 export default async function EstimateDetailPage({ params }: PageProps<"/estimates/[id]">) {
@@ -64,7 +67,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
         href="/estimates"
         className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
       >
-        <Icon name="arrow-left" className="h-4 w-4" />
+        <ArrowLeft aria-hidden className="h-4 w-4" />
         Back to Estimates
       </Link>
 
@@ -73,21 +76,21 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
           <h1 className="text-xl font-semibold tracking-tight text-slate-900">{estimate.title}</h1>
           <p className="text-sm text-slate-500">{customerName}</p>
           <div className="mt-1.5">
-            <EstimateStatusBadge status={estimate.status} />
+            <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
+              {ESTIMATE_STATUS_LABELS[estimate.status]}
+            </Badge>
           </div>
         </div>
         <EstimateActions estimate={estimate} contacts={contacts} leads={leads} />
       </div>
 
       {estimate.status === "accepted" && job ? (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-3.5 py-2.5 text-sm">
-          <p className="font-medium text-emerald-800">Job created</p>
-          <p className="text-emerald-700">
+        <div className={successBannerClass}>
+          <p className="font-medium">Job created</p>
+          <p>
             This estimate was accepted and a job was created for it.{" "}
-            {/* Jobs has no detail route yet (tracked separately) - link to
-                the list rather than a per-id path that would 404. */}
-            <Link href="/jobs" className="font-medium underline">
-              View jobs
+            <Link href={`/jobs/${job.id}`} className="font-medium underline">
+              View job
             </Link>
           </p>
         </div>

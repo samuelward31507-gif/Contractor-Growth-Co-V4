@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { cardClass } from "@/lib/ui/card";
+import { sectionLabelClass } from "@/lib/ui/typography";
 import {
   activityEntityHref,
   activityEntityLabel,
@@ -11,18 +11,22 @@ import {
   humanizeText,
 } from "@/lib/activity/format";
 import type { ActivityEntry } from "@/lib/activity/queries";
-import { Icon } from "../../_components/icon";
 
 function ActivityRow({ entry, currentUserId }: { entry: ActivityEntry; currentUserId: string }) {
   const entityLabel = activityEntityLabel(entry.entity_type);
   const href = activityEntityHref(entry.entity_type, entry.entity_id);
   const metadataDescription = describeMetadata(entry.metadata);
   const actor = describeActor(entry.user_id, currentUserId);
+  // A member expression (icons.entry), not a bare PascalCase identifier, so
+  // this reads to both JSX and the react-hooks/static-components lint rule
+  // as selecting one of a few stable, module-level icon components - never
+  // as defining a new component during render.
+  const icons = { entry: activityIcon(entry.entity_type) };
 
   const content = (
     <>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-        <Icon name={activityIcon(entry.entity_type)} className="h-4 w-4" />
+        <icons.entry className="h-4 w-4" aria-hidden />
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-1.5">
@@ -43,13 +47,13 @@ function ActivityRow({ entry, currentUserId }: { entry: ActivityEntry; currentUs
 
   if (href) {
     return (
-      <Link href={href} className="flex items-start gap-3 px-4 py-3.5 transition-colors hover:bg-slate-50 sm:px-5">
+      <Link href={href} className="flex items-start gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50">
         {content}
       </Link>
     );
   }
 
-  return <div className="flex items-start gap-3 px-4 py-3.5 sm:px-5">{content}</div>;
+  return <div className="flex items-start gap-3 px-2 py-3">{content}</div>;
 }
 
 export function ActivityTimeline({
@@ -67,7 +71,7 @@ export function ActivityTimeline({
 }) {
   if (entries.length === 0) {
     return (
-      <div className={`${cardClass} px-5 py-12 text-center`}>
+      <div className="px-2 py-14 text-center">
         <p className="text-sm font-medium text-slate-900">No activity matches your filters.</p>
         {hasActiveFilters ? (
           <p className="mt-1 text-sm text-slate-500">Try a different search term or clear your filters.</p>
@@ -85,25 +89,23 @@ export function ActivityTimeline({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {[...groups.entries()].map(([label, items]) => (
         <div key={label}>
-          <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</h3>
-          <div className={cardClass}>
-            <div className="divide-y divide-slate-100">
-              {items.map((entry) => (
-                <ActivityRow key={entry.id} entry={entry} currentUserId={currentUserId} />
-              ))}
-            </div>
+          <p className={sectionLabelClass}>{label}</p>
+          <div className="mt-3 divide-y divide-slate-100">
+            {items.map((entry) => (
+              <ActivityRow key={entry.id} entry={entry} currentUserId={currentUserId} />
+            ))}
           </div>
         </div>
       ))}
 
       {hasMore ? (
-        <div className="flex justify-center">
+        <div className="flex justify-center pt-2">
           <Link
             href={loadMoreHref}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
           >
             Load more
           </Link>

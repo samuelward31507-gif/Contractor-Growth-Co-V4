@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { AlertTriangle, ShieldCheck, Clock } from "lucide-react";
+import { SectionCard } from "@/lib/ui/section-card";
+import { Badge } from "@/lib/ui/badge";
 import { formatCount } from "./format";
-import { SectionCard } from "./section-card";
 import type { AgencyOrganizationHealth, StuckExecution } from "@/lib/agency/health";
 
 /**
@@ -44,19 +45,11 @@ export function AttentionSection({
                 <Link href={`/agency/organizations/${org.organizationId}`} className="text-sm font-semibold text-slate-900 hover:underline">
                   {org.organizationName}
                 </Link>
-                <div className="flex flex-wrap gap-1.5 text-xs">
-                  {org.stuckExecutionCount > 0 ? (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800">{formatCount(org.stuckExecutionCount)} stuck</span>
-                  ) : null}
-                  {org.failedWorkflowExecutions > 0 ? (
-                    <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700">{formatCount(org.failedWorkflowExecutions)} failed automation</span>
-                  ) : null}
-                  {org.failedMessages > 0 ? (
-                    <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700">{formatCount(org.failedMessages)} failed messages</span>
-                  ) : null}
-                  {org.undeliveredMessages > 0 ? (
-                    <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700">{formatCount(org.undeliveredMessages)} undelivered</span>
-                  ) : null}
+                <div className="flex flex-wrap gap-1.5">
+                  {org.stuckExecutionCount > 0 ? <Badge tone="warning">{formatCount(org.stuckExecutionCount)} stuck</Badge> : null}
+                  {org.failedWorkflowExecutions > 0 ? <Badge tone="danger">{formatCount(org.failedWorkflowExecutions)} failed automation</Badge> : null}
+                  {org.failedMessages > 0 ? <Badge tone="danger">{formatCount(org.failedMessages)} failed messages</Badge> : null}
+                  {org.undeliveredMessages > 0 ? <Badge tone="danger">{formatCount(org.undeliveredMessages)} undelivered</Badge> : null}
                 </div>
               </li>
             ))}

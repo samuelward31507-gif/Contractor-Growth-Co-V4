@@ -12,6 +12,7 @@ import {
   type AppointmentView,
 } from "@/lib/appointments/queries";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
+import { PageHeader } from "@/lib/ui/page-header";
 import { AddAppointmentButton } from "./_components/add-appointment-button";
 import { AppointmentsEmptyState } from "./_components/appointments-empty-state";
 import { AppointmentsList } from "./_components/appointments-list";
@@ -63,31 +64,29 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
   const hasActiveFilters = Boolean(query.trim()) || status !== "all";
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-4 sm:p-6 lg:p-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Appointments</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Keep every customer appointment organized and on schedule.
-          </p>
-        </div>
-        <AddAppointmentButton contacts={contacts} leads={leads} />
-      </div>
+    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <PageHeader
+        title="Appointments"
+        description="Keep every customer appointment organized and on schedule."
+        action={<AddAppointmentButton contacts={contacts} leads={leads} />}
+      />
 
       <AppointmentsSummary summary={summary} />
 
       {allAppointments.length === 0 ? (
         <AppointmentsEmptyState contacts={contacts} leads={leads} />
       ) : (
-        <>
+        <div className="border-t border-slate-200 pt-8">
           <AppointmentsToolbar initialQuery={query} initialStatus={status} view={view} />
-          <AppointmentsList
-            appointments={filtered}
-            view={view}
-            hasActiveFilters={hasActiveFilters}
-            timeZone={timeZone}
-          />
-        </>
+          <div className="mt-5">
+            <AppointmentsList
+              appointments={filtered}
+              view={view}
+              hasActiveFilters={hasActiveFilters}
+              timeZone={timeZone}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

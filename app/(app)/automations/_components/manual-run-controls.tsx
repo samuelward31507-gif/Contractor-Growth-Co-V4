@@ -71,7 +71,7 @@ export function ManualRunControls({ automationId, enabled }: { automationId: str
           type="button"
           onClick={handleRun}
           disabled={!enabled || isPending}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
         >
           {isPending ? "Working…" : "Run now"}
         </button>
@@ -79,7 +79,7 @@ export function ManualRunControls({ automationId, enabled }: { automationId: str
           type="button"
           onClick={handleDryRun}
           disabled={!enabled || isPending}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
         >
           {isPending ? "Working…" : "Test / dry run"}
         </button>

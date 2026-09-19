@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Settings } from "lucide-react";
 import { updateInboundCustomerReplyConfig } from "../actions";
 import { RECENT_MESSAGE_WINDOW_MIN, RECENT_MESSAGE_WINDOW_MAX, DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG } from "@/lib/automation/settings";
 import { BusinessHoursToggleField } from "./business-hours-toggle-field";
+import { SectionCard } from "@/lib/ui/section-card";
+import { primaryButtonAutoClass } from "@/lib/ui/form";
 
 const DEFAULT_WINDOW = DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG.recent_message_window;
 const DEFAULT_RESPECT_HOURS = DEFAULT_INBOUND_CUSTOMER_REPLY_CONFIG.respect_business_hours;
@@ -88,10 +91,8 @@ export function InboundCustomerReplyConfigForm({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Recent message context</p>
-      <p className="mt-1 text-sm text-slate-500">Choose how many recent conversation messages the AI can use when responding to a customer.</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+    <SectionCard title="Recent message context" description="Choose how many recent conversation messages the AI can use when responding to a customer." icon={Settings}>
+      <div className="flex flex-wrap items-center gap-2">
         <input
           type="number"
           inputMode="numeric"
@@ -101,7 +102,8 @@ export function InboundCustomerReplyConfigForm({
             setSuccess(false);
           }}
           disabled={isPending}
-          className="w-20 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 focus:border-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label="Recent message context, in messages"
+          className="w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm transition-colors focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-60"
         />
         <span className="text-sm text-slate-700">messages</span>
       </div>
@@ -117,19 +119,14 @@ export function InboundCustomerReplyConfigForm({
       />
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isPending || !isDirty}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-        >
+        <button type="button" onClick={handleSave} disabled={isPending || !isDirty} className={primaryButtonAutoClass}>
           {isPending ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
           onClick={handleReset}
           disabled={isPending || isAtDefault}
-          className="rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-slate-500"
+          className="rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-slate-500"
         >
           Reset to default
         </button>
@@ -137,6 +134,6 @@ export function InboundCustomerReplyConfigForm({
       <p className="mt-2 text-xs text-slate-400">Changes apply to future replies only - anything already sent or in progress is unaffected.</p>
       {success && !error ? <p className="mt-1.5 text-xs text-emerald-700">Saved.</p> : null}
       {error ? <p className="mt-1.5 text-xs text-red-600">{error}</p> : null}
-    </div>
+    </SectionCard>
   );
 }

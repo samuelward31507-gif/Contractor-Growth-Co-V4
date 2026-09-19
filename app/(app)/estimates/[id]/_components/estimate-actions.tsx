@@ -2,11 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { Pencil } from "lucide-react";
 import { errorBannerClass } from "@/lib/ui/form";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
 import type { Estimate } from "@/lib/estimates/queries";
-import { Icon } from "../../../_components/icon";
 import { EstimateDialog } from "../../_components/estimate-dialog";
 import { cancelEstimate, markEstimateAccepted, markEstimateDeclined, sendEstimate } from "../../actions";
 
@@ -73,7 +73,7 @@ export function EstimateActions({
         {estimate.status === "draft" ? (
           <>
             <button type="button" onClick={() => setEditOpen(true)} className={secondaryBtn}>
-              <Icon name="pencil" className="h-4 w-4" />
+              <Pencil aria-hidden className="h-4 w-4" />
               Edit
             </button>
             <button type="button" disabled={isPending} onClick={() => run(() => sendEstimate(estimate.id))} className={primaryBtn}>

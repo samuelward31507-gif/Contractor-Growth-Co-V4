@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Zap, Workflow, History } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
@@ -19,8 +19,13 @@ import {
   readReviewReferralFollowupConfig,
 } from "@/lib/automation/settings";
 import { getBusinessHours } from "@/lib/settings/queries";
-import { pageTitleClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
-import { AutomationStatusPill } from "../_components/status-pill";
+import { metaClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
+import { SectionCard } from "@/lib/ui/section-card";
+import { EmptyState } from "@/lib/ui/empty-state";
+import { Badge } from "@/lib/ui/badge";
+import { errorBannerClass } from "@/lib/ui/form";
+import { AUTOMATION_STATUS_BADGE, formatCount } from "../_components/format";
 import { HowItWorks } from "../_components/how-it-works";
 import { RecentExecutions } from "../_components/recent-executions";
 import { ManualRunControls } from "../_components/manual-run-controls";
@@ -34,7 +39,6 @@ import { LeadReactivationConfigForm } from "../_components/lead-reactivation-con
 import { AppointmentLifecycleConfigForm } from "../_components/appointment-lifecycle-config";
 import { JobLifecycleConfigForm } from "../_components/job-lifecycle-config";
 import { ReviewReferralFollowupConfigForm } from "../_components/review-referral-followup-config";
-import { formatCount } from "../_components/format";
 import { SAFE_RETRY_AUTOMATION_IDS } from "@/lib/automation/retry-eligibility";
 
 const CONFIGURABLE_AUTOMATION_IDS = new Set([
@@ -120,43 +124,49 @@ export default async function AutomationDetailPage({ params }: { params: Promise
   const summary = buildAutomationSummaries(statsByName, enabledByAutomationId).find((s) => s.definition.id === definition.id)!;
   const automationEnabled = summary.enabled;
   const Icon = definition.icon;
+  const statusBadge = AUTOMATION_STATUS_BADGE[summary.status];
 
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <div>
-        <Link href="/automations" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+        <Link href="/automations" className="inline-flex items-center gap-1 rounded text-xs font-medium text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10">
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
           Automations
         </Link>
 
-        <div className="mt-2 flex flex-wrap items-center gap-3">
+        <div className="mt-2 flex items-start gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900">
             <Icon className="h-4 w-4 text-white" aria-hidden />
           </span>
-          <h1 className={pageTitleClass}>{definition.name}</h1>
-          <AutomationStatusPill status={summary.status} />
-        </div>
-        <p className="mt-1.5 max-w-2xl text-sm text-slate-500">{definition.description}</p>
-        {canManage && definition.kind !== "safety-layer" ? (
-          <div className="mt-3">
-            <EnableToggle automationId={definition.id} enabled={automationEnabled} />
+          <div className="min-w-0 flex-1">
+            <PageHeader
+              title={definition.name}
+              description={definition.description}
+              badge={
+                <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
+                  {statusBadge.label}
+                </Badge>
+              }
+              action={
+                canManage && definition.kind !== "safety-layer" ? <EnableToggle automationId={definition.id} enabled={automationEnabled} /> : undefined
+              }
+            />
           </div>
-        ) : null}
+        </div>
       </div>
 
       {summary.failedExecutions > 0 ? (
-        <div className="rounded-lg border border-red-100 bg-red-50/60 px-3.5 py-2.5 text-sm">
-          <p className="font-medium text-red-800">Attention</p>
-          <p className="text-red-700">
+        <div className={errorBannerClass}>
+          <p className="font-medium">Attention</p>
+          <p>
             {formatCount(summary.failedExecutions)} failed execution{summary.failedExecutions === 1 ? "" : "s"} in the last 30 days.
           </p>
         </div>
       ) : null}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 lg:col-span-1">
-          <p className={sectionLabelClass}>Trigger</p>
-          <p className="mt-2 text-sm text-slate-900">{definition.trigger}</p>
+        <SectionCard title="Trigger" icon={Zap} className="lg:col-span-1">
+          <p className="text-sm text-slate-900">{definition.trigger}</p>
           {definition.eventTypes.length > 0 ? (
             <p className={`mt-3 ${metaClass}`}>
               Event type{definition.eventTypes.length === 1 ? "" : "s"}: {definition.eventTypes.join(", ")}
@@ -168,81 +178,73 @@ export default async function AutomationDetailPage({ params }: { params: Promise
             </p>
           ) : null}
           {supportsManualRun ? <ManualRunControls automationId={definition.id} enabled={automationEnabled} /> : null}
-        </div>
+        </SectionCard>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 lg:col-span-2">
-          <p className={sectionLabelClass}>How it works</p>
-          <div className="mt-3">
-            <HowItWorks steps={definition.steps} />
-          </div>
-        </div>
+        <SectionCard title="How it works" description="The real pipeline this automation runs, in order." icon={Workflow} className="lg:col-span-2">
+          <HowItWorks steps={definition.steps} />
+        </SectionCard>
       </div>
 
       {isConfigurable && canManage ? (
-        <div>
-          <p className={sectionLabelClass}>Configuration</p>
-          <div className="mt-3">
-            {definition.id === "appointment-reminders" ? (
-              <AppointmentReminderConfigForm initialLeadTimeHours={readAppointmentReminderConfig(rawConfig).reminder_lead_time_hours} />
-            ) : definition.id === "estimate-followup" ? (
-              <EstimateFollowupConfigForm
-                initialFollowup1Hours={readEstimateFollowupConfig(rawConfig).followup_1_hours}
-                initialFollowup2Hours={readEstimateFollowupConfig(rawConfig).followup_2_hours}
-              />
-            ) : definition.id === "inbound-customer-reply" ? (
-              <InboundCustomerReplyConfigForm
-                initialRecentMessageWindow={readInboundCustomerReplyConfig(rawConfig).recent_message_window}
-                initialRespectBusinessHours={readInboundCustomerReplyConfig(rawConfig).respect_business_hours}
-                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
-              />
-            ) : definition.id === "instant-lead-followup" ? (
-              <InstantLeadFollowupConfigForm
-                initialRespectBusinessHours={readInstantLeadFollowupConfig(rawConfig).respect_business_hours}
-                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
-              />
-            ) : definition.id === "lost-lead-nurture" ? (
-              <LostLeadNurtureConfigForm
-                initialTouch1Days={readLostLeadNurtureConfig(rawConfig).touch_1_days}
-                initialTouch2Days={readLostLeadNurtureConfig(rawConfig).touch_2_days}
-              />
-            ) : definition.id === "lead-reactivation" ? (
-              <LeadReactivationConfigForm
-                initialTouch1Days={readLeadReactivationConfig(rawConfig).touch_1_days}
-                initialTouch2Days={readLeadReactivationConfig(rawConfig).touch_2_days}
-              />
-            ) : definition.id === "appointment-lifecycle" ? (
-              <AppointmentLifecycleConfigForm
-                initialRespectBusinessHours={readAppointmentLifecycleConfig(rawConfig).respect_business_hours}
-                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
-              />
-            ) : definition.id === "job-lifecycle" ? (
-              <JobLifecycleConfigForm
-                initialRespectBusinessHours={readJobLifecycleConfig(rawConfig).respect_business_hours}
-                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
-              />
-            ) : (
-              <ReviewReferralFollowupConfigForm
-                initialRespectBusinessHours={readReviewReferralFollowupConfig(rawConfig).respect_business_hours}
-                hasBusinessHoursConfigured={hasBusinessHoursConfigured}
-              />
-            )}
-          </div>
-        </div>
+        <>
+          {definition.id === "appointment-reminders" ? (
+            <AppointmentReminderConfigForm initialLeadTimeHours={readAppointmentReminderConfig(rawConfig).reminder_lead_time_hours} />
+          ) : definition.id === "estimate-followup" ? (
+            <EstimateFollowupConfigForm
+              initialFollowup1Hours={readEstimateFollowupConfig(rawConfig).followup_1_hours}
+              initialFollowup2Hours={readEstimateFollowupConfig(rawConfig).followup_2_hours}
+            />
+          ) : definition.id === "inbound-customer-reply" ? (
+            <InboundCustomerReplyConfigForm
+              initialRecentMessageWindow={readInboundCustomerReplyConfig(rawConfig).recent_message_window}
+              initialRespectBusinessHours={readInboundCustomerReplyConfig(rawConfig).respect_business_hours}
+              hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+            />
+          ) : definition.id === "instant-lead-followup" ? (
+            <InstantLeadFollowupConfigForm
+              initialRespectBusinessHours={readInstantLeadFollowupConfig(rawConfig).respect_business_hours}
+              hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+            />
+          ) : definition.id === "lost-lead-nurture" ? (
+            <LostLeadNurtureConfigForm
+              initialTouch1Days={readLostLeadNurtureConfig(rawConfig).touch_1_days}
+              initialTouch2Days={readLostLeadNurtureConfig(rawConfig).touch_2_days}
+            />
+          ) : definition.id === "lead-reactivation" ? (
+            <LeadReactivationConfigForm
+              initialTouch1Days={readLeadReactivationConfig(rawConfig).touch_1_days}
+              initialTouch2Days={readLeadReactivationConfig(rawConfig).touch_2_days}
+            />
+          ) : definition.id === "appointment-lifecycle" ? (
+            <AppointmentLifecycleConfigForm
+              initialRespectBusinessHours={readAppointmentLifecycleConfig(rawConfig).respect_business_hours}
+              hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+            />
+          ) : definition.id === "job-lifecycle" ? (
+            <JobLifecycleConfigForm
+              initialRespectBusinessHours={readJobLifecycleConfig(rawConfig).respect_business_hours}
+              hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+            />
+          ) : (
+            <ReviewReferralFollowupConfigForm
+              initialRespectBusinessHours={readReviewReferralFollowupConfig(rawConfig).respect_business_hours}
+              hasBusinessHoursConfigured={hasBusinessHoursConfigured}
+            />
+          )}
+        </>
       ) : null}
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <p className={sectionLabelClass}>Recent executions</p>
-        <div className="mt-3">
-          {definition.workflowNames.length === 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-6 text-center">
-              <p className="text-sm font-medium text-slate-900">No execution log of its own</p>
-              <p className="mt-0.5 text-xs text-slate-500">Safe AI Outbound has no dedicated workflow - its checks run inline as part of every other automation&apos;s execution.</p>
-            </div>
-          ) : (
-            <RecentExecutions executions={executions} retrySupported={SAFE_RETRY_AUTOMATION_IDS.has(definition.id)} />
-          )}
-        </div>
-      </div>
+      <SectionCard title="Recent executions" icon={History}>
+        {definition.workflowNames.length === 0 ? (
+          <EmptyState
+            icon={Icon}
+            title="No execution log of its own"
+            description="Safe AI Outbound has no dedicated workflow - its checks run inline as part of every other automation's execution."
+          />
+        ) : (
+          <RecentExecutions executions={executions} retrySupported={SAFE_RETRY_AUTOMATION_IDS.has(definition.id)} />
+        )}
+      </SectionCard>
     </div>
   );
 }

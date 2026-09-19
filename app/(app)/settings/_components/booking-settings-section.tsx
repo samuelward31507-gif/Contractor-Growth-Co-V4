@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass, successBannerClass } from "@/lib/ui/form";
-import { cardClass, cardHeaderClass, cardSubtleClass, cardTitleClass } from "@/lib/ui/card";
+import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import type { BookingSettings } from "@/lib/settings/queries";
 import { updateBookingSettings, type SettingsActionState } from "../actions";
 
@@ -18,15 +18,11 @@ export function BookingSettingsSection({
   const [state, formAction, isPending] = useActionState(updateBookingSettings, initialState);
 
   return (
-    <section className={cardClass}>
-      <div className={cardHeaderClass}>
-        <div>
-          <h2 className={cardTitleClass}>Booking</h2>
-          <p className={`mt-0.5 ${cardSubtleClass}`}>Rules for automated appointment booking, once it&apos;s built.</p>
-        </div>
-      </div>
+    <section>
+      <h2 className={subsectionTitleClass}>Booking</h2>
+      <p className={`mt-1 ${metaClass}`}>Rules for automated appointment booking, once it&apos;s built.</p>
 
-      <form action={formAction} className="p-5">
+      <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
           {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Booking settings saved.</p> : null}
@@ -46,7 +42,7 @@ export function BookingSettingsSection({
               <label htmlFor="minimumNoticeMinutes" className={labelClass}>
                 Minimum notice
               </label>
-              <p className={cardSubtleClass}>How far in advance a customer must book.</p>
+              <p className={metaClass}>How far in advance a customer must book.</p>
               <div className="relative">
                 <input
                   id="minimumNoticeMinutes"
@@ -67,7 +63,7 @@ export function BookingSettingsSection({
               <label htmlFor="defaultDurationMinutes" className={labelClass}>
                 Default appointment duration
               </label>
-              <p className={cardSubtleClass}>Default length of a new appointment.</p>
+              <p className={metaClass}>Default length of a new appointment.</p>
               <div className="relative">
                 <input
                   id="defaultDurationMinutes"
@@ -88,7 +84,7 @@ export function BookingSettingsSection({
               <label htmlFor="bufferMinutes" className={labelClass}>
                 Buffer between appointments
               </label>
-              <p className={cardSubtleClass}>Time to leave open between appointments.</p>
+              <p className={metaClass}>Time to leave open between appointments.</p>
               <div className="relative">
                 <input
                   id="bufferMinutes"
@@ -109,7 +105,7 @@ export function BookingSettingsSection({
           {canEdit ? (
             <div className="flex justify-end pt-2">
               <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
-                {isPending ? "Saving…" : "Save Booking Settings"}
+                {isPending ? "Saving…" : "Save changes"}
               </button>
             </div>
           ) : null}

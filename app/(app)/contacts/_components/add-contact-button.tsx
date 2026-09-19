@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Icon } from "../../_components/icon";
+import { Plus } from "lucide-react";
 import { ContactDialog } from "./contact-dialog";
 
 export function AddContactButton() {
@@ -14,7 +14,7 @@ export function AddContactButton() {
         onClick={() => setOpen(true)}
         className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
       >
-        <Icon name="plus" className="h-4 w-4" />
+        <Plus className="h-4 w-4" aria-hidden />
         Add Contact
       </button>
       {open ? <ContactDialog mode="create" onClose={() => setOpen(false)} /> : null}

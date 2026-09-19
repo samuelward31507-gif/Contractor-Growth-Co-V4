@@ -49,8 +49,8 @@ export function EnableToggle({ automationId, enabled }: { automationId: string; 
           disabled={isPending}
           className={
             enabled
-              ? "rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              : "rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+              ? "rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40"
+              : "rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-900/10 disabled:cursor-not-allowed disabled:opacity-40"
           }
         >
           {isPending ? "Saving…" : confirming ? "Confirm disable?" : enabled ? "Disable" : "Enable"}
@@ -60,7 +60,7 @@ export function EnableToggle({ automationId, enabled }: { automationId: string; 
             type="button"
             onClick={() => setConfirming(false)}
             disabled={isPending}
-            className="rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
+            className="rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
           >
             Cancel
           </button>

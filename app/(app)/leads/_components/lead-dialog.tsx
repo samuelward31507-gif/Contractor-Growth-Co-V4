@@ -1,16 +1,13 @@
 "use client";
 
 import { useActionState, useEffect, useRef } from "react";
-import { errorBannerClass, inputClass, labelClass } from "@/lib/ui/form";
+import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass } from "@/lib/ui/form";
 import type { Contact } from "@/lib/contacts/queries";
 import { LEAD_STATUSES, LEAD_TEMPERATURES, type Lead } from "@/lib/leads/queries";
 import { createLead, updateLead, type LeadFormState } from "../actions";
 import { ContactPicker } from "../../_components/contact-picker";
 
 const initialState: LeadFormState = {};
-
-const submitButtonClass =
-  "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
 
 const SOURCE_SUGGESTIONS = ["Google", "Facebook", "Referral", "Website", "Phone", "Other"];
 
@@ -149,7 +146,7 @@ export function LeadDialog({
             >
               Cancel
             </button>
-            <button type="submit" disabled={isPending} className={submitButtonClass}>
+            <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
               {isPending
                 ? mode === "create"
                   ? "Creating…"

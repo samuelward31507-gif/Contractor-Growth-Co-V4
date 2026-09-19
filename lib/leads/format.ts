@@ -18,18 +18,20 @@ export const TEMPERATURE_LABELS: Record<LeadTemperature, string> = {
 
 // Restrained palette: neutral for the working pipeline, one accent each for
 // the two closed outcomes, so status never turns into a rainbow of colors.
-export const STATUS_BADGE_CLASS: Record<LeadStatus, string> = {
-  new: "bg-slate-100 text-slate-700",
-  contacted: "bg-slate-100 text-slate-700",
-  qualified: "bg-slate-100 text-slate-700",
-  appointment: "bg-blue-50 text-blue-700",
-  estimate: "bg-amber-50 text-amber-700",
-  won: "bg-emerald-50 text-emerald-700",
-  lost: "bg-red-50 text-red-600",
+// Rendered as a small dot next to plain text (see badges.tsx) rather than a
+// filled pill - color signals the distinction, it doesn't have to shout it.
+export const STATUS_DOT_CLASS: Record<LeadStatus, string> = {
+  new: "bg-slate-400",
+  contacted: "bg-slate-400",
+  qualified: "bg-slate-400",
+  appointment: "bg-blue-500",
+  estimate: "bg-amber-500",
+  won: "bg-emerald-500",
+  lost: "bg-red-400",
 };
 
-export const TEMPERATURE_BADGE_CLASS: Record<LeadTemperature, string> = {
-  cold: "bg-slate-100 text-slate-500",
-  warm: "bg-amber-50 text-amber-600",
-  hot: "bg-red-50 text-red-600",
+export const TEMPERATURE_DOT_CLASS: Record<LeadTemperature, string> = {
+  cold: "bg-slate-300",
+  warm: "bg-amber-500",
+  hot: "bg-red-500",
 };

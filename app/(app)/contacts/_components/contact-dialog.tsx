@@ -1,14 +1,11 @@
 "use client";
 
 import { useActionState, useEffect, useRef } from "react";
-import { errorBannerClass, inputClass, labelClass } from "@/lib/ui/form";
+import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass } from "@/lib/ui/form";
 import type { Contact } from "@/lib/contacts/queries";
 import { createContact, updateContact, type ContactFormState } from "../actions";
 
 const initialState: ContactFormState = {};
-
-const submitButtonClass =
-  "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
 
 export function ContactDialog({
   mode,
@@ -139,7 +136,7 @@ export function ContactDialog({
             >
               Cancel
             </button>
-            <button type="submit" disabled={isPending} className={submitButtonClass}>
+            <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
               {isPending
                 ? mode === "create"
                   ? "Creating…"

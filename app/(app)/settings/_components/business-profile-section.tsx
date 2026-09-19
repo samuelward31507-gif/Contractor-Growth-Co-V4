@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass, successBannerClass } from "@/lib/ui/form";
-import { cardClass, cardHeaderClass, cardSubtleClass, cardTitleClass } from "@/lib/ui/card";
+import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { getTimezoneOptions } from "@/lib/settings/format";
 import type { BusinessProfile } from "@/lib/settings/queries";
 import { updateBusinessProfile, type SettingsActionState } from "../actions";
@@ -20,17 +20,11 @@ export function BusinessProfileSection({
   const timezones = getTimezoneOptions();
 
   return (
-    <section className={cardClass}>
-      <div className={cardHeaderClass}>
-        <div>
-          <h2 className={cardTitleClass}>Business Profile</h2>
-          <p className={`mt-0.5 ${cardSubtleClass}`}>
-            Business identity, contact information, location, and timezone.
-          </p>
-        </div>
-      </div>
+    <section>
+      <h2 className={subsectionTitleClass}>Business profile</h2>
+      <p className={`mt-1 ${metaClass}`}>Business identity, contact information, location, and timezone.</p>
 
-      <form action={formAction} className="p-5">
+      <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
           {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Business profile saved.</p> : null}
@@ -123,14 +117,14 @@ export function BusinessProfileSection({
                   </option>
                 ))}
               </select>
-              <p className={cardSubtleClass}>Used for business hours and appointment times.</p>
+              <p className={metaClass}>Used for business hours and appointment times.</p>
             </div>
           </div>
 
           {canEdit ? (
             <div className="flex justify-end pt-2">
               <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
-                {isPending ? "Saving…" : "Save Business Profile"}
+                {isPending ? "Saving…" : "Save changes"}
               </button>
             </div>
           ) : null}

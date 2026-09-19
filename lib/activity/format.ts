@@ -1,6 +1,6 @@
 import { isSameCalendarDay } from "@/lib/appointments/format";
 import { formatCurrency } from "@/lib/dashboard/format";
-import type { IconName } from "@/app/(app)/_components/icon";
+import { Contact, Users, CalendarClock, MessageSquare, Activity as ActivityIcon, type LucideIcon } from "lucide-react";
 
 const ENTITY_LABELS: Record<string, string> = {
   contact: "Contact",
@@ -9,11 +9,12 @@ const ENTITY_LABELS: Record<string, string> = {
   conversation: "Conversation",
 };
 
-const ENTITY_ICONS: Record<string, IconName> = {
-  contact: "contacts",
-  lead: "leads",
-  appointment: "appointments",
-  conversation: "conversations",
+/** Same icon choice per entity type as the main nav (app/(app)/_components/nav-items.ts) - Contacts/Leads/Appointments/Conversations - so an activity row and its destination page always agree visually. */
+const ENTITY_ICONS: Record<string, LucideIcon> = {
+  contact: Contact,
+  lead: Users,
+  appointment: CalendarClock,
+  conversation: MessageSquare,
 };
 
 const ENTITY_ROUTES: Record<string, (id: string) => string> = {
@@ -35,9 +36,9 @@ export function humanizeText(value: string): string {
   return capitalized.replace(/\bai\b/gi, "AI");
 }
 
-export function activityIcon(entityType: string | null): IconName {
+export function activityIcon(entityType: string | null): LucideIcon {
   if (entityType && ENTITY_ICONS[entityType]) return ENTITY_ICONS[entityType];
-  return "activity";
+  return ActivityIcon;
 }
 
 export function activityEntityLabel(entityType: string | null): string | null {

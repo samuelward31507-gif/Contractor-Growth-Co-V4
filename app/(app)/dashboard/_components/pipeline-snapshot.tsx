@@ -1,30 +1,25 @@
-import { cardClass, cardHeaderClass, cardTitleClass } from "@/lib/ui/card";
+import { sectionLabelClass } from "@/lib/ui/typography";
 import { PIPELINE_STAGES, type PipelineCounts } from "@/lib/dashboard/queries";
 
+/**
+ * A compact stage-by-stage row list, flush on the page canvas - the list's
+ * own order already communicates sequence, so no card, box, or decorative
+ * index badge is needed.
+ */
 export function PipelineSnapshot({ pipeline }: { pipeline: PipelineCounts }) {
   const total = PIPELINE_STAGES.reduce((sum, { stage }) => sum + pipeline[stage], 0);
 
   return (
-    <div className={cardClass}>
-      <div className={cardHeaderClass}>
-        <h2 className={cardTitleClass}>Pipeline Snapshot</h2>
-      </div>
+    <div>
+      <p className={sectionLabelClass}>Current work</p>
       {total === 0 ? (
-        <div className="px-5 py-10 text-center">
-          <p className="text-sm font-medium text-slate-900">No leads yet.</p>
-          <p className="mt-1 text-xs text-slate-500">Your pipeline will appear here once leads start coming in.</p>
-        </div>
+        <p className="mt-3 text-sm text-slate-500">Your pipeline will appear here once leads start coming in.</p>
       ) : (
-        <div className="grid grid-cols-2 gap-4 px-5 py-5 sm:grid-cols-3 lg:grid-cols-6">
-          {PIPELINE_STAGES.map(({ stage, label }, index) => (
-            <div key={stage} className="relative">
-              <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-                  {index + 1}
-                </span>
-                <span className="text-xs font-medium text-slate-500">{label}</span>
-              </div>
-              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{pipeline[stage]}</p>
+        <div className="mt-3 divide-y divide-slate-100">
+          {PIPELINE_STAGES.map(({ stage, label }) => (
+            <div key={stage} className="flex items-center justify-between py-2.5">
+              <span className="text-sm text-slate-600">{label}</span>
+              <span className="text-sm font-medium tabular-nums text-slate-900">{pipeline[stage]}</span>
             </div>
           ))}
         </div>

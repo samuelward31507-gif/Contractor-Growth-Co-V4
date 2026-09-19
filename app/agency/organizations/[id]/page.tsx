@@ -29,10 +29,11 @@ import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
 import { getAgencyHealth } from "@/lib/agency/health";
 import { listIncidents } from "@/lib/automation-health/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
+import { SectionCard } from "@/lib/ui/section-card";
+import { Badge } from "@/lib/ui/badge";
+import { pageTitleClass } from "@/lib/ui/typography";
 import { formatRate, formatCount } from "../../_components/format";
 import { StatGrid, type Stat } from "../../_components/stat-grid";
-import { SectionCard } from "../../_components/section-card";
-import { StatusPill } from "../../_components/status-pill";
 import { UnauthorizedState } from "../../_components/unauthorized-state";
 import { ErrorState } from "../../_components/error-state";
 
@@ -195,12 +196,16 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-900">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900">
             <Building2 className="h-4 w-4 text-white" aria-hidden />
           </span>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">{org.organizationName}</h1>
+          <h1 className={pageTitleClass}>{org.organizationName}</h1>
         </div>
-        {orgHealth.needsAttention ? <StatusPill tone="attention" label="Needs attention" /> : <StatusPill tone="healthy" label="Healthy" />}
+        {orgHealth.needsAttention ? (
+          <Badge tone="warning" icon={AlertTriangle}>Needs attention</Badge>
+        ) : (
+          <Badge tone="success" icon={CheckCircle2}>Healthy</Badge>
+        )}
       </div>
 
       <div className="mt-4 flex flex-col gap-3.5">
@@ -243,13 +248,9 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
                       First seen {new Date(incident.firstSeenAt).toLocaleString()} · {formatCount(incident.occurrenceCount)} occurrence{incident.occurrenceCount === 1 ? "" : "s"}
                     </p>
                   </div>
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                      incident.severity === "critical" ? "bg-red-50 text-red-700" : incident.severity === "warning" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
+                  <Badge tone={incident.severity === "critical" ? "danger" : incident.severity === "warning" ? "warning" : "neutral"}>
                     {incident.severity}
-                  </span>
+                  </Badge>
                 </li>
               ))}
             </ul>

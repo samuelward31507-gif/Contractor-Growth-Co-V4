@@ -54,7 +54,7 @@ export function IncidentActions({ incidentId, status }: { incidentId: string; st
             type="button"
             onClick={handleAcknowledge}
             disabled={isPending}
-            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isPending ? "Acknowledging…" : "Acknowledge"}
           </button>
@@ -63,7 +63,7 @@ export function IncidentActions({ incidentId, status }: { incidentId: string; st
           type="button"
           onClick={handleResolve}
           disabled={isPending}
-          className="rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-900/10 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isPending ? "Resolving…" : "Resolve"}
         </button>

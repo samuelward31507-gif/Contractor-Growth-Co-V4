@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getJob } from "@/lib/jobs/queries";
@@ -8,10 +9,11 @@ import { getReviewRequestForJob, getReferralRequestForJob } from "@/lib/reviews-
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
+import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
-import { Icon } from "../../_components/icon";
-import { JobStatusBadge } from "../_components/status-badge";
+import { Badge } from "@/lib/ui/badge";
+import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../_components/status";
 import { JobActions } from "./_components/job-actions";
 import { ReviewReferralPanel } from "./_components/review-referral-panel";
 
@@ -64,7 +66,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
         href="/jobs"
         className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
       >
-        <Icon name="arrow-left" className="h-4 w-4" />
+        <ArrowLeft aria-hidden className="h-4 w-4" />
         Back to Jobs
       </Link>
 
@@ -73,7 +75,9 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
           <h1 className="text-xl font-semibold tracking-tight text-slate-900">{job.title}</h1>
           <p className="text-sm text-slate-500">{customerName}</p>
           <div className="mt-1.5">
-            <JobStatusBadge status={job.status} />
+            <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
+              {JOB_STATUS_LABELS[job.status]}
+            </Badge>
           </div>
         </div>
         <JobActions job={job} />

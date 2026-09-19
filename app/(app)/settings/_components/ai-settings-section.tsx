@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass, successBannerClass } from "@/lib/ui/form";
-import { cardClass, cardHeaderClass, cardSubtleClass, cardTitleClass } from "@/lib/ui/card";
+import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { AI_TONE_OPTIONS, type AiSettings } from "@/lib/settings/queries";
 import { updateAiSettings, type SettingsActionState } from "../actions";
 
@@ -12,22 +12,18 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
   const [state, formAction, isPending] = useActionState(updateAiSettings, initialState);
 
   return (
-    <section className={cardClass}>
-      <div className={cardHeaderClass}>
-        <div>
-          <h2 className={cardTitleClass}>AI & Communication</h2>
-          <p className={`mt-0.5 ${cardSubtleClass}`}>
-            How AI should represent and communicate for your business, once it&apos;s connected.
-          </p>
-        </div>
-      </div>
+    <section>
+      <h2 className={subsectionTitleClass}>AI &amp; communication</h2>
+      <p className={`mt-1 ${metaClass}`}>
+        How AI should represent and communicate for your business, once it&apos;s connected.
+      </p>
 
-      <form action={formAction} className="p-5">
+      <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
           {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>AI settings saved.</p> : null}
 
-          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-700">
+          <div className="rounded-md border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-700">
             These settings only store configuration. No AI is connected yet - future automation will read these
             rules once it&apos;s built.
           </div>
@@ -60,7 +56,7 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
             <label htmlFor="businessIntroduction" className={labelClass}>
               Business introduction
             </label>
-            <p className={cardSubtleClass}>How the AI should introduce your business to a customer.</p>
+            <p className={metaClass}>How the AI should introduce your business to a customer.</p>
             <textarea
               id="businessIntroduction"
               name="businessIntroduction"
@@ -75,7 +71,7 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
             <label htmlFor="generalInstructions" className={labelClass}>
               General instructions
             </label>
-            <p className={cardSubtleClass}>General guidance for how AI should handle customer conversations.</p>
+            <p className={metaClass}>General guidance for how AI should handle customer conversations.</p>
             <textarea
               id="generalInstructions"
               name="generalInstructions"
@@ -89,7 +85,7 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
             <label htmlFor="emergencyInstructions" className={labelClass}>
               Emergency handling instructions
             </label>
-            <p className={cardSubtleClass}>What AI should do if a customer describes an urgent situation.</p>
+            <p className={metaClass}>What AI should do if a customer describes an urgent situation.</p>
             <textarea
               id="emergencyInstructions"
               name="emergencyInstructions"
@@ -103,7 +99,7 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
             <label htmlFor="escalationInstructions" className={labelClass}>
               Human escalation instructions
             </label>
-            <p className={cardSubtleClass}>When AI should hand a conversation off to your team.</p>
+            <p className={metaClass}>When AI should hand a conversation off to your team.</p>
             <textarea
               id="escalationInstructions"
               name="escalationInstructions"
@@ -116,7 +112,7 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
           {canEdit ? (
             <div className="flex justify-end pt-2">
               <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
-                {isPending ? "Saving…" : "Save AI Settings"}
+                {isPending ? "Saving…" : "Save changes"}
               </button>
             </div>
           ) : null}

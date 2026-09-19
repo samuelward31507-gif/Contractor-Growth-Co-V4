@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Icon } from "./icon";
 import type { NavItem } from "./nav-items";
 
 export function NavLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const pathname = usePathname();
   const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const Icon = item.icon;
 
   return (
     <Link
@@ -20,13 +20,8 @@ export function NavLink({ item, onNavigate }: { item: NavItem; onNavigate?: () =
           : "border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900"
       }`}
     >
-      <Icon
-        name={item.icon}
-        className={`h-[18px] w-[18px] shrink-0 ${
-          isActive ? "text-slate-900" : "text-slate-400"
-        }`}
-      />
-      <span>{item.label}</span>
+      <Icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? "text-slate-900" : "text-slate-400"}`} aria-hidden />
+      <span className="truncate">{item.label}</span>
     </Link>
   );
 }

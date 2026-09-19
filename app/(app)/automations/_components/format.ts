@@ -1,3 +1,21 @@
+import { CheckCircle2, AlertTriangle, CircleDashed, CircleSlash, PauseCircle, type LucideIcon } from "lucide-react";
+import type { BadgeTone } from "@/lib/ui/badge";
+import type { AutomationDisplayStatus } from "@/lib/automation/queries";
+
+/**
+ * Single source of truth for how an AutomationDisplayStatus (computed
+ * server-side in lib/automation/queries.ts) maps onto the shared Badge
+ * primitive - used by both the list page (automation-list.tsx) and the
+ * detail page header, replacing the old duplicated status-pill.tsx.
+ */
+export const AUTOMATION_STATUS_BADGE: Record<AutomationDisplayStatus, { label: string; tone: BadgeTone; icon: LucideIcon }> = {
+  active: { label: "Active", tone: "success", icon: CheckCircle2 },
+  attention: { label: "Attention", tone: "warning", icon: AlertTriangle },
+  no_activity: { label: "No activity", tone: "neutral", icon: CircleDashed },
+  not_configured: { label: "Not configured", tone: "neutral", icon: CircleSlash },
+  disabled: { label: "Disabled", tone: "neutral", icon: PauseCircle },
+};
+
 export function formatCount(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }

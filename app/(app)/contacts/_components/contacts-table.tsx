@@ -1,67 +1,71 @@
 import Link from "next/link";
-import { cardClass } from "@/lib/ui/card";
+import { ChevronRight, Search } from "lucide-react";
+import { EmptyState } from "@/lib/ui/empty-state";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import type { Contact } from "@/lib/contacts/queries";
-import { Icon } from "../../_components/icon";
+
+const ROW_GRID = "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_96px_20px]";
+
+function secondaryLine(contact: Contact): string {
+  return [contact.phone, contact.email].filter(Boolean).join(" · ") || "No details yet";
+}
 
 export function ContactsTable({ contacts, query }: { contacts: Contact[]; query: string }) {
   if (contacts.length === 0) {
     return (
-      <div className={`${cardClass} px-5 py-12 text-center`}>
-        <p className="text-sm font-medium text-slate-900">No contacts match &quot;{query}&quot;</p>
-        <p className="mt-1 text-sm text-slate-500">Try a different name, phone number, email, or company.</p>
-      </div>
+      <EmptyState
+        icon={Search}
+        title={`No contacts match "${query}"`}
+        description="Try a different name, phone number, email, or company."
+      />
     );
   }
 
   return (
-    <div className={cardClass}>
-      <table className="hidden w-full text-left text-sm lg:table">
-        <thead>
-          <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-            <th className="px-5 py-3 font-medium">Contact</th>
-            <th className="px-5 py-3 font-medium">Company</th>
-            <th className="px-5 py-3 font-medium">Phone</th>
-            <th className="px-5 py-3 font-medium">Email</th>
-            <th className="px-5 py-3 font-medium">Created</th>
-            <th className="px-5 py-3 font-medium">
-              <span className="sr-only">Actions</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
+    <div>
+      <div className="hidden lg:block">
+        <div className={`grid ${ROW_GRID} gap-4 border-b border-slate-200 px-2 pb-2`}>
+          <span className="text-xs text-slate-400">Contact</span>
+          <span className="text-xs text-slate-400">Details</span>
+          <span className="text-xs text-slate-400">Created</span>
+          <span />
+        </div>
+        <div className="divide-y divide-slate-100">
           {contacts.map((contact) => (
-            <tr key={contact.id} className="transition-colors hover:bg-slate-50">
-              <td className="px-5 py-3.5">
-                <Link href={`/contacts/${contact.id}`} className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-                    {contactInitials(contact)}
+            <Link
+              key={contact.id}
+              href={`/contacts/${contact.id}`}
+              className={`group grid ${ROW_GRID} items-center gap-4 rounded-md px-2 py-3 transition-colors hover:bg-slate-50`}
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                  {contactInitials(contact)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-slate-900">
+                    {contactDisplayName(contact)}
                   </span>
-                  <span className="font-medium text-slate-900">{contactDisplayName(contact)}</span>
-                </Link>
-              </td>
-              <td className="px-5 py-3.5 text-slate-600">{contact.company_name || "—"}</td>
-              <td className="px-5 py-3.5 text-slate-600">{contact.phone || "—"}</td>
-              <td className="px-5 py-3.5 text-slate-600">{contact.email || "—"}</td>
-              <td className="px-5 py-3.5 text-slate-500">{formatContactDate(contact.created_at)}</td>
-              <td className="px-5 py-3.5 text-right">
-                <Link
-                  href={`/contacts/${contact.id}`}
-                  className="text-sm font-medium text-slate-600 hover:text-slate-900"
-                >
-                  View
-                </Link>
-              </td>
-            </tr>
+                  {contact.company_name ? (
+                    <span className="block truncate text-xs text-slate-500">{contact.company_name}</span>
+                  ) : null}
+                </span>
+              </span>
+              <span className="truncate text-sm text-slate-600">{secondaryLine(contact)}</span>
+              <span className="text-xs tabular-nums text-slate-400">{formatContactDate(contact.created_at)}</span>
+              <ChevronRight
+                className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
+                aria-hidden
+              />
+            </Link>
           ))}
-        </tbody>
-      </table>
+        </div>
+      </div>
 
       <ul className="divide-y divide-slate-100 lg:hidden">
         {contacts.map((contact) => (
           <li key={contact.id}>
-            <Link href={`/contacts/${contact.id}`} className="flex items-center gap-3 px-4 py-3.5">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+            <Link href={`/contacts/${contact.id}`} className="flex items-center gap-3 px-2 py-3.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
                 {contactInitials(contact)}
               </span>
               <span className="min-w-0 flex-1">
@@ -69,10 +73,10 @@ export function ContactsTable({ contacts, query }: { contacts: Contact[]; query:
                   {contactDisplayName(contact)}
                 </span>
                 <span className="block truncate text-xs text-slate-500">
-                  {contact.company_name || contact.phone || contact.email || "No details yet"}
+                  {contact.company_name || secondaryLine(contact)}
                 </span>
               </span>
-              <Icon name="arrow-left" className="h-4 w-4 shrink-0 rotate-180 text-slate-300" />
+              <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
             </Link>
           </li>
         ))}

@@ -2,9 +2,9 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Search } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import { APPOINTMENT_STATUSES, type AppointmentView } from "@/lib/appointments/queries";
-import { Icon } from "../../_components/icon";
 
 const VIEWS: { value: AppointmentView; label: string }[] = [
   { value: "upcoming", label: "Upcoming" },
@@ -66,6 +66,7 @@ export function AppointmentsToolbar({
           <button
             key={item.value}
             type="button"
+            aria-pressed={view === item.value}
             onClick={() => handleViewChange(item.value)}
             className={`flex-1 rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors sm:flex-none ${
               view === item.value
@@ -80,8 +81,8 @@ export function AppointmentsToolbar({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="relative flex-1 sm:max-w-sm">
-          <Icon
-            name="search"
+          <Search
+            aria-hidden
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
           />
           <input

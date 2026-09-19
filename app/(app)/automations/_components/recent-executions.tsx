@@ -1,4 +1,6 @@
+import { History } from "lucide-react";
 import { ExecutionRow } from "./execution-row";
+import { EmptyState } from "@/lib/ui/empty-state";
 import type { AutomationExecutionRow } from "@/lib/automation/queries";
 
 /**
@@ -10,10 +12,11 @@ import type { AutomationExecutionRow } from "@/lib/automation/queries";
 export function RecentExecutions({ executions, retrySupported }: { executions: AutomationExecutionRow[]; retrySupported: boolean }) {
   if (executions.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-6 text-center">
-        <p className="text-sm font-medium text-slate-900">No executions yet</p>
-        <p className="mt-0.5 text-xs text-slate-500">This automation is configured but hasn&apos;t processed any events yet.</p>
-      </div>
+      <EmptyState
+        icon={History}
+        title="No executions yet"
+        description="This automation is configured but hasn't processed any events yet. Activity will show up here as soon as it runs."
+      />
     );
   }
 

@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { Clock, ChevronRight } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
+import { STATUS_LABELS } from "@/lib/estimates/format";
 import type { Estimate } from "@/lib/estimates/queries";
-import { Icon } from "../../_components/icon";
-import { EstimateStatusBadge } from "./status-badge";
+import { Badge } from "@/lib/ui/badge";
+import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "./status";
 
 const ROW_GRID = "grid-cols-[minmax(0,1fr)_112px_96px_92px_20px]";
 
@@ -58,31 +60,21 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
                 </span>
               </span>
               <span className="flex items-center gap-1.5">
-                <EstimateStatusBadge status={estimate.status} />
+                <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
+                  {STATUS_LABELS[estimate.status]}
+                </Badge>
                 {isExpiringSoon(estimate) ? (
-                  <Icon name="clock" className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <Clock aria-label="Expiring soon" className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                 ) : null}
               </span>
               <span className="text-right text-sm font-medium tabular-nums text-slate-700">
                 {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
               </span>
               <span className="text-xs tabular-nums text-slate-400">{formatContactDate(estimate.created_at)}</span>
-              {/* "chevron-right" isn't in the committed Icon set yet (it's
-                  a Trackpr 2.0 redesign addition, intentionally
-                  uncommitted this phase) - inlined directly rather than
-                  depending on that in-flight change. */}
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+              <ChevronRight
+                aria-hidden
                 className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
-              >
-                <path d="M9 5.25L15 12l-6 6.75" />
-              </svg>
+              />
             </Link>
           ))}
         </div>
@@ -100,7 +92,9 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium text-slate-900">{estimate.title}</span>
-                  <EstimateStatusBadge status={estimate.status} />
+                  <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
+                    {STATUS_LABELS[estimate.status]}
+                  </Badge>
                 </span>
                 <span className="mt-0.5 flex items-center justify-between gap-2">
                   <span className="truncate text-xs text-slate-500">

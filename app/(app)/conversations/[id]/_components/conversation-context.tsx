@@ -1,118 +1,162 @@
 import Link from "next/link";
-import { cardClass, cardHeaderClass, cardTitleClass } from "@/lib/ui/card";
-import { formatCurrency } from "@/lib/dashboard/format";
-import { formatAppointmentDate, formatAppointmentTime, STATUS_LABELS as APPOINTMENT_STATUS_LABELS } from "@/lib/appointments/format";
+import { Briefcase, CalendarClock, ShieldOff, User, Zap } from "lucide-react";
+import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
+import {
+  formatAppointmentDate,
+  formatAppointmentTime,
+  STATUS_LABELS as APPOINTMENT_STATUS_LABELS,
+} from "@/lib/appointments/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
+import { detailLabelClass, detailValueClass } from "@/lib/ui/typography";
+import { Badge } from "@/lib/ui/badge";
+import { SectionCard } from "@/lib/ui/section-card";
 import type { Conversation, RelevantAppointment } from "@/lib/conversations/queries";
+
+export type AutomationActivity = {
+  aiEnabled: boolean;
+  aiMessageCount: number;
+  lastAiMessageAt: string | null;
+};
 
 export function ConversationContext({
   conversation,
   relevantAppointment,
+  smsOptOut,
+  automationActivity,
 }: {
   conversation: Conversation;
   relevantAppointment: RelevantAppointment | null;
+  smsOptOut: boolean;
+  automationActivity: AutomationActivity;
 }) {
   const contact = conversation.contact;
   const hasContactDetails = Boolean(contact?.company_name || contact?.phone || contact?.email);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 p-4 sm:p-6 xl:p-4">
       {contact ? (
-        <div className={cardClass}>
-          <div className={cardHeaderClass}>
-            <h2 className={cardTitleClass}>Contact</h2>
-            <Link href={`/contacts/${contact.id}`} className="text-sm font-medium text-slate-600 hover:text-slate-900">
+        <SectionCard
+          title="Contact"
+          icon={User}
+          action={
+            <Link href={`/contacts/${contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
               View
             </Link>
-          </div>
-          <div className="space-y-3 px-5 py-5">
-            {hasContactDetails ? (
-              <>
-                {contact.company_name ? (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Company</p>
-                    <p className="mt-0.5 text-sm text-slate-900">{contact.company_name}</p>
-                  </div>
-                ) : null}
-                {contact.phone ? (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Phone</p>
-                    <p className="mt-0.5 text-sm text-slate-900">{contact.phone}</p>
-                  </div>
-                ) : null}
-                {contact.email ? (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Email</p>
-                    <p className="mt-0.5 text-sm text-slate-900">{contact.email}</p>
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <p className="text-sm text-slate-500">No contact details provided yet.</p>
-            )}
-          </div>
-        </div>
+          }
+        >
+          {smsOptOut ? (
+            <div className="mb-3">
+              <Badge tone="warning" icon={ShieldOff}>
+                Opted out of SMS
+              </Badge>
+            </div>
+          ) : null}
+          {hasContactDetails ? (
+            <dl className="space-y-3">
+              {contact.company_name ? (
+                <div>
+                  <dt className={detailLabelClass}>Company</dt>
+                  <dd className={detailValueClass}>{contact.company_name}</dd>
+                </div>
+              ) : null}
+              {contact.phone ? (
+                <div>
+                  <dt className={detailLabelClass}>Phone</dt>
+                  <dd className={detailValueClass}>{contact.phone}</dd>
+                </div>
+              ) : null}
+              {contact.email ? (
+                <div>
+                  <dt className={detailLabelClass}>Email</dt>
+                  <dd className={detailValueClass}>{contact.email}</dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : (
+            <p className="text-sm text-slate-500">No contact details provided yet.</p>
+          )}
+        </SectionCard>
       ) : null}
 
       {conversation.lead ? (
-        <div className={cardClass}>
-          <div className={cardHeaderClass}>
-            <h2 className={cardTitleClass}>Lead</h2>
+        <SectionCard
+          title="Lead"
+          icon={Briefcase}
+          action={
             <Link
               href={`/leads/${conversation.lead.id}`}
-              className="text-sm font-medium text-slate-600 hover:text-slate-900"
+              className="text-xs font-medium text-slate-600 hover:text-slate-900"
             >
               View
             </Link>
-          </div>
-          <div className="space-y-3 px-5 py-5">
+          }
+        >
+          <dl className="space-y-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Service</p>
-              <p className="mt-0.5 text-sm text-slate-900">{conversation.lead.service || "—"}</p>
+              <dt className={detailLabelClass}>Service</dt>
+              <dd className={detailValueClass}>{conversation.lead.service || "—"}</dd>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Status</p>
-              <p className="mt-0.5 text-sm text-slate-900">{LEAD_STATUS_LABELS[conversation.lead.status]}</p>
+              <dt className={detailLabelClass}>Status</dt>
+              <dd className={detailValueClass}>{LEAD_STATUS_LABELS[conversation.lead.status]}</dd>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Temperature</p>
-              <p className="mt-0.5 text-sm text-slate-900">{TEMPERATURE_LABELS[conversation.lead.temperature]}</p>
+              <dt className={detailLabelClass}>Temperature</dt>
+              <dd className={detailValueClass}>{TEMPERATURE_LABELS[conversation.lead.temperature]}</dd>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Estimated value</p>
-              <p className="mt-0.5 text-sm text-slate-900">
-                {conversation.lead.estimated_value != null
-                  ? formatCurrency(conversation.lead.estimated_value)
-                  : "—"}
-              </p>
+              <dt className={detailLabelClass}>Estimated value</dt>
+              <dd className={detailValueClass}>
+                {conversation.lead.estimated_value != null ? formatCurrency(conversation.lead.estimated_value) : "—"}
+              </dd>
             </div>
-          </div>
-        </div>
+          </dl>
+        </SectionCard>
       ) : null}
 
       {relevantAppointment ? (
-        <div className={cardClass}>
-          <div className={cardHeaderClass}>
-            <h2 className={cardTitleClass}>Appointment</h2>
+        <SectionCard
+          title="Appointment"
+          icon={CalendarClock}
+          action={
             <Link
               href={`/appointments/${relevantAppointment.id}`}
-              className="text-sm font-medium text-slate-600 hover:text-slate-900"
+              className="text-xs font-medium text-slate-600 hover:text-slate-900"
             >
               View
             </Link>
-          </div>
-          <div className="px-5 py-5">
-            <p className="text-sm font-medium text-slate-900">{relevantAppointment.title}</p>
-            <p className="mt-0.5 text-sm text-slate-500">
-              {formatAppointmentDate(relevantAppointment.start_at)} ·{" "}
-              {formatAppointmentTime(relevantAppointment.start_at)}
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              {APPOINTMENT_STATUS_LABELS[relevantAppointment.status]}
-            </p>
-          </div>
-        </div>
+          }
+        >
+          <p className="text-sm font-medium text-slate-900">{relevantAppointment.title}</p>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {formatAppointmentDate(relevantAppointment.start_at)} · {formatAppointmentTime(relevantAppointment.start_at)}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">{APPOINTMENT_STATUS_LABELS[relevantAppointment.status]}</p>
+        </SectionCard>
       ) : null}
+
+      <SectionCard title="Automation activity" icon={Zap}>
+        <dl className="space-y-3">
+          <div>
+            <dt className={detailLabelClass}>AI replies</dt>
+            <dd className="mt-1">
+              <Badge tone={automationActivity.aiEnabled ? "success" : "neutral"}>
+                {automationActivity.aiEnabled ? "Enabled for this conversation" : "Disabled for this conversation"}
+              </Badge>
+            </dd>
+          </div>
+          <div>
+            <dt className={detailLabelClass}>Automated replies sent</dt>
+            <dd className={detailValueClass}>{automationActivity.aiMessageCount}</dd>
+          </div>
+          {automationActivity.lastAiMessageAt ? (
+            <div>
+              <dt className={detailLabelClass}>Last automated reply</dt>
+              <dd className={detailValueClass}>{formatRelativeTime(automationActivity.lastAiMessageAt)}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </SectionCard>
     </div>
   );
 }

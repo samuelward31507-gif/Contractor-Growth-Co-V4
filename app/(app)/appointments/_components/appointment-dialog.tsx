@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { errorBannerClass, inputClass, labelClass } from "@/lib/ui/form";
+import { AlertCircle } from "lucide-react";
+import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass } from "@/lib/ui/form";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
 import { APPOINTMENT_STATUSES, type Appointment } from "@/lib/appointments/queries";
@@ -10,9 +11,6 @@ import { createAppointment, updateAppointment, type AppointmentFormState } from 
 import { LeadPicker } from "./lead-picker";
 
 const initialState: AppointmentFormState = {};
-
-const submitButtonClass =
-  "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
 
 function toDateInputValue(iso: string): string {
   const date = new Date(iso);
@@ -69,7 +67,12 @@ export function AppointmentDialog({
         <form action={formAction} className="mt-4 space-y-4">
           {mode === "edit" && appointment ? <input type="hidden" name="id" value={appointment.id} /> : null}
 
-          {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
+          {state.error ? (
+            <p className={`flex items-start gap-2 ${errorBannerClass}`} role="alert">
+              <AlertCircle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{state.error}</span>
+            </p>
+          ) : null}
 
           <div className="space-y-1.5">
             <label className={labelClass}>Contact</label>
@@ -174,7 +177,7 @@ export function AppointmentDialog({
             >
               Cancel
             </button>
-            <button type="submit" disabled={isPending} className={submitButtonClass}>
+            <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
               {isPending
                 ? mode === "create"
                   ? "Creating…"

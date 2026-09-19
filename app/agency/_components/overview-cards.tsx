@@ -1,8 +1,8 @@
 import { Building2, Users, Target, Wallet, FileText, Percent, Briefcase, Banknote } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
+import { SectionCard } from "@/lib/ui/section-card";
 import { formatRate, formatCount } from "./format";
 import { StatGrid, type Stat } from "./stat-grid";
-import { SectionCard } from "./section-card";
 import type { AgencyBusinessSummary } from "@/lib/agency/queries";
 
 /**

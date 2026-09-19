@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
 import { getAgencyHealth, type AgencyOrganizationHealth } from "@/lib/agency/health";
+import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
 import { UnauthorizedState } from "./_components/unauthorized-state";
 import { EmptyState } from "./_components/empty-state";
 import { ErrorState } from "./_components/error-state";
@@ -63,13 +64,13 @@ export default async function AgencyPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-900">
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900">
           <Building2 className="h-4 w-4 text-white" aria-hidden />
         </span>
         <div>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">Agency Command Center</h1>
-          <p className="text-xs text-slate-500">
+          <h1 className={pageTitleClass}>Agency Command Center</h1>
+          <p className={`mt-0.5 ${pageDescriptionClass}`}>
             Contractor Growth Co. — client organization monitoring · {metrics.organizations.length} client organization{metrics.organizations.length === 1 ? "" : "s"}
           </p>
         </div>

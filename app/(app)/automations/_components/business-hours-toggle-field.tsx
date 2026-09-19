@@ -25,12 +25,12 @@ export function BusinessHoursToggleField({
           checked={checked}
           onChange={(e) => onChange(e.target.checked)}
           disabled={disabled}
-          className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400 disabled:cursor-not-allowed"
+          className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed"
         />
         Only send automatically during business hours
       </label>
       {checked && !hasBusinessHoursConfigured ? (
-        <p className="mt-1.5 text-xs text-amber-600">No business hours are configured. This setting will have no effect until business hours are added.</p>
+        <p className="mt-1.5 text-xs text-amber-700">No business hours are configured. This setting will have no effect until business hours are added.</p>
       ) : null}
     </div>
   );

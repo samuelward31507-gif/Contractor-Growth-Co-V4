@@ -1,12 +1,9 @@
-import { STATUS_BADGE_CLASS, STATUS_LABELS } from "@/lib/conversations/format";
+import { Badge } from "@/lib/ui/badge";
+import { STATUS_LABELS } from "@/lib/conversations/format";
 import type { ConversationStatus } from "@/lib/conversations/queries";
+import { CONVERSATION_STATUS_TONE } from "./status-tone";
 
+/** Thin wrapper around the shared Badge primitive - the one status-pill for the whole app. */
 export function ConversationStatusBadge({ status }: { status: ConversationStatus }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_BADGE_CLASS[status]}`}
-    >
-      {STATUS_LABELS[status]}
-    </span>
-  );
+  return <Badge tone={CONVERSATION_STATUS_TONE[status]}>{STATUS_LABELS[status]}</Badge>;
 }

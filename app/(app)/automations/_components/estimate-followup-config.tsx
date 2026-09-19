@@ -1,8 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Settings } from "lucide-react";
 import { updateEstimateFollowupConfig } from "../actions";
 import { FOLLOWUP_HOURS_MIN, FOLLOWUP_HOURS_MAX } from "@/lib/automation/settings";
+import { SectionCard } from "@/lib/ui/section-card";
+import { primaryButtonAutoClass } from "@/lib/ui/form";
+
+const numberFieldClass =
+  "w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm transition-colors focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-60";
 
 /**
  * Automation Configuration V1 - only ever rendered for org admins, same gate
@@ -68,7 +74,7 @@ export function EstimateFollowupConfigForm({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+    <SectionCard title="Follow-up timing" icon={Settings}>
       <div className="flex flex-col gap-3">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">First follow-up</p>
@@ -82,7 +88,8 @@ export function EstimateFollowupConfigForm({
                 setSuccess(false);
               }}
               disabled={isPending}
-              className="w-20 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 focus:border-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="First follow-up, in hours"
+              className={numberFieldClass}
             />
             <span className="text-sm text-slate-700">hours</span>
           </div>
@@ -99,18 +106,14 @@ export function EstimateFollowupConfigForm({
                 setSuccess(false);
               }}
               disabled={isPending}
-              className="w-20 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 focus:border-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="Second follow-up, in hours"
+              className={numberFieldClass}
             />
             <span className="text-sm text-slate-700">hours</span>
           </div>
         </div>
         <div>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isPending || !isDirty}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-          >
+          <button type="button" onClick={handleSave} disabled={isPending || !isDirty} className={primaryButtonAutoClass}>
             {isPending ? "Saving…" : "Save"}
           </button>
         </div>
@@ -118,6 +121,6 @@ export function EstimateFollowupConfigForm({
       <p className="mt-3 text-xs text-slate-400">Changes apply to future follow-ups only - anything already sent or in progress is unaffected.</p>
       {success && !error ? <p className="mt-1.5 text-xs text-emerald-700">Saved.</p> : null}
       {error ? <p className="mt-1.5 text-xs text-red-600">{error}</p> : null}
-    </div>
+    </SectionCard>
   );
 }

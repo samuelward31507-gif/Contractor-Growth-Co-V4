@@ -58,6 +58,26 @@ async function verifyAgencyAdmin(sessionSupabase: SupabaseClient): Promise<{ ok:
 }
 
 /**
+ * Trackpr 2.0 redesign: a cheap boolean check for nav visibility only (the
+ * app shell needs to know whether to render the "Agency" nav group at all).
+ * Reuses the exact same is_agency_admin() RPC verifyAgencyAdmin already
+ * calls above - not a second, divergent authorization mechanism. This is
+ * never itself an authorization boundary: /agency and its data reads still
+ * independently re-verify via resolveAgencyOrganizations/verifyAgencyAdmin
+ * on every real request, exactly as before. Hiding a nav link is a UX
+ * convenience, not a security control.
+ */
+export async function isAgencyAdmin(sessionSupabase: SupabaseClient): Promise<boolean> {
+  const {
+    data: { user },
+  } = await sessionSupabase.auth.getUser();
+  if (!user) return false;
+
+  const { data, error } = await sessionSupabase.rpc("is_agency_admin");
+  return !error && data === true;
+}
+
+/**
  * Step 2: only once step 1 has succeeded, resolve exactly the organizations
  * explicitly associated with the agency via agency_organizations - never
  * every row in `organizations`. Uses the service-role client because this

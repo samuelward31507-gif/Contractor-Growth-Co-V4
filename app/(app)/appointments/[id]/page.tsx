@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
@@ -12,11 +13,12 @@ import {
   formatAppointmentDate,
   formatAppointmentDuration,
   formatAppointmentTimeRange,
+  STATUS_LABELS as APPOINTMENT_STATUS_LABELS,
 } from "@/lib/appointments/format";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
-import { cardClass, cardHeaderClass, cardTitleClass } from "@/lib/ui/card";
-import { Icon } from "../../_components/icon";
-import { AppointmentStatusBadge } from "../_components/status-badge";
+import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
+import { Badge } from "@/lib/ui/badge";
+import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../_components/status";
 import { AppointmentActions } from "./_components/appointment-actions";
 
 export default async function AppointmentDetailPage({ params }: PageProps<"/appointments/[id]">) {
@@ -61,66 +63,59 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
   const customerName = appointment.contact ? contactDisplayName(appointment.contact) : "No contact";
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-4 sm:p-6 lg:p-8">
+    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <Link
         href="/appointments"
         className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
       >
-        <Icon name="arrow-left" className="h-4 w-4" />
+        <ArrowLeft aria-hidden className="h-4 w-4" />
         Back to Appointments
       </Link>
 
+      {/* IDENTITY + CURRENT STATE */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-slate-900">{appointment.title}</h1>
           <p className="text-sm text-slate-500">{customerName}</p>
           <div className="mt-1.5">
-            <AppointmentStatusBadge status={appointment.status} />
+            <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]} icon={APPOINTMENT_STATUS_ICON[appointment.status]}>
+              {APPOINTMENT_STATUS_LABELS[appointment.status]}
+            </Badge>
           </div>
         </div>
         <AppointmentActions appointment={appointment} contacts={contacts} leads={leads} />
       </div>
 
-      <div className={cardClass}>
-        <div className={cardHeaderClass}>
-          <h2 className={cardTitleClass}>Appointment</h2>
-        </div>
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 py-5 sm:grid-cols-2">
+      <div className="border-t border-slate-200 pt-8">
+        <h2 className={subsectionTitleClass}>Appointment</h2>
+        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
           <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Date</dt>
-            <dd className="mt-1 text-sm text-slate-900">{formatAppointmentDate(appointment.start_at, timeZone)}</dd>
+            <dt className={detailLabelClass}>Date</dt>
+            <dd className={detailValueClass}>{formatAppointmentDate(appointment.start_at, timeZone)}</dd>
           </div>
           <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Time</dt>
-            <dd className="mt-1 text-sm text-slate-900">
+            <dt className={detailLabelClass}>Time</dt>
+            <dd className={detailValueClass}>
               {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
             </dd>
           </div>
           <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Duration</dt>
-            <dd className="mt-1 text-sm text-slate-900">
-              {formatAppointmentDuration(appointment.start_at, appointment.end_at)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Status</dt>
-            <dd className="mt-1">
-              <AppointmentStatusBadge status={appointment.status} />
-            </dd>
+            <dt className={detailLabelClass}>Duration</dt>
+            <dd className={detailValueClass}>{formatAppointmentDuration(appointment.start_at, appointment.end_at)}</dd>
           </div>
         </dl>
         {appointment.notes ? (
-          <div className="border-t border-slate-100 px-5 py-5">
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Notes</dt>
+          <div className="mt-4">
+            <dt className={detailLabelClass}>Notes</dt>
             <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{appointment.notes}</dd>
           </div>
         ) : null}
       </div>
 
       {appointment.contact ? (
-        <div className={cardClass}>
-          <div className={cardHeaderClass}>
-            <h2 className={cardTitleClass}>Customer</h2>
+        <div className="border-t border-slate-200 pt-8">
+          <div className="flex items-center justify-between">
+            <h2 className={subsectionTitleClass}>Customer</h2>
             <Link
               href={`/contacts/${appointment.contact.id}`}
               className="text-sm font-medium text-slate-600 hover:text-slate-900"
@@ -128,31 +123,25 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
               View contact
             </Link>
           </div>
-          <div className="flex items-center gap-4 px-5 py-5">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+          <div className="mt-4 flex items-center gap-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-medium text-slate-600">
               {contactInitials(appointment.contact)}
             </span>
-            <dl className="grid flex-1 grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+            <dl className="grid flex-1 grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-3">
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Name</dt>
-                <dd className="mt-0.5 text-sm text-slate-900">{contactDisplayName(appointment.contact)}</dd>
+                <dt className={detailLabelClass}>Name</dt>
+                <dd className={detailValueClass}>{contactDisplayName(appointment.contact)}</dd>
               </div>
-              {appointment.contact.company_name ? (
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Company</dt>
-                  <dd className="mt-0.5 text-sm text-slate-900">{appointment.contact.company_name}</dd>
-                </div>
-              ) : null}
               {appointment.contact.phone ? (
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Phone</dt>
-                  <dd className="mt-0.5 text-sm text-slate-900">{appointment.contact.phone}</dd>
+                  <dt className={detailLabelClass}>Phone</dt>
+                  <dd className={detailValueClass}>{appointment.contact.phone}</dd>
                 </div>
               ) : null}
               {appointment.contact.email ? (
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Email</dt>
-                  <dd className="mt-0.5 text-sm text-slate-900">{appointment.contact.email}</dd>
+                  <dt className={detailLabelClass}>Email</dt>
+                  <dd className={detailValueClass}>{appointment.contact.email}</dd>
                 </div>
               ) : null}
             </dl>
@@ -161,9 +150,9 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
       ) : null}
 
       {appointment.lead ? (
-        <div className={cardClass}>
-          <div className={cardHeaderClass}>
-            <h2 className={cardTitleClass}>Lead</h2>
+        <div className="border-t border-slate-200 pt-8">
+          <div className="flex items-center justify-between">
+            <h2 className={subsectionTitleClass}>Lead</h2>
             <Link
               href={`/leads/${appointment.lead.id}`}
               className="text-sm font-medium text-slate-600 hover:text-slate-900"
@@ -171,26 +160,22 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
               View lead
             </Link>
           </div>
-          <dl className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 py-5 sm:grid-cols-2">
+          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Service</dt>
-              <dd className="mt-1 text-sm text-slate-900">{appointment.lead.service || "—"}</dd>
+              <dt className={detailLabelClass}>Service</dt>
+              <dd className={detailValueClass}>{appointment.lead.service || "—"}</dd>
             </div>
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Source</dt>
-              <dd className="mt-1 text-sm text-slate-900">{appointment.lead.source || "—"}</dd>
+              <dt className={detailLabelClass}>Lead status</dt>
+              <dd className={detailValueClass}>{LEAD_STATUS_LABELS[appointment.lead.status]}</dd>
             </div>
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Temperature</dt>
-              <dd className="mt-1 text-sm text-slate-900">{TEMPERATURE_LABELS[appointment.lead.temperature]}</dd>
+              <dt className={detailLabelClass}>Temperature</dt>
+              <dd className={detailValueClass}>{TEMPERATURE_LABELS[appointment.lead.temperature]}</dd>
             </div>
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Lead status</dt>
-              <dd className="mt-1 text-sm text-slate-900">{LEAD_STATUS_LABELS[appointment.lead.status]}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Estimated value</dt>
-              <dd className="mt-1 text-sm text-slate-900">
+              <dt className={detailLabelClass}>Estimated value</dt>
+              <dd className={detailValueClass}>
                 {appointment.lead.estimated_value != null ? formatCurrency(appointment.lead.estimated_value) : "—"}
               </dd>
             </div>

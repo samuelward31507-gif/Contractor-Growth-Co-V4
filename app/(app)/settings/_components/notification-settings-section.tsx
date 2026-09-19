@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass, successBannerClass } from "@/lib/ui/form";
-import { cardClass, cardHeaderClass, cardSubtleClass, cardTitleClass } from "@/lib/ui/card";
+import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import type { NotificationSettings } from "@/lib/settings/queries";
 import { updateNotificationSettings, type SettingsActionState } from "../actions";
 
@@ -45,15 +45,11 @@ export function NotificationSettingsSection({
   const [state, formAction, isPending] = useActionState(updateNotificationSettings, initialState);
 
   return (
-    <section className={cardClass}>
-      <div className={cardHeaderClass}>
-        <div>
-          <h2 className={cardTitleClass}>Notifications</h2>
-          <p className={`mt-0.5 ${cardSubtleClass}`}>Where and when important events should be surfaced.</p>
-        </div>
-      </div>
+    <section>
+      <h2 className={subsectionTitleClass}>Notifications</h2>
+      <p className={`mt-1 ${metaClass}`}>Where and when important events should be surfaced.</p>
 
-      <form action={formAction} className="p-5">
+      <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
           {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Notification preferences saved.</p> : null}
@@ -107,7 +103,7 @@ export function NotificationSettingsSection({
           {canEdit ? (
             <div className="flex justify-end pt-2">
               <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
-                {isPending ? "Saving…" : "Save Notification Settings"}
+                {isPending ? "Saving…" : "Save changes"}
               </button>
             </div>
           ) : null}

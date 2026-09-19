@@ -1,9 +1,18 @@
+import { CheckCircle2, AlertTriangle, AlertOctagon, type LucideIcon } from "lucide-react";
 import type { OrganizationHealthSummary } from "@/lib/automation-health/types";
+import type { BadgeTone } from "@/lib/ui/badge";
+import { metaClass } from "@/lib/ui/typography";
 
-const STATUS_CONFIG: Record<OrganizationHealthSummary["status"], { label: string; className: string }> = {
-  healthy: { label: "Healthy", className: "bg-emerald-50 text-emerald-700" },
-  degraded: { label: "Degraded", className: "bg-amber-50 text-amber-700" },
-  unhealthy: { label: "Unhealthy", className: "bg-red-50 text-red-700" },
+/**
+ * Single source of truth for how an organization/automation health status
+ * maps onto the shared Badge primitive - reused by the page header (the
+ * "is my system working?" headline answer) and by AutomationHealthTable's
+ * per-automation rows.
+ */
+export const HEALTH_STATUS_BADGE: Record<OrganizationHealthSummary["status"], { label: string; tone: BadgeTone; icon: LucideIcon }> = {
+  healthy: { label: "Healthy", tone: "success", icon: CheckCircle2 },
+  degraded: { label: "Degraded", tone: "warning", icon: AlertTriangle },
+  unhealthy: { label: "Unhealthy", tone: "danger", icon: AlertOctagon },
 };
 
 function formatCount(value: number): string {
@@ -21,15 +30,13 @@ function formatRelative(iso: string | null): string {
 }
 
 /**
- * Overall organization health - deterministic, read directly from
- * lib/automation-health/health.ts's own getOrganizationHealth. unhealthy
- * (any active critical incident) takes precedence over degraded (any other
- * active incident) over healthy (none) - see that module's own
- * organizationStatus() for the single source of truth this display mirrors.
+ * Supporting detail behind the page header's headline health status - deter-
+ * ministic, read directly from lib/automation-health/health.ts's own
+ * getOrganizationHealth. The overall status itself now leads the page (see
+ * the page header's badge, built from HEALTH_STATUS_BADGE above); this strip
+ * is the "why" behind that answer.
  */
 export function HealthSummaryCards({ health }: { health: OrganizationHealthSummary }) {
-  const status = STATUS_CONFIG[health.status];
-
   const stats = [
     { key: "active", label: "Active incidents", value: formatCount(health.activeIncidentCount), tone: health.activeIncidentCount > 0 ? "text-amber-600" : "text-slate-900" },
     { key: "critical", label: "Critical", value: formatCount(health.criticalIncidentCount), tone: health.criticalIncidentCount > 0 ? "text-red-600" : "text-slate-900" },
@@ -41,12 +48,6 @@ export function HealthSummaryCards({ health }: { health: OrganizationHealthSumma
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-sm font-semibold ${status.className}`}>{status.label}</span>
-        <span className="text-xs text-slate-500">
-          Last success: {formatRelative(health.lastSuccessfulActivityAt)} · Last failure: {formatRelative(health.lastFailureAt)}
-        </span>
-      </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {stats.map((stat) => (
           <div key={stat.key} className="rounded-lg border border-slate-200 bg-white px-3.5 py-2.5">
@@ -55,6 +56,9 @@ export function HealthSummaryCards({ health }: { health: OrganizationHealthSumma
           </div>
         ))}
       </div>
+      <p className={metaClass}>
+        Last success: {formatRelative(health.lastSuccessfulActivityAt)} · Last failure: {formatRelative(health.lastFailureAt)}
+      </p>
     </div>
   );
 }

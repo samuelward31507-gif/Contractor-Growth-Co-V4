@@ -13,9 +13,11 @@ export const STATUS_LABELS: Record<ConversationStatus, string> = {
   closed: "Closed",
 };
 
-export const STATUS_BADGE_CLASS: Record<ConversationStatus, string> = {
-  open: "bg-emerald-50 text-emerald-700",
-  closed: "bg-slate-100 text-slate-500",
+// Rendered as a small dot next to plain text (see status-badge.tsx), not a
+// filled pill - consistent with the Leads/Appointments dot convention.
+export const STATUS_DOT_CLASS: Record<ConversationStatus, string> = {
+  open: "bg-emerald-500",
+  closed: "bg-slate-300",
 };
 
 // Labels for who authored a message. There is no per-user identity on

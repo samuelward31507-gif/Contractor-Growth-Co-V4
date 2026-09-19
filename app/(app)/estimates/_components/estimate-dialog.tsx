@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { errorBannerClass, inputClass, labelClass } from "@/lib/ui/form";
+import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass } from "@/lib/ui/form";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
 import type { Estimate } from "@/lib/estimates/queries";
@@ -10,9 +10,6 @@ import { LeadPicker } from "../../appointments/_components/lead-picker";
 import { createEstimate, updateEstimate, type EstimateFormState } from "../actions";
 
 const initialState: EstimateFormState = {};
-
-const submitButtonClass =
-  "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
 
 function toDateInputValue(iso: string): string {
   return iso.slice(0, 10);
@@ -137,7 +134,7 @@ export function EstimateDialog({
             >
               Cancel
             </button>
-            <button type="submit" disabled={isPending} className={submitButtonClass}>
+            <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
               {isPending
                 ? mode === "create"
                   ? "Creating…"

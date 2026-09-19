@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
+import { STATUS_LABELS } from "@/lib/jobs/format";
 import type { Job } from "@/lib/jobs/queries";
-import { JobStatusBadge } from "./status-badge";
+import { Badge } from "@/lib/ui/badge";
+import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "./status";
 
 const ROW_GRID = "grid-cols-[minmax(0,1fr)_112px_96px_92px_20px]";
 
@@ -50,27 +53,17 @@ export function JobsTable({ jobs, hasActiveFilters }: { jobs: Job[]; hasActiveFi
                   </span>
                 </span>
               </span>
-              <JobStatusBadge status={job.status} />
+              <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
+                {STATUS_LABELS[job.status]}
+              </Badge>
               <span className="text-right text-sm font-medium tabular-nums text-slate-700">
                 {job.amount != null ? formatCurrency(job.amount) : "—"}
               </span>
               <span className="text-xs tabular-nums text-slate-400">{formatContactDate(job.created_at)}</span>
-              {/* "chevron-right" isn't in the committed Icon set yet (it's
-                  a Trackpr 2.0 redesign addition, intentionally
-                  uncommitted this phase) - inlined directly rather than
-                  depending on that in-flight change. */}
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+              <ChevronRight
+                aria-hidden
                 className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
-              >
-                <path d="M9 5.25L15 12l-6 6.75" />
-              </svg>
+              />
             </Link>
           ))}
         </div>
@@ -88,7 +81,9 @@ export function JobsTable({ jobs, hasActiveFilters }: { jobs: Job[]; hasActiveFi
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium text-slate-900">{job.title}</span>
-                  <JobStatusBadge status={job.status} />
+                  <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
+                    {STATUS_LABELS[job.status]}
+                  </Badge>
                 </span>
                 <span className="mt-0.5 flex items-center justify-between gap-2">
                   <span className="truncate text-xs text-slate-500">

@@ -1,16 +1,20 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
+import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
 import { SmsRoutingSection } from "./_components/sms-routing-section";
 
 /**
- * Standalone route, not yet linked from the main settings page/nav - see
- * this feature's own audit: every file under app/(app)/settings/ is
- * currently part of the in-progress, uncommitted Trackpr 2.0 redesign, and
- * this feature must not touch any of it. Reachable directly at
- * /settings/sms; wiring it into the real settings page/navigation is
- * follow-up work for whoever completes the 2.0 redesign.
+ * Now reachable from the main Settings page via the "Communications" group
+ * (see ../_components/sms-summary-section.tsx), not just by typed URL. Kept
+ * as its own route rather than merged into app/(app)/settings/page.tsx -
+ * this feature has its own Server Actions (./actions.ts) and its own
+ * revalidatePath("/settings/sms") target, so folding it into the main
+ * settings page.tsx would mean either duplicating that action wiring or
+ * changing its revalidation target, neither of which this redesign touches.
  */
 export default async function SmsRoutingPage() {
   const supabase = await createClient();
@@ -32,12 +36,18 @@ export default async function SmsRoutingPage() {
   const smsPhoneNumber = await getOrganizationSmsNumber(supabase, membership.organizationId);
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-4 sm:p-6 lg:p-8">
+    <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">SMS &amp; Communications Settings</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Configure the Trackpr SMS number your customers text when replying to your business.
-        </p>
+        <Link href="/settings" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+          Settings
+        </Link>
+        <div className="mt-3">
+          <h1 className={pageTitleClass}>SMS &amp; Communications</h1>
+          <p className={`mt-1.5 ${pageDescriptionClass}`}>
+            Configure the Trackpr SMS number your customers text when replying to your business.
+          </p>
+        </div>
       </div>
 
       <SmsRoutingSection smsPhoneNumber={smsPhoneNumber} canEdit={canEdit} />

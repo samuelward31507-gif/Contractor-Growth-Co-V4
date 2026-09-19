@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { filterEstimates, getEstimates, summarizeEstimates, type EstimateStatus } from "@/lib/estimates/queries";
-import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import { AddEstimateButton } from "./_components/add-estimate-button";
 import { EstimatesEmptyState } from "./_components/estimates-empty-state";
 import { EstimatesSummary } from "./_components/estimates-summary";
@@ -49,13 +49,11 @@ export default async function EstimatesPage({ searchParams }: PageProps<"/estima
 
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className={pageTitleClass}>Estimates</h1>
-          <p className={`mt-1.5 ${pageDescriptionClass}`}>Create, send, and track project estimates.</p>
-        </div>
-        <AddEstimateButton contacts={contacts} leads={leads} />
-      </div>
+      <PageHeader
+        title="Estimates"
+        description="Create, send, and track project estimates."
+        action={<AddEstimateButton contacts={contacts} leads={leads} />}
+      />
 
       <EstimatesSummary summary={summary} />
 

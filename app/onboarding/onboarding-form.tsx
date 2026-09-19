@@ -1,12 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import {
-  errorBannerClass,
-  inputClass,
-  labelClass,
-  primaryButtonClass,
-} from "@/lib/ui/form";
+import { authButtonClass, authErrorBannerClass, authInputClass, authLabelClass } from "@/lib/ui/auth-form";
 import { createOrganization, type OnboardingState } from "./actions";
 
 const initialState: OnboardingState = {};
@@ -16,10 +11,10 @@ export function OnboardingForm() {
 
   return (
     <form action={formAction} className="space-y-6">
-      {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
+      {state.error ? <p className={authErrorBannerClass}>{state.error}</p> : null}
 
       <div className="space-y-1.5">
-        <label htmlFor="businessName" className={labelClass}>
+        <label htmlFor="businessName" className={authLabelClass}>
           Business name
         </label>
         <input
@@ -29,12 +24,12 @@ export function OnboardingForm() {
           autoComplete="organization"
           required
           maxLength={120}
-          className={inputClass}
+          className={authInputClass}
           placeholder="Acme Roofing & Exteriors"
         />
       </div>
 
-      <button type="submit" disabled={isPending} className={primaryButtonClass}>
+      <button type="submit" disabled={isPending} className={authButtonClass}>
         {isPending ? "Setting up…" : "Continue to dashboard"}
       </button>
     </form>

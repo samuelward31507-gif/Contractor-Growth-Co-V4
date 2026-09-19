@@ -1,16 +1,13 @@
-import { Icon } from "../../_components/icon";
+import { surfaceClass } from "@/lib/ui/surface";
 
 export function ActivityEmptyState() {
   return (
-    <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16">
+    <div className={`${surfaceClass} flex flex-1 items-center justify-center px-6 py-20`}>
       <div className="max-w-sm text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-          <Icon name="activity" className="h-6 w-6" />
-        </div>
-        <h2 className="mt-4 text-base font-semibold text-slate-900">No activity yet</h2>
+        <h2 className="text-base font-medium text-slate-900">No activity yet.</h2>
         <p className="mt-1.5 text-sm text-slate-500">
-          Activity will appear here as you and your team use Trackpr - things like new contacts,
-          lead updates, and appointment changes.
+          Activity will appear here as you and your team use Trackpr - things like new contacts, lead updates, and
+          appointment changes.
         </p>
       </div>
     </div>

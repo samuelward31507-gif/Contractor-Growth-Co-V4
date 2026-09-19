@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { errorBannerClass, primaryButtonAutoClass } from "@/lib/ui/form";
+import { Users2 } from "lucide-react";
+import { errorBannerClass, primaryButtonAutoClass, successBannerClass } from "@/lib/ui/form";
+import { SectionCard } from "@/lib/ui/section-card";
 import type { Contact } from "@/lib/contacts/queries";
 import type { DuplicateMatchReason, ContactRelationshipCounts } from "@/lib/contacts/duplicates";
 import { mergeContacts } from "../actions";
@@ -80,23 +82,16 @@ export function DuplicateGroupCard({
   const target = contacts.find((c) => c.id === targetId);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">{REASON_LABEL[reason]}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {contacts.length} contacts share this identity. Pick the contact to keep, then merge the others into it - every lead,
-            conversation, appointment, estimate, job, and review/referral request moves to the surviving contact. The survivor keeps
-            its own details; anything it&apos;s missing is filled in from the merged contact.
-          </p>
-        </div>
-      </div>
-
-      <div className="divide-y divide-slate-100">
+    <SectionCard
+      title={REASON_LABEL[reason]}
+      description={`${contacts.length} contacts share this identity. Pick the contact to keep, then merge the others into it - every lead, conversation, appointment, estimate, job, and review/referral request moves to the surviving contact. The survivor keeps its own details; anything it's missing is filled in from the merged contact.`}
+      icon={Users2}
+    >
+      <div className="-mx-4 divide-y divide-slate-100 sm:-mx-5">
         {contacts.map((contact) => {
           const isTarget = contact.id === targetId;
           return (
-            <div key={contact.id} className="flex flex-col gap-2 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div key={contact.id} className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div className="flex items-center gap-3">
                 {canMerge ? (
                   <input
@@ -138,9 +133,9 @@ export function DuplicateGroupCard({
         })}
       </div>
 
-      {error ? <p className={`m-5 ${errorBannerClass}`}>{error}</p> : null}
-      {success ? <p className="mx-5 mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-700">{success}</p> : null}
-    </div>
+      {error ? <p className={`mt-4 ${errorBannerClass}`}>{error}</p> : null}
+      {success ? <p className={`mt-4 ${successBannerClass}`}>{success}</p> : null}
+    </SectionCard>
   );
 }
 

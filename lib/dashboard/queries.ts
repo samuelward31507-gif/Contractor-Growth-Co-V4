@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { formatRelativeTime } from "./format";
+import { formatCurrency, formatRelativeTime } from "./format";
 
 export type PipelineStage = "new" | "contacted" | "qualified" | "appointment" | "estimate" | "won";
 
@@ -28,6 +28,7 @@ export type AttentionItem = {
   kind: "overdue_appointment" | "hot_lead" | "pending_estimate";
   title: string;
   detail: string;
+  value: string | null;
   href: string;
 };
 
@@ -120,6 +121,7 @@ export async function getDashboardData(
       kind: "overdue_appointment",
       title: contactName(appointment.contacts) ?? appointment.title,
       detail: `Was scheduled ${formatRelativeTime(appointment.start_at)}`,
+      value: null,
       href: "/appointments",
     }));
 
@@ -130,10 +132,8 @@ export async function getDashboardData(
       id: `hot-${lead.id}`,
       kind: "hot_lead",
       title: contactName(lead.contacts) ?? lead.service ?? "Hot lead",
-      detail:
-        lead.estimated_value != null
-          ? `Hot lead - est. value $${Number(lead.estimated_value).toLocaleString()}`
-          : "Hot lead - follow up soon",
+      detail: "Hot lead - follow up soon",
+      value: lead.estimated_value != null ? formatCurrency(Number(lead.estimated_value)) : null,
       href: "/leads",
     }));
 
@@ -145,6 +145,7 @@ export async function getDashboardData(
       kind: "pending_estimate",
       title: contactName(lead.contacts) ?? lead.service ?? "Pending estimate",
       detail: "At the estimate stage - needs follow-up",
+      value: lead.estimated_value != null ? formatCurrency(Number(lead.estimated_value)) : null,
       href: "/estimates",
     }));
 

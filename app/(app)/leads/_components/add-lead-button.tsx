@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Plus } from "lucide-react";
 import type { Contact } from "@/lib/contacts/queries";
-import { Icon } from "../../_components/icon";
 import { LeadDialog } from "./lead-dialog";
 
 export function AddLeadButton({ contacts }: { contacts: Contact[] }) {
@@ -27,7 +27,7 @@ export function AddLeadButton({ contacts }: { contacts: Contact[] }) {
         onClick={() => setOpen(true)}
         className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
       >
-        <Icon name="plus" className="h-4 w-4" />
+        <Plus className="h-4 w-4" aria-hidden />
         Add Lead
       </button>
       {open ? <LeadDialog mode="create" contacts={contacts} onClose={() => setOpen(false)} /> : null}

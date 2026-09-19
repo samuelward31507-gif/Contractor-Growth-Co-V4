@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Settings } from "lucide-react";
 import { updateReviewReferralFollowupConfig } from "../actions";
 import { BusinessHoursToggleField } from "./business-hours-toggle-field";
+import { SectionCard } from "@/lib/ui/section-card";
+import { primaryButtonAutoClass } from "@/lib/ui/form";
 
 /**
  * Automation Configuration V5 - only ever rendered for org admins (the
@@ -61,10 +64,7 @@ export function ReviewReferralFollowupConfigForm({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Sending window</p>
-      <p className="mt-1 text-sm text-slate-500">Choose whether this automation only sends automatically during business hours.</p>
-
+    <SectionCard title="Sending window" description="Choose whether this automation only sends automatically during business hours." icon={Settings}>
       <BusinessHoursToggleField
         checked={respectHours}
         onChange={(next) => {
@@ -76,19 +76,14 @@ export function ReviewReferralFollowupConfigForm({
       />
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isPending || !isDirty}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-        >
+        <button type="button" onClick={handleSave} disabled={isPending || !isDirty} className={primaryButtonAutoClass}>
           {isPending ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
           onClick={handleReset}
           disabled={isPending || savedValue === false}
-          className="rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-slate-500"
+          className="rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-slate-500"
         >
           Reset to default
         </button>
@@ -96,6 +91,6 @@ export function ReviewReferralFollowupConfigForm({
       <p className="mt-2 text-xs text-slate-400">Changes apply to future sends only - anything already sent or in progress is unaffected.</p>
       {success && !error ? <p className="mt-1.5 text-xs text-emerald-700">Saved.</p> : null}
       {error ? <p className="mt-1.5 text-xs text-red-600">{error}</p> : null}
-    </div>
+    </SectionCard>
   );
 }

@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { getAutomationOverview, getWorkflowNameStats, buildAutomationSummaries } from "@/lib/automation/queries";
 import { getAutomationEnabledMap } from "@/lib/automation/settings";
-import { pageTitleClass, pageDescriptionClass, metaClass } from "@/lib/ui/typography";
+import { metaClass, sectionLabelClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import { SummaryCards } from "./_components/summary-cards";
 import { AutomationList } from "./_components/automation-list";
 
@@ -43,17 +44,18 @@ export default async function AutomationsPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <div>
-        <h1 className={pageTitleClass}>Automations</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>Monitor and manage the automated systems running your business.</p>
-      </div>
+      <PageHeader title="Automations" description="Monitor and manage the automated systems running your business." />
 
       <div className="flex flex-col gap-2">
+        <p className={sectionLabelClass}>Overview</p>
         <SummaryCards overview={overview} summaries={summaries} />
         <p className={metaClass}>Execution counts reflect the last 30 days.</p>
       </div>
 
-      <AutomationList summaries={summaries} />
+      <div className="flex flex-col gap-2">
+        <p className={sectionLabelClass}>All automations</p>
+        <AutomationList summaries={summaries} />
+      </div>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
@@ -11,6 +12,8 @@ import {
   getServices,
   withDefaultHours,
 } from "@/lib/settings/queries";
+import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
+import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { AiSettingsSection } from "./_components/ai-settings-section";
 import { BookingSettingsSection } from "./_components/booking-settings-section";
 import { BusinessHoursSection } from "./_components/business-hours-section";
@@ -18,6 +21,16 @@ import { BusinessProfileSection } from "./_components/business-profile-section";
 import { NotificationSettingsSection } from "./_components/notification-settings-section";
 import { ServiceAreasSection } from "./_components/service-areas-section";
 import { ServicesSection } from "./_components/services-section";
+import { SmsSummarySection } from "./_components/sms-summary-section";
+
+function SettingsGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="border-t border-slate-200 pt-8 first:border-t-0 first:pt-0">
+      <p className={sectionLabelClass}>{label}</p>
+      <div className="mt-5 space-y-10">{children}</div>
+    </div>
+  );
+}
 
 export default async function SettingsPage() {
   const supabase = await createClient();
@@ -38,7 +51,7 @@ export default async function SettingsPage() {
   const canEdit = membership.role === "owner" || membership.role === "admin";
   const organizationId = membership.organizationId;
 
-  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings] =
+  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings, smsPhoneNumber] =
     await Promise.all([
       getBusinessProfile(supabase, organizationId),
       getBusinessHours(supabase, organizationId),
@@ -47,6 +60,7 @@ export default async function SettingsPage() {
       getAiSettings(supabase, organizationId),
       getBookingSettings(supabase, organizationId),
       getNotificationSettings(supabase, organizationId),
+      getOrganizationSmsNumber(supabase, organizationId),
     ]);
 
   if (!profile) {
@@ -61,10 +75,10 @@ export default async function SettingsPage() {
   const hours = withDefaultHours(hoursRows);
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-4 sm:p-6 lg:p-8">
+    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Settings</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className={pageTitleClass}>Settings</h1>
+        <p className={`mt-1.5 ${pageDescriptionClass}`}>
           Configure the business rules Trackpr and future automation will use.
         </p>
         {!canEdit ? (
@@ -74,13 +88,30 @@ export default async function SettingsPage() {
         ) : null}
       </div>
 
-      <BusinessProfileSection profile={profile} canEdit={canEdit} />
-      <BusinessHoursSection hours={hours} timezone={profile.timezone} canEdit={canEdit} />
-      <ServicesSection services={services} canEdit={canEdit} />
-      <ServiceAreasSection areas={serviceAreas} canEdit={canEdit} />
-      <AiSettingsSection settings={aiSettings} canEdit={canEdit} />
-      <BookingSettingsSection settings={bookingSettings} canEdit={canEdit} />
-      <NotificationSettingsSection settings={notificationSettings} canEdit={canEdit} />
+      <div>
+        <SettingsGroup label="Business">
+          <BusinessProfileSection profile={profile} canEdit={canEdit} />
+        </SettingsGroup>
+
+        <SettingsGroup label="Operations">
+          <BusinessHoursSection hours={hours} timezone={profile.timezone} canEdit={canEdit} />
+          <ServicesSection services={services} canEdit={canEdit} />
+          <ServiceAreasSection areas={serviceAreas} canEdit={canEdit} />
+          <BookingSettingsSection settings={bookingSettings} canEdit={canEdit} />
+        </SettingsGroup>
+
+        <SettingsGroup label="Communications">
+          <SmsSummarySection smsPhoneNumber={smsPhoneNumber} />
+        </SettingsGroup>
+
+        <SettingsGroup label="AI">
+          <AiSettingsSection settings={aiSettings} canEdit={canEdit} />
+        </SettingsGroup>
+
+        <SettingsGroup label="Notifications">
+          <NotificationSettingsSection settings={notificationSettings} canEdit={canEdit} />
+        </SettingsGroup>
+      </div>
     </div>
   );
 }

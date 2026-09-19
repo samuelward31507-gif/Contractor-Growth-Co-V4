@@ -8,14 +8,15 @@ export const STATUS_LABELS: Record<AppointmentStatus, string> = {
   no_show: "No-Show",
 };
 
-// Restrained palette, consistent with the Leads badge convention: neutral
-// for the working states, one accent each for the two closed outcomes.
-export const STATUS_BADGE_CLASS: Record<AppointmentStatus, string> = {
-  scheduled: "bg-slate-100 text-slate-700",
-  confirmed: "bg-blue-50 text-blue-700",
-  completed: "bg-emerald-50 text-emerald-700",
-  cancelled: "bg-red-50 text-red-600",
-  no_show: "bg-amber-50 text-amber-700",
+// Restrained palette, consistent with the Leads dot convention: neutral for
+// the working states, one accent each for the closed outcomes. Rendered as a
+// small dot next to plain text (see status-badge.tsx), not a filled pill.
+export const STATUS_DOT_CLASS: Record<AppointmentStatus, string> = {
+  scheduled: "bg-slate-400",
+  confirmed: "bg-blue-500",
+  completed: "bg-emerald-500",
+  cancelled: "bg-red-400",
+  no_show: "bg-amber-500",
 };
 
 /**

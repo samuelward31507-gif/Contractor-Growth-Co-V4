@@ -1,101 +1,112 @@
 import Link from "next/link";
-import { cardClass } from "@/lib/ui/card";
+import { ChevronRight, Flame, Search } from "lucide-react";
+import { Badge } from "@/lib/ui/badge";
+import { EmptyState } from "@/lib/ui/empty-state";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
+import { STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import type { Lead } from "@/lib/leads/queries";
-import { StatusBadge, TemperatureBadge } from "./badges";
+import { LEAD_STATUS_TONE, LEAD_TEMPERATURE_TONE } from "./lead-status";
+
+const ROW_GRID = "grid-cols-[minmax(0,1fr)_112px_96px_92px_84px_20px]";
+
+function secondaryLine(lead: Lead): string {
+  const service = lead.service || "General inquiry";
+  return lead.source ? `${service} · via ${lead.source}` : service;
+}
 
 export function LeadsTable({ leads, hasActiveFilters }: { leads: Lead[]; hasActiveFilters: boolean }) {
   if (leads.length === 0) {
     return (
-      <div className={`${cardClass} px-5 py-12 text-center`}>
-        <p className="text-sm font-medium text-slate-900">No leads match your search.</p>
-        <p className="mt-1 text-sm text-slate-500">
-          {hasActiveFilters
-            ? "Try a different search term or clear your filters."
-            : "Try a different search term."}
-        </p>
-      </div>
+      <EmptyState
+        icon={Search}
+        title="No leads match your search."
+        description={
+          hasActiveFilters
+            ? "Try a different search term or clear your filters to see every lead."
+            : "Try a different search term."
+        }
+      />
     );
   }
 
   return (
-    <div className={cardClass}>
-      <table className="hidden w-full text-left text-sm lg:table">
-        <thead>
-          <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-            <th className="px-5 py-3 font-medium">Lead</th>
-            <th className="px-5 py-3 font-medium">Service</th>
-            <th className="px-5 py-3 font-medium">Source</th>
-            <th className="px-5 py-3 font-medium">Status</th>
-            <th className="px-5 py-3 font-medium">Temperature</th>
-            <th className="px-5 py-3 font-medium">Value</th>
-            <th className="px-5 py-3 font-medium">Created</th>
-            <th className="px-5 py-3 font-medium">
-              <span className="sr-only">Actions</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
+    <div>
+      {/* Desktop: aligned row list, not an HTML table - same column positions
+          as the data rows below, via a shared grid template. */}
+      <div className="hidden lg:block">
+        <div className={`grid ${ROW_GRID} gap-4 border-b border-slate-200 px-2 pb-2`}>
+          <span className="text-xs text-slate-400">Lead</span>
+          <span className="text-xs text-slate-400">Status</span>
+          <span className="text-xs text-slate-400">Temperature</span>
+          <span className="text-right text-xs text-slate-400">Value</span>
+          <span className="text-xs text-slate-400">Created</span>
+          <span />
+        </div>
+        <div className="divide-y divide-slate-100">
           {leads.map((lead) => (
-            <tr key={lead.id} className="transition-colors hover:bg-slate-50">
-              <td className="px-5 py-3.5">
-                <Link href={`/leads/${lead.id}`} className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-                    {lead.contact ? contactInitials(lead.contact) : "?"}
-                  </span>
-                  <span>
-                    <span className="block font-medium text-slate-900">
-                      {lead.contact ? contactDisplayName(lead.contact) : "No contact"}
-                    </span>
+            <Link
+              key={lead.id}
+              href={`/leads/${lead.id}`}
+              className={`group grid ${ROW_GRID} items-center gap-4 rounded-md px-2 py-3 transition-colors hover:bg-slate-50`}
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                  {lead.contact ? contactInitials(lead.contact) : "?"}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-slate-900">
+                    {lead.contact ? contactDisplayName(lead.contact) : "No contact"}
                     {lead.contact?.company_name ? (
-                      <span className="block text-xs text-slate-500">{lead.contact.company_name}</span>
+                      <span className="font-normal text-slate-500"> · {lead.contact.company_name}</span>
                     ) : null}
                   </span>
-                </Link>
-              </td>
-              <td className="px-5 py-3.5 text-slate-600">{lead.service || "—"}</td>
-              <td className="px-5 py-3.5 text-slate-600">{lead.source || "—"}</td>
-              <td className="px-5 py-3.5">
-                <StatusBadge status={lead.status} />
-              </td>
-              <td className="px-5 py-3.5">
-                <TemperatureBadge temperature={lead.temperature} />
-              </td>
-              <td className="px-5 py-3.5 text-slate-600">
+                  <span className="block truncate text-xs text-slate-500">{secondaryLine(lead)}</span>
+                </span>
+              </span>
+              <Badge tone={LEAD_STATUS_TONE[lead.status]}>{STATUS_LABELS[lead.status]}</Badge>
+              <Badge tone={LEAD_TEMPERATURE_TONE[lead.temperature]} icon={lead.temperature === "hot" ? Flame : undefined}>
+                {TEMPERATURE_LABELS[lead.temperature]}
+              </Badge>
+              <span className="text-right text-sm font-medium tabular-nums text-slate-700">
                 {lead.estimated_value != null ? formatCurrency(lead.estimated_value) : "—"}
-              </td>
-              <td className="px-5 py-3.5 text-slate-500">{formatContactDate(lead.created_at)}</td>
-              <td className="px-5 py-3.5 text-right">
-                <Link
-                  href={`/leads/${lead.id}`}
-                  className="text-sm font-medium text-slate-600 hover:text-slate-900"
-                >
-                  View
-                </Link>
-              </td>
-            </tr>
+              </span>
+              <span className="text-xs tabular-nums text-slate-400">{formatContactDate(lead.created_at)}</span>
+              <ChevronRight
+                className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
+                aria-hidden
+              />
+            </Link>
           ))}
-        </tbody>
-      </table>
+        </div>
+      </div>
 
+      {/* Mobile: a compact two-line stacked row, not the desktop table
+          squeezed down, and not a boxed card - flush dividers only.
+          Temperature recedes to a small flame cue on hot leads only, to keep
+          each row to two lines on a narrow screen. */}
       <ul className="divide-y divide-slate-100 lg:hidden">
         {leads.map((lead) => (
           <li key={lead.id}>
-            <Link href={`/leads/${lead.id}`} className="flex items-start gap-3 px-4 py-3.5">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+            <Link href={`/leads/${lead.id}`} className="flex items-start gap-3 px-2 py-3.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
                 {lead.contact ? contactInitials(lead.contact) : "?"}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium text-slate-900">
-                    {lead.contact ? contactDisplayName(lead.contact) : "No contact"}
+                  <span className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium text-slate-900">
+                    <span className="truncate">{lead.contact ? contactDisplayName(lead.contact) : "No contact"}</span>
+                    {lead.temperature === "hot" ? <Flame className="h-3.5 w-3.5 shrink-0 text-red-500" aria-hidden /> : null}
                   </span>
-                  <StatusBadge status={lead.status} />
+                  <Badge tone={LEAD_STATUS_TONE[lead.status]}>{STATUS_LABELS[lead.status]}</Badge>
                 </span>
-                <span className="mt-0.5 block truncate text-xs text-slate-500">
-                  {lead.service || "General inquiry"}
-                  {lead.estimated_value != null ? ` · ${formatCurrency(lead.estimated_value)}` : ""}
+                <span className="mt-0.5 flex items-center justify-between gap-2">
+                  <span className="truncate text-xs text-slate-500">{secondaryLine(lead)}</span>
+                  {lead.estimated_value != null ? (
+                    <span className="shrink-0 text-xs font-medium tabular-nums text-slate-600">
+                      {formatCurrency(lead.estimated_value)}
+                    </span>
+                  ) : null}
                 </span>
               </span>
             </Link>

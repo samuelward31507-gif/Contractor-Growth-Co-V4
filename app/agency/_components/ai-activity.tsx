@@ -1,6 +1,6 @@
 import { Bot, Info } from "lucide-react";
+import { SectionCard } from "@/lib/ui/section-card";
 import { formatCount } from "./format";
-import { SectionCard } from "./section-card";
 import type { AgencyBusinessSummary } from "@/lib/agency/queries";
 
 /**

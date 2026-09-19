@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { formatCount, formatRelativeTime } from "./format";
-import { AutomationStatusPill } from "./status-pill";
+import { formatCount, formatRelativeTime, AUTOMATION_STATUS_BADGE } from "./format";
+import { Badge } from "@/lib/ui/badge";
 import type { AutomationSummary } from "@/lib/automation/queries";
 
 /**
@@ -16,9 +16,13 @@ export function AutomationList({ summaries }: { summaries: AutomationSummary[] }
       <ul className="divide-y divide-slate-100">
         {summaries.map(({ definition, status, failedExecutions, lastExecutionAt }) => {
           const Icon = definition.icon;
+          const statusBadge = AUTOMATION_STATUS_BADGE[status];
           return (
             <li key={definition.id}>
-              <Link href={`/automations/${definition.id}`} className="group flex items-start gap-3 px-4 py-3.5 transition-colors hover:bg-slate-50 sm:items-center">
+              <Link
+                href={`/automations/${definition.id}`}
+                className="group flex items-start gap-3 px-4 py-3.5 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:bg-slate-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-900/10 sm:items-center"
+              >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100">
                   <Icon className="h-4 w-4 text-slate-500" aria-hidden />
                 </span>
@@ -26,7 +30,9 @@ export function AutomationList({ summaries }: { summaries: AutomationSummary[] }
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-semibold text-slate-900">{definition.name}</p>
-                    <AutomationStatusPill status={status} />
+                    <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
+                      {statusBadge.label}
+                    </Badge>
                   </div>
                   <p className="mt-0.5 truncate text-xs text-slate-500">{definition.description}</p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">

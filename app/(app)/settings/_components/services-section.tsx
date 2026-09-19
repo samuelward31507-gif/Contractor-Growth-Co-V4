@@ -1,8 +1,8 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { cardClass, cardHeaderClass, cardSubtleClass, cardTitleClass } from "@/lib/ui/card";
-import { Icon } from "../../_components/icon";
+import { Pencil, Trash2, Plus } from "lucide-react";
+import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import type { Service } from "@/lib/settings/queries";
 import { toggleServiceActive, type DeleteState } from "../actions";
 import { DeleteServiceDialog } from "./delete-service-dialog";
@@ -24,7 +24,7 @@ function ServiceRow({
   const [state, toggleAction, isPending] = useActionState(toggleServiceActive, initialToggleState);
 
   return (
-    <li className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <li className="flex flex-col gap-2 py-3.5 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <p className="text-sm font-medium text-slate-900">{service.name}</p>
         {service.description ? (
@@ -33,19 +33,16 @@ function ServiceRow({
         {state.error ? <p className="mt-1 text-xs text-red-600">{state.error}</p> : null}
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-3">
         <form action={toggleAction}>
           <input type="hidden" name="id" value={service.id} />
           <input type="hidden" name="isActive" value={(!service.is_active).toString()} />
           <button
             type="submit"
             disabled={!canEdit || isPending}
-            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed ${
-              service.is_active
-                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-            }`}
+            className="inline-flex items-center gap-1.5 text-sm text-slate-600 transition-colors disabled:cursor-not-allowed"
           >
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${service.is_active ? "bg-emerald-500" : "bg-slate-300"}`} aria-hidden />
             {isPending ? "Updating…" : service.is_active ? "Active" : "Inactive"}
           </button>
         </form>
@@ -56,17 +53,17 @@ function ServiceRow({
               type="button"
               onClick={onEdit}
               aria-label="Edit service"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100"
             >
-              <Icon name="pencil" className="h-4 w-4" />
+              <Pencil className="h-4 w-4" aria-hidden />
             </button>
             <button
               type="button"
               onClick={onDelete}
               aria-label="Delete service"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-red-500 transition-colors hover:bg-red-50"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50"
             >
-              <Icon name="trash" className="h-4 w-4" />
+              <Trash2 className="h-4 w-4" aria-hidden />
             </button>
           </>
         ) : null}
@@ -81,33 +78,30 @@ export function ServicesSection({ services, canEdit }: { services: Service[]; ca
   const [deleting, setDeleting] = useState<Service | null>(null);
 
   return (
-    <section className={cardClass}>
-      <div className={cardHeaderClass}>
+    <section>
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className={cardTitleClass}>Services</h2>
-          <p className={`mt-0.5 ${cardSubtleClass}`}>Services your business provides.</p>
+          <h2 className={subsectionTitleClass}>Services</h2>
+          <p className={`mt-1 ${metaClass}`}>Services your business provides.</p>
         </div>
         {canEdit ? (
           <button
             type="button"
             onClick={() => setAddOpen(true)}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
           >
-            <Icon name="plus" className="h-4 w-4" />
-            Add Service
+            <Plus className="h-4 w-4" aria-hidden />
+            Add service
           </button>
         ) : null}
       </div>
 
       {services.length === 0 ? (
-        <div className="px-5 py-10 text-center">
-          <p className="text-sm font-medium text-slate-900">No services yet</p>
-          <p className="mt-1 text-sm text-slate-500">
-            Add the services your business offers so future AI systems can reference them.
-          </p>
-        </div>
+        <p className="mt-4 text-sm text-slate-500">
+          No services yet. Add the services your business offers so future AI systems can reference them.
+        </p>
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="mt-4 divide-y divide-slate-100">
           {services.map((service) => (
             <ServiceRow
               key={service.id}

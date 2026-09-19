@@ -1,7 +1,7 @@
 import { Workflow, CheckCircle2, XCircle, Loader2, AlertTriangle, Percent } from "lucide-react";
+import { SectionCard } from "@/lib/ui/section-card";
 import { formatRate, formatCount } from "./format";
 import { StatGrid, type Stat } from "./stat-grid";
-import { SectionCard } from "./section-card";
 import type { AgencyBusinessSummary } from "@/lib/agency/queries";
 
 /**

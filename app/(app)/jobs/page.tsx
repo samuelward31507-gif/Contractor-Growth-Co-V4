@@ -3,7 +3,7 @@ import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { filterJobs, getJobs, summarizeJobs, type JobStatus } from "@/lib/jobs/queries";
 import { getReviewRequests, getReferralRequests, summarizeReviewRequests, summarizeReferralRequests } from "@/lib/reviews-referrals/queries";
-import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import { JobsEmptyState } from "./_components/jobs-empty-state";
 import { JobsSummary } from "./_components/jobs-summary";
 import { ReviewReferralSummaryRow } from "./_components/review-referral-summary";
@@ -49,10 +49,7 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
 
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <div>
-        <h1 className={pageTitleClass}>Jobs</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>Track work from an accepted estimate through completion.</p>
-      </div>
+      <PageHeader title="Jobs" description="Track work from an accepted estimate through completion." />
 
       <JobsSummary summary={summary} />
       <ReviewReferralSummaryRow summary={reviewReferralSummary} />
