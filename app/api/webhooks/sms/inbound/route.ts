@@ -7,6 +7,7 @@ import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { buildHelpResponseMessage } from "@/lib/messaging/help-response";
 import { isValidTwilioSignature } from "@/lib/messaging/twilio-signature";
 import { recordRequestResponses } from "@/lib/reviews-referrals/tracking";
+import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
@@ -86,25 +87,28 @@ export async function POST(request: NextRequest) {
     return twiml();
   }
 
-  let { data: contact } = await service
+  // Contact Deduplication V1: the same centralized resolver every contact-
+  // creation path uses - a customer who previously texted in, or was
+  // manually entered with the same number in a different format, is
+  // reused rather than duplicated. Inbound SMS only ever supplies a phone
+  // (Twilio's From), so "conflict" (phone matches one contact, email
+  // matches a different one) cannot occur here - only "matched"/"created"
+  // are practically reachable, but every outcome is still handled
+  // explicitly rather than assumed.
+  const resolved = await resolveOrCreateContact(service, { organizationId: organization.id, phone: from });
+  if (resolved.outcome !== "matched" && resolved.outcome !== "created") {
+    console.error("[sms][inbound] could not resolve or create contact", { organizationId: organization.id, outcome: resolved.outcome });
+    return twiml();
+  }
+
+  const { data: contact } = await service
     .from("contacts")
     .select("id, sms_opt_out")
-    .eq("organization_id", organization.id)
-    .eq("phone", from)
-    .limit(1)
+    .eq("id", resolved.contact.id)
     .maybeSingle();
 
   if (!contact) {
-    const { data: created } = await service
-      .from("contacts")
-      .insert({ organization_id: organization.id, phone: from })
-      .select("id, sms_opt_out")
-      .single();
-    contact = created ?? null;
-  }
-
-  if (!contact) {
-    console.error("[sms][inbound] could not resolve or create contact", { organizationId: organization.id });
+    console.error("[sms][inbound] resolved contact could not be re-read", { organizationId: organization.id });
     return twiml();
   }
 
