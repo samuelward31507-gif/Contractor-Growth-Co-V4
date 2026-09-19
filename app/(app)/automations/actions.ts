@@ -6,6 +6,24 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { assertOrgAdmin } from "@/lib/automation/authorization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
+import { getAutomationEnabled } from "@/lib/automation/settings";
+import { processAppointmentReminders, previewAppointmentReminders, type ReminderPreview } from "@/lib/automation/appointment-reminders";
+import { processEstimateFollowups, previewEstimateFollowups, type FollowupPreview } from "@/lib/automation/estimate-followups";
+
+/**
+ * Manual run / dry run (Phase D) are only offered for the two
+ * Trackpr-dispatched automations - both are fully composed and sent by
+ * Trackpr itself with no n8n round trip, so "run this right now" and "show
+ * me what this would send" are both tractable without ever touching n8n.
+ * The other 7 dispatchable automations hand off to n8n for AI drafting;
+ * manually triggering those would mean either faking an AI response (unsafe/
+ * meaningless) or actually invoking n8n on demand (an n8n change, out of
+ * scope). This Set is the ONLY place automationId is checked against a
+ * fixed allowlist before either action does anything - there is no dynamic
+ * mapping from an arbitrary client-supplied automationId to a workflow/event
+ * name anywhere below; the two branches are a hardcoded if/else.
+ */
+const MANUAL_RUN_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followups"]);
 
 export type AutomationActionState = {
   error?: string;
@@ -133,4 +151,158 @@ export async function setAutomationEnabled(automationId: string, enabled: boolea
   }
 
   return { success: true };
+}
+
+/**
+ * Resolves the caller's own session/organization exactly like
+ * setAutomationEnabled above, then requires org-admin - shared by
+ * runAutomationNow and dryRunAutomation below. Never accepts an
+ * organization id from the caller; always redirects/derives it from the
+ * verified session, same as every other action in this file.
+ */
+async function requireOrgAdminSession() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const membership = await getUserOrganization(supabase, user.id);
+  if (!membership) {
+    redirect("/onboarding");
+  }
+
+  const authResult = await assertOrgAdmin(supabase, membership.organizationId);
+  if (!authResult.ok) {
+    return { ok: false as const, error: authResult.error };
+  }
+
+  return { ok: true as const, supabase, organizationId: membership.organizationId };
+}
+
+/**
+ * Manual run: triggers the same scan the corresponding cron route runs
+ * (processAppointmentReminders/processEstimateFollowups), right now,
+ * instead of waiting for the next scheduled tick. Uses the caller's own
+ * session client, not service_role - RLS naturally scopes the underlying
+ * appointments/estimates queries to this organization alone, so this can
+ * never touch another organization's candidates. Every event/execution this
+ * creates goes through the exact same chokepoints (createAutomationEventAsService,
+ * startWorkflowExecutionAsService, evaluateOutboundGate, sendOutboundMessage)
+ * a real cron tick would use - the only difference is trigger_source:
+ * "manual" instead of "event", and that it can find and act on a candidate
+ * before the next scheduled tick would have. Existing idempotency keys are
+ * unchanged, so a manual run can never duplicate a send a prior cron tick
+ * (or a prior manual run) already made.
+ */
+export async function runAutomationNow(automationId: string): Promise<AutomationActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  if (!MANUAL_RUN_AUTOMATION_IDS.has(automationId)) {
+    return { error: "Manual run is not available for this automation." };
+  }
+
+  const definition = getAutomationDefinition(automationId);
+  if (!definition) {
+    return { error: "Unknown automation." };
+  }
+
+  const enabled = await getAutomationEnabled(supabase, organizationId, automationId);
+  if (!enabled) {
+    return { error: "This automation is disabled." };
+  }
+
+  const result =
+    automationId === "appointment-reminders"
+      ? await processAppointmentReminders(supabase, new Date(), undefined, "manual")
+      : await processEstimateFollowups(supabase, new Date(), undefined, "manual");
+
+  revalidatePath(`/automations/${automationId}`);
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: "automation_manual_run_requested",
+    p_automation_id: automationId,
+    p_metadata: { candidates: result.candidates },
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId,
+      action: "automation_manual_run_requested",
+      error: auditError.message,
+    });
+    return { success: true, auditWarning: "The automation ran, but the audit record could not be saved." };
+  }
+
+  return { success: true };
+}
+
+export type DryRunActionState = AutomationActionState & {
+  preview?: ReminderPreview | FollowupPreview;
+};
+
+/**
+ * Dry run: a read-only preview, never a fake execution - see
+ * previewAppointmentReminders/previewEstimateFollowups for why. Creates no
+ * automation_events/workflow_executions/messages row and never calls
+ * sendOutboundMessage, evaluateOutboundGate, triggerN8nWorkflow, or any
+ * Twilio/n8n dependency - those functions simply aren't reachable from this
+ * code path, not merely skipped by a flag.
+ */
+export async function dryRunAutomation(automationId: string): Promise<DryRunActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  if (!MANUAL_RUN_AUTOMATION_IDS.has(automationId)) {
+    return { error: "Dry run is not available for this automation." };
+  }
+
+  const definition = getAutomationDefinition(automationId);
+  if (!definition) {
+    return { error: "Unknown automation." };
+  }
+
+  const enabled = await getAutomationEnabled(supabase, organizationId, automationId);
+  if (!enabled) {
+    return { error: "This automation is disabled." };
+  }
+
+  const preview =
+    automationId === "appointment-reminders"
+      ? await previewAppointmentReminders(supabase, organizationId)
+      : await previewEstimateFollowups(supabase, organizationId);
+
+  // Narrow, non-PII metadata only - never the composed message body or a
+  // contact/appointment/estimate id.
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: "automation_dry_run_requested",
+    p_automation_id: automationId,
+    p_metadata: { outcome: preview.outcome },
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId,
+      action: "automation_dry_run_requested",
+      error: auditError.message,
+    });
+    return { success: true, preview, auditWarning: "The preview ran, but the audit record could not be saved." };
+  }
+
+  return { success: true, preview };
 }

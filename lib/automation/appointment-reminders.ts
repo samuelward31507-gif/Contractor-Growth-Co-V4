@@ -1,7 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
 import { getAutomationEnabled } from "./settings";
-import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
+import {
+  startWorkflowExecutionAsService,
+  completeWorkflowExecutionAsService,
+  failWorkflowExecutionAsService,
+  type WorkflowExecutionTriggerSource,
+} from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
@@ -80,6 +85,8 @@ export async function processAppointmentReminders(
   now: Date = new Date(),
   /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+  /** Phase D: "manual" when triggered by an org admin's "Run now" action; every real cron tick omits this and keeps the column's own 'event' default. */
+  triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<ReminderRunResult> {
   const windowEnd = new Date(now.getTime() + REMINDER_LEAD_TIME_MS);
 
@@ -99,7 +106,7 @@ export async function processAppointmentReminders(
   const outcomes: ReminderOutcome[] = [];
 
   for (const appointment of candidates) {
-    outcomes.push(await processOneReminder(supabase, appointment, sendSmsFn));
+    outcomes.push(await processOneReminder(supabase, appointment, sendSmsFn, triggerSource));
   }
 
   return { candidates: candidates.length, outcomes };
@@ -109,6 +116,7 @@ async function processOneReminder(
   supabase: SupabaseClient,
   appointment: CandidateAppointment,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+  triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<ReminderOutcome> {
   // Phase C: checked here too (not only inside createAutomationEventAsService's
   // own chokepoint) so a disabled organization skips the businessProfile/
@@ -146,6 +154,8 @@ async function processOneReminder(
     supabase,
     eventResult.event.id,
     APPOINTMENT_REMINDER_WORKFLOW,
+    {},
+    triggerSource,
   );
   if (!executionResult.ok) {
     return { appointmentId: appointment.id, outcome: "failed", error: executionResult.error };
@@ -215,4 +225,70 @@ async function processOneReminder(
   });
 
   return { appointmentId: appointment.id, outcome: "sent", messageId: sendResult.messageId };
+}
+
+export type ReminderPreview =
+  | { outcome: "would_send"; appointmentId: string; body: string }
+  | { outcome: "no_candidates" }
+  | { outcome: "no_contact"; appointmentId: string }
+  | { outcome: "contact_opted_out"; appointmentId: string };
+
+/**
+ * Phase D dry run: a read-only preview, never a fake execution. Reuses the
+ * exact same candidate-finding query and eligibility window as
+ * processAppointmentReminders (scoped to one organization here, since this
+ * is only ever called from a session-authenticated, single-org context -
+ * see app/(app)/automations/actions.ts), and the same composeReminderBody()
+ * used for a real send - but creates no automation_events/workflow_executions
+ * row, and never calls sendOutboundMessage, evaluateOutboundGate, or any
+ * provider/n8n code path. There is nothing here that could send a message:
+ * the function does not import sendOutboundMessage or any Twilio/n8n
+ * dependency at all.
+ */
+export async function previewAppointmentReminders(
+  supabase: SupabaseClient,
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<ReminderPreview> {
+  const windowEnd = new Date(now.getTime() + REMINDER_LEAD_TIME_MS);
+
+  const { data: rawCandidates } = await supabase
+    .from("appointments")
+    .select("id, organization_id, contact_id, lead_id, title, start_at, end_at, status, updated_at")
+    .eq("organization_id", organizationId)
+    .in("status", ELIGIBLE_STATUSES)
+    .gt("start_at", now.toISOString())
+    .lte("start_at", windowEnd.toISOString())
+    .limit(500);
+
+  const candidates = ((rawCandidates ?? []) as CandidateAppointment[]).filter((appointment) => {
+    const dueAt = new Date(appointment.start_at).getTime() - REMINDER_LEAD_TIME_MS;
+    return new Date(appointment.updated_at).getTime() <= dueAt;
+  });
+
+  const appointment = candidates[0];
+  if (!appointment) {
+    return { outcome: "no_candidates" };
+  }
+
+  if (!appointment.contact_id) {
+    return { outcome: "no_contact", appointmentId: appointment.id };
+  }
+
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("sms_opt_out")
+    .eq("id", appointment.contact_id)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (contact?.sms_opt_out) {
+    return { outcome: "contact_opted_out", appointmentId: appointment.id };
+  }
+
+  const businessProfile = await getBusinessProfile(supabase, organizationId);
+  const timezone = businessProfile?.timezone ?? "UTC";
+  const body = composeReminderBody(appointment, timezone);
+
+  return { outcome: "would_send", appointmentId: appointment.id, body };
 }

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type WorkflowExecutionStatus = "running" | "completed" | "failed" | "cancelled";
+export type WorkflowExecutionTriggerSource = "event" | "manual" | "retry";
 
 export type WorkflowExecution = {
   id: string;
@@ -13,6 +14,7 @@ export type WorkflowExecution = {
   completed_at: string | null;
   error_message: string | null;
   metadata: Record<string, unknown>;
+  trigger_source: WorkflowExecutionTriggerSource;
 };
 
 /**
@@ -45,6 +47,7 @@ function mapExecutionRpcError(message?: string): string {
     "Not authenticated",
     "workflow_name is required",
     "metadata must be a JSON object",
+    "Invalid trigger_source",
     "Automation event not found",
     "Automation event is already being processed",
     "Automation event has already completed",
@@ -89,6 +92,7 @@ export async function startWorkflowExecution(
   automationEventId: string,
   workflowName: string,
   metadata: Record<string, unknown> = {},
+  triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<ExecutionResult> {
   const user = await requireUser(supabase);
   if (!user) return { ok: false, error: "Not authenticated." };
@@ -106,6 +110,7 @@ export async function startWorkflowExecution(
       p_automation_event_id: automationEventId,
       p_workflow_name: name,
       p_metadata: metadata,
+      p_trigger_source: triggerSource,
     })
     .single();
 
@@ -211,6 +216,7 @@ export async function startWorkflowExecutionAsService(
   automationEventId: string,
   workflowName: string,
   metadata: Record<string, unknown> = {},
+  triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<ExecutionResult> {
   const name = workflowName.trim();
   if (!name) return { ok: false, error: "workflow_name is required." };
@@ -220,6 +226,7 @@ export async function startWorkflowExecutionAsService(
       p_automation_event_id: automationEventId,
       p_workflow_name: name,
       p_metadata: metadata,
+      p_trigger_source: triggerSource,
     })
     .single();
 

@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
-import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
+import {
+  startWorkflowExecutionAsService,
+  completeWorkflowExecutionAsService,
+  failWorkflowExecutionAsService,
+  type WorkflowExecutionTriggerSource,
+} from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
 import { getAutomationEnabled } from "./settings";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
@@ -68,6 +73,8 @@ export async function processEstimateFollowups(
   now: Date = new Date(),
   /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+  /** Phase D: "manual" when triggered by an org admin's "Run now" action; every real cron tick omits this and keeps the column's own 'event' default. */
+  triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<FollowupRunResult> {
   const { data: rawCandidates } = await supabase
     .from("estimates")
@@ -80,7 +87,7 @@ export async function processEstimateFollowups(
   const outcomes: FollowupOutcome[] = [];
 
   for (const estimate of candidates) {
-    outcomes.push(await processOneEstimate(supabase, estimate, now, sendSmsFn));
+    outcomes.push(await processOneEstimate(supabase, estimate, now, sendSmsFn, triggerSource));
   }
 
   return { candidates: candidates.length, outcomes };
@@ -91,6 +98,7 @@ async function processOneEstimate(
   estimate: CandidateEstimate,
   now: Date,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+  triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<FollowupOutcome> {
   // Phase C: covers both branches below (expiration and follow-up) - both
   // event types (estimate.expired, estimate.followup) belong to the same
@@ -101,7 +109,7 @@ async function processOneEstimate(
   }
 
   if (estimate.expires_at && new Date(estimate.expires_at).getTime() <= now.getTime()) {
-    return expireEstimate(supabase, estimate);
+    return expireEstimate(supabase, estimate, triggerSource);
   }
 
   const hoursSinceSent = (now.getTime() - new Date(estimate.sent_at).getTime()) / (60 * 60 * 1000);
@@ -117,10 +125,14 @@ async function processOneEstimate(
     return { estimateId: estimate.id, outcome: "not_due" };
   }
 
-  return sendFollowup(supabase, estimate, occurrence, sendSmsFn);
+  return sendFollowup(supabase, estimate, occurrence, sendSmsFn, triggerSource);
 }
 
-async function expireEstimate(supabase: SupabaseClient, estimate: CandidateEstimate): Promise<FollowupOutcome> {
+async function expireEstimate(
+  supabase: SupabaseClient,
+  estimate: CandidateEstimate,
+  triggerSource: WorkflowExecutionTriggerSource = "event",
+): Promise<FollowupOutcome> {
   const idempotencyKey = `estimate.expired:${estimate.id}`;
 
   const eventResult = await createAutomationEventAsService(supabase, estimate.organization_id, {
@@ -156,7 +168,13 @@ async function expireEstimate(supabase: SupabaseClient, estimate: CandidateEstim
     return { estimateId: estimate.id, outcome: "skipped_disabled" };
   }
 
-  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, ESTIMATE_EXPIRED_WORKFLOW);
+  const executionResult = await startWorkflowExecutionAsService(
+    supabase,
+    eventResult.event.id,
+    ESTIMATE_EXPIRED_WORKFLOW,
+    {},
+    triggerSource,
+  );
   if (executionResult.ok) {
     await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, {
       lifecycle_only: true,
@@ -172,6 +190,7 @@ async function sendFollowup(
   estimate: CandidateEstimate,
   occurrence: 1 | 2,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+  triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<FollowupOutcome> {
   const idempotencyKey = `estimate.followup:${estimate.id}:${occurrence}`;
 
@@ -193,7 +212,13 @@ async function sendFollowup(
     return { estimateId: estimate.id, outcome: "skipped_disabled" };
   }
 
-  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, ESTIMATE_FOLLOWUP_WORKFLOW);
+  const executionResult = await startWorkflowExecutionAsService(
+    supabase,
+    eventResult.event.id,
+    ESTIMATE_FOLLOWUP_WORKFLOW,
+    {},
+    triggerSource,
+  );
   if (!executionResult.ok) {
     return { estimateId: estimate.id, outcome: "failed", error: executionResult.error };
   }
@@ -262,4 +287,72 @@ async function sendFollowup(
   });
 
   return { estimateId: estimate.id, outcome: "sent", occurrence, messageId: sendResult.messageId };
+}
+
+export type FollowupPreview =
+  | { outcome: "would_send"; estimateId: string; occurrence: 1 | 2; body: string }
+  | { outcome: "would_expire"; estimateId: string }
+  | { outcome: "no_candidates" }
+  | { outcome: "no_contact"; estimateId: string }
+  | { outcome: "contact_opted_out"; estimateId: string };
+
+/**
+ * Phase D dry run: a read-only preview, never a fake execution - see
+ * previewAppointmentReminders in appointment-reminders.ts for the same
+ * rationale. Mirrors processOneEstimate's per-candidate eligibility logic
+ * (expiration check, then follow-up occurrence timing) but never creates an
+ * automation_events/workflow_executions row, never updates estimates.status,
+ * and never calls sendOutboundMessage, evaluateOutboundGate, or any
+ * provider/n8n code path - this function does not import any of them.
+ */
+export async function previewEstimateFollowups(
+  supabase: SupabaseClient,
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<FollowupPreview> {
+  const { data: rawCandidates } = await supabase
+    .from("estimates")
+    .select("id, organization_id, contact_id, lead_id, title, status, sent_at, expires_at")
+    .eq("organization_id", organizationId)
+    .in("status", ACTIVE_STATUSES)
+    .not("sent_at", "is", null)
+    .limit(500);
+
+  const candidates = (rawCandidates ?? []) as CandidateEstimate[];
+
+  for (const estimate of candidates) {
+    if (estimate.expires_at && new Date(estimate.expires_at).getTime() <= now.getTime()) {
+      return { outcome: "would_expire", estimateId: estimate.id };
+    }
+
+    const hoursSinceSent = (now.getTime() - new Date(estimate.sent_at).getTime()) / (60 * 60 * 1000);
+
+    let occurrence: 1 | 2 | null = null;
+    if (hoursSinceSent >= FOLLOWUP_2_HOURS) {
+      occurrence = 2;
+    } else if (hoursSinceSent >= FOLLOWUP_1_HOURS) {
+      occurrence = 1;
+    }
+
+    if (!occurrence) continue;
+
+    if (!estimate.contact_id) {
+      return { outcome: "no_contact", estimateId: estimate.id };
+    }
+
+    const { data: contact } = await supabase
+      .from("contacts")
+      .select("sms_opt_out")
+      .eq("id", estimate.contact_id)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+
+    if (contact?.sms_opt_out) {
+      return { outcome: "contact_opted_out", estimateId: estimate.id };
+    }
+
+    return { outcome: "would_send", estimateId: estimate.id, occurrence, body: composeFollowupBody(estimate, occurrence) };
+  }
+
+  return { outcome: "no_candidates" };
 }

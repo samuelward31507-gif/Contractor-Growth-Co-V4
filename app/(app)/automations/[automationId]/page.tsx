@@ -5,10 +5,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
 import { getWorkflowNameStats, getRecentExecutionsForWorkflows, buildAutomationSummaries } from "@/lib/automation/queries";
+import { getAutomationEnabled } from "@/lib/automation/settings";
 import { pageTitleClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { AutomationStatusPill } from "../_components/status-pill";
 import { HowItWorks } from "../_components/how-it-works";
 import { RecentExecutions } from "../_components/recent-executions";
+import { ManualRunControls } from "../_components/manual-run-controls";
 import { formatCount } from "../_components/format";
 
 /**
@@ -42,9 +44,17 @@ export default async function AutomationDetailPage({ params }: { params: Promise
     redirect("/onboarding");
   }
 
-  const [statsByName, executions] = await Promise.all([
+  // Manual run/dry run (Phase D) are only offered for the two
+  // Trackpr-dispatched automations - see ManualRunControls's own comment.
+  // This is a rendering-only signal; app/(app)/automations/actions.ts holds
+  // its own independent, authoritative allowlist and re-validates it
+  // server-side regardless of what this page renders.
+  const supportsManualRun = definition.dispatch === "trackpr";
+
+  const [statsByName, executions, automationEnabled] = await Promise.all([
     getWorkflowNameStats(supabase, membership.organizationId),
     getRecentExecutionsForWorkflows(supabase, membership.organizationId, definition.workflowNames),
+    supportsManualRun ? getAutomationEnabled(supabase, membership.organizationId, definition.id) : Promise.resolve(true),
   ]);
 
   const summary = buildAutomationSummaries(statsByName).find((s) => s.definition.id === definition.id)!;
@@ -91,6 +101,7 @@ export default async function AutomationDetailPage({ params }: { params: Promise
               Workflow{definition.workflowNames.length === 1 ? "" : "s"}: {definition.workflowNames.join(", ")}
             </p>
           ) : null}
+          {supportsManualRun ? <ManualRunControls automationId={definition.id} enabled={automationEnabled} /> : null}
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 lg:col-span-2">
