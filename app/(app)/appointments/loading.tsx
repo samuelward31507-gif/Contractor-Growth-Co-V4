@@ -16,16 +16,18 @@ export default function AppointmentsLoading() {
         <div className="h-10 w-40 animate-pulse rounded-lg bg-slate-100" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="h-2.5 w-20 animate-pulse rounded bg-slate-100" />
-              <div className="h-7 w-7 shrink-0 animate-pulse rounded-full bg-slate-100" />
+      {/* Mirrors lib/ui/hero-stat-row.tsx's shape - an emphasized callout
+          beside a divided strip - not a 4-up StatCard grid. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,220px)_1fr]">
+        <div className="h-[84px] animate-pulse rounded-2xl bg-slate-100" />
+        <div className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="bg-white px-5 py-4">
+              <div className="h-2.5 w-16 animate-pulse rounded bg-slate-100" />
+              <div className="mt-2 h-6 w-12 animate-pulse rounded bg-slate-100" />
             </div>
-            <div className="mt-3 h-7 w-14 animate-pulse rounded bg-slate-100" />
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <div className="border-t border-slate-200 pt-8">

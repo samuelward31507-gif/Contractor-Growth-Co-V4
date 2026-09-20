@@ -1,0 +1,62 @@
+import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { formatCurrency } from "@/lib/dashboard/format";
+import type { OverviewMetrics } from "@/lib/dashboard/queries";
+import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
+import { formatComparisonBadge, formatRate } from "./period-comparison-format";
+
+/**
+ * Dashboard composition redesign: the reference-number rail that replaces
+ * the old OverviewStrip + KeyMetrics full-width StatGrid sections. Those two
+ * boxed-card grids gave every number on the page the exact same visual
+ * weight, which is what made the dashboard read as a stack of interchangeable
+ * admin-template sections rather than a designed page. Here the same real
+ * numbers (nothing recalculated, nothing invented - see the two source
+ * queries) are compressed into a compact label/value list inside the one
+ * contained panel on the page, so they read as reference detail supporting
+ * the page's real leads - the hero pipeline-value figure in the header and
+ * the Needs Attention / Pipeline flow in the main column.
+ *
+ * Deliberately kept as two clearly-labeled groups rather than one merged
+ * list: "Right now" (OverviewMetrics - live current-state counts) and "Last
+ * 30 days" (BusinessMetricsSnapshot - a period aggregate). Their similarly-
+ * named fields (e.g. open opportunities) are computed differently and would
+ * misrepresent the business if silently combined into one number.
+ */
+function Row({ label, value, description }: { label: string; value: string; description?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-2">
+      <span className="text-sm text-slate-600">{label}</span>
+      <span className="text-right">
+        <span className="text-sm font-semibold tabular-nums text-slate-900">{value}</span>
+        {description ? <span className="ml-1.5 text-xs text-slate-400">{description}</span> : null}
+      </span>
+    </div>
+  );
+}
+
+export function BusinessGlance({ overview, snapshot }: { overview: OverviewMetrics; snapshot: BusinessMetricsSnapshot }) {
+  return (
+    <div>
+      <p className={sectionLabelClass}>Right now</p>
+      <div className="mt-1.5 divide-y divide-slate-100">
+        <Row label="New leads" value={String(overview.newLeads)} />
+        <Row label="Open opportunities" value={String(overview.openOpportunities)} />
+        <Row label="Upcoming appointments" value={String(overview.upcomingAppointments)} />
+        <Row label="Estimates pending" value={String(overview.pendingEstimates)} />
+      </div>
+
+      <p className={`mt-5 ${sectionLabelClass}`}>Last 30 days</p>
+      <div className="mt-1.5 divide-y divide-slate-100">
+        <Row label="Leads" value={String(snapshot.comparisons.leadCount.current)} description={formatComparisonBadge(snapshot.comparisons.leadCount) ?? undefined} />
+        <Row
+          label="Estimates"
+          value={String(snapshot.comparisons.estimateCount.current)}
+          description={`Accept rate ${formatRate(snapshot.estimateMetrics.estimateAcceptanceRate)}`}
+        />
+        <Row label="Jobs" value={String(snapshot.comparisons.jobCount.current)} description={formatComparisonBadge(snapshot.comparisons.jobCount) ?? undefined} />
+        <Row label="Contracted job value" value={formatCurrency(snapshot.jobMetrics.contractedJobValue)} />
+      </div>
+      <p className={`mt-3 ${metaClass}`}>Quoted amounts, not collected payments.</p>
+    </div>
+  );
+}

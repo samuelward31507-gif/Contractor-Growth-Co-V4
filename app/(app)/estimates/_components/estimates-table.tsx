@@ -4,7 +4,7 @@ import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS } from "@/lib/estimates/format";
 import type { Estimate } from "@/lib/estimates/queries";
-import { Badge } from "@/lib/ui/badge";
+import { Badge, RAIL_TONE_CLASS } from "@/lib/ui/badge";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "./status";
 
 const ROW_GRID = "grid-cols-[minmax(0,1fr)_112px_96px_92px_20px]";
@@ -33,7 +33,7 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
           LeadsTable, sharing column positions across header and rows via a
           grid template. */}
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-6 border-b border-slate-200 px-2 pb-3`}>
+        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-slate-200 pl-3 pr-2 pb-3`}>
           <span className="text-xs text-slate-400">Estimate</span>
           <span className="text-xs text-slate-400">Status</span>
           <span className="text-right text-xs text-slate-400">Amount</span>
@@ -45,7 +45,7 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
             <Link
               key={estimate.id}
               href={`/estimates/${estimate.id}`}
-              className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-slate-50`}
+              className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[ESTIMATE_STATUS_TONE[estimate.status]]}`}
             >
               <span className="flex min-w-0 items-center gap-3">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
@@ -85,7 +85,10 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
       <ul className="divide-y divide-slate-100 lg:hidden">
         {estimates.map((estimate) => (
           <li key={estimate.id}>
-            <Link href={`/estimates/${estimate.id}`} className="flex items-start gap-3 px-2 py-3.5">
+            <Link
+              href={`/estimates/${estimate.id}`}
+              className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 ${RAIL_TONE_CLASS[ESTIMATE_STATUS_TONE[estimate.status]]}`}
+            >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
                 {estimate.contact ? contactInitials(estimate.contact) : "?"}
               </span>

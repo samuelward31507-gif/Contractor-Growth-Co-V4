@@ -25,6 +25,23 @@ const TONE_CLASS: Record<BadgeTone, string> = {
   danger: "bg-red-50 text-red-700",
 };
 
+/**
+ * A left-edge row-rail color per BadgeTone - a restrained, always-visible
+ * status signal for list-page table rows (leads, appointments, estimates,
+ * jobs) that doesn't depend on the reader parsing a text badge first.
+ * Neutral/info stay a near-invisible slate hairline so the ordinary working
+ * pipeline doesn't compete for attention; only a genuinely time-sensitive or
+ * resolved state gets real color, so the rail stays meaningful rather than
+ * turning into a decorative rainbow down the left edge of every table.
+ */
+export const RAIL_TONE_CLASS: Record<BadgeTone, string> = {
+  neutral: "border-l-slate-200",
+  info: "border-l-slate-200",
+  success: "border-l-emerald-400",
+  warning: "border-l-amber-400",
+  danger: "border-l-red-400",
+};
+
 export function Badge({
   tone = "neutral",
   icon: Icon,

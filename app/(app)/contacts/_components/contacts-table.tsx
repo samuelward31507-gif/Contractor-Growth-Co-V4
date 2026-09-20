@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, Search } from "lucide-react";
+import { ChevronRight, Search, Phone, Mail, Building2 } from "lucide-react";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import type { Contact } from "@/lib/contacts/queries";
@@ -8,6 +8,29 @@ const ROW_GRID = "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_96px_20px]";
 
 function secondaryLine(contact: Contact): string {
   return [contact.phone, contact.email].filter(Boolean).join(" · ") || "No details yet";
+}
+
+/** Icon-led detail cell - phone and email now read as distinct, scannable facts rather than one plain-text string joined by a middot. */
+function ContactDetails({ contact }: { contact: Contact }) {
+  if (!contact.phone && !contact.email) {
+    return <span className="text-sm text-slate-400">No details yet</span>;
+  }
+  return (
+    <span className="flex flex-col gap-0.5">
+      {contact.phone ? (
+        <span className="flex items-center gap-1.5 truncate text-sm text-slate-600">
+          <Phone className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+          {contact.phone}
+        </span>
+      ) : null}
+      {contact.email ? (
+        <span className="flex items-center gap-1.5 truncate text-sm text-slate-600">
+          <Mail className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+          {contact.email}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 export function ContactsTable({ contacts, query }: { contacts: Contact[]; query: string }) {
@@ -46,11 +69,14 @@ export function ContactsTable({ contacts, query }: { contacts: Contact[]; query:
                     {contactDisplayName(contact)}
                   </span>
                   {contact.company_name ? (
-                    <span className="block truncate text-xs text-slate-500">{contact.company_name}</span>
+                    <span className="flex items-center gap-1 truncate text-xs text-slate-500">
+                      <Building2 className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+                      {contact.company_name}
+                    </span>
                   ) : null}
                 </span>
               </span>
-              <span className="truncate text-sm text-slate-600">{secondaryLine(contact)}</span>
+              <ContactDetails contact={contact} />
               <span className="text-xs tabular-nums text-slate-400">{formatContactDate(contact.created_at)}</span>
               <ChevronRight
                 className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"

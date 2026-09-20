@@ -6,13 +6,14 @@ import { createClient } from "@/lib/supabase/server";
 import { getJob } from "@/lib/jobs/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { getReviewRequestForJob, getReferralRequestForJob } from "@/lib/reviews-referrals/queries";
-import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
+import { contactDisplayName, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
 import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
+import { SectionCard, Panel } from "@/lib/ui/section-card";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../_components/status";
 import { JobActions } from "./_components/job-actions";
 import { ReviewReferralPanel } from "./_components/review-referral-panel";
@@ -94,126 +95,141 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
         </p>
       </div>
 
-      <div className="border-t border-slate-200 pt-8">
-        <h2 className={subsectionTitleClass}>Job</h2>
-        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-          <div>
-            <dt className={detailLabelClass}>Created</dt>
-            <dd className={detailValueClass}>{formatContactDate(job.created_at)}</dd>
-          </div>
-          <div>
-            <dt className={detailLabelClass}>Started</dt>
-            <dd className={detailValueClass}>{job.started_at ? formatContactDate(job.started_at) : "—"}</dd>
-          </div>
-          <div>
-            <dt className={detailLabelClass}>Completed</dt>
-            <dd className={detailValueClass}>{job.completed_at ? formatContactDate(job.completed_at) : "—"}</dd>
-          </div>
-        </dl>
-        {job.notes ? (
-          <div className="mt-4">
-            <dt className={detailLabelClass}>Notes</dt>
-            <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{job.notes}</dd>
-          </div>
-        ) : null}
-      </div>
-
-      {job.estimate ? (
-        <div className="border-t border-slate-200 pt-8">
-          <div className="flex items-center justify-between">
-            <h2 className={subsectionTitleClass}>Estimate</h2>
-            <Link href={`/estimates/${job.estimate.id}`} className="text-sm font-medium text-slate-600 hover:text-slate-900">
-              View estimate
-            </Link>
-          </div>
-          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-            <div>
-              <dt className={detailLabelClass}>Title</dt>
-              <dd className={detailValueClass}>{job.estimate.title}</dd>
-            </div>
-            <div>
-              <dt className={detailLabelClass}>Estimate status</dt>
-              <dd className={detailValueClass}>{ESTIMATE_STATUS_LABELS[job.estimate.status]}</dd>
-            </div>
-            <div>
-              <dt className={detailLabelClass}>Estimate amount</dt>
-              <dd className={detailValueClass}>
-                {job.estimate.amount != null ? formatCurrency(job.estimate.amount) : "—"}
-              </dd>
-            </div>
-          </dl>
-        </div>
-      ) : null}
-
-      {job.contact ? (
-        <div className="border-t border-slate-200 pt-8">
-          <div className="flex items-center justify-between">
-            <h2 className={subsectionTitleClass}>Customer</h2>
-            <Link href={`/contacts/${job.contact.id}`} className="text-sm font-medium text-slate-600 hover:text-slate-900">
-              View contact
-            </Link>
-          </div>
-          <div className="mt-4 flex items-center gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-medium text-slate-600">
-              {contactInitials(job.contact)}
-            </span>
-            <dl className="grid flex-1 grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-3">
+      {/* Same two-column convention as Lead/Contact Detail. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+        <div className="flex flex-col gap-6 lg:col-span-2">
+          <SectionCard title="Job">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
               <div>
-                <dt className={detailLabelClass}>Name</dt>
-                <dd className={detailValueClass}>{contactDisplayName(job.contact)}</dd>
+                <dt className={detailLabelClass}>Created</dt>
+                <dd className={detailValueClass}>{formatContactDate(job.created_at)}</dd>
               </div>
-              {job.contact.phone ? (
+              <div>
+                <dt className={detailLabelClass}>Started</dt>
+                <dd className={detailValueClass}>{job.started_at ? formatContactDate(job.started_at) : "—"}</dd>
+              </div>
+              <div>
+                <dt className={detailLabelClass}>Completed</dt>
+                <dd className={detailValueClass}>{job.completed_at ? formatContactDate(job.completed_at) : "—"}</dd>
+              </div>
+            </dl>
+            {job.notes ? (
+              <div className="mt-4">
+                <dt className={detailLabelClass}>Notes</dt>
+                <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{job.notes}</dd>
+              </div>
+            ) : null}
+          </SectionCard>
+
+          {job.estimate ? (
+            <SectionCard
+              title="Estimate"
+              action={
+                <Link href={`/estimates/${job.estimate.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  View estimate
+                </Link>
+              }
+            >
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
                 <div>
-                  <dt className={detailLabelClass}>Phone</dt>
-                  <dd className={detailValueClass}>{job.contact.phone}</dd>
+                  <dt className={detailLabelClass}>Title</dt>
+                  <dd className={detailValueClass}>{job.estimate.title}</dd>
                 </div>
-              ) : null}
-              {job.contact.email ? (
                 <div>
-                  <dt className={detailLabelClass}>Email</dt>
-                  <dd className={detailValueClass}>{job.contact.email}</dd>
+                  <dt className={detailLabelClass}>Estimate status</dt>
+                  <dd className={detailValueClass}>{ESTIMATE_STATUS_LABELS[job.estimate.status]}</dd>
+                </div>
+                <div>
+                  <dt className={detailLabelClass}>Estimate amount</dt>
+                  <dd className={detailValueClass}>
+                    {job.estimate.amount != null ? formatCurrency(job.estimate.amount) : "—"}
+                  </dd>
+                </div>
+              </dl>
+            </SectionCard>
+          ) : null}
+
+          {job.lead ? (
+            <SectionCard
+              title="Lead"
+              action={
+                <Link href={`/leads/${job.lead.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  View lead
+                </Link>
+              }
+            >
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+                <div>
+                  <dt className={detailLabelClass}>Service</dt>
+                  <dd className={detailValueClass}>{job.lead.service || "—"}</dd>
+                </div>
+                <div>
+                  <dt className={detailLabelClass}>Lead status</dt>
+                  <dd className={detailValueClass}>{LEAD_STATUS_LABELS[job.lead.status]}</dd>
+                </div>
+                <div>
+                  <dt className={detailLabelClass}>Temperature</dt>
+                  <dd className={detailValueClass}>{TEMPERATURE_LABELS[job.lead.temperature]}</dd>
+                </div>
+              </dl>
+            </SectionCard>
+          ) : null}
+
+          {/* Review/referral is the final stage of a job's lifecycle - the
+              customer-facing outcome after everything else about this job's
+              own record has already been read - so it reads last in the main
+              column, not ahead of the record's own facts. */}
+          <ReviewReferralPanel jobId={job.id} reviewRequest={reviewRequest} referralRequest={referralRequest} leadOptions={leadOptions} />
+        </div>
+
+        <div className="flex flex-col gap-6">
+          {job.contact ? (
+            <SectionCard
+              title="Customer"
+              action={
+                <Link href={`/contacts/${job.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  View contact
+                </Link>
+              }
+            >
+              <dl className="space-y-3">
+                <div>
+                  <dt className={detailLabelClass}>Name</dt>
+                  <dd className={detailValueClass}>{contactDisplayName(job.contact)}</dd>
+                </div>
+                {job.contact.phone ? (
+                  <div>
+                    <dt className={detailLabelClass}>Phone</dt>
+                    <dd className={detailValueClass}>{job.contact.phone}</dd>
+                  </div>
+                ) : null}
+                {job.contact.email ? (
+                  <div>
+                    <dt className={detailLabelClass}>Email</dt>
+                    <dd className={detailValueClass}>{job.contact.email}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </SectionCard>
+          ) : null}
+
+          <Panel>
+            <h2 className={subsectionTitleClass}>Details</h2>
+            <dl className="mt-3 space-y-3">
+              <div>
+                <dt className={detailLabelClass}>Added</dt>
+                <dd className={detailValueClass}>{formatContactDate(job.created_at)}</dd>
+              </div>
+              {job.updated_at !== job.created_at ? (
+                <div>
+                  <dt className={detailLabelClass}>Last updated</dt>
+                  <dd className={detailValueClass}>{formatContactDate(job.updated_at)}</dd>
                 </div>
               ) : null}
             </dl>
-          </div>
+          </Panel>
         </div>
-      ) : null}
-
-      {job.lead ? (
-        <div className="border-t border-slate-200 pt-8">
-          <div className="flex items-center justify-between">
-            <h2 className={subsectionTitleClass}>Lead</h2>
-            <Link href={`/leads/${job.lead.id}`} className="text-sm font-medium text-slate-600 hover:text-slate-900">
-              View lead
-            </Link>
-          </div>
-          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-            <div>
-              <dt className={detailLabelClass}>Service</dt>
-              <dd className={detailValueClass}>{job.lead.service || "—"}</dd>
-            </div>
-            <div>
-              <dt className={detailLabelClass}>Lead status</dt>
-              <dd className={detailValueClass}>{LEAD_STATUS_LABELS[job.lead.status]}</dd>
-            </div>
-            <div>
-              <dt className={detailLabelClass}>Temperature</dt>
-              <dd className={detailValueClass}>{TEMPERATURE_LABELS[job.lead.temperature]}</dd>
-            </div>
-          </dl>
-        </div>
-      ) : null}
-
-      {/* Review/referral is the final stage of a job's lifecycle - the
-          customer-facing outcome after everything above (schedule, linked
-          estimate, customer, originating lead) has already been read - so it
-          reads last, not ahead of the record's own facts. */}
-      <ReviewReferralPanel jobId={job.id} reviewRequest={reviewRequest} referralRequest={referralRequest} leadOptions={leadOptions} />
-
-      <p className="text-xs text-slate-400">
-        Added {formatContactDate(job.created_at)}
-        {job.updated_at !== job.created_at ? ` · Updated ${formatContactDate(job.updated_at)}` : ""}
-      </p>
+      </div>
     </div>
   );
 }

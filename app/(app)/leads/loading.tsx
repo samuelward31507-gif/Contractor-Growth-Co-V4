@@ -16,13 +16,18 @@ export default function LeadsLoading() {
         <div className="h-10 w-32 animate-pulse rounded-lg bg-slate-100" />
       </div>
 
-      <div className="flex flex-wrap gap-x-10 gap-y-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i}>
-            <div className="h-2.5 w-24 animate-pulse rounded bg-slate-100" />
-            <div className="mt-2 h-6 w-16 animate-pulse rounded bg-slate-100" />
-          </div>
-        ))}
+      {/* Mirrors lib/ui/hero-stat-row.tsx's shape - an emphasized callout
+          beside a divided strip - not the old 4-item flex-wrap row. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,220px)_1fr]">
+        <div className="h-[84px] animate-pulse rounded-2xl bg-slate-100" />
+        <div className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="bg-white px-5 py-4">
+              <div className="h-2.5 w-16 animate-pulse rounded bg-slate-100" />
+              <div className="mt-2 h-6 w-12 animate-pulse rounded bg-slate-100" />
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">

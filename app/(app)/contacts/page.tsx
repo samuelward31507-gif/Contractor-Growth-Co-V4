@@ -67,6 +67,13 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
       <PageHeader
         title="Contacts"
         description="Manage the people and customers connected to your business."
+        badge={
+          allContacts.length > 0 ? (
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+              {allContacts.length}
+            </span>
+          ) : undefined
+        }
         action={
           <div className="flex items-center gap-3">
             <Link

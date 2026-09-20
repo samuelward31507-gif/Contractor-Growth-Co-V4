@@ -1,28 +1,28 @@
 import { Flame, Wallet } from "lucide-react";
-import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { sectionLabelClass } from "@/lib/ui/typography";
+import { HeroStatRow } from "@/lib/ui/hero-stat-row";
 import { formatCurrency } from "@/lib/dashboard/format";
 import type { LeadSummary } from "@/lib/leads/queries";
 
 /**
- * Final visual polish pass: the four PRIMARY overview metrics get their own
- * bordered StatCard (lib/ui/stat-card.tsx) instead of the old inline
- * label/value strip, so pipeline value and lead counts use the available
- * desktop width instead of clustering in one left-aligned row. Hot leads
- * and open opportunity value get a success-tone icon chip - both are
- * genuinely positive signals worth calling out; total/new stay neutral so
- * the accent doesn't spread across every card.
+ * Hot leads are the one number on this page that means "act now," so they
+ * lead via lib/ui/hero-stat-row.tsx rather than competing at equal visual
+ * weight with total/new/open-value in a uniform grid.
  */
 export function LeadsSummary({ summary }: { summary: LeadSummary }) {
   return (
     <div>
       <p className={sectionLabelClass}>Overview</p>
-      <StatGrid columns={4} className="mt-3">
-        <StatCard label="Total leads" value={summary.total} />
-        <StatCard label="New leads" value={summary.newCount} />
-        <StatCard label="Hot leads" value={summary.hotCount} tone="success" icon={Flame} />
-        <StatCard label="Open opportunity value" value={formatCurrency(summary.openValue)} tone="success" icon={Wallet} />
-      </StatGrid>
+      <div className="mt-3">
+        <HeroStatRow
+          hero={{ label: "Hot leads", value: summary.hotCount, icon: Flame, tone: "danger" }}
+          secondary={[
+            { label: "Total leads", value: summary.total },
+            { label: "New", value: summary.newCount },
+            { label: "Open value", value: formatCurrency(summary.openValue), icon: Wallet },
+          ]}
+        />
+      </div>
     </div>
   );
 }

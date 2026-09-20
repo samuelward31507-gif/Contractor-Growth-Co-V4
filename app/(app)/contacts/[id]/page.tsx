@@ -17,49 +17,15 @@ import { STATUS_LABELS as LEAD_STATUS_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
 import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
-import { Badge, type BadgeTone } from "@/lib/ui/badge";
+import { Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
 import { StatGrid, StatCard } from "@/lib/ui/stat-card";
-import type { LeadStatus } from "@/lib/leads/queries";
-import type { AppointmentStatus } from "@/lib/appointments/queries";
-import type { EstimateStatus } from "@/lib/estimates/queries";
-import type { JobStatus } from "@/lib/jobs/queries";
+import { LEAD_STATUS_TONE } from "../../leads/_components/lead-status";
+import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointments/_components/status";
+import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
+import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
 import { ContactActions } from "./_components/contact-actions";
-
-const LEAD_STATUS_TONE: Record<LeadStatus, BadgeTone> = {
-  new: "neutral",
-  contacted: "neutral",
-  qualified: "info",
-  appointment: "info",
-  estimate: "warning",
-  won: "success",
-  lost: "danger",
-};
-
-const APPOINTMENT_STATUS_TONE: Record<AppointmentStatus, BadgeTone> = {
-  scheduled: "neutral",
-  confirmed: "info",
-  completed: "success",
-  cancelled: "danger",
-  no_show: "warning",
-};
-
-const ESTIMATE_STATUS_TONE: Record<EstimateStatus, BadgeTone> = {
-  draft: "neutral",
-  sent: "info",
-  accepted: "success",
-  declined: "danger",
-  cancelled: "neutral",
-  expired: "warning",
-};
-
-const JOB_STATUS_TONE: Record<JobStatus, BadgeTone> = {
-  scheduled: "neutral",
-  in_progress: "info",
-  completed: "success",
-  cancelled: "danger",
-};
 
 const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [item.value, item.label]));
 
@@ -248,7 +214,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                           {formatAppointmentTimeRange(appointment.start_at, appointment.end_at)}
                         </span>
                       </span>
-                      <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]}>
+                      <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]} icon={APPOINTMENT_STATUS_ICON[appointment.status]}>
                         {APPOINTMENT_STATUS_LABELS[appointment.status]}
                       </Badge>
                     </Link>
@@ -277,7 +243,9 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                         <span className="text-sm font-medium tabular-nums text-slate-700">
                           {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
                         </span>
-                        <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]}>{ESTIMATE_STATUS_LABELS[estimate.status]}</Badge>
+                        <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
+                          {ESTIMATE_STATUS_LABELS[estimate.status]}
+                        </Badge>
                       </span>
                     </Link>
                   </li>
@@ -301,7 +269,9 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                       <span className="text-sm font-medium tabular-nums text-slate-700">
                         {job.amount != null ? formatCurrency(job.amount) : "—"}
                       </span>
-                      <Badge tone={JOB_STATUS_TONE[job.status]}>{JOB_STATUS_LABELS[job.status]}</Badge>
+                      <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
+                        {JOB_STATUS_LABELS[job.status]}
+                      </Badge>
                     </span>
                   </li>
                 ))}

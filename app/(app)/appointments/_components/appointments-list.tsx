@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CalendarCheck2, CalendarClock, ChevronRight, History, SearchX } from "lucide-react";
 import { sectionLabelClass } from "@/lib/ui/typography";
-import { Badge } from "@/lib/ui/badge";
+import { Badge, RAIL_TONE_CLASS } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { contactDisplayName, contactInitials } from "@/lib/contacts/format";
 import {
@@ -29,7 +29,7 @@ function AppointmentRow({
     <li>
       <Link
         href={`/appointments/${appointment.id}`}
-        className="group flex items-center gap-3 rounded-md px-2 py-3.5 transition-colors hover:bg-slate-50"
+        className={`group flex items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
       >
         {/* Leading time column - this list reads as "the contractor's day"
             first and foremost, so the answer to "when" is the first thing

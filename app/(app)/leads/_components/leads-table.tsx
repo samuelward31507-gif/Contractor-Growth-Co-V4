@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ChevronRight, Flame, Search } from "lucide-react";
-import { Badge } from "@/lib/ui/badge";
+import { Badge, RAIL_TONE_CLASS } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
@@ -35,7 +35,7 @@ export function LeadsTable({ leads, hasActiveFilters }: { leads: Lead[]; hasActi
       {/* Desktop: aligned row list, not an HTML table - same column positions
           as the data rows below, via a shared grid template. */}
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-6 border-b border-slate-200 px-2 pb-3`}>
+        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-slate-200 pl-3 pr-2 pb-3`}>
           <span className="text-xs text-slate-400">Lead</span>
           <span className="text-xs text-slate-400">Status</span>
           <span className="text-xs text-slate-400">Temperature</span>
@@ -48,7 +48,7 @@ export function LeadsTable({ leads, hasActiveFilters }: { leads: Lead[]; hasActi
             <Link
               key={lead.id}
               href={`/leads/${lead.id}`}
-              className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-slate-50`}
+              className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[LEAD_STATUS_TONE[lead.status]]}`}
             >
               <span className="flex min-w-0 items-center gap-3">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
@@ -88,7 +88,10 @@ export function LeadsTable({ leads, hasActiveFilters }: { leads: Lead[]; hasActi
       <ul className="divide-y divide-slate-100 lg:hidden">
         {leads.map((lead) => (
           <li key={lead.id}>
-            <Link href={`/leads/${lead.id}`} className="flex items-start gap-3 px-2 py-3.5">
+            <Link
+              href={`/leads/${lead.id}`}
+              className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 ${RAIL_TONE_CLASS[LEAD_STATUS_TONE[lead.status]]}`}
+            >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
                 {lead.contact ? contactInitials(lead.contact) : "?"}
               </span>

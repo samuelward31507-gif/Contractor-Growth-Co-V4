@@ -7,13 +7,14 @@ import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { getEstimate } from "@/lib/estimates/queries";
 import { getJobByEstimateId } from "@/lib/jobs/queries";
-import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
+import { contactDisplayName, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
 import { successBannerClass } from "@/lib/ui/form";
+import { SectionCard, Panel } from "@/lib/ui/section-card";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../_components/status";
 import { EstimateActions } from "./_components/estimate-actions";
 
@@ -106,97 +107,111 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
         </p>
       </div>
 
-      <div className="border-t border-slate-200 pt-8">
-        <h2 className={subsectionTitleClass}>Estimate</h2>
-        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-          <div>
-            <dt className={detailLabelClass}>Created</dt>
-            <dd className={detailValueClass}>{formatContactDate(estimate.created_at)}</dd>
-          </div>
-          <div>
-            <dt className={detailLabelClass}>Sent</dt>
-            <dd className={detailValueClass}>{estimate.sent_at ? formatContactDate(estimate.sent_at) : "—"}</dd>
-          </div>
-          <div>
-            <dt className={detailLabelClass}>Responded</dt>
-            <dd className={detailValueClass}>{estimate.responded_at ? formatContactDate(estimate.responded_at) : "—"}</dd>
-          </div>
-          <div>
-            <dt className={detailLabelClass}>Expires</dt>
-            <dd className={detailValueClass}>{estimate.expires_at ? formatContactDate(estimate.expires_at) : "—"}</dd>
-          </div>
-        </dl>
-        {estimate.notes ? (
-          <div className="mt-4">
-            <dt className={detailLabelClass}>Notes</dt>
-            <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{estimate.notes}</dd>
-          </div>
-        ) : null}
-      </div>
-
-      {estimate.contact ? (
-        <div className="border-t border-slate-200 pt-8">
-          <div className="flex items-center justify-between">
-            <h2 className={subsectionTitleClass}>Customer</h2>
-            <Link href={`/contacts/${estimate.contact.id}`} className="text-sm font-medium text-slate-600 hover:text-slate-900">
-              View contact
-            </Link>
-          </div>
-          <div className="mt-4 flex items-center gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-medium text-slate-600">
-              {contactInitials(estimate.contact)}
-            </span>
-            <dl className="grid flex-1 grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-3">
+      {/* Same two-column convention as Lead/Contact Detail. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+        <div className="flex flex-col gap-6 lg:col-span-2">
+          <SectionCard title="Estimate">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
               <div>
-                <dt className={detailLabelClass}>Name</dt>
-                <dd className={detailValueClass}>{contactDisplayName(estimate.contact)}</dd>
+                <dt className={detailLabelClass}>Created</dt>
+                <dd className={detailValueClass}>{formatContactDate(estimate.created_at)}</dd>
               </div>
-              {estimate.contact.phone ? (
+              <div>
+                <dt className={detailLabelClass}>Sent</dt>
+                <dd className={detailValueClass}>{estimate.sent_at ? formatContactDate(estimate.sent_at) : "—"}</dd>
+              </div>
+              <div>
+                <dt className={detailLabelClass}>Responded</dt>
+                <dd className={detailValueClass}>{estimate.responded_at ? formatContactDate(estimate.responded_at) : "—"}</dd>
+              </div>
+              <div>
+                <dt className={detailLabelClass}>Expires</dt>
+                <dd className={detailValueClass}>{estimate.expires_at ? formatContactDate(estimate.expires_at) : "—"}</dd>
+              </div>
+            </dl>
+            {estimate.notes ? (
+              <div className="mt-4">
+                <dt className={detailLabelClass}>Notes</dt>
+                <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{estimate.notes}</dd>
+              </div>
+            ) : null}
+          </SectionCard>
+
+          {estimate.lead ? (
+            <SectionCard
+              title="Lead"
+              action={
+                <Link href={`/leads/${estimate.lead.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  View lead
+                </Link>
+              }
+            >
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>
-                  <dt className={detailLabelClass}>Phone</dt>
-                  <dd className={detailValueClass}>{estimate.contact.phone}</dd>
+                  <dt className={detailLabelClass}>Service</dt>
+                  <dd className={detailValueClass}>{estimate.lead.service || "—"}</dd>
                 </div>
-              ) : null}
-              {estimate.contact.email ? (
                 <div>
-                  <dt className={detailLabelClass}>Email</dt>
-                  <dd className={detailValueClass}>{estimate.contact.email}</dd>
+                  <dt className={detailLabelClass}>Lead status</dt>
+                  <dd className={detailValueClass}>{LEAD_STATUS_LABELS[estimate.lead.status]}</dd>
+                </div>
+                <div>
+                  <dt className={detailLabelClass}>Temperature</dt>
+                  <dd className={detailValueClass}>{TEMPERATURE_LABELS[estimate.lead.temperature]}</dd>
+                </div>
+              </dl>
+            </SectionCard>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col gap-6">
+          {estimate.contact ? (
+            <SectionCard
+              title="Customer"
+              action={
+                <Link href={`/contacts/${estimate.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  View contact
+                </Link>
+              }
+            >
+              <dl className="space-y-3">
+                <div>
+                  <dt className={detailLabelClass}>Name</dt>
+                  <dd className={detailValueClass}>{contactDisplayName(estimate.contact)}</dd>
+                </div>
+                {estimate.contact.phone ? (
+                  <div>
+                    <dt className={detailLabelClass}>Phone</dt>
+                    <dd className={detailValueClass}>{estimate.contact.phone}</dd>
+                  </div>
+                ) : null}
+                {estimate.contact.email ? (
+                  <div>
+                    <dt className={detailLabelClass}>Email</dt>
+                    <dd className={detailValueClass}>{estimate.contact.email}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </SectionCard>
+          ) : null}
+
+          <Panel>
+            <h2 className={subsectionTitleClass}>Details</h2>
+            <dl className="mt-3 space-y-3">
+              <div>
+                <dt className={detailLabelClass}>Added</dt>
+                <dd className={detailValueClass}>{formatContactDate(estimate.created_at)}</dd>
+              </div>
+              {estimate.updated_at !== estimate.created_at ? (
+                <div>
+                  <dt className={detailLabelClass}>Last updated</dt>
+                  <dd className={detailValueClass}>{formatContactDate(estimate.updated_at)}</dd>
                 </div>
               ) : null}
             </dl>
-          </div>
+          </Panel>
         </div>
-      ) : null}
-
-      {estimate.lead ? (
-        <div className="border-t border-slate-200 pt-8">
-          <div className="flex items-center justify-between">
-            <h2 className={subsectionTitleClass}>Lead</h2>
-            <Link href={`/leads/${estimate.lead.id}`} className="text-sm font-medium text-slate-600 hover:text-slate-900">
-              View lead
-            </Link>
-          </div>
-          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-            <div>
-              <dt className={detailLabelClass}>Service</dt>
-              <dd className={detailValueClass}>{estimate.lead.service || "—"}</dd>
-            </div>
-            <div>
-              <dt className={detailLabelClass}>Lead status</dt>
-              <dd className={detailValueClass}>{LEAD_STATUS_LABELS[estimate.lead.status]}</dd>
-            </div>
-            <div>
-              <dt className={detailLabelClass}>Temperature</dt>
-              <dd className={detailValueClass}>{TEMPERATURE_LABELS[estimate.lead.temperature]}</dd>
-            </div>
-          </dl>
-        </div>
-      ) : null}
-
-      <p className="text-xs text-slate-400">
-        Added {formatContactDate(estimate.created_at)}
-        {estimate.updated_at !== estimate.created_at ? ` · Updated ${formatContactDate(estimate.updated_at)}` : ""}
-      </p>
+      </div>
     </div>
   );
 }

@@ -3,8 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { errorBannerClass, inputClass, primaryButtonSmallClass, secondaryButtonSmallClass } from "@/lib/ui/form";
-import { detailLabelClass, subsectionTitleClass } from "@/lib/ui/typography";
+import { detailLabelClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
+import { SectionCard } from "@/lib/ui/section-card";
 import type { ReviewRequest, ReferralRequest } from "@/lib/reviews-referrals/queries";
 import { REVIEW_STATUS_LABELS, REFERRAL_STATUS_LABELS } from "@/lib/reviews-referrals/format";
 import { REVIEW_STATUS_TONE, REVIEW_STATUS_ICON, REFERRAL_STATUS_TONE, REFERRAL_STATUS_ICON } from "../../_components/status";
@@ -54,9 +55,8 @@ export function ReviewReferralPanel({
   const referralResolvable = referralRequest?.status === "requested" || referralRequest?.status === "responded";
 
   return (
-    <div className="border-t border-slate-200 pt-8">
-      <h2 className={subsectionTitleClass}>Review &amp; Referral</h2>
-      <div className="mt-4 grid grid-cols-1 gap-x-6 gap-y-6 sm:grid-cols-2">
+    <SectionCard title="Review & Referral">
+      <div className="grid grid-cols-1 gap-x-6 gap-y-6 sm:grid-cols-2">
         {reviewRequest ? (
           <div>
             <dt className={detailLabelClass}>Review</dt>
@@ -119,6 +119,6 @@ export function ReviewReferralPanel({
       </div>
 
       {error ? <p className={`mt-3 ${errorBannerClass}`}>{error}</p> : null}
-    </div>
+    </SectionCard>
   );
 }

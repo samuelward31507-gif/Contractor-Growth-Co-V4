@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { getAppointment } from "@/lib/appointments/queries";
-import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
+import { contactDisplayName, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import {
@@ -18,6 +18,7 @@ import {
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
+import { SectionCard, Panel } from "@/lib/ui/section-card";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../_components/status";
 import { AppointmentActions } from "./_components/appointment-actions";
 
@@ -86,109 +87,119 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
         <AppointmentActions appointment={appointment} contacts={contacts} leads={leads} />
       </div>
 
-      <div className="border-t border-slate-200 pt-8">
-        <h2 className={subsectionTitleClass}>Appointment</h2>
-        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-          <div>
-            <dt className={detailLabelClass}>Date</dt>
-            <dd className={detailValueClass}>{formatAppointmentDate(appointment.start_at, timeZone)}</dd>
-          </div>
-          <div>
-            <dt className={detailLabelClass}>Time</dt>
-            <dd className={detailValueClass}>
-              {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
-            </dd>
-          </div>
-          <div>
-            <dt className={detailLabelClass}>Duration</dt>
-            <dd className={detailValueClass}>{formatAppointmentDuration(appointment.start_at, appointment.end_at)}</dd>
-          </div>
-        </dl>
-        {appointment.notes ? (
-          <div className="mt-4">
-            <dt className={detailLabelClass}>Notes</dt>
-            <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{appointment.notes}</dd>
-          </div>
-        ) : null}
-      </div>
-
-      {appointment.contact ? (
-        <div className="border-t border-slate-200 pt-8">
-          <div className="flex items-center justify-between">
-            <h2 className={subsectionTitleClass}>Customer</h2>
-            <Link
-              href={`/contacts/${appointment.contact.id}`}
-              className="text-sm font-medium text-slate-600 hover:text-slate-900"
-            >
-              View contact
-            </Link>
-          </div>
-          <div className="mt-4 flex items-center gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-medium text-slate-600">
-              {contactInitials(appointment.contact)}
-            </span>
-            <dl className="grid flex-1 grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-3">
+      {/* Same two-column convention as Lead/Contact Detail: a main column
+          for this record's own facts, a right-hand rail for the people and
+          records it connects to - previously a flat, single-column stack of
+          border-t sections here, the one detail-page layout that didn't
+          match the rest of the app. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+        <div className="flex flex-col gap-6 lg:col-span-2">
+          <SectionCard title="Appointment">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
               <div>
-                <dt className={detailLabelClass}>Name</dt>
-                <dd className={detailValueClass}>{contactDisplayName(appointment.contact)}</dd>
+                <dt className={detailLabelClass}>Date</dt>
+                <dd className={detailValueClass}>{formatAppointmentDate(appointment.start_at, timeZone)}</dd>
               </div>
-              {appointment.contact.phone ? (
+              <div>
+                <dt className={detailLabelClass}>Time</dt>
+                <dd className={detailValueClass}>
+                  {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
+                </dd>
+              </div>
+              <div>
+                <dt className={detailLabelClass}>Duration</dt>
+                <dd className={detailValueClass}>{formatAppointmentDuration(appointment.start_at, appointment.end_at)}</dd>
+              </div>
+            </dl>
+            {appointment.notes ? (
+              <div className="mt-4">
+                <dt className={detailLabelClass}>Notes</dt>
+                <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{appointment.notes}</dd>
+              </div>
+            ) : null}
+          </SectionCard>
+
+          {appointment.lead ? (
+            <SectionCard
+              title="Lead"
+              action={
+                <Link href={`/leads/${appointment.lead.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  View lead
+                </Link>
+              }
+            >
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div>
-                  <dt className={detailLabelClass}>Phone</dt>
-                  <dd className={detailValueClass}>{appointment.contact.phone}</dd>
+                  <dt className={detailLabelClass}>Service</dt>
+                  <dd className={detailValueClass}>{appointment.lead.service || "—"}</dd>
                 </div>
-              ) : null}
-              {appointment.contact.email ? (
                 <div>
-                  <dt className={detailLabelClass}>Email</dt>
-                  <dd className={detailValueClass}>{appointment.contact.email}</dd>
+                  <dt className={detailLabelClass}>Lead status</dt>
+                  <dd className={detailValueClass}>{LEAD_STATUS_LABELS[appointment.lead.status]}</dd>
+                </div>
+                <div>
+                  <dt className={detailLabelClass}>Temperature</dt>
+                  <dd className={detailValueClass}>{TEMPERATURE_LABELS[appointment.lead.temperature]}</dd>
+                </div>
+                <div>
+                  <dt className={detailLabelClass}>Estimated value</dt>
+                  <dd className={detailValueClass}>
+                    {appointment.lead.estimated_value != null ? formatCurrency(appointment.lead.estimated_value) : "—"}
+                  </dd>
+                </div>
+              </dl>
+            </SectionCard>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col gap-6">
+          {appointment.contact ? (
+            <SectionCard
+              title="Customer"
+              action={
+                <Link href={`/contacts/${appointment.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  View contact
+                </Link>
+              }
+            >
+              <dl className="space-y-3">
+                <div>
+                  <dt className={detailLabelClass}>Name</dt>
+                  <dd className={detailValueClass}>{contactDisplayName(appointment.contact)}</dd>
+                </div>
+                {appointment.contact.phone ? (
+                  <div>
+                    <dt className={detailLabelClass}>Phone</dt>
+                    <dd className={detailValueClass}>{appointment.contact.phone}</dd>
+                  </div>
+                ) : null}
+                {appointment.contact.email ? (
+                  <div>
+                    <dt className={detailLabelClass}>Email</dt>
+                    <dd className={detailValueClass}>{appointment.contact.email}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </SectionCard>
+          ) : null}
+
+          <Panel>
+            <h2 className={subsectionTitleClass}>Details</h2>
+            <dl className="mt-3 space-y-3">
+              <div>
+                <dt className={detailLabelClass}>Added</dt>
+                <dd className={detailValueClass}>{formatContactDate(appointment.created_at)}</dd>
+              </div>
+              {appointment.updated_at !== appointment.created_at ? (
+                <div>
+                  <dt className={detailLabelClass}>Last updated</dt>
+                  <dd className={detailValueClass}>{formatContactDate(appointment.updated_at)}</dd>
                 </div>
               ) : null}
             </dl>
-          </div>
+          </Panel>
         </div>
-      ) : null}
-
-      {appointment.lead ? (
-        <div className="border-t border-slate-200 pt-8">
-          <div className="flex items-center justify-between">
-            <h2 className={subsectionTitleClass}>Lead</h2>
-            <Link
-              href={`/leads/${appointment.lead.id}`}
-              className="text-sm font-medium text-slate-600 hover:text-slate-900"
-            >
-              View lead
-            </Link>
-          </div>
-          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-            <div>
-              <dt className={detailLabelClass}>Service</dt>
-              <dd className={detailValueClass}>{appointment.lead.service || "—"}</dd>
-            </div>
-            <div>
-              <dt className={detailLabelClass}>Lead status</dt>
-              <dd className={detailValueClass}>{LEAD_STATUS_LABELS[appointment.lead.status]}</dd>
-            </div>
-            <div>
-              <dt className={detailLabelClass}>Temperature</dt>
-              <dd className={detailValueClass}>{TEMPERATURE_LABELS[appointment.lead.temperature]}</dd>
-            </div>
-            <div>
-              <dt className={detailLabelClass}>Estimated value</dt>
-              <dd className={detailValueClass}>
-                {appointment.lead.estimated_value != null ? formatCurrency(appointment.lead.estimated_value) : "—"}
-              </dd>
-            </div>
-          </dl>
-        </div>
-      ) : null}
-
-      <p className="text-xs text-slate-400">
-        Added {formatContactDate(appointment.created_at)}
-        {appointment.updated_at !== appointment.created_at
-          ? ` · Updated ${formatContactDate(appointment.updated_at)}`
-          : ""}
-      </p>
+      </div>
     </div>
   );
 }

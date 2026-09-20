@@ -19,30 +19,13 @@ import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/co
 import { formatCurrency } from "@/lib/dashboard/format";
 import { STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
-import { Badge, type BadgeTone } from "@/lib/ui/badge";
+import { Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
-import type { AppointmentStatus } from "@/lib/appointments/queries";
-import type { EstimateStatus } from "@/lib/estimates/queries";
 import { LEAD_STATUS_TONE, LEAD_TEMPERATURE_TONE } from "../_components/lead-status";
+import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointments/_components/status";
+import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
 import { LeadActions } from "./_components/lead-actions";
-
-const APPOINTMENT_STATUS_TONE: Record<AppointmentStatus, BadgeTone> = {
-  scheduled: "neutral",
-  confirmed: "info",
-  completed: "success",
-  cancelled: "danger",
-  no_show: "warning",
-};
-
-const ESTIMATE_STATUS_TONE: Record<EstimateStatus, BadgeTone> = {
-  draft: "neutral",
-  sent: "info",
-  accepted: "success",
-  declined: "danger",
-  cancelled: "neutral",
-  expired: "warning",
-};
 
 const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [item.value, item.label]));
 
@@ -205,7 +188,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                           {formatAppointmentTimeRange(appointment.start_at, appointment.end_at)}
                         </span>
                       </span>
-                      <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]}>
+                      <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]} icon={APPOINTMENT_STATUS_ICON[appointment.status]}>
                         {APPOINTMENT_STATUS_LABELS[appointment.status]}
                       </Badge>
                     </Link>
@@ -234,7 +217,9 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                         <span className="text-sm font-medium tabular-nums text-slate-700">
                           {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
                         </span>
-                        <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]}>{ESTIMATE_STATUS_LABELS[estimate.status]}</Badge>
+                        <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
+                          {ESTIMATE_STATUS_LABELS[estimate.status]}
+                        </Badge>
                       </span>
                     </Link>
                   </li>
