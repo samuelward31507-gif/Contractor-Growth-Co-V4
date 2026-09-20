@@ -64,6 +64,8 @@ export async function updateBusinessProfile(
   if (authError || !organizationId) return { error: authError ?? "Something went wrong. Please try again." };
 
   const name = String(formData.get("name") ?? "").trim();
+  const ownerName = String(formData.get("ownerName") ?? "").trim();
+  const trade = String(formData.get("trade") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const address = String(formData.get("address") ?? "").trim();
@@ -89,6 +91,8 @@ export async function updateBusinessProfile(
     .from("organizations")
     .update({
       name,
+      owner_name: ownerName || null,
+      trade: trade || null,
       phone: phone || null,
       email: email || null,
       address: address || null,

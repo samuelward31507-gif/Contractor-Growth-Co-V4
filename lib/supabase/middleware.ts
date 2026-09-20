@@ -66,12 +66,14 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // First Client Onboarding V1: /onboarding is no longer a one-shot,
+  // org-creation-only page that becomes unreachable once an org exists -
+  // it's now a persistent, resumable readiness hub (Steps 2-7) for an
+  // organization that already exists too. The only thing that still needs
+  // enforcing at this layer is auth vs. no-auth; which of the two states
+  // /onboarding itself renders (the Step 1 form, or the hub) is decided by
+  // app/onboarding/page.tsx from the same membership lookup, not here.
   if (pathname === "/onboarding") {
-    if (membership) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/dashboard";
-      return NextResponse.redirect(url);
-    }
     return supabaseResponse;
   }
 

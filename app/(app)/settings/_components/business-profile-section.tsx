@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { errorBannerClass, inputClass, labelClass, primaryButtonAutoClass, successBannerClass } from "@/lib/ui/form";
 import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { getTimezoneOptions } from "@/lib/settings/format";
-import type { BusinessProfile } from "@/lib/settings/queries";
+import { TRADE_OPTIONS, type BusinessProfile } from "@/lib/settings/queries";
 import { updateBusinessProfile, type SettingsActionState } from "../actions";
 
 const initialState: SettingsActionState = {};
@@ -34,6 +34,34 @@ export function BusinessProfileSection({
               Business name
             </label>
             <input id="name" name="name" defaultValue={profile.name} required className={inputClass} />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="ownerName" className={labelClass}>
+                Owner / contact name
+              </label>
+              <input
+                id="ownerName"
+                name="ownerName"
+                defaultValue={profile.owner_name ?? ""}
+                className={inputClass}
+                placeholder="Jamie Rivera"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="trade" className={labelClass}>
+                Trade
+              </label>
+              <select id="trade" name="trade" defaultValue={profile.trade ?? ""} className={inputClass}>
+                <option value="">Select a trade</option>
+                {TRADE_OPTIONS.map((trade) => (
+                  <option key={trade} value={trade}>
+                    {trade}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

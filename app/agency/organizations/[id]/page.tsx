@@ -22,12 +22,15 @@ import {
   Send,
   Inbox as InboxIcon,
   Clock3,
+  Circle,
+  ListChecks,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
 import { getAgencyHealth } from "@/lib/agency/health";
 import { listIncidents } from "@/lib/automation-health/queries";
+import { computeOnboardingReadiness, ONBOARDING_STATUS_LABEL, type OnboardingStatus } from "@/lib/onboarding/readiness";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { SectionCard } from "@/lib/ui/section-card";
 import { Badge } from "@/lib/ui/badge";
@@ -98,8 +101,17 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   // a second, independent authorization path. Uses the service-role client
   // like every other agency read on this page.
   const incidents = await listIncidents(service, id, { status: ["open", "acknowledged"] });
+  const readiness = await computeOnboardingReadiness(service, id);
 
   const { metrics: m } = org;
+
+  const READINESS_TONE: Record<OnboardingStatus, "neutral" | "danger" | "warning" | "info" | "success"> = {
+    setup: "neutral",
+    blocked: "danger",
+    testing: "warning",
+    ready: "info",
+    live: "success",
+  };
 
   const businessStats: Stat[] = [
     { key: "leads", label: "Leads", value: formatCount(m.leadMetrics.totalLeads), icon: Users },
@@ -215,6 +227,29 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       </div>
 
       <div className="mt-4 flex flex-col gap-3.5">
+        <SectionCard
+          title="Onboarding readiness"
+          description={`Automation mode: ${readiness.automationMode}`}
+          icon={ListChecks}
+          action={<Badge tone={READINESS_TONE[readiness.status]}>{ONBOARDING_STATUS_LABEL[readiness.status]}</Badge>}
+        >
+          <ul className="divide-y divide-slate-100">
+            {readiness.items.map((item) => (
+              <li key={item.key} className="flex items-start gap-2.5 py-2">
+                {item.complete ? (
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                ) : (
+                  <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-300" aria-hidden />
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900">{item.label}</p>
+                  <p className="text-xs text-slate-500">{item.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+
         <SectionCard title="Business" icon={Building2}>
           <StatGrid stats={businessStats} />
         </SectionCard>

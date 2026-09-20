@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type BusinessProfile = {
   id: string;
   name: string;
+  owner_name: string | null;
+  trade: string | null;
   phone: string | null;
   email: string | null;
   address: string | null;
@@ -14,7 +16,15 @@ export type BusinessProfile = {
   review_url: string | null;
 };
 
-const PROFILE_COLUMNS = "id, name, phone, email, address, city, state, zip, website, timezone, review_url";
+const PROFILE_COLUMNS = "id, name, owner_name, trade, phone, email, address, city, state, zip, website, timezone, review_url";
+
+/**
+ * First Client Onboarding V1: the same trade list the marketing site's Get
+ * Started form already uses (app/(marketing)/get-started/get-started-form.tsx)
+ * - kept as its own copy rather than a shared import, since the marketing
+ * route group is frozen and this one lives in the authenticated app.
+ */
+export const TRADE_OPTIONS = ["HVAC", "Plumbing", "Electrical", "Roofing", "Remodeling", "Concrete", "Landscaping", "Painting", "Flooring", "Other"];
 
 /**
  * The business profile lives directly on `organizations` (name is already
@@ -186,6 +196,19 @@ export async function getLeadIntakeToken(supabase: SupabaseClient, organizationI
     .maybeSingle();
 
   return data?.lead_intake_token ?? null;
+}
+
+/**
+ * First Client Onboarding V1: whether AI has actually been configured at
+ * least once, as distinct from getAiSettings()'s safe defaults (which
+ * return ai_enabled: false for an org that has never touched this page at
+ * all). Onboarding readiness must never claim "AI configuration present"
+ * for an org that simply hasn't looked at it yet - this checks real row
+ * existence, not the presence of a default.
+ */
+export async function hasAiSettingsConfigured(supabase: SupabaseClient, organizationId: string): Promise<boolean> {
+  const { data } = await supabase.from("ai_settings").select("organization_id").eq("organization_id", organizationId).maybeSingle();
+  return Boolean(data);
 }
 
 export const AI_TONE_OPTIONS = ["Professional", "Friendly", "Casual", "Direct", "Empathetic"];
