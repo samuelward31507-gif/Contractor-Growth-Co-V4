@@ -10,11 +10,13 @@
  *
  * The honest, zero-backend option: the Get Started form composes a mailto:
  * link from the visitor's own answers and hands off to their email client -
- * nothing is silently "submitted" to a system that doesn't exist. This
- * placeholder inbox MUST be replaced with a real, monitored address before
- * this site goes live - set CONTACT_EMAIL in the environment to override it.
+ * nothing is silently "submitted" to a system that doesn't exist. The
+ * fallback below is the real Contractor Growth Co. inbox (confirmed
+ * directly by the business owner - no such address existed anywhere in
+ * this repo, the environment, or the organizations table beforehand).
+ * CONTACT_EMAIL in the environment still overrides it if that ever changes.
  */
-export const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "hello@contractorgrowth.co";
+export const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "ContractorGrowthCompany@gmail.com";
 
 export function buildMailtoUrl({
   subject,
