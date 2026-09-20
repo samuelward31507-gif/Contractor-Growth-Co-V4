@@ -32,26 +32,24 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const showAgencyLink = await isAgencyAdmin(supabase);
 
   return (
-    // Release-audit fix: the root layout's <body> only has min-h-full (a
-    // minimum, not a definite height), so nothing in the flex-1/min-h-0
-    // chain below it ever resolved to a real, bounded height - most pages
-    // never needed one (plain document flow, verified fine), but the
-    // Conversations route's internally-scrolling message thread does. Its
-    // own layout.tsx wraps that chain in overflow-hidden, so instead of
-    // "no scroll, page just grows" (harmless), an unresolved height there
-    // silently collapsed the whole thread + composer to zero visible
-    // height - real DOM content, completely invisible. h-dvh here gives
-    // the whole authenticated shell one real, viewport-bound height to
-    // compute against, scoped to just this layout (not the public/auth
-    // routes) - other pages are unaffected since nothing else in their
-    // ancestor chain clips overflow, so a page taller than the viewport
-    // still scrolls normally at the document level.
-    <div className="flex h-dvh bg-white">
+    // App-shell fix: this used to be `h-dvh` with no overflow containment,
+    // so the whole document (sidebar included) scrolled together, and the
+    // sidebar disappeared the moment any page's content ran past one
+    // viewport. `overflow-hidden` here caps the shell at exactly the
+    // viewport height; `overflow-y-auto` on <main> below is the one region
+    // allowed to scroll, so the sidebar/mobile header/top bar - all siblings
+    // of <main>, never inside it - simply never move. The bounded height
+    // this produces is also what the Conversations route's own
+    // internally-scrolling message thread relies on (see its layout.tsx).
+    <div className="flex h-dvh overflow-hidden bg-white">
       <Sidebar organizationName={organizationName} userEmail={user.email ?? ""} role={membership.role} showAgencyLink={showAgencyLink} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <MobileNav organizationName={organizationName} userEmail={user.email ?? ""} role={membership.role} showAgencyLink={showAgencyLink} />
         <TopBar supabase={supabase} organizationId={membership.organizationId} />
-        <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+        {/* The only scrolling region in the shell - sidebar, mobile header,
+            and top bar all sit outside this element, so they stay in place
+            while a page's own content scrolls independently beneath them. */}
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
       </div>
     </div>
   );

@@ -82,7 +82,7 @@ export default async function DashboardPage() {
         recolored admin panel. This is the one dark moment in the workspace
         outside the sidebar - deliberately not repeated on every page.
       */}
-      <div className="relative overflow-hidden bg-slate-950 px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
+      <div className="relative overflow-hidden bg-[#0a120f] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_15%_-20%,rgba(16,185,129,0.16),transparent)]"

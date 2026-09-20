@@ -38,7 +38,7 @@ export function DetailHero({
   meta?: ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden bg-slate-950 px-4 py-8 sm:px-6 sm:py-10 lg:px-10">
+    <div className="relative overflow-hidden bg-[#0a120f] px-4 py-8 sm:px-6 sm:py-10 lg:px-10">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_10%_-30%,rgba(16,185,129,0.16),transparent)]"
