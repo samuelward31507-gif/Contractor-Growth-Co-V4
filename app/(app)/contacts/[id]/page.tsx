@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Briefcase, CalendarClock, FileSearch, FileX2, Flame, MessagesSquare, Wallet } from "lucide-react";
+import { Briefcase, CalendarClock, FileSearch, FileX2, Flame, MessagesSquare, Wallet, CalendarCheck2 } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContact } from "@/lib/contacts/queries";
@@ -20,7 +20,7 @@ import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/
 import { Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
-import { StatGrid, StatCard } from "@/lib/ui/stat-card";
+import { DetailHero } from "@/lib/ui/detail-hero";
 import { LEAD_STATUS_TONE } from "../../leads/_components/lead-status";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointments/_components/status";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
@@ -102,44 +102,48 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
     .reduce((sum, lead) => sum + (lead.estimated_value ?? 0), 0);
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <Link
-        href="/contacts"
-        className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden />
-        Back to Contacts
-      </Link>
-
-      {/* IDENTITY: who is this? */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-base font-medium text-slate-600">
+    <div className="flex flex-1 flex-col">
+      {/*
+        CONTACT hierarchy: identity -> communication -> activity -> related
+        records. Contacts have no status enum (they're people, not a
+        pipeline stage), so the hero's meta row carries this customer's
+        relationship snapshot instead - the same four real counts the old
+        StatGrid showed, now the thing that answers "how much history do I
+        have with this person" right in the header.
+      */}
+      <DetailHero
+        eyebrow="Contact"
+        backHref="/contacts"
+        backLabel="Back to Contacts"
+        avatar={
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/10 text-base font-medium text-white ring-1 ring-inset ring-white/10">
             {contactInitials(contact)}
           </span>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">{name}</h1>
-            {contact.company_name ? <p className="text-sm text-slate-500">{contact.company_name}</p> : null}
+        }
+        title={name}
+        subtitle={contact.company_name ?? undefined}
+        action={<ContactActions contact={contact} />}
+        meta={
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+            {[
+              { label: "Leads", value: String(relationshipCounts.leads), icon: Flame },
+              { label: "Open opportunity value", value: formatCurrency(openLeadsValue), icon: Wallet },
+              { label: "Appointments", value: String(relationshipCounts.appointments), icon: CalendarCheck2 },
+              { label: "Jobs", value: String(relationshipCounts.jobs), icon: Briefcase },
+            ].map((stat) => (
+              <div key={stat.label}>
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  <stat.icon className="h-3 w-3 shrink-0" aria-hidden />
+                  {stat.label}
+                </p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-white">{stat.value}</p>
+              </div>
+            ))}
           </div>
-        </div>
-        <ContactActions contact={contact} />
-      </div>
+        }
+      />
 
-      {/* SNAPSHOT: a quick read of this customer's relationship value. Final
-          visual polish pass: StatGrid/StatCard (lib/ui/stat-card.tsx)
-          instead of an inline label/value strip, so these numbers use the
-          available desktop width. Open opportunity value gets the one
-          success-tone icon chip here - it's the genuinely positive/money
-          signal among the four. */}
-      <div className="border-t border-slate-200 pt-8">
-        <StatGrid columns={4}>
-          <StatCard label="Leads" value={relationshipCounts.leads} />
-          <StatCard label="Open opportunity value" value={formatCurrency(openLeadsValue)} tone="success" icon={Wallet} />
-          <StatCard label="Appointments" value={relationshipCounts.appointments} />
-          <StatCard label="Jobs" value={relationshipCounts.jobs} />
-        </StatGrid>
-      </div>
-
+      <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
         {/* MAIN COLUMN: this customer's history across the CRM */}
         <div className="flex flex-col gap-6 lg:col-span-2">
@@ -320,6 +324,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
             </dl>
           </Panel>
         </div>
+      </div>
       </div>
     </div>
   );

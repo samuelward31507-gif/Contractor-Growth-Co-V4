@@ -50,6 +50,7 @@ export default async function EstimatesPage({ searchParams }: PageProps<"/estima
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
+        eyebrow="Operate"
         title="Estimates"
         description="Create, send, and track project estimates."
         action={<AddEstimateButton contacts={contacts} leads={leads} />}

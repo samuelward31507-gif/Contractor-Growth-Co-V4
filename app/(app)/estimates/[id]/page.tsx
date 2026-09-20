@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
@@ -15,6 +14,7 @@ import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/
 import { Badge } from "@/lib/ui/badge";
 import { successBannerClass } from "@/lib/ui/form";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
+import { DetailHero } from "@/lib/ui/detail-hero";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../_components/status";
 import { EstimateActions } from "./_components/estimate-actions";
 
@@ -63,28 +63,38 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
   const customerName = estimate.contact ? contactDisplayName(estimate.contact) : "No contact";
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <Link
-        href="/estimates"
-        className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
-      >
-        <ArrowLeft aria-hidden className="h-4 w-4" />
-        Back to Estimates
-      </Link>
-
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">{estimate.title}</h1>
-          <p className="text-sm text-slate-500">{customerName}</p>
-          <div className="mt-1.5">
-            <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
-              {ESTIMATE_STATUS_LABELS[estimate.status]}
-            </Badge>
+    <div className="flex flex-1 flex-col">
+      {/*
+        ESTIMATE hierarchy: value -> status -> customer -> line items/
+        actions. Amount is the number that decides everything else about
+        this record, so it leads the hero exactly like the Leads detail
+        page's own "Estimated value" moment - the two pages deliberately
+        share that grammar since both are ultimately about a dollar figure
+        and a decision.
+      */}
+      <DetailHero
+        eyebrow="Estimate"
+        backHref="/estimates"
+        backLabel="Back to Estimates"
+        title={estimate.title}
+        subtitle={customerName}
+        badges={
+          <Badge surface="dark" tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
+            {ESTIMATE_STATUS_LABELS[estimate.status]}
+          </Badge>
+        }
+        action={<EstimateActions estimate={estimate} contacts={contacts} leads={leads} />}
+        meta={
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Amount</p>
+            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-white">
+              {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
+            </p>
           </div>
-        </div>
-        <EstimateActions estimate={estimate} contacts={contacts} leads={leads} />
-      </div>
+        }
+      />
 
+      <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       {estimate.status === "accepted" && job ? (
         <div className={successBannerClass}>
           <p className="font-medium">Job created</p>
@@ -97,17 +107,6 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
         </div>
       ) : null}
 
-      {/* VALUE: the money figure gets the strongest number treatment on the
-          page, same convention as the Leads detail page's "Estimated value" -
-          this is a quoted amount, not collected revenue. */}
-      <div className="border-t border-slate-200 pt-8">
-        <p className="text-xs text-slate-500">Amount</p>
-        <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-slate-900">
-          {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
-        </p>
-      </div>
-
-      {/* Same two-column convention as Lead/Contact Detail. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
         <div className="flex flex-col gap-6 lg:col-span-2">
           <SectionCard title="Estimate">
@@ -211,6 +210,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
             </dl>
           </Panel>
         </div>
+      </div>
       </div>
     </div>
   );

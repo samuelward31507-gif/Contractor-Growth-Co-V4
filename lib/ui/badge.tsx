@@ -26,6 +26,22 @@ const TONE_CLASS: Record<BadgeTone, string> = {
 };
 
 /**
+ * Trackpr visual-system redesign: a second tone map for the small number of
+ * places a badge now sits on a near-black surface (a detail page's dark
+ * hero) - the light-surface tones above (bg-blue-50 text-blue-700, etc.)
+ * have almost no contrast against near-black, so this uses the same "soft
+ * glow chip" construction as the sidebar's own account initial/brand mark
+ * (tinted bg at 15% opacity, a matching light text color, a faint ring).
+ */
+const TONE_CLASS_DARK: Record<BadgeTone, string> = {
+  neutral: "bg-white/10 text-slate-300 ring-1 ring-inset ring-white/10",
+  info: "bg-blue-500/15 text-blue-300 ring-1 ring-inset ring-blue-500/20",
+  success: "bg-emerald-500/15 text-emerald-400 ring-1 ring-inset ring-emerald-500/20",
+  warning: "bg-amber-500/15 text-amber-400 ring-1 ring-inset ring-amber-500/20",
+  danger: "bg-red-500/15 text-red-400 ring-1 ring-inset ring-red-500/20",
+};
+
+/**
  * A left-edge row-rail color per BadgeTone - a restrained, always-visible
  * status signal for list-page table rows (leads, appointments, estimates,
  * jobs) that doesn't depend on the reader parsing a text badge first.
@@ -47,14 +63,18 @@ export function Badge({
   icon: Icon,
   children,
   className = "",
+  surface = "light",
 }: {
   tone?: BadgeTone;
   icon?: LucideIcon;
   children: React.ReactNode;
   className?: string;
+  /** "dark" for a badge sitting on a near-black hero surface - see TONE_CLASS_DARK. Defaults to "light" (unchanged behavior) everywhere else. */
+  surface?: "light" | "dark";
 }) {
+  const toneClass = surface === "dark" ? TONE_CLASS_DARK[tone] : TONE_CLASS[tone];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${TONE_CLASS[tone]} ${className}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${toneClass} ${className}`}>
       {Icon ? <Icon className="h-3 w-3 shrink-0" aria-hidden /> : null}
       {children}
     </span>

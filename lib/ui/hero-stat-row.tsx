@@ -22,6 +22,19 @@ const HERO_TONE_CLASS: Record<HeroStatTone, { border: string; bg: string; iconBg
   neutral: { border: "border-slate-200", bg: "bg-slate-50", iconBg: "bg-slate-100", iconText: "text-slate-600", labelText: "text-slate-500", valueText: "text-slate-900" },
 };
 
+// Tailwind needs the full class name present in source to generate it - an
+// interpolated `sm:grid-cols-${n}` would be purged. Every list page today
+// passes 3 or 4 secondary stats; this covers headroom up to 6 without
+// falling back to the inline-style-per-column-count this replaced.
+const SECONDARY_SM_COLS: Record<number, string> = {
+  1: "sm:grid-cols-1",
+  2: "sm:grid-cols-2",
+  3: "sm:grid-cols-3",
+  4: "sm:grid-cols-4",
+  5: "sm:grid-cols-5",
+  6: "sm:grid-cols-6",
+};
+
 export function HeroStatRow({
   hero,
   secondary,
@@ -44,15 +57,17 @@ export function HeroStatRow({
         </div>
       </div>
 
+      {/* Two columns on mobile (each stat gets real width to breathe),
+          one row of N on sm+ - a fixed N-wide single row was clipping longer
+          labels ("Completed value", "Total estimates") at 390px. */}
       <div
-        className="grid rounded-2xl border border-slate-200 bg-white divide-x divide-slate-200"
-        style={{ gridTemplateColumns: `repeat(${secondary.length}, minmax(0, 1fr))` }}
+        className={`grid grid-cols-2 divide-x divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white sm:divide-y-0 ${SECONDARY_SM_COLS[secondary.length] ?? "sm:grid-cols-4"}`}
       >
         {secondary.map((stat) => (
-          <div key={stat.label} className="flex min-w-0 flex-col justify-center gap-1 px-5 py-4">
-            <p className="flex items-center gap-1 truncate text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          <div key={stat.label} className="flex min-w-0 flex-col justify-center gap-1 px-4 py-4 sm:px-5">
+            <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               {stat.icon ? <stat.icon className="h-3 w-3 shrink-0" aria-hidden /> : null}
-              {stat.label}
+              <span className="truncate">{stat.label}</span>
             </p>
             <p className="truncate text-2xl font-semibold tabular-nums text-slate-900">{stat.value}</p>
           </div>

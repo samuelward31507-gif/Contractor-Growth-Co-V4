@@ -1,4 +1,4 @@
-import { primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
+import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { formatRelativeTime } from "@/lib/dashboard/format";
 import type { CachedBusinessInsights } from "@/lib/dashboard/business-metrics";
 import { GenerateInsightsButton } from "./generate-insights-button";
@@ -15,10 +15,10 @@ export function AiInsightsPanel({ cached }: { cached: CachedBusinessInsights | n
   const buttonLabel = cached ? "Regenerate" : "Generate insights";
 
   return (
-    <div className="border-t border-slate-200 pt-8">
+    <div>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className={primarySectionTitleClass}>AI business insights</h2>
+          <p className={sectionLabelClass}>AI business insights</p>
           {cached ? (
             <p className={`mt-1 ${metaClass}`}>
               Generated {formatRelativeTime(cached.generatedAt)}

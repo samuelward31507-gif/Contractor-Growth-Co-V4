@@ -49,7 +49,7 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
 
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <PageHeader title="Jobs" description="Track work from an accepted estimate through completion." />
+      <PageHeader eyebrow="Operate" title="Jobs" description="Track work from an accepted estimate through completion." />
 
       <JobsSummary summary={summary} />
       <ReviewReferralSummaryRow summary={reviewReferralSummary} />

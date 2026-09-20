@@ -44,7 +44,7 @@ export default async function AutomationsPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <PageHeader title="Automations" description="Monitor and manage the automated systems running your business." />
+      <PageHeader eyebrow="Automate" title="Automations" description="Monitor and manage the automated systems running your business." />
 
       <div className="flex flex-col gap-2">
         <p className={sectionLabelClass}>Overview</p>

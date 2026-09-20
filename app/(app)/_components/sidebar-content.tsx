@@ -1,34 +1,20 @@
-"use client";
-
-// Release-audit fix: NAV_GROUPS/AGENCY_NAV_ITEM carry a real component
-// reference per item (`icon: LucideIcon`), not a plain serializable value.
-// Passing that `item` object as a prop from a Server Component into
-// NavLink (a Client Component, below) is not allowed by React Server
-// Components - it fails at request time with "Only plain objects can be
-// passed to Client Components from Server Components," which `next build`
-// cannot catch (dynamic routes aren't rendered with real props at build
-// time) and which broke every authenticated page's desktop sidebar. This
-// file receives only plain, already-resolved primitive props from its
-// server parents (organizationName/userEmail/role/showAgencyLink - all
-// strings/booleans) and does its own data-free NAV_GROUPS import, so
-// marking it "use client" costs nothing (no server-only work happens
-// here) and keeps every prop that crosses an actual server/client boundary
-// a plain value.
-
 import { LogOut } from "lucide-react";
 import { NAV_GROUPS, AGENCY_NAV_ITEM } from "./nav-items";
 import { NavLink } from "./nav-link";
 import { logout } from "../actions";
 
 /**
- * Trackpr visual-system redesign: the sidebar is now the app's dark,
- * near-black command-center surface (matching the Contractor Growth Co.
- * marketing site's own bg-slate-950 shell) rather than a light bg-slate-50
- * panel indistinguishable from the workspace it borders - per the design
- * brief, this is the single strongest, most deliberate carrier of brand
- * identity in the authenticated app. Section labels, nav items, and the
- * account footer are all re-themed for a dark surface here; NavLink (the
- * active/hover state) is themed to match in its own file.
+ * Trackpr visual-system redesign: the sidebar now carries the marketing
+ * site's actual visual signature - not just a dark fill, but the same soft
+ * radial emerald glow + faint technical grid the Contractor Growth Co.
+ * homepage hero uses (see app/(marketing)/_components/home/hero.tsx) - so
+ * opening the app reads as a continuation of the same surface, not a
+ * different product that happens to share a color. The brand lockup below
+ * mirrors the marketing nav's "C" mark + wordmark pairing, plus the site's
+ * own eyebrow typography ("CONTRACTOR GROWTH CO.", uppercase, wide
+ * tracking, emerald). The organization name gets its own distinct
+ * workspace chip beneath that - real account context, not folded into the
+ * brand lockup itself.
  */
 export function SidebarContent({
   organizationName,
@@ -47,22 +33,38 @@ export function SidebarContent({
   const groups = showAgencyLink ? [...NAV_GROUPS, { label: "Agency", items: [AGENCY_NAV_ITEM] }] : NAV_GROUPS;
 
   return (
-    <div className="flex h-full w-full flex-col bg-[#0a120f]">
-      <div className="flex items-center gap-2.5 px-5 pb-5 pt-6">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500/15 text-sm font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0a120f]">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_50%_at_50%_-20%,rgba(16,185,129,0.18),transparent)]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.04] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:48px_48px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,black,transparent)]"
+      />
+
+      <div className="relative flex items-center gap-2.5 px-5 pb-4 pt-6">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-500 text-sm font-bold text-slate-950">
           T
         </span>
         <div className="min-w-0">
-          <span className="block text-[15px] font-semibold tracking-tight text-white">Trackpr</span>
-          <p className="truncate text-xs text-slate-500">{organizationName}</p>
+          <span className="block text-[15px] font-semibold leading-tight tracking-tight text-white">Trackpr</span>
+          <p className="truncate text-[9.5px] font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
+            Contractor Growth Co.
+          </p>
         </div>
       </div>
 
-      <nav className="flex-1 space-y-5 overflow-y-auto pl-4 pr-2 pb-4">
+      <div className="relative mx-4 mb-3 flex items-center gap-2 truncate rounded-lg bg-white/[0.04] px-3 py-2 ring-1 ring-inset ring-white/[0.07]">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden />
+        <p className="truncate text-xs font-medium text-slate-300">{organizationName}</p>
+      </div>
+
+      <nav className="relative flex-1 space-y-6 overflow-y-auto px-3 pb-4">
         {groups.map((group, index) => (
           <div key={group.label ?? `group-${index}`}>
             {group.label ? (
-              <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{group.label}</p>
+              <p className="mb-1.5 px-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">{group.label}</p>
             ) : null}
             <div className="space-y-0.5">
               {group.items.map((item) => (
@@ -73,7 +75,7 @@ export function SidebarContent({
         ))}
       </nav>
 
-      <div className="border-t border-white/[0.06] p-3">
+      <div className="relative border-t border-white/[0.07] p-3">
         <div className="flex items-center gap-3 px-2 py-2">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-semibold text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
             {userEmail.charAt(0).toUpperCase()}
@@ -86,7 +88,7 @@ export function SidebarContent({
         <form action={logout} className="mt-1">
           <button
             type="submit"
-            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-white"
+            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white"
           >
             <LogOut className="h-[18px] w-[18px] shrink-0 text-slate-500" aria-hidden />
             Log out

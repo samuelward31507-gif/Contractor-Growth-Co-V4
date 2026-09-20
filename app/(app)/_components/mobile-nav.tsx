@@ -19,18 +19,25 @@ export function MobileNav({
 
   return (
     <div className="lg:hidden">
-      <header className="flex items-center justify-between border-b border-white/[0.06] bg-[#0a120f] px-4 py-3">
-        <span className="flex items-center gap-2">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500/15 text-sm font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+      <header className="relative flex items-center justify-between overflow-hidden border-b border-white/[0.06] bg-[#0a120f] px-4 py-3">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_100%_at_20%_-40%,rgba(16,185,129,0.18),transparent)]"
+        />
+        <span className="relative flex items-center gap-2.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500 text-xs font-bold text-slate-950">
             T
           </span>
-          <span className="text-[15px] font-semibold tracking-tight text-white">Trackpr</span>
+          <span className="min-w-0">
+            <span className="block text-[15px] font-semibold leading-tight tracking-tight text-white">Trackpr</span>
+            <span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Contractor Growth Co.</span>
+          </span>
         </span>
         <button
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/[0.06]"
+          className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/[0.06]"
         >
           <Menu className="h-5 w-5" aria-hidden />
         </button>

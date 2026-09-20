@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getJob } from "@/lib/jobs/queries";
@@ -14,6 +13,7 @@ import { formatCurrency } from "@/lib/dashboard/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
+import { DetailHero } from "@/lib/ui/detail-hero";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../_components/status";
 import { JobActions } from "./_components/job-actions";
 import { ReviewReferralPanel } from "./_components/review-referral-panel";
@@ -62,40 +62,36 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
     .map((lead) => ({ id: lead.id, label: lead.service || `Lead ${lead.id.slice(0, 8)}` }));
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <Link
-        href="/jobs"
-        className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
-      >
-        <ArrowLeft aria-hidden className="h-4 w-4" />
-        Back to Jobs
-      </Link>
-
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">{job.title}</h1>
-          <p className="text-sm text-slate-500">{customerName}</p>
-          <div className="mt-1.5">
-            <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
-              {JOB_STATUS_LABELS[job.status]}
-            </Badge>
+    <div className="flex flex-1 flex-col">
+      {/*
+        JOB hierarchy: status -> value/payment -> customer -> schedule ->
+        activity. Amount leads the hero exactly like Lead/Estimate's own
+        headline number - this is a contracted amount, not collected
+        revenue.
+      */}
+      <DetailHero
+        eyebrow="Job"
+        backHref="/jobs"
+        backLabel="Back to Jobs"
+        title={job.title}
+        subtitle={customerName}
+        badges={
+          <Badge surface="dark" tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
+            {JOB_STATUS_LABELS[job.status]}
+          </Badge>
+        }
+        action={<JobActions job={job} />}
+        meta={
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Amount</p>
+            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-white">
+              {job.amount != null ? formatCurrency(job.amount) : "—"}
+            </p>
           </div>
-        </div>
-        <JobActions job={job} />
-      </div>
+        }
+      />
 
-      {/* VALUE: the money figure gets the strongest number treatment on the
-          page, same convention as the Leads/Estimates detail pages' own
-          headline amount - this is a contracted amount, not collected
-          revenue. */}
-      <div className="border-t border-slate-200 pt-8">
-        <p className="text-xs text-slate-500">Amount</p>
-        <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-slate-900">
-          {job.amount != null ? formatCurrency(job.amount) : "—"}
-        </p>
-      </div>
-
-      {/* Same two-column convention as Lead/Contact Detail. */}
+      <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
         <div className="flex flex-col gap-6 lg:col-span-2">
           <SectionCard title="Job">
@@ -229,6 +225,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
             </dl>
           </Panel>
         </div>
+      </div>
       </div>
     </div>
   );

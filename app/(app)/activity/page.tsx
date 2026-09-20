@@ -88,6 +88,7 @@ export default async function ActivityPage({ searchParams }: PageProps<"/activit
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Insights</p>
         <h1 className={pageTitleClass}>Analytics</h1>
         <p className={`mt-1.5 ${pageDescriptionClass}`}>
           Business performance across leads, pipeline, sales, scheduling, communication, and automation - plus a

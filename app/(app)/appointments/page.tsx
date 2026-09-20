@@ -66,6 +66,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
+        eyebrow="Operate"
         title="Appointments"
         description="Keep every customer appointment organized and on schedule."
         action={<AddAppointmentButton contacts={contacts} leads={leads} />}
