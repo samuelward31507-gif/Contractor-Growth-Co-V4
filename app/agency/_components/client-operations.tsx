@@ -6,6 +6,7 @@ import { formatRelativeTime } from "@/lib/dashboard/format";
 import { ONBOARDING_STAGE_LABEL, type OnboardingStage } from "@/lib/onboarding/checklist";
 import type { AgencyOrganizationSnapshot } from "@/lib/agency/queries";
 import type { AgencyOrganizationHealth } from "@/lib/agency/health";
+import { formatCount } from "./format";
 
 const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
   new: "neutral",
@@ -15,7 +16,7 @@ const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
   live: "success",
 };
 
-const ROW_GRID = "grid-cols-[minmax(0,1fr)_120px_140px_140px_20px]";
+const ROW_GRID = "grid-cols-[minmax(0,1.3fr)_100px_100px_56px_56px_56px_56px_120px_20px]";
 
 export type ClientRow = {
   organization: AgencyOrganizationSnapshot;
@@ -23,6 +24,7 @@ export type ClientRow = {
   stage: OnboardingStage;
   incompleteCount: number;
   lastActivityAt: string | null;
+  escalationCount: number;
 };
 
 /**
@@ -37,24 +39,30 @@ export type ClientRow = {
  * danger rail regardless of its onboarding stage, since operational health
  * is the more urgent signal of the two.
  */
-export function ClientOperations({ rows }: { rows: ClientRow[] }) {
+export function ClientOperations({ rows, totalCount }: { rows: ClientRow[]; totalCount: number }) {
   if (rows.length === 0) {
-    return (
+    return totalCount === 0 ? (
       <EmptyState
         icon={Search}
         title="No client organizations are connected yet."
         description="Once a client organization is associated with the agency, it will appear here."
       />
+    ) : (
+      <EmptyState icon={Search} title="No clients match your search or filter." description="Try a different search term or clear the filter." />
     );
   }
 
   return (
     <div>
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-slate-200 pl-3 pr-2 pb-3`}>
+        <div className={`grid ${ROW_GRID} items-center gap-3 border-b border-l-2 border-l-transparent border-slate-200 pl-3 pr-2 pb-3`}>
           <span className="text-xs text-slate-400">Client</span>
           <span className="text-xs text-slate-400">Status</span>
           <span className="text-xs text-slate-400">Health</span>
+          <span className="hidden text-right text-xs text-slate-400 xl:block">Leads</span>
+          <span className="hidden text-right text-xs text-slate-400 xl:block">Appts</span>
+          <span className="hidden text-right text-xs text-slate-400 xl:block">Jobs</span>
+          <span className="hidden text-right text-xs text-slate-400 xl:block">AI</span>
           <span className="text-xs text-slate-400">Last activity</span>
           <span />
         </div>
@@ -88,11 +96,12 @@ function readinessNote(row: ClientRow): string | null {
 function ClientRowDesktop({ row }: { row: ClientRow }) {
   const { organization, health, stage } = row;
   const note = readinessNote(row);
+  const m = organization.metrics;
 
   return (
     <Link
       href={`/agency/organizations/${organization.organizationId}`}
-      className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[railTone(row)]}`}
+      className={`group grid ${ROW_GRID} items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[railTone(row)]}`}
     >
       <span className="min-w-0 truncate text-sm font-medium text-slate-900">{organization.organizationName}</span>
       <span>
@@ -106,6 +115,16 @@ function ClientRowDesktop({ row }: { row: ClientRow }) {
           <span className="text-sm text-slate-500">Healthy</span>
         )}
       </span>
+      <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.leadMetrics.totalLeads)}</span>
+      <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.appointmentMetrics.totalAppointments)}</span>
+      <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.jobMetrics.totalJobs)}</span>
+      <span className="hidden text-right text-xs tabular-nums xl:block">
+        {row.escalationCount > 0 ? (
+          <span className="font-medium text-amber-600">{formatCount(row.escalationCount)}</span>
+        ) : (
+          <span className="text-slate-300">—</span>
+        )}
+      </span>
       <span className="text-xs tabular-nums text-slate-400">
         {row.lastActivityAt ? formatRelativeTime(row.lastActivityAt) : "No activity yet"}
       </span>
@@ -117,6 +136,7 @@ function ClientRowDesktop({ row }: { row: ClientRow }) {
 function ClientRowMobile({ row }: { row: ClientRow }) {
   const { organization, health, stage } = row;
   const note = readinessNote(row);
+  const m = organization.metrics;
 
   return (
     <li>
@@ -137,6 +157,10 @@ function ClientRowMobile({ row }: { row: ClientRow }) {
             <span className="shrink-0 text-xs tabular-nums text-slate-400">
               {row.lastActivityAt ? formatRelativeTime(row.lastActivityAt) : "—"}
             </span>
+          </span>
+          <span className="mt-1 block text-xs tabular-nums text-slate-400">
+            {formatCount(m.leadMetrics.totalLeads)} leads · {formatCount(m.appointmentMetrics.totalAppointments)} appts · {formatCount(m.jobMetrics.totalJobs)} jobs
+            {row.escalationCount > 0 ? <span className="font-medium text-amber-600"> · {formatCount(row.escalationCount)} AI escalation{row.escalationCount === 1 ? "" : "s"}</span> : null}
           </span>
         </span>
       </Link>

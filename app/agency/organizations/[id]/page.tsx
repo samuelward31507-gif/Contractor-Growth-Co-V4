@@ -4,6 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
 import { getAgencyHealth } from "@/lib/agency/health";
+import { getAgencyOperationsToday } from "@/lib/agency/operations";
+import { getAgencyEscalatedConversations } from "@/lib/agency/communication";
+import { getAgencyOrganizationAutomations } from "@/lib/agency/automations";
+import { getAgencyNeedsAttentionItems } from "@/lib/agency/needs-attention";
 import { listIncidents } from "@/lib/automation-health/queries";
 import { getDashboardData } from "@/lib/dashboard/queries";
 import { computeSetupChecklist, ONBOARDING_STAGE_LABEL, type OnboardingStage } from "@/lib/onboarding/checklist";
@@ -15,6 +19,8 @@ import { Row, RowGroup } from "../../_components/row";
 import { formatRate, formatCount } from "../../_components/format";
 import { UnauthorizedState } from "../../_components/unauthorized-state";
 import { ErrorState } from "../../_components/error-state";
+import { NeedsAttention } from "../../_components/needs-attention";
+import { AutomationsPanel } from "../../_components/automations-panel";
 
 const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
   new: "neutral",
@@ -48,9 +54,20 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
   let metrics: Awaited<ReturnType<typeof getAgencyBusinessMetrics>>;
   let health: Awaited<ReturnType<typeof getAgencyHealth>>;
+  let today: Awaited<ReturnType<typeof getAgencyOperationsToday>>;
+  let escalations: Awaited<ReturnType<typeof getAgencyEscalatedConversations>>;
+  let automations: Awaited<ReturnType<typeof getAgencyOrganizationAutomations>>;
+  let needsAttention: Awaited<ReturnType<typeof getAgencyNeedsAttentionItems>>;
 
   try {
-    [metrics, health] = await Promise.all([getAgencyBusinessMetrics(supabase, service), getAgencyHealth(supabase, service)]);
+    [metrics, health, today, escalations, automations, needsAttention] = await Promise.all([
+      getAgencyBusinessMetrics(supabase, service),
+      getAgencyHealth(supabase, service),
+      getAgencyOperationsToday(supabase, service),
+      getAgencyEscalatedConversations(supabase, service),
+      getAgencyOrganizationAutomations(supabase, service, id),
+      getAgencyNeedsAttentionItems(supabase, service),
+    ]);
   } catch {
     return (
       <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
@@ -59,7 +76,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
     );
   }
 
-  if (!metrics.ok || !health.ok) {
+  if (!metrics.ok || !health.ok || !today.ok || !escalations.ok || !needsAttention.ok) {
     return (
       <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
         <UnauthorizedState />
@@ -74,13 +91,17 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   // exist or simply isn't an agency-associated organization, the response
   // is identical either way, so this page never confirms or denies the
   // existence of an organization the caller isn't authorized to see.
-  if (!org || !orgHealth) {
+  if (!org || !orgHealth || !automations.ok) {
     return (
       <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
         <UnauthorizedState />
       </div>
     );
   }
+
+  const orgToday = today.byOrg.get(id);
+  const escalationCount = escalations.countByOrg.get(id) ?? 0;
+  const clientNeedsAttention = needsAttention.items.filter((item) => item.organizationId === id);
 
   // Only reached once `id` is confirmed to be one of THIS agency's own
   // already-authorized organizations (the check immediately above) - never
@@ -119,9 +140,15 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         </div>
       </div>
 
+      {clientNeedsAttention.length > 0 ? (
+        <div className="mt-8">
+          <NeedsAttention items={clientNeedsAttention} />
+        </div>
+      ) : null}
+
       {/* Client + Setup - identity and configuration status side by side, the
           two things "is this client configured" is actually made of. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-2">
         <RowGroup label="Client">
           <Row label="Owner / contact" value={profile?.owner_name ?? "Not set"} />
           <Row label="Trade" value={profile?.trade ?? "Not set"} />
@@ -175,6 +202,17 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         )}
       </div>
 
+      {/* Today - a distinct temporality from every other figure on this page
+          (all of which are current-state or trailing-30-day), reusing the
+          same date-range machinery the client dashboard already supports. */}
+      <div className="mt-8 border-t border-slate-200 pt-8">
+        <p className={sectionLabelClass}>Today</p>
+        <div className="mt-1.5 flex flex-wrap gap-x-8">
+          <Row label="Leads" value={formatCount(orgToday?.leadsToday ?? 0)} />
+          <Row label="Appointments" value={formatCount(orgToday?.appointmentsToday ?? 0)} />
+        </div>
+      </div>
+
       {/* Automation + Communication - operational status side by side. */}
       <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-2">
         <RowGroup label="Automation">
@@ -192,7 +230,22 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           <Row label="Failed" value={formatCount(org.messagesByStatus.failed ?? 0)} tone={(org.messagesByStatus.failed ?? 0) > 0 ? "danger" : "default"} />
           <Row label="Undelivered" value={formatCount(org.messagesByStatus.undelivered ?? 0)} tone={(org.messagesByStatus.undelivered ?? 0) > 0 ? "warning" : "default"} />
           <Row label="Queued" value={formatCount(org.messagesByStatus.queued ?? 0)} />
+          <Row
+            label="AI escalations waiting"
+            value={escalationCount > 0 ? formatCount(escalationCount) : "None"}
+            tone={escalationCount > 0 ? "warning" : "default"}
+            description={escalationCount > 0 ? "AI is paused on these conversations until a human replies." : undefined}
+          />
         </RowGroup>
+      </div>
+
+      {/* Automations - real, per-automation operational state (excludes the
+          internal safe-AI safety layer, which is never independently
+          triggered). Never invents an automation that isn't in
+          AUTOMATION_CATALOG. */}
+      <div className="mt-8 border-t border-slate-200 pt-8">
+        <p className={sectionLabelClass}>Automations</p>
+        <AutomationsPanel automations={automations.automations} />
       </div>
 
       {/* Recent activity - real, org-scoped, the exact same read the client

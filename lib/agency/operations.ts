@@ -3,6 +3,7 @@ import { resolveAgencyOrganizations, type AgencyAuthFailure } from "./queries";
 import { computeSetupChecklist, type OnboardingStage } from "@/lib/onboarding/checklist";
 import { getDashboardData } from "@/lib/dashboard/queries";
 import type { ActivityItem } from "@/lib/dashboard/queries";
+import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
 
 /**
  * Agency Command Center UI review: the two genuinely-missing reads the
@@ -82,4 +83,46 @@ export async function getAgencyRecentActivity(
     .slice(0, limit);
 
   return { ok: true, items, lastActivityByOrg };
+}
+
+export type AgencyOrganizationToday = {
+  organizationId: string;
+  leadsToday: number;
+  appointmentsToday: number;
+};
+
+export type AgencyOperationsTodayResult =
+  | { ok: true; byOrg: Map<string, AgencyOrganizationToday>; leadsToday: number; appointmentsToday: number }
+  | AgencyAuthFailure;
+
+/**
+ * "Today" is a distinct temporality from every other agency read on this
+ * page (which are current-state or trailing-30-day figures) - reuses
+ * getBusinessMetricsSnapshot with the "today" preset (the exact same Phase
+ * 5.2 date-range machinery the client dashboard already supports, just a
+ * different preset), so this introduces no new date math.
+ */
+export async function getAgencyOperationsToday(
+  sessionSupabase: SupabaseClient,
+  serviceSupabase: SupabaseClient,
+): Promise<AgencyOperationsTodayResult> {
+  const resolved = await resolveAgencyOrganizations(sessionSupabase, serviceSupabase);
+  if (!resolved.ok) return resolved;
+
+  const entries = await Promise.all(
+    resolved.organizations.map(async ({ organizationId }) => {
+      const snapshot = await getBusinessMetricsSnapshot(serviceSupabase, organizationId, "today");
+      return {
+        organizationId,
+        leadsToday: snapshot.leadMetrics.totalLeads,
+        appointmentsToday: snapshot.appointmentMetrics.totalAppointments,
+      };
+    }),
+  );
+
+  const byOrg = new Map(entries.map((entry) => [entry.organizationId, entry]));
+  const leadsToday = entries.reduce((sum, entry) => sum + entry.leadsToday, 0);
+  const appointmentsToday = entries.reduce((sum, entry) => sum + entry.appointmentsToday, 0);
+
+  return { ok: true, byOrg, leadsToday, appointmentsToday };
 }

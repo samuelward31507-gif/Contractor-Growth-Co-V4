@@ -29,6 +29,8 @@ import { getDashboardBusinessMetrics, DASHBOARD_DEFAULT_RANGE } from "@/lib/dash
 export type AgencyOrganization = {
   organizationId: string;
   organizationName: string;
+  /** When this organization was associated with the agency (agency_organizations.created_at) - used only to derive "stuck in onboarding for N days" style signals, never displayed as the organization's own creation date. */
+  createdAt: string;
 };
 
 export type AgencyAuthFailure =
@@ -89,7 +91,7 @@ export async function isAgencyAdmin(sessionSupabase: SupabaseClient): Promise<bo
 async function loadAgencyOrganizations(serviceSupabase: SupabaseClient): Promise<AgencyOrganization[]> {
   const { data, error } = await serviceSupabase
     .from("agency_organizations")
-    .select("organization_id, organizations(name)")
+    .select("organization_id, created_at, organizations(name)")
     .order("created_at", { ascending: true });
 
   if (error || !data) return [];
@@ -99,6 +101,7 @@ async function loadAgencyOrganizations(serviceSupabase: SupabaseClient): Promise
     return {
       organizationId: row.organization_id as string,
       organizationName: (org?.name as string | undefined) ?? "Unknown organization",
+      createdAt: row.created_at as string,
     };
   });
 }
