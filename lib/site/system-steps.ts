@@ -1,21 +1,22 @@
 /**
  * The single source of truth for the Contractor Growth Co. system sequence
- * (Capture -> Respond -> Qualify -> Follow Up -> Book -> Close -> Complete
- * -> Review -> Reactivate -> Track). Reused by the homepage hero, the
- * homepage solution section, and the /how-it-works page so the sequence
- * and its wording never drift between the three places it's shown.
+ * (Attract -> Capture -> Respond -> Qualify -> Follow Up -> Book -> Close
+ * -> Reactivate -> Review -> Referral -> Track). Reused by the System
+ * section on the homepage and by /how-it-works so the sequence and its
+ * wording never drift between the two places it's shown in full.
  */
 import type { LucideIcon } from "lucide-react";
 import {
+  Megaphone,
   Inbox,
   Zap,
   ListChecks,
   Repeat,
   CalendarCheck2,
-  FileText,
-  CheckCircle2,
-  Star,
+  FileCheck2,
   RotateCcw,
+  Star,
+  Share2,
   LineChart,
 } from "lucide-react";
 
@@ -28,6 +29,14 @@ export type SystemStep = {
 };
 
 export const SYSTEM_STEPS: SystemStep[] = [
+  {
+    key: "attract",
+    label: "Attract",
+    shortDescription: "Bring in inquiries through your website and existing channels.",
+    longDescription:
+      "Your website and existing marketing bring inquiries in - the system is built to make sure every one of them lands somewhere real instead of a missed call or an unanswered form.",
+    icon: Megaphone,
+  },
   {
     key: "capture",
     label: "Capture",
@@ -69,16 +78,16 @@ export const SYSTEM_STEPS: SystemStep[] = [
   {
     key: "close",
     label: "Close",
-    shortDescription: "Keep estimates from going dark.",
-    longDescription: "Sent estimates get tracked and followed up on instead of disappearing into a customer's inbox.",
-    icon: FileText,
+    shortDescription: "Keep estimates and jobs moving to completion.",
+    longDescription: "Sent estimates get tracked and followed up on, and booked work stays visible from scheduling through completion.",
+    icon: FileCheck2,
   },
   {
-    key: "complete",
-    label: "Complete",
-    shortDescription: "Jobs stay organized through completion.",
-    longDescription: "Scheduled work stays visible from booking through completion, so nothing falls off the calendar.",
-    icon: CheckCircle2,
+    key: "reactivate",
+    label: "Reactivate",
+    shortDescription: "Reconnect with older leads and customers.",
+    longDescription: "Past customers and old leads get reconnected with instead of being forgotten after the first job.",
+    icon: RotateCcw,
   },
   {
     key: "review",
@@ -88,11 +97,11 @@ export const SYSTEM_STEPS: SystemStep[] = [
     icon: Star,
   },
   {
-    key: "reactivate",
-    label: "Reactivate",
-    shortDescription: "Reconnect with older leads and customers.",
-    longDescription: "Past customers and old leads get reconnected with instead of being forgotten after the first job.",
-    icon: RotateCcw,
+    key: "referral",
+    label: "Referral",
+    shortDescription: "Turn happy customers into new opportunities.",
+    longDescription: "Satisfied customers get a natural opening to send new business your way, instead of that opportunity going unasked.",
+    icon: Share2,
   },
   {
     key: "track",

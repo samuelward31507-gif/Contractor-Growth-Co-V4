@@ -3,7 +3,7 @@ import { Container } from "./section";
 
 const FOOTER_LINKS = [
   { href: "/how-it-works", label: "How It Works" },
-  { href: "/services", label: "What We Build" },
+  { href: "/services", label: "Services" },
   { href: "/get-started", label: "Get Started" },
   { href: "/login", label: "Login" },
 ];
@@ -21,7 +21,7 @@ export function MarketingFooter() {
               Contractor Growth Co.
             </span>
             <p className="mt-3 text-sm leading-relaxed text-slate-500">
-              Your website, AI, follow-up, and business analytics — all working together.
+              The system that captures, follows up with, and tracks every lead — built and managed for you.
             </p>
           </div>
 

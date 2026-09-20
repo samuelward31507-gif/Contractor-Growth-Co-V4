@@ -1,18 +1,6 @@
 import type { Metadata } from "next";
-import {
-  Globe,
-  Inbox,
-  MessageSquare,
-  Repeat,
-  CalendarCheck2,
-  FileText,
-  RotateCcw,
-  Star,
-  BarChart3,
-  Settings2,
-  type LucideIcon,
-} from "lucide-react";
-import { Section, Container } from "../_components/section";
+import { Inbox, Zap, ListChecks, Repeat, CalendarCheck2, RotateCcw, Star, Share2, LineChart, type LucideIcon } from "lucide-react";
+import { Section, Eyebrow, Container } from "../_components/section";
 import { CtaLink } from "../_components/cta-button";
 
 type Service = {
@@ -20,86 +8,79 @@ type Service = {
   title: string;
   what: string;
   why: string;
-  handle: string;
+  fit: string;
 };
 
 const SERVICES: Service[] = [
   {
-    icon: Globe,
-    title: "Website / Lead Capture",
-    what: "A website and inquiry process built to turn visitors into organized opportunities.",
-    why: "A website that doesn't capture inquiries cleanly is the first place leads get lost.",
-    handle: "Contractor Growth Co. designs and builds the site and lead-capture layer, or connects to your existing one.",
-  },
-  {
     icon: Inbox,
-    title: "Lead Management",
-    what: "Every inquiry — call, form, or message — organized into one system instead of scattered across texts and voicemail.",
+    title: "Capture",
+    what: "Every call, form, and message organized into one system instead of scattered across texts and voicemail.",
     why: "You can't follow up with a lead you can't see.",
-    handle: "We set up and manage the intake so every new opportunity lands in one place.",
+    fit: "The entry point for every opportunity — the first step in the system.",
   },
   {
-    icon: MessageSquare,
-    title: "Customer Communication",
-    what: "A fast, organized response when a new opportunity comes in, with AI-assisted qualification inside defined safety boundaries.",
+    icon: Zap,
+    title: "Response",
+    what: "A fast, organized response the moment a new opportunity comes in.",
     why: "Slow response is one of the most common reasons a lead goes to a competitor.",
-    handle: "We configure the response and qualification workflows, and route anything requiring your judgment to you.",
+    fit: "Happens immediately after capture, before anything else.",
+  },
+  {
+    icon: ListChecks,
+    title: "Qualification",
+    what: "Incoming conversations reviewed, with AI-assisted qualification inside defined safety boundaries, so the right opportunities surface.",
+    why: "Not every inquiry is ready to book — qualification decides what happens next.",
+    fit: "Sits between response and follow-up, routing anything requiring judgment to you.",
   },
   {
     icon: Repeat,
     title: "Follow-Up",
     what: "Automated follow-up for leads and open estimates so conversations keep moving instead of going quiet.",
-    why: "Most lost opportunities aren't lost on the first conversation — they're lost in the follow-up gap.",
-    handle: "We build and monitor the follow-up sequences behind the scenes.",
+    why: "Most lost opportunities aren't lost in the first conversation — they're lost in the follow-up gap.",
+    fit: "Runs continuously, alongside booking and estimate management.",
   },
   {
     icon: CalendarCheck2,
-    title: "Scheduling",
-    what: "Appointments kept organized from booking through completion.",
+    title: "Booking",
+    what: "Appointments and estimates kept organized from scheduling through completion.",
     why: "A missed or double-booked appointment costs you the job and the customer's trust.",
-    handle: "We connect appointment management into the rest of the system.",
-  },
-  {
-    icon: FileText,
-    title: "Estimate Management",
-    what: "Sent estimates tracked and followed up on instead of disappearing into an inbox.",
-    why: "An unanswered estimate is a job you already quoted and might still lose.",
-    handle: "We set up estimate follow-up so open quotes stay visible.",
+    fit: "Where a qualified opportunity becomes scheduled, tracked work.",
   },
   {
     icon: RotateCcw,
-    title: "Customer Reactivation",
+    title: "Reactivation",
     what: "A process for reconnecting with older leads and past customers.",
     why: "Past customers are often the easiest source of new work — if anyone reaches back out.",
-    handle: "We build and run the reactivation outreach as part of the system.",
+    fit: "Runs in parallel, pulling cold opportunities back into the active system.",
   },
   {
     icon: Star,
-    title: "Reviews & Referrals",
-    what: "A repeatable process for asking for reviews and surfacing referral opportunities after a job is completed.",
-    why: "Happy customers rarely leave a review or send a referral unless someone asks at the right moment.",
-    handle: "We set up the review and referral requests to trigger after completed work.",
+    title: "Reviews",
+    what: "A repeatable process for requesting a review after a job is completed.",
+    why: "Happy customers rarely leave a review unless someone asks at the right moment.",
+    fit: "Triggered automatically when a job is marked complete.",
   },
   {
-    icon: BarChart3,
-    title: "Business Visibility",
+    icon: Share2,
+    title: "Referrals",
+    what: "A natural opening to ask satisfied customers to send new business your way.",
+    why: "Referrals are some of the highest-quality leads a business gets, and the easiest to lose by never asking.",
+    fit: "Runs alongside review requests, right after a job wraps up.",
+  },
+  {
+    icon: LineChart,
+    title: "Analytics",
     what: "A clear view of pipeline, appointments, estimates, jobs, and system activity.",
     why: "You can't fix a leak you can't see.",
-    handle: "Trackpr gives you the visibility; we make sure it reflects what's actually happening.",
-  },
-  {
-    icon: Settings2,
-    title: "Ongoing System Management",
-    what: "Continued monitoring and adjustment of the system as your business changes.",
-    why: "A system that's never maintained slowly drifts out of sync with how you actually work.",
-    handle: "We monitor automation health and keep the system running — not just at setup, but ongoing.",
+    fit: "Sits above the whole system, giving visibility into every stage at once.",
   },
 ];
 
 export const metadata: Metadata = {
-  title: "What We Build",
+  title: "Services",
   description:
-    "The services behind the Contractor Growth System — lead management, customer communication, follow-up, scheduling, estimate management, reactivation, reviews and referrals, and business visibility.",
+    "The Contractor Growth System's service architecture — capture, response, qualification, follow-up, booking, reactivation, reviews, referrals, and analytics.",
   alternates: { canonical: "/services" },
 };
 
@@ -112,23 +93,28 @@ export default function ServicesPage() {
             What We Build.
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-slate-600">
-            One managed system, organized around the outcomes that actually move your business forward.
+            Nine connected pieces, not nine separate products — each one part of the same system, built around the
+            outcomes that actually move your business forward.
           </p>
         </Container>
       </div>
 
       <Section>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {SERVICES.map((service) => (
+        <Eyebrow>Service architecture</Eyebrow>
+        <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {SERVICES.map((service, index) => (
             <div key={service.title} className="rounded-2xl border border-slate-200 p-7">
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-                <service.icon className="h-5 w-5" aria-hidden />
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+                  <service.icon className="h-5 w-5" aria-hidden />
+                </span>
+                <span className="text-xs font-semibold text-slate-400">{String(index + 1).padStart(2, "0")}</span>
+              </div>
               <h2 className="mt-5 text-lg font-semibold text-slate-900">{service.title}</h2>
 
               <dl className="mt-4 space-y-3">
                 <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">What is it?</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">What it is</dt>
                   <dd className="mt-1 text-sm leading-relaxed text-slate-600">{service.what}</dd>
                 </div>
                 <div>
@@ -136,8 +122,8 @@ export default function ServicesPage() {
                   <dd className="mt-1 text-sm leading-relaxed text-slate-600">{service.why}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">What we handle</dt>
-                  <dd className="mt-1 text-sm leading-relaxed text-slate-600">{service.handle}</dd>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Where it fits</dt>
+                  <dd className="mt-1 text-sm leading-relaxed text-slate-600">{service.fit}</dd>
                 </div>
               </dl>
             </div>
@@ -153,7 +139,7 @@ export default function ServicesPage() {
             business.
           </p>
           <div className="mt-8">
-            <CtaLink href="/get-started">Get Your Growth System</CtaLink>
+            <CtaLink href="/get-started">Get Started</CtaLink>
           </div>
         </div>
       </Section>

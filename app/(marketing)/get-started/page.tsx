@@ -12,7 +12,7 @@ const STEPS = [
 export const metadata: Metadata = {
   title: "Get Started",
   description:
-    "Let's find the leaks in your lead process. Tell us how your business currently handles leads, follow-up, and estimates, and we'll show you what a managed growth system could look like.",
+    "Let's build your growth system. Tell us a little about your business and where opportunities are currently being lost.",
   alternates: { canonical: "/get-started" },
 };
 
@@ -23,11 +23,11 @@ export default function GetStartedPage() {
         <div className="grid grid-cols-1 gap-14 lg:grid-cols-2 lg:gap-20">
           <div>
             <h1 className="text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
-              Let&apos;s Find the Leaks in Your Lead Process.
+              Let&apos;s Build Your Growth System.
             </h1>
             <p className="mt-5 text-lg leading-relaxed text-slate-600">
-              We&apos;ll look at how your business currently handles new leads, missed calls, follow-up, estimates,
-              and customers — then show you what a managed growth system could look like.
+              Tell us a little about your business and where opportunities are currently being lost — we&apos;ll
+              take it from there.
             </p>
 
             <div className="mt-10">

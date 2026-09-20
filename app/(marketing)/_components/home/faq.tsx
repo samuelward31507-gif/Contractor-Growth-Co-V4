@@ -4,36 +4,51 @@ import { CtaLink } from "../cta-button";
 
 const FAQS: { question: string; answer: string }[] = [
   {
-    question: "Is this a CRM?",
+    question: "What exactly do you build?",
     answer:
-      "Trackpr powers the system, but Contractor Growth Co. is a managed growth service. We build and manage the system around your business rather than simply handing you software.",
+      "A connected system covering lead capture, instant response, qualification, follow-up, appointment and estimate tracking, reactivation, reviews and referrals, and reporting — built around Trackpr and managed by us.",
   },
   {
-    question: "Do I need to replace my current CRM?",
+    question: "Do I need to replace my CRM?",
     answer:
-      "The system is built to integrate with your existing setup where appropriate. The exact architecture depends on your business — that's something we work through with you.",
+      "Not necessarily. The system is built to work with your existing setup where it makes sense. The right architecture depends on your business, and that's something we work through with you before anything is built.",
   },
   {
     question: "Do I need a new website?",
     answer:
-      "Contractor Growth Co. can build the website and lead-capture layer where needed, but the system can also focus purely on lead management depending on your business.",
+      "No. We can build a new lead-capture-focused website where it helps, but the system can also plug into your current one — the priority is making sure inquiries get captured and followed up on, not replacing what already works.",
   },
   {
-    question: "Does AI talk to my customers?",
+    question: "What happens when a lead comes in?",
     answer:
-      "AI-assisted communication is used within defined safety boundaries and appropriate workflows. Situations that require human judgment are routed to you.",
+      "It gets captured, gets a fast response, and moves through qualification and follow-up automatically — instead of sitting in a voicemail, a missed text, or an inbox until someone has time.",
   },
   {
-    question: "Will you manage it for me?",
-    answer: "Yes. The service is designed to be built and managed for you, not simply handed over.",
+    question: "Can this work with missed calls?",
+    answer: "Yes — missed calls are one of the most common leaks the system is built to close.",
   },
   {
-    question: "Who is this for?",
-    answer: "Contractors and service businesses that want a more systematic process for handling opportunities and customers.",
+    question: "Does this replace my office staff?",
+    answer:
+      "No. It's built to support the people already answering calls and following up, not replace them — handling the repetitive follow-through so nothing falls through the cracks.",
   },
   {
-    question: "Can I see the system?",
-    answer: "Yes — the fastest way is to get started below and we'll walk you through it.",
+    question: "How long does setup take?",
+    answer:
+      "It depends on the size of your business and what's already in place. We start with an audit of how leads currently move through your process, then build from there.",
+  },
+  {
+    question: "Who manages the system?",
+    answer: "We do. It's not handed to you to configure and maintain — Contractor Growth Co. builds it, connects it, and manages it on an ongoing basis.",
+  },
+  {
+    question: "What happens after launch?",
+    answer: "The system is monitored and refined on an ongoing basis as your business and lead volume change — it isn't a one-time setup we walk away from.",
+  },
+  {
+    question: "Do I need to learn new software?",
+    answer:
+      "You'll have visibility into what's happening, but you're not expected to learn or configure a new platform. That's the part we handle.",
   },
 ];
 
@@ -56,7 +71,7 @@ export function Faq() {
 
       <div className="mt-10 text-center">
         <CtaLink href="/get-started" variant="secondary">
-          Get Started / Demo
+          Get Started
         </CtaLink>
       </div>
     </Section>
