@@ -1,30 +1,28 @@
-import { Building2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
 import { getAgencyHealth, type AgencyOrganizationHealth } from "@/lib/agency/health";
-import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
+import { getAgencyOnboardingStages, getAgencyRecentActivity } from "@/lib/agency/operations";
+import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { UnauthorizedState } from "./_components/unauthorized-state";
-import { EmptyState } from "./_components/empty-state";
 import { ErrorState } from "./_components/error-state";
-import { OverviewCards } from "./_components/overview-cards";
-import { ClientHealthTable } from "./_components/client-health-table";
-import { AttentionSection } from "./_components/attention-section";
-import { AutomationActivity } from "./_components/automation-activity";
-import { AiActivity } from "./_components/ai-activity";
-import { IncidentRollup } from "./_components/incident-rollup";
+import { NeedsAttention } from "./_components/needs-attention";
+import { ClientOperations, type ClientRow } from "./_components/client-operations";
+import { SystemHealth } from "./_components/system-health";
+import { AgencyActivity } from "./_components/agency-activity";
+import { Row } from "./_components/row";
+import { formatCount } from "./_components/format";
 
 /**
- * Agency Command Center v1 - the first functional operational view, not the
- * Trackpr 2.0 redesign. Reads through the same real backend
- * (lib/agency/queries.ts + lib/agency/health.ts, also reachable over HTTP at
- * /api/agency/overview) that already passed its own security test suite -
- * this page is a Server Component calling those functions directly, the
- * same pattern app/(app)/dashboard/page.tsx already uses for its own
- * lib/dashboard/business-metrics.ts, rather than an unnecessary self-fetch
- * of this app's own API route. No Supabase query happens in the browser,
- * and no metric here is recomputed - every value is read straight off the
- * backend's already-aggregated result.
+ * Agency Command Center UI review: the whole page now answers the five
+ * questions an agency admin opens it to check - client count, who needs
+ * attention, whether anything is operationally broken, where each client is
+ * in onboarding/live status, and what recently happened - via typography and
+ * dividers (same visual system as the redesigned client dashboard), not a
+ * wall of bordered stat cards. Every read is still the exact same
+ * already-authorized backend (lib/agency/queries.ts, lib/agency/health.ts)
+ * plus the two small additive reads in lib/agency/operations.ts - no
+ * authorization logic changed, no new database policy, no client-side fetch.
  */
 export default async function AgencyPage() {
   const supabase = await createClient();
@@ -32,29 +30,28 @@ export default async function AgencyPage() {
 
   let metrics: Awaited<ReturnType<typeof getAgencyBusinessMetrics>>;
   let health: Awaited<ReturnType<typeof getAgencyHealth>>;
+  let stages: Awaited<ReturnType<typeof getAgencyOnboardingStages>>;
+  let activity: Awaited<ReturnType<typeof getAgencyRecentActivity>>;
 
   try {
-    [metrics, health] = await Promise.all([getAgencyBusinessMetrics(supabase, service), getAgencyHealth(supabase, service)]);
+    [metrics, health, stages, activity] = await Promise.all([
+      getAgencyBusinessMetrics(supabase, service),
+      getAgencyHealth(supabase, service),
+      getAgencyOnboardingStages(supabase, service),
+      getAgencyRecentActivity(supabase, service),
+    ]);
   } catch {
     return (
-      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
         <ErrorState />
       </div>
     );
   }
 
-  if (!metrics.ok || !health.ok) {
+  if (!metrics.ok || !health.ok || !stages.ok || !activity.ok) {
     return (
-      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
         <UnauthorizedState />
-      </div>
-    );
-  }
-
-  if (metrics.organizations.length === 0) {
-    return (
-      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
-        <EmptyState />
       </div>
     );
   }
@@ -62,29 +59,59 @@ export default async function AgencyPage() {
   const healthByOrg = new Map<string, AgencyOrganizationHealth>(health.organizations.map((org) => [org.organizationId, org]));
   const attentionOrganizations = health.organizations.filter((org) => org.needsAttention);
 
+  const rows: ClientRow[] = metrics.organizations.map((org) => {
+    const stageInfo = stages.stageByOrg.get(org.organizationId);
+    return {
+      organization: org,
+      health: healthByOrg.get(org.organizationId),
+      stage: stageInfo?.stage ?? "new",
+      incompleteCount: stageInfo?.incompleteCount ?? 0,
+      lastActivityAt: activity.lastActivityByOrg.get(org.organizationId) ?? null,
+    };
+  });
+
+  const liveCount = rows.filter((row) => row.stage === "live").length;
+  const settingUpCount = rows.length - liveCount;
+
   return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
-      <div className="flex items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900">
-          <Building2 className="h-4 w-4 text-white" aria-hidden />
-        </span>
-        <div>
-          <h1 className={pageTitleClass}>Agency Command Center</h1>
-          <p className={`mt-0.5 ${pageDescriptionClass}`}>
-            Contractor Growth Co. — client organization monitoring · {metrics.organizations.length} client organization{metrics.organizations.length === 1 ? "" : "s"}
-          </p>
+    <div className="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div>
+        <p className={sectionLabelClass}>Overview</p>
+        <h1 className={`mt-1.5 ${pageTitleClass}`}>Agency Command Center</h1>
+        <p className={`mt-1.5 ${pageDescriptionClass}`}>
+          Contractor Growth Co. · {formatCount(metrics.organizations.length)} client organization{metrics.organizations.length === 1 ? "" : "s"}
+        </p>
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-slate-200 py-4">
+        <Row label="Clients" value={formatCount(rows.length)} />
+        <Row label="Needs attention" value={formatCount(attentionOrganizations.length)} tone={attentionOrganizations.length > 0 ? "danger" : "default"} />
+        <Row label="Live" value={formatCount(liveCount)} />
+        <Row label="Setting up" value={formatCount(settingUpCount)} />
+        <Row
+          label="System health"
+          value={`${formatCount(health.incidentRollup.organizationsHealthy)}/${formatCount(rows.length)} healthy`}
+          tone={health.incidentRollup.organizationsUnhealthy > 0 ? "danger" : health.incidentRollup.organizationsDegraded > 0 ? "warning" : "default"}
+        />
+      </div>
+
+      <div className="mt-8">
+        <NeedsAttention organizations={attentionOrganizations} stuck={health.stuck} />
+      </div>
+
+      <div className="mt-8 border-t border-slate-200 pt-8">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Clients</p>
+        <div className="mt-3">
+          <ClientOperations rows={rows} />
         </div>
       </div>
 
-      <div className="mt-4 flex flex-col gap-3.5">
-        <OverviewCards summary={metrics.summary} />
-        <AttentionSection organizations={attentionOrganizations} stuck={health.stuck} />
-        <IncidentRollup rollup={health.incidentRollup} schedulerHeartbeat={health.schedulerHeartbeat} />
-        <ClientHealthTable organizations={metrics.organizations} healthByOrg={healthByOrg} />
-        <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-          <AutomationActivity summary={metrics.summary} stuckCount={health.stuck.length} />
-          <AiActivity summary={metrics.summary} aiTokenUsageUnavailable={metrics.dataQuality.aiTokenUsageUnavailable} />
-        </div>
+      <div className="mt-8 border-t border-slate-200 pt-8">
+        <SystemHealth rollup={health.incidentRollup} schedulerHeartbeat={health.schedulerHeartbeat} />
+      </div>
+
+      <div className="mt-8 border-t border-slate-200 pt-8">
+        <AgencyActivity items={activity.items} />
       </div>
     </div>
   );
