@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutDashboard, LogOut } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, LogOut } from "lucide-react";
 import { logout } from "@/app/(app)/actions";
 
 /**
@@ -11,11 +11,15 @@ import { logout } from "@/app/(app)/actions";
  * (same bg, same radial glow, same brand lockup, same nav-link active/hover
  * treatment, same account footer) - it is not a new visual system, just the
  * same one used for an internal-operator context instead of a client
- * workspace. Navigation is deliberately a single "Overview" item: today
- * there is exactly one real Agency destination (client detail pages are a
- * drill-down from the client list, never a sidebar destination) - see
- * agency-sidebar.tsx's own header comment for why no other nav items exist
- * yet.
+ * workspace. Agency navigation is deliberately a single "Overview" item:
+ * today there is exactly one real Agency destination (client detail pages
+ * are a drill-down from the client list, never a sidebar destination). The
+ * "Back to Trackpr" link above it is a real, explicit route to /dashboard
+ * (not browser back) - an agency admin reaching this shell from the client
+ * CRM's own nav link needs an equally explicit way back, and it is styled
+ * as a muted secondary action (matching the footer's own Log out hover
+ * treatment) precisely so it never competes with the Overview destination
+ * for visual weight.
  */
 export function AgencySidebarContent({
   userEmail,
@@ -51,6 +55,17 @@ export function AgencySidebarContent({
       </div>
 
       <nav className="relative flex-1 space-y-6 overflow-y-auto px-3 pb-4">
+        <div className="space-y-0.5">
+          <Link
+            href="/dashboard"
+            onClick={onNavigate}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white"
+          >
+            <ArrowLeft className="h-[18px] w-[18px] shrink-0 text-slate-500" aria-hidden />
+            <span className="truncate">Back to Trackpr</span>
+          </Link>
+        </div>
+
         <div className="space-y-0.5">
           <Link
             href="/agency"

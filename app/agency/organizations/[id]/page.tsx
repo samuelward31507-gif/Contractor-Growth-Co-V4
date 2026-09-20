@@ -120,10 +120,16 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
-        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-        Agency Command Center
-      </Link>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+          Agency Command Center
+        </Link>
+        <span className="text-xs text-slate-300">·</span>
+        <Link href="/dashboard" className="text-xs font-medium text-slate-500 hover:text-slate-700">
+          Back to Trackpr
+        </Link>
+      </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <div>
