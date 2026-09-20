@@ -6,10 +6,10 @@ import { logout } from "../actions";
 /**
  * Trackpr visual-system redesign: the sidebar now carries the marketing
  * site's actual visual signature - not just a dark fill, but the same soft
- * radial emerald glow + faint technical grid the Contractor Growth Co.
- * homepage hero uses (see app/(marketing)/_components/home/hero.tsx) - so
- * opening the app reads as a continuation of the same surface, not a
- * different product that happens to share a color. The brand lockup below
+ * radial emerald glow the Contractor Growth Co. homepage hero uses (see
+ * app/(marketing)/_components/home/hero.tsx) - so opening the app reads as
+ * a continuation of the same surface, not a different product that happens
+ * to share a color. The brand lockup below
  * mirrors the marketing nav's "C" mark + wordmark pairing, plus the site's
  * own eyebrow typography ("CONTRACTOR GROWTH CO.", uppercase, wide
  * tracking, emerald). The organization name gets its own distinct
@@ -37,10 +37,6 @@ export function SidebarContent({
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_50%_at_50%_-20%,rgba(16,185,129,0.18),transparent)]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.04] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:48px_48px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,black,transparent)]"
       />
 
       <div className="relative flex items-center gap-2.5 px-5 pb-4 pt-6">

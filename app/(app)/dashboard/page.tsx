@@ -7,6 +7,7 @@ import { getLeads, summarizeLeads } from "@/lib/leads/queries";
 import { getAppointments, summarizeAppointments } from "@/lib/appointments/queries";
 import { getContacts } from "@/lib/contacts/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
+import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { Panel } from "@/lib/ui/section-card";
 import { AttentionPanel } from "./_components/attention-panel";
 import { PipelineRail } from "./_components/pipeline-rail";
@@ -74,45 +75,30 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      {/*
-        Command header - the marketing site's own dark surface (radial
-        emerald glow + faint technical grid, see
-        app/(marketing)/_components/home/hero.tsx) brought into the product
-        itself, so opening the dashboard reads as "the same brand," not a
-        recolored admin panel. This is the one dark moment in the workspace
-        outside the sidebar - deliberately not repeated on every page.
-      */}
-      <div className="relative overflow-hidden bg-[#0a120f] px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_15%_-20%,rgba(16,185,129,0.16),transparent)]"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.04] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(ellipse_80%_70%_at_20%_0%,black,transparent)]"
-        />
-        <div className="relative flex flex-wrap items-end justify-between gap-x-8 gap-y-6">
+      {/* Light workspace body - the dashboard used to open with a separate
+          dark command header; it now flows directly into the same light
+          page-header convention every other route uses, just with the
+          Pipeline Value figure and Add Lead action alongside it. */}
+      <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-6">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-400">Dashboard</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+            <p className={sectionLabelClass}>Dashboard</p>
+            <h1 className={`mt-1.5 ${pageTitleClass}`}>
               {greeting()}, {businessName}.
             </h1>
-            <p className="mt-2 text-[15px] text-slate-300">{statusLine(data.attentionItems.length)}</p>
+            <p className={`mt-1.5 ${pageDescriptionClass}`}>{statusLine(data.attentionItems.length)}</p>
           </div>
           <div className="flex items-center gap-6">
             <div className="text-right">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Pipeline value</p>
-              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-white sm:text-4xl">
+              <p className={sectionLabelClass}>Pipeline value</p>
+              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
                 {formatCurrency(businessMetrics.pipelineMetrics.pipelineValue)}
               </p>
             </div>
             {contacts.length > 0 ? <AddLeadButton contacts={contacts} /> : null}
           </div>
         </div>
-      </div>
 
-      {/* Light workspace body. */}
-      <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
         <UrgentDuo hotLeadCount={leadSummary.hotCount} todayAppointmentCount={appointmentSummary.today} />
 
         <AttentionPanel items={data.attentionItems} />

@@ -24,16 +24,11 @@ const LEAD_JOURNEY: RailStep[] = [
 export function Hero() {
   return (
     <div className="relative overflow-hidden bg-slate-950">
-      {/* Restrained depth: a soft radial glow plus a faint technical grid -
-          neither is decorative for its own sake, both stay well under the
-          headline in visual weight. */}
+      {/* Restrained depth: a soft radial glow, well under the headline in
+          visual weight. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_50%_-10%,rgba(16,185,129,0.14),transparent)]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.05] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:64px_64px] [mask-image:radial-gradient(ellipse_70%_60%_at_50%_0%,black,transparent)]"
       />
 
       <Container className="relative py-24 sm:py-28 lg:py-32">
