@@ -30,11 +30,12 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
 import { getAgencyHealth } from "@/lib/agency/health";
 import { listIncidents } from "@/lib/automation-health/queries";
-import { computeOnboardingReadiness, ONBOARDING_STATUS_LABEL, type OnboardingStatus } from "@/lib/onboarding/readiness";
+import { computeSetupChecklist, ONBOARDING_STAGE_LABEL, type OnboardingStage } from "@/lib/onboarding/checklist";
+import { getBusinessProfile, getServiceAreas } from "@/lib/settings/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { SectionCard } from "@/lib/ui/section-card";
 import { Badge } from "@/lib/ui/badge";
-import { pageTitleClass } from "@/lib/ui/typography";
+import { pageTitleClass, detailLabelClass, detailValueClass } from "@/lib/ui/typography";
 import { formatRate, formatCount } from "../../_components/format";
 import { StatGrid, type Stat } from "../../_components/stat-grid";
 import { UnauthorizedState } from "../../_components/unauthorized-state";
@@ -100,18 +101,25 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   // already-authorized organizations (the check immediately above) - never
   // a second, independent authorization path. Uses the service-role client
   // like every other agency read on this page.
-  const incidents = await listIncidents(service, id, { status: ["open", "acknowledged"] });
-  const readiness = await computeOnboardingReadiness(service, id);
+  const [incidents, checklist, profile, serviceAreas] = await Promise.all([
+    listIncidents(service, id, { status: ["open", "acknowledged"] }),
+    computeSetupChecklist(service, id),
+    getBusinessProfile(service, id),
+    getServiceAreas(service, id),
+  ]);
+  const { readiness, testLeadOutcome } = checklist;
 
   const { metrics: m } = org;
 
-  const READINESS_TONE: Record<OnboardingStatus, "neutral" | "danger" | "warning" | "info" | "success"> = {
-    setup: "neutral",
-    blocked: "danger",
-    testing: "warning",
+  const STAGE_TONE: Record<OnboardingStage, "neutral" | "danger" | "warning" | "info" | "success"> = {
+    new: "neutral",
+    configuring: "warning",
+    testing: "info",
     ready: "info",
     live: "success",
   };
+
+  const missingItems = checklist.items.filter((item) => !item.complete);
 
   const businessStats: Stat[] = [
     { key: "leads", label: "Leads", value: formatCount(m.leadMetrics.totalLeads), icon: Users },
@@ -228,26 +236,117 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
       <div className="mt-4 flex flex-col gap-3.5">
         <SectionCard
-          title="Onboarding readiness"
-          description={`Automation mode: ${readiness.automationMode}`}
+          title="Onboarding &amp; setup"
+          description={`Stage: ${ONBOARDING_STAGE_LABEL[checklist.stage]} · Automation mode: ${readiness.automationMode}`}
           icon={ListChecks}
-          action={<Badge tone={READINESS_TONE[readiness.status]}>{ONBOARDING_STATUS_LABEL[readiness.status]}</Badge>}
+          action={<Badge tone={STAGE_TONE[checklist.stage]}>{ONBOARDING_STAGE_LABEL[checklist.stage]}</Badge>}
         >
-          <ul className="divide-y divide-slate-100">
-            {readiness.items.map((item) => (
-              <li key={item.key} className="flex items-start gap-2.5 py-2">
-                {item.complete ? (
-                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
-                ) : (
-                  <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-300" aria-hidden />
-                )}
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900">{item.label}</p>
-                  <p className="text-xs text-slate-500">{item.detail}</p>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div>
+              <p className={detailLabelClass}>Client</p>
+              <dl className="mt-2 space-y-2">
+                <div>
+                  <dt className="text-xs text-slate-500">Business</dt>
+                  <dd className={detailValueClass}>{profile?.name ?? "—"}</dd>
                 </div>
-              </li>
-            ))}
-          </ul>
+                <div>
+                  <dt className="text-xs text-slate-500">Owner / contact</dt>
+                  <dd className={detailValueClass}>{profile?.owner_name ?? "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">Trade</dt>
+                  <dd className={detailValueClass}>{profile?.trade ?? "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">Service area</dt>
+                  <dd className={detailValueClass}>
+                    {serviceAreas.length > 0 ? serviceAreas.map((area) => area.name).join(", ") : "Not set"}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            <div>
+              <p className={detailLabelClass}>Setup</p>
+              <dl className="mt-2 space-y-2">
+                <div>
+                  <dt className="text-xs text-slate-500">Business hours</dt>
+                  <dd className={detailValueClass}>{readiness.items.find((i) => i.key === "hours")?.complete ? "Configured" : "Not configured"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">SMS status</dt>
+                  <dd className={detailValueClass}>{readiness.items.find((i) => i.key === "sms")?.complete ? "Configured" : "Not configured"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">Lead capture status</dt>
+                  <dd className={detailValueClass}>{readiness.items.find((i) => i.key === "leadCapture")?.complete ? "Ready" : "Unavailable"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">AI status</dt>
+                  <dd className={detailValueClass}>{readiness.items.find((i) => i.key === "ai")?.complete ? "Reviewed" : "Not reviewed"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">Automation mode</dt>
+                  <dd className={detailValueClass}>{readiness.automationMode === "live" ? "Live" : "Test"}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+
+          <div className="mt-6 border-t border-slate-100 pt-4">
+            <p className={detailLabelClass}>Readiness</p>
+            {missingItems.length === 0 ? (
+              <p className="mt-2 text-sm text-emerald-700">Everything required is complete.</p>
+            ) : (
+              <ul className="mt-2 divide-y divide-slate-100">
+                {missingItems.map((item) => (
+                  <li key={item.key} className="flex items-center gap-2.5 py-1.5">
+                    <Circle className="h-3.5 w-3.5 shrink-0 text-slate-300" aria-hidden />
+                    <p className="text-sm text-slate-700">{item.label}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {readiness.status !== "live" ? (
+              <p className="mt-2 text-xs text-slate-500">
+                Go Live is blocked until business profile, business hours, and SMS routing are all configured.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="mt-6 border-t border-slate-100 pt-4">
+            <p className={detailLabelClass}>Test</p>
+            {testLeadOutcome ? (
+              <div className="mt-2 space-y-1 text-sm text-slate-700">
+                <p>Test attempted — last run {new Date(testLeadOutcome.createdAt).toLocaleString()}.</p>
+                <p>
+                  {testLeadOutcome.executionStatus === "completed" && (testLeadOutcome.blockedReason === null || testLeadOutcome.blockedReason === "organization_not_live")
+                    ? "Automation response confirmed working."
+                    : testLeadOutcome.executionStatus === "completed" && testLeadOutcome.blockedReason
+                      ? `Response held back (${testLeadOutcome.blockedReason.replace(/_/g, " ")}).`
+                      : "Still in progress or the automation service was unavailable when last checked."}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">No test has been attempted yet.</p>
+            )}
+          </div>
+
+          <div className="mt-6 border-t border-slate-100 pt-4">
+            <p className={detailLabelClass}>Live status</p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <Badge tone={readiness.automationMode === "live" ? "success" : "neutral"}>
+                {readiness.automationMode === "live" ? "Live" : "Test"}
+              </Badge>
+              <p className="text-xs text-slate-500">
+                {readiness.automationMode === "live"
+                  ? "No current blocker."
+                  : missingItems.length > 0
+                    ? `Blocked by: ${missingItems.map((item) => item.label).join(", ")}.`
+                    : "Ready for Go Live."}
+              </p>
+            </div>
+          </div>
         </SectionCard>
 
         <SectionCard title="Business" icon={Building2}>

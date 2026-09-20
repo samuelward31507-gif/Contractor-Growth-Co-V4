@@ -24,6 +24,8 @@ import { BusinessHoursSection } from "./_components/business-hours-section";
 import { BusinessProfileSection } from "./_components/business-profile-section";
 import { LeadCaptureSection } from "./_components/lead-capture-section";
 import { NotificationSettingsSection } from "./_components/notification-settings-section";
+import { OperationsDetailSection } from "./_components/operations-detail-section";
+import { ReputationSection } from "./_components/reputation-section";
 import { ServiceAreasSection } from "./_components/service-areas-section";
 import { ServicesSection } from "./_components/services-section";
 import { SmsSummarySection } from "./_components/sms-summary-section";
@@ -113,19 +115,21 @@ export default async function SettingsPage() {
           <ServicesSection services={services} canEdit={canEdit} />
           <ServiceAreasSection areas={serviceAreas} canEdit={canEdit} />
           <BookingSettingsSection settings={bookingSettings} canEdit={canEdit} />
+          <OperationsDetailSection profile={profile} canEdit={canEdit} />
         </SettingsGroup>
 
         <SettingsGroup label="Communications">
           <SmsSummarySection smsPhoneNumber={smsPhoneNumber} />
           <LeadCaptureSection intakeUrl={leadIntakeUrl} />
+          <NotificationSettingsSection settings={notificationSettings} canEdit={canEdit} />
         </SettingsGroup>
 
         <SettingsGroup label="AI">
           <AiSettingsSection settings={aiSettings} canEdit={canEdit} />
         </SettingsGroup>
 
-        <SettingsGroup label="Notifications">
-          <NotificationSettingsSection settings={notificationSettings} canEdit={canEdit} />
+        <SettingsGroup label="Reputation">
+          <ReputationSection profile={profile} canEdit={canEdit} />
         </SettingsGroup>
       </div>
     </div>

@@ -5,8 +5,9 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { isValidEmail } from "@/lib/auth/validation";
 import { createClient } from "@/lib/supabase/server";
-import { isValidTimezone } from "@/lib/settings/format";
-import { DAYS_OF_WEEK, type DayOfWeek } from "@/lib/settings/queries";
+import { isValidHttpUrl, isValidTimezone } from "@/lib/settings/format";
+import { DAYS_OF_WEEK, LEAD_SOURCE_OPTIONS, type DayOfWeek, type LeadSourceValue } from "@/lib/settings/queries";
+import { canGoLive, computeSetupChecklist } from "@/lib/onboarding/checklist";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -110,6 +111,92 @@ export async function updateBusinessProfile(
 
   revalidatePath("/settings");
   revalidatePath("/dashboard");
+  return { success: true };
+}
+
+// ==================== Reputation ====================
+
+/**
+ * First Contractor Onboarding: review_url already existed on organizations
+ * (Phase 4.7's Post-Job Review + Referral Automation already reads it via
+ * getBusinessProfile), but no Settings form ever exposed a way to set it -
+ * this closes that gap. facebook_url is new, following review_url's exact
+ * same shape/precedent. Both are optional and, like review_url already was,
+ * never block anything else (Go Live, readiness, etc.) when unset.
+ */
+export async function updateReputationSettings(
+  _prevState: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const { supabase, organizationId, error: authError } = await requireSettingsAdmin();
+  if (authError || !organizationId) return { error: authError ?? "Something went wrong. Please try again." };
+
+  const reviewUrl = String(formData.get("reviewUrl") ?? "").trim();
+  const facebookUrl = String(formData.get("facebookUrl") ?? "").trim();
+
+  if (reviewUrl && !isValidHttpUrl(reviewUrl)) {
+    return { error: "Enter a valid review URL (starting with http:// or https://)." };
+  }
+  if (facebookUrl && !isValidHttpUrl(facebookUrl)) {
+    return { error: "Enter a valid Facebook URL (starting with http:// or https://)." };
+  }
+
+  const { error } = await supabase
+    .from("organizations")
+    .update({ review_url: reviewUrl || null, facebook_url: facebookUrl || null })
+    .eq("id", organizationId);
+
+  if (error) {
+    return { error: "We couldn't save your reputation links. Please try again." };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/onboarding");
+  return { success: true };
+}
+
+// ==================== Operations Detail ====================
+
+const LEAD_SOURCE_VALUES = new Set(LEAD_SOURCE_OPTIONS.map((option) => option.value));
+
+/**
+ * First Contractor Onboarding: business facts that have no existing home -
+ * distinct from business_hours (weekly schedule only) and from
+ * ai_settings.emergency_instructions (AI behavior text, not a business
+ * fact). lead_sources is validated against the fixed LEAD_SOURCE_OPTIONS
+ * list, never stored as free text.
+ */
+export async function updateOperationsDetail(
+  _prevState: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const { supabase, organizationId, error: authError } = await requireSettingsAdmin();
+  if (authError || !organizationId) return { error: authError ?? "Something went wrong. Please try again." };
+
+  const emergencyService = formData.get("emergencyService") === "on";
+  const afterHoursHandling = String(formData.get("afterHoursHandling") ?? "").trim();
+  const estimateProcess = String(formData.get("estimateProcess") ?? "").trim();
+  const leadSources = formData
+    .getAll("leadSources")
+    .map((value) => String(value))
+    .filter((value): value is LeadSourceValue => LEAD_SOURCE_VALUES.has(value as LeadSourceValue));
+
+  const { error } = await supabase
+    .from("organizations")
+    .update({
+      emergency_service: emergencyService,
+      after_hours_handling: afterHoursHandling || null,
+      estimate_process: estimateProcess || null,
+      lead_sources: leadSources.length > 0 ? leadSources : null,
+    })
+    .eq("id", organizationId);
+
+  if (error) {
+    return { error: "We couldn't save these operations details. Please try again." };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/onboarding");
   return { success: true };
 }
 
@@ -451,17 +538,18 @@ export async function updateAutomationMode(
     return { error: "Invalid automation mode." };
   }
 
-  // First-Client Lead Capture V1: clear validation of required settings
-  // before going live. Without a configured SMS routing number, an inbound
-  // customer reply can never reach Trackpr at all (app/api/webhooks/sms/inbound
-  // resolves organization purely by organizations.sms_phone_number) - going
-  // live without this would silently strand every customer who replies.
-  // This is a server-side check, not just a UI hint - the only way to bypass
-  // it is to actually configure the prerequisite.
+  // First Contractor Onboarding + Internal Client Setup System, Phase 8: Go
+  // Live protection is strengthened here (never weakened) via canGoLive -
+  // the same shared readiness computation the setup checklist itself
+  // displays, so there is exactly one definition of "ready for Go Live",
+  // never a second one that could drift out of sync. This can only ever add
+  // a restriction on top of outbound-gate.ts's own organization_not_live
+  // check - never bypass it.
   if (mode === "live") {
-    const { data: org } = await supabase.from("organizations").select("sms_phone_number").eq("id", organizationId).maybeSingle();
-    if (!org?.sms_phone_number) {
-      return { error: "Configure an SMS routing number before going live, so customer replies can reach Trackpr." };
+    const checklist = await computeSetupChecklist(supabase, organizationId);
+    const check = canGoLive(checklist);
+    if (!check.allowed) {
+      return { error: check.reason };
     }
   }
 
@@ -486,6 +574,7 @@ export async function updateNotificationSettings(
 
   const notificationEmail = String(formData.get("notificationEmail") ?? "").trim();
   const notificationPhone = String(formData.get("notificationPhone") ?? "").trim();
+  const escalationContactName = String(formData.get("escalationContactName") ?? "").trim();
 
   if (notificationEmail && !isValidEmail(notificationEmail)) {
     return { error: "Enter a valid notification email address." };
@@ -496,6 +585,7 @@ export async function updateNotificationSettings(
       organization_id: organizationId,
       notification_email: notificationEmail || null,
       notification_phone: notificationPhone || null,
+      escalation_contact_name: escalationContactName || null,
       notify_on_hot_lead: formData.get("notifyOnHotLead") === "on",
       notify_on_ai_escalation: formData.get("notifyOnAiEscalation") === "on",
       notify_on_missed_call: formData.get("notifyOnMissedCall") === "on",

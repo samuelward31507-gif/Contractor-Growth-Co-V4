@@ -14,9 +14,34 @@ export type BusinessProfile = {
   website: string | null;
   timezone: string;
   review_url: string | null;
+  facebook_url: string | null;
+  emergency_service: boolean;
+  after_hours_handling: string | null;
+  estimate_process: string | null;
+  lead_sources: string[] | null;
 };
 
-const PROFILE_COLUMNS = "id, name, owner_name, trade, phone, email, address, city, state, zip, website, timezone, review_url";
+const PROFILE_COLUMNS =
+  "id, name, owner_name, trade, phone, email, address, city, state, zip, website, timezone, review_url, facebook_url, emergency_service, after_hours_handling, estimate_process, lead_sources";
+
+/**
+ * First Contractor Onboarding: the fixed, small set of channels the
+ * onboarding/operations form lets a contractor describe as their current
+ * lead sources - informational context for onboarding/agency setup, never
+ * confused with leads.source (per-lead runtime attribution, a free-text
+ * value set by the actual lead-capture/webhook paths). Validated server-side
+ * against this exact list - never a free-text value.
+ */
+export const LEAD_SOURCE_OPTIONS = [
+  { value: "website", label: "Website" },
+  { value: "google", label: "Google" },
+  { value: "facebook", label: "Facebook" },
+  { value: "phone", label: "Phone" },
+  { value: "referral", label: "Referral" },
+  { value: "other", label: "Other" },
+] as const;
+
+export type LeadSourceValue = (typeof LEAD_SOURCE_OPTIONS)[number]["value"];
 
 /**
  * First Client Onboarding V1: the same trade list the marketing site's Get
@@ -282,6 +307,7 @@ export type NotificationSettings = {
   notify_on_ai_escalation: boolean;
   notify_on_missed_call: boolean;
   notify_on_appointment_booked: boolean;
+  escalation_contact_name: string | null;
 };
 
 const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
@@ -291,6 +317,7 @@ const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   notify_on_ai_escalation: true,
   notify_on_missed_call: true,
   notify_on_appointment_booked: true,
+  escalation_contact_name: null,
 };
 
 export async function getNotificationSettings(
@@ -300,7 +327,7 @@ export async function getNotificationSettings(
   const { data } = await supabase
     .from("notification_settings")
     .select(
-      "notification_email, notification_phone, notify_on_hot_lead, notify_on_ai_escalation, notify_on_missed_call, notify_on_appointment_booked",
+      "notification_email, notification_phone, notify_on_hot_lead, notify_on_ai_escalation, notify_on_missed_call, notify_on_appointment_booked, escalation_contact_name",
     )
     .eq("organization_id", organizationId)
     .maybeSingle();

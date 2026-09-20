@@ -28,6 +28,21 @@ export function isValidTimezone(timezone: string): boolean {
 }
 
 /**
+ * First Contractor Onboarding: used for review_url/facebook_url, which are
+ * passed through as-is to n8n/the AI (see lib/automation/post-job-followup.ts)
+ * - only http(s) is accepted so a stored value can never become a
+ * javascript:/data: URI surfaced later in an outbound message or a link.
+ */
+export function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Formats an "HH:MM" wall-clock string (from a native time input / stored
  * `time` column) as a friendly time - not a full Date/timestamp, so no
  * timezone conversion is involved or appropriate here.

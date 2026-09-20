@@ -46,13 +46,28 @@ export function NotificationSettingsSection({
 
   return (
     <section>
-      <h2 className={subsectionTitleClass}>Notifications</h2>
-      <p className={`mt-1 ${metaClass}`}>Where and when important events should be surfaced.</p>
+      <h2 className={subsectionTitleClass}>Notifications &amp; escalation</h2>
+      <p className={`mt-1 ${metaClass}`}>
+        Where important events are surfaced, and who is the human escalation contact when AI hands off a conversation.
+      </p>
 
       <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
           {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Notification preferences saved.</p> : null}
+
+          <div className="space-y-1.5">
+            <label htmlFor="escalationContactName" className={labelClass}>
+              Human escalation contact
+            </label>
+            <input
+              id="escalationContactName"
+              name="escalationContactName"
+              defaultValue={settings.escalation_contact_name ?? ""}
+              className={inputClass}
+              placeholder="Jamie Rivera"
+            />
+          </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
