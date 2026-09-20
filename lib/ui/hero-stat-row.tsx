@@ -52,7 +52,11 @@ export function HeroStatRow({
           <HeroIcon className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className={`truncate text-[11px] font-semibold uppercase tracking-wider ${style.labelText}`}>{hero.label}</p>
+          {/* Wraps rather than truncates - "Awaiting response" was clipping
+              to "AWAITING RESPON…" in the 220px hero column at desktop
+              width; a real label losing information reads worse than a
+              two-line label. */}
+          <p className={`text-[11px] font-semibold uppercase tracking-wider ${style.labelText}`}>{hero.label}</p>
           <p className={`mt-0.5 text-3xl font-bold tracking-tight tabular-nums ${style.valueText}`}>{hero.value}</p>
         </div>
       </div>
