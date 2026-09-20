@@ -19,8 +19,17 @@ import { LogOut } from "lucide-react";
 import { NAV_GROUPS, AGENCY_NAV_ITEM } from "./nav-items";
 import { NavLink } from "./nav-link";
 import { logout } from "../actions";
-import { sectionLabelClass } from "@/lib/ui/typography";
 
+/**
+ * Trackpr visual-system redesign: the sidebar is now the app's dark,
+ * near-black command-center surface (matching the Contractor Growth Co.
+ * marketing site's own bg-slate-950 shell) rather than a light bg-slate-50
+ * panel indistinguishable from the workspace it borders - per the design
+ * brief, this is the single strongest, most deliberate carrier of brand
+ * identity in the authenticated app. Section labels, nav items, and the
+ * account footer are all re-themed for a dark surface here; NavLink (the
+ * active/hover state) is themed to match in its own file.
+ */
 export function SidebarContent({
   organizationName,
   userEmail,
@@ -38,17 +47,22 @@ export function SidebarContent({
   const groups = showAgencyLink ? [...NAV_GROUPS, { label: "Agency", items: [AGENCY_NAV_ITEM] }] : NAV_GROUPS;
 
   return (
-    <div className="flex h-full w-full flex-col">
-      <div className="px-5 pb-5 pt-6">
-        <span className="text-[15px] font-semibold tracking-tight text-slate-900">Trackpr</span>
-        <p className="mt-0.5 truncate text-sm text-slate-500">{organizationName}</p>
+    <div className="flex h-full w-full flex-col bg-[#0a120f]">
+      <div className="flex items-center gap-2.5 px-5 pb-5 pt-6">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500/15 text-sm font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+          T
+        </span>
+        <div className="min-w-0">
+          <span className="block text-[15px] font-semibold tracking-tight text-white">Trackpr</span>
+          <p className="truncate text-xs text-slate-500">{organizationName}</p>
+        </div>
       </div>
 
-      <nav className="flex-1 space-y-5 overflow-y-auto pl-4 pr-0 pb-4">
+      <nav className="flex-1 space-y-5 overflow-y-auto pl-4 pr-2 pb-4">
         {groups.map((group, index) => (
           <div key={group.label ?? `group-${index}`}>
             {group.label ? (
-              <p className={`mb-1.5 px-3 ${sectionLabelClass}`}>{group.label}</p>
+              <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{group.label}</p>
             ) : null}
             <div className="space-y-0.5">
               {group.items.map((item) => (
@@ -59,22 +73,22 @@ export function SidebarContent({
         ))}
       </nav>
 
-      <div className="border-t border-slate-200 p-3">
+      <div className="border-t border-white/[0.06] p-3">
         <div className="flex items-center gap-3 px-2 py-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-semibold text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
             {userEmail.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-slate-900">{userEmail}</p>
+            <p className="truncate text-sm font-medium text-white">{userEmail}</p>
             <p className="text-xs capitalize text-slate-500">{role}</p>
           </div>
         </div>
         <form action={logout} className="mt-1">
           <button
             type="submit"
-            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-white"
           >
-            <LogOut className="h-[18px] w-[18px] shrink-0 text-slate-400" aria-hidden />
+            <LogOut className="h-[18px] w-[18px] shrink-0 text-slate-500" aria-hidden />
             Log out
           </button>
         </form>

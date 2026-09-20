@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Plus } from "lucide-react";
+import { primaryButtonAutoClass } from "@/lib/ui/form";
 import { ContactDialog } from "./contact-dialog";
 
 export function AddContactButton() {
@@ -9,11 +10,7 @@ export function AddContactButton() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
-      >
+      <button type="button" onClick={() => setOpen(true)} className={primaryButtonAutoClass}>
         <Plus className="h-4 w-4" aria-hidden />
         Add Contact
       </button>

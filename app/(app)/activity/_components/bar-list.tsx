@@ -18,7 +18,7 @@ export function BarList({ items }: { items: { key: string; label: string; value:
             {item.label}
           </span>
           <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100" aria-hidden>
-            <span className="block h-full rounded-full bg-slate-900" style={{ width: `${(item.value / max) * 100}%` }} />
+            <span className="block h-full rounded-full bg-slate-400" style={{ width: `${(item.value / max) * 100}%` }} />
           </span>
           <span className="w-10 shrink-0 text-right text-xs font-medium tabular-nums text-slate-700">{item.value}</span>
         </li>

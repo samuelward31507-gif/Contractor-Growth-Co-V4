@@ -19,49 +19,61 @@ export function MobileNav({
 
   return (
     <div className="lg:hidden">
-      <header className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
-        <span className="text-lg font-semibold tracking-tight text-slate-900">Trackpr</span>
+      <header className="flex items-center justify-between border-b border-white/[0.06] bg-[#0a120f] px-4 py-3">
+        <span className="flex items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500/15 text-sm font-bold text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+            T
+          </span>
+          <span className="text-[15px] font-semibold tracking-tight text-white">Trackpr</span>
+        </span>
         <button
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-100"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/[0.06]"
         >
           <Menu className="h-5 w-5" aria-hidden />
         </button>
       </header>
 
-      {open ? (
-        <div className="fixed inset-0 z-50">
-          <button
-            type="button"
-            aria-label="Close menu"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setOpen(false)}
-          />
-          <div className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-slate-50 shadow-xl">
-            <div className="flex justify-end px-3 pt-3">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close menu"
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100"
-              >
-                <X className="h-5 w-5" aria-hidden />
-              </button>
-            </div>
-            <div className="h-[calc(100%-3.25rem)]">
-              <SidebarContent
-                organizationName={organizationName}
-                userEmail={userEmail}
-                role={role}
-                showAgencyLink={showAgencyLink}
-                onNavigate={() => setOpen(false)}
-              />
-            </div>
+      {/* Always mounted (not conditionally rendered) so open/close animates
+          rather than snapping - same pattern as the marketing site's mobile
+          drawer, adapted for this dark surface. */}
+      <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
+        <button
+          type="button"
+          aria-label="Close menu"
+          tabIndex={open ? 0 : -1}
+          className={`absolute inset-0 bg-slate-950/60 transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0"}`}
+          onClick={() => setOpen(false)}
+        />
+        <div
+          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] shadow-2xl transition-transform duration-200 ease-out ${
+            open ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="flex justify-end bg-[#0a120f] px-3 pt-3">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Close menu"
+              tabIndex={open ? 0 : -1}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/[0.06]"
+            >
+              <X className="h-5 w-5" aria-hidden />
+            </button>
+          </div>
+          <div className="h-[calc(100%-3.25rem)]">
+            <SidebarContent
+              organizationName={organizationName}
+              userEmail={userEmail}
+              role={role}
+              showAgencyLink={showAgencyLink}
+              onNavigate={() => setOpen(false)}
+            />
           </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

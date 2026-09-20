@@ -3,14 +3,26 @@ export const inputClass =
 
 export const labelClass = "text-sm font-medium text-slate-700";
 
+// Trackpr visual-system redesign: the app's primary-action tier is now the
+// same emerald accent the Contractor Growth Co. marketing site uses for its
+// own primary CTAs ("Get Started") - previously near-black, matching a
+// design philosophy from an earlier pass that reserved emerald for a single
+// "activate"-type action per page (see the now-legacy accentButtonAutoClass
+// below). That philosophy is superseded here: green communicates primary
+// actions app-wide, exactly one per screen/dialog at a time (a Save, a
+// Send, an Add) - secondary/ghost/destructive stay neutral or red, so nothing
+// competes with it. This single change cascades to every route that already
+// imports primaryButtonClass/primaryButtonAutoClass/primaryButtonSmallClass
+// (dialogs, forms, detail-page actions across leads/contacts/appointments/
+// estimates/jobs/settings) rather than needing a per-page edit.
 export const primaryButtonClass =
-  "inline-flex w-full items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
+  "inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground shadow-sm transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-emerald-300";
 
 // Same treatment as primaryButtonClass without the forced full width, for
 // buttons placed inline (e.g. a right-aligned section "Save" action) rather
 // than filling a dialog.
 export const primaryButtonAutoClass =
-  "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
+  "inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground shadow-sm transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-emerald-300";
 
 export const errorBannerClass =
   "rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700";
@@ -18,11 +30,9 @@ export const errorBannerClass =
 export const successBannerClass =
   "rounded-lg border border-accent-border bg-accent-muted px-3.5 py-2.5 text-sm text-accent-text";
 
-// Final visual polish pass: an accent (emerald) primary tier, reserved for
-// a page's one genuinely positive/activate-type action (e.g. "Enable AI",
-// "Mark Reviewed", a workflow's "Activate") - never a blanket swap for
-// primaryButtonClass/primaryButtonAutoClass, which stay the app's default
-// near-black primary. Most pages should have zero or one of these.
+// Legacy alias, identical to primaryButtonAutoClass now that primary IS the
+// accent tier (see that constant's comment) - kept so any existing import
+// keeps working unchanged. Prefer primaryButtonAutoClass in new code.
 export const accentButtonAutoClass =
   "inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground shadow-sm transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-emerald-300";
 
@@ -52,7 +62,7 @@ export const destructiveGhostButtonAutoClass =
 // Compact variants for dense inline contexts (a detail-page action row, a
 // table row's actions) where the full py-2.5 buttons above are too tall.
 export const primaryButtonSmallClass =
-  "inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
+  "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground shadow-sm transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-emerald-300";
 
 export const secondaryButtonSmallClass =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";

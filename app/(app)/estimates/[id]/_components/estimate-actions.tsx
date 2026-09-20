@@ -3,7 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Pencil } from "lucide-react";
-import { destructiveButtonAutoClass, errorBannerClass, ghostButtonClass } from "@/lib/ui/form";
+import {
+  destructiveButtonAutoClass,
+  destructiveGhostButtonAutoClass,
+  errorBannerClass,
+  ghostButtonClass,
+  primaryButtonAutoClass,
+  secondaryButtonAutoClass,
+} from "@/lib/ui/form";
 import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
@@ -11,12 +18,9 @@ import type { Estimate } from "@/lib/estimates/queries";
 import { EstimateDialog } from "../../_components/estimate-dialog";
 import { cancelEstimate, markEstimateAccepted, markEstimateDeclined, sendEstimate } from "../../actions";
 
-const primaryBtn =
-  "inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400";
-const secondaryBtn =
-  "inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
-const dangerBtn =
-  "inline-flex items-center gap-2 rounded-lg border border-red-200 px-3.5 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50";
+const primaryBtn = primaryButtonAutoClass;
+const secondaryBtn = secondaryButtonAutoClass;
+const dangerBtn = destructiveGhostButtonAutoClass;
 
 type ConfirmKind = "decline" | "cancel";
 

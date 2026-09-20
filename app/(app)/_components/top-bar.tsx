@@ -3,10 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrganizationHealth } from "@/lib/automation-health/health";
 import { Breadcrumb } from "./breadcrumb";
 
-const STATUS_CONFIG: Record<"healthy" | "degraded" | "unhealthy", { dot: string; label: string }> = {
-  healthy: { dot: "bg-emerald-500", label: "All systems healthy" },
-  degraded: { dot: "bg-amber-500", label: "Needs attention" },
-  unhealthy: { dot: "bg-red-500", label: "Critical issue" },
+const STATUS_CONFIG: Record<"healthy" | "degraded" | "unhealthy", { dot: string; label: string; ring: string; text: string }> = {
+  healthy: { dot: "bg-emerald-500", label: "All systems healthy", ring: "ring-accent-border hover:bg-accent-muted", text: "text-accent-text" },
+  degraded: { dot: "bg-amber-500", label: "Needs attention", ring: "ring-amber-200 hover:bg-amber-50", text: "text-amber-700" },
+  unhealthy: { dot: "bg-red-500", label: "Critical issue", ring: "ring-red-200 hover:bg-red-50", text: "text-red-700" },
 };
 
 /**
@@ -35,7 +35,7 @@ export async function TopBar({ supabase, organizationId }: { supabase: SupabaseC
       {status ? (
         <Link
           href="/automation-health"
-          className="flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
+          className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-colors ${status.ring} ${status.text}`}
         >
           <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden />
           {status.label}
