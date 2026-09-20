@@ -170,6 +170,24 @@ export async function getAutomationMode(supabase: SupabaseClient, organizationId
   return data?.automation_mode === "live" ? "live" : "test";
 }
 
+/**
+ * First-Client Lead Capture V1: the per-organization secret that
+ * app/api/leads/capture/[token]/route.ts looks up to resolve organization
+ * scope for an inbound lead - never an organization id itself. Every
+ * organization has one (see its migration's backfill), so this should
+ * never actually return null in practice; the null case is handled anyway
+ * rather than assumed away.
+ */
+export async function getLeadIntakeToken(supabase: SupabaseClient, organizationId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from("organizations")
+    .select("lead_intake_token")
+    .eq("id", organizationId)
+    .maybeSingle();
+
+  return data?.lead_intake_token ?? null;
+}
+
 export const AI_TONE_OPTIONS = ["Professional", "Friendly", "Casual", "Direct", "Empathetic"];
 
 export type AiSettings = {

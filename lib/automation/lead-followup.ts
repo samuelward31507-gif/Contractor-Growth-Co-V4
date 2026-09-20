@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAutomationEvent } from "./events";
-import { startWorkflowExecution, failWorkflowExecution } from "./executions";
+import { createAutomationEvent, createAutomationEventAsService } from "./events";
+import { startWorkflowExecution, failWorkflowExecution, startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
 import { getContact } from "@/lib/contacts/queries";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
@@ -161,6 +161,131 @@ export async function emitLeadCreatedFollowup(
     const dispatch = await triggerN8nWorkflow(contract);
     if (!dispatch.ok) {
       const failed = await failWorkflowExecution(supabase, executionId, dispatch.error, "n8n_dispatch_failed");
+      if (!failed.ok) {
+        console.error("[automation] failed to record dispatch failure", {
+          executionId,
+          dispatchError: dispatch.error,
+          recordError: failed.error,
+        });
+      }
+    }
+  });
+}
+
+/**
+ * First-Client Lead Capture: identical to emitLeadCreatedFollowup above,
+ * except it uses the *AsService event/execution helpers throughout - for
+ * exactly the same reason lib/automation/customer-reply.ts's
+ * emitCustomerReplyFollowup does: this is called from an external-lead-intake
+ * webhook route (app/api/leads/capture/[token]/route.ts), which has no
+ * Supabase Auth session (the caller is an external lead source authenticated
+ * by the organization's own intake token, not a logged-in user), so the
+ * plain createAutomationEvent/startWorkflowExecution above - which require
+ * auth.uid() - cannot be used here. Kept as its own complete function rather
+ * than factored out into a shared helper, matching how this codebase already
+ * keeps every other *AsService variant (events.ts, executions.ts,
+ * customer-reply.ts) independently readable rather than introducing a new
+ * shared-core abstraction.
+ */
+export async function emitLeadCreatedFollowupAsService(
+  supabase: SupabaseClient,
+  input: LeadCreatedInput,
+): Promise<void> {
+  const conversation = await findOrCreateOpenConversation(supabase, input.organizationId, input.contactId, "sms", input.leadId);
+
+  const eventResult = await createAutomationEventAsService(supabase, input.organizationId, {
+    eventType: "lead.created",
+    entityType: "lead",
+    entityId: input.leadId,
+    payload: {
+      lead_id: input.leadId,
+      contact_id: input.contactId,
+      conversation_id: conversation?.id ?? null,
+      organization_id: input.organizationId,
+      source: input.source,
+      service: input.service,
+      status: input.status,
+      temperature: input.temperature,
+      estimated_value: input.estimatedValue,
+    },
+    idempotencyKey: `lead.created:${input.leadId}`,
+  });
+
+  if (!eventResult.ok) {
+    console.error("[automation] failed to create lead.created event", { leadId: input.leadId, error: eventResult.error });
+    return;
+  }
+
+  if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
+
+  const executionResult = await startWorkflowExecutionAsService(
+    supabase,
+    eventResult.event.id,
+    LEAD_CREATED_FOLLOWUP_WORKFLOW,
+  );
+
+  if (!executionResult.ok) {
+    console.error("[automation] failed to start workflow execution", {
+      eventId: eventResult.event.id,
+      error: executionResult.error,
+    });
+    return;
+  }
+
+  const executionId = executionResult.execution.id;
+  const attempt = executionResult.execution.attempt;
+  const eventId = eventResult.event.id;
+
+  const [contact, aiSettings, businessProfile] = await Promise.all([
+    getContact(supabase, input.organizationId, input.contactId),
+    getAiSettings(supabase, input.organizationId),
+    getBusinessProfile(supabase, input.organizationId),
+  ]);
+
+  const contract: N8nWorkflowContract = {
+    version: 1,
+    event: {
+      id: eventId,
+      type: "lead.created",
+      organization_id: input.organizationId,
+      entity_type: "lead",
+      entity_id: input.leadId,
+      payload: eventResult.event.payload,
+    },
+    execution: {
+      id: executionId,
+      workflow_name: LEAD_CREATED_FOLLOWUP_WORKFLOW,
+      attempt,
+    },
+    context: {
+      organization: {
+        id: input.organizationId,
+        name: businessProfile?.name ?? "",
+        timezone: businessProfile?.timezone ?? "UTC",
+      },
+      ai: {
+        enabled: aiSettings.ai_enabled,
+        tone: aiSettings.tone,
+        business_introduction: aiSettings.business_introduction,
+        general_instructions: aiSettings.general_instructions,
+      },
+      contact: contact
+        ? {
+            id: contact.id,
+            first_name: contact.first_name,
+            last_name: contact.last_name,
+            phone: contact.phone,
+            email: contact.email,
+          }
+        : null,
+    },
+  };
+
+  after(async () => {
+    const dispatch = await triggerN8nWorkflow(contract);
+    if (!dispatch.ok) {
+      const failed = await failWorkflowExecutionAsService(supabase, executionId, dispatch.error, "n8n_dispatch_failed");
       if (!failed.ok) {
         console.error("[automation] failed to record dispatch failure", {
           executionId,

@@ -8,18 +8,21 @@ import {
   getBookingSettings,
   getBusinessHours,
   getBusinessProfile,
+  getLeadIntakeToken,
   getNotificationSettings,
   getServiceAreas,
   getServices,
   withDefaultHours,
 } from "@/lib/settings/queries";
 import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
+import { resolveAppBaseUrl } from "@/lib/automation/sms";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { AiSettingsSection } from "./_components/ai-settings-section";
 import { AutomationModeSection } from "./_components/automation-mode-section";
 import { BookingSettingsSection } from "./_components/booking-settings-section";
 import { BusinessHoursSection } from "./_components/business-hours-section";
 import { BusinessProfileSection } from "./_components/business-profile-section";
+import { LeadCaptureSection } from "./_components/lead-capture-section";
 import { NotificationSettingsSection } from "./_components/notification-settings-section";
 import { ServiceAreasSection } from "./_components/service-areas-section";
 import { ServicesSection } from "./_components/services-section";
@@ -53,7 +56,7 @@ export default async function SettingsPage() {
   const canEdit = membership.role === "owner" || membership.role === "admin";
   const organizationId = membership.organizationId;
 
-  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings, smsPhoneNumber, automationMode] =
+  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings, smsPhoneNumber, automationMode, leadIntakeToken] =
     await Promise.all([
       getBusinessProfile(supabase, organizationId),
       getBusinessHours(supabase, organizationId),
@@ -64,7 +67,11 @@ export default async function SettingsPage() {
       getNotificationSettings(supabase, organizationId),
       getOrganizationSmsNumber(supabase, organizationId),
       getAutomationMode(supabase, organizationId),
+      getLeadIntakeToken(supabase, organizationId),
     ]);
+
+  const appBaseUrl = resolveAppBaseUrl();
+  const leadIntakeUrl = appBaseUrl && leadIntakeToken ? `${appBaseUrl}/api/leads/capture/${leadIntakeToken}` : null;
 
   if (!profile) {
     return (
@@ -110,6 +117,7 @@ export default async function SettingsPage() {
 
         <SettingsGroup label="Communications">
           <SmsSummarySection smsPhoneNumber={smsPhoneNumber} />
+          <LeadCaptureSection intakeUrl={leadIntakeUrl} />
         </SettingsGroup>
 
         <SettingsGroup label="AI">

@@ -447,6 +447,20 @@ export async function updateAutomationMode(
     return { error: "Invalid automation mode." };
   }
 
+  // First-Client Lead Capture V1: clear validation of required settings
+  // before going live. Without a configured SMS routing number, an inbound
+  // customer reply can never reach Trackpr at all (app/api/webhooks/sms/inbound
+  // resolves organization purely by organizations.sms_phone_number) - going
+  // live without this would silently strand every customer who replies.
+  // This is a server-side check, not just a UI hint - the only way to bypass
+  // it is to actually configure the prerequisite.
+  if (mode === "live") {
+    const { data: org } = await supabase.from("organizations").select("sms_phone_number").eq("id", organizationId).maybeSingle();
+    if (!org?.sms_phone_number) {
+      return { error: "Configure an SMS routing number before going live, so customer replies can reach Trackpr." };
+    }
+  }
+
   const { error } = await supabase.from("organizations").update({ automation_mode: mode }).eq("id", organizationId);
 
   if (error) {
