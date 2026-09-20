@@ -14,7 +14,7 @@ import { computeSetupChecklist, ONBOARDING_STAGE_LABEL, type OnboardingStage } f
 import { getBusinessProfile, getServiceAreas } from "@/lib/settings/queries";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
-import { pageTitleClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { pageTitleClass, sectionLabelClass, metaClass, statLabelClass, statValueClass } from "@/lib/ui/typography";
 import { Row, RowGroup } from "../../_components/row";
 import { formatRate, formatCount } from "../../_components/format";
 import { UnauthorizedState } from "../../_components/unauthorized-state";
@@ -146,8 +146,78 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         </div>
       ) : null}
 
+      {/* Today + Live activity - what changed, surfaced immediately after
+          what needs action and how healthy the client is, before any of the
+          slower-moving setup/business detail below. Today's two numbers get
+          the same large stat treatment as a dashboard KPI (not a Row) since
+          this is meant to be read at a glance, not scanned in a list. */}
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-[auto_1fr]">
+        <div className="flex gap-8 sm:shrink-0">
+          <div>
+            <p className={statLabelClass}>Leads today</p>
+            <p className={statValueClass}>{formatCount(orgToday?.leadsToday ?? 0)}</p>
+          </div>
+          <div>
+            <p className={statLabelClass}>Appointments today</p>
+            <p className={statValueClass}>{formatCount(orgToday?.appointmentsToday ?? 0)}</p>
+          </div>
+        </div>
+        <div className="sm:border-l sm:border-slate-200 sm:pl-8">
+          <p className={sectionLabelClass}>Live activity</p>
+          {dashboardData.recentActivity.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500">No activity yet for this client.</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-slate-100">
+              {dashboardData.recentActivity.slice(0, 5).map((item) => (
+                <li key={item.id} className="flex items-center justify-between gap-4 py-1.5">
+                  <span className="min-w-0 truncate text-sm text-slate-700">{item.message}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-slate-400">{formatRelativeTime(item.timestamp)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* Automation + Communication - operational status side by side. */}
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-2">
+        <RowGroup label="Automation">
+          <Row label="Executions" value={formatCount(m.automationMetrics.workflowExecutions)} />
+          <Row label="Completed" value={formatCount(m.automationMetrics.successfulWorkflowExecutions)} tone={m.automationMetrics.successfulWorkflowExecutions > 0 ? "success" : "default"} />
+          <Row label="Failed" value={formatCount(m.automationMetrics.failedWorkflowExecutions)} tone={m.automationMetrics.failedWorkflowExecutions > 0 ? "danger" : "default"} />
+          <Row label="Running" value={formatCount(m.automationMetrics.runningWorkflowExecutions)} />
+          <Row label="Stuck" value={formatCount(orgHealth.stuckExecutionCount)} tone={orgHealth.stuckExecutionCount > 0 ? "warning" : "default"} />
+          <Row label="Success rate" value={formatRate(m.automationMetrics.automationSuccessRate)} />
+        </RowGroup>
+        <RowGroup label="Communication">
+          <Row label="Inbound" value={formatCount(m.communicationMetrics.inboundMessages)} />
+          <Row label="Outbound" value={formatCount(m.communicationMetrics.outboundMessages)} />
+          <Row label="Delivered" value={formatCount(org.messagesByStatus.delivered ?? 0)} />
+          <Row label="Failed" value={formatCount(org.messagesByStatus.failed ?? 0)} tone={(org.messagesByStatus.failed ?? 0) > 0 ? "danger" : "default"} />
+          <Row label="Undelivered" value={formatCount(org.messagesByStatus.undelivered ?? 0)} tone={(org.messagesByStatus.undelivered ?? 0) > 0 ? "warning" : "default"} />
+          <Row label="Queued" value={formatCount(org.messagesByStatus.queued ?? 0)} />
+          <Row
+            label="AI escalations waiting"
+            value={escalationCount > 0 ? formatCount(escalationCount) : "None"}
+            tone={escalationCount > 0 ? "warning" : "default"}
+            description={escalationCount > 0 ? "AI is paused on these conversations until a human replies." : undefined}
+          />
+        </RowGroup>
+      </div>
+
+      {/* Automations - real, per-automation operational state (excludes the
+          internal safe-AI safety layer, which is never independently
+          triggered). Never invents an automation that isn't in
+          AUTOMATION_CATALOG. */}
+      <div className="mt-8 border-t border-slate-200 pt-8">
+        <p className={sectionLabelClass}>Automations</p>
+        <AutomationsPanel automations={automations.automations} />
+      </div>
+
       {/* Client + Setup - identity and configuration status side by side, the
-          two things "is this client configured" is actually made of. */}
+          two things "is this client configured" is actually made of. Secondary
+          business/CRM-style detail from here down - operational state and
+          what changed already surfaced above. */}
       <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-2">
         <RowGroup label="Client">
           <Row label="Owner / contact" value={profile?.owner_name ?? "Not set"} />
@@ -199,70 +269,6 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           </div>
         ) : (
           <p className="mt-2 text-sm text-slate-500">No test has been attempted yet.</p>
-        )}
-      </div>
-
-      {/* Today - a distinct temporality from every other figure on this page
-          (all of which are current-state or trailing-30-day), reusing the
-          same date-range machinery the client dashboard already supports. */}
-      <div className="mt-8 border-t border-slate-200 pt-8">
-        <p className={sectionLabelClass}>Today</p>
-        <div className="mt-1.5 flex flex-wrap gap-x-8">
-          <Row label="Leads" value={formatCount(orgToday?.leadsToday ?? 0)} />
-          <Row label="Appointments" value={formatCount(orgToday?.appointmentsToday ?? 0)} />
-        </div>
-      </div>
-
-      {/* Automation + Communication - operational status side by side. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-2">
-        <RowGroup label="Automation">
-          <Row label="Executions" value={formatCount(m.automationMetrics.workflowExecutions)} />
-          <Row label="Completed" value={formatCount(m.automationMetrics.successfulWorkflowExecutions)} tone={m.automationMetrics.successfulWorkflowExecutions > 0 ? "success" : "default"} />
-          <Row label="Failed" value={formatCount(m.automationMetrics.failedWorkflowExecutions)} tone={m.automationMetrics.failedWorkflowExecutions > 0 ? "danger" : "default"} />
-          <Row label="Running" value={formatCount(m.automationMetrics.runningWorkflowExecutions)} />
-          <Row label="Stuck" value={formatCount(orgHealth.stuckExecutionCount)} tone={orgHealth.stuckExecutionCount > 0 ? "warning" : "default"} />
-          <Row label="Success rate" value={formatRate(m.automationMetrics.automationSuccessRate)} />
-        </RowGroup>
-        <RowGroup label="Communication">
-          <Row label="Inbound" value={formatCount(m.communicationMetrics.inboundMessages)} />
-          <Row label="Outbound" value={formatCount(m.communicationMetrics.outboundMessages)} />
-          <Row label="Delivered" value={formatCount(org.messagesByStatus.delivered ?? 0)} />
-          <Row label="Failed" value={formatCount(org.messagesByStatus.failed ?? 0)} tone={(org.messagesByStatus.failed ?? 0) > 0 ? "danger" : "default"} />
-          <Row label="Undelivered" value={formatCount(org.messagesByStatus.undelivered ?? 0)} tone={(org.messagesByStatus.undelivered ?? 0) > 0 ? "warning" : "default"} />
-          <Row label="Queued" value={formatCount(org.messagesByStatus.queued ?? 0)} />
-          <Row
-            label="AI escalations waiting"
-            value={escalationCount > 0 ? formatCount(escalationCount) : "None"}
-            tone={escalationCount > 0 ? "warning" : "default"}
-            description={escalationCount > 0 ? "AI is paused on these conversations until a human replies." : undefined}
-          />
-        </RowGroup>
-      </div>
-
-      {/* Automations - real, per-automation operational state (excludes the
-          internal safe-AI safety layer, which is never independently
-          triggered). Never invents an automation that isn't in
-          AUTOMATION_CATALOG. */}
-      <div className="mt-8 border-t border-slate-200 pt-8">
-        <p className={sectionLabelClass}>Automations</p>
-        <AutomationsPanel automations={automations.automations} />
-      </div>
-
-      {/* Recent activity - real, org-scoped, the exact same read the client
-          dashboard itself uses. */}
-      <div className="mt-8 border-t border-slate-200 pt-8">
-        <p className={sectionLabelClass}>Recent activity</p>
-        {dashboardData.recentActivity.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No activity yet for this client.</p>
-        ) : (
-          <ul className="mt-3 divide-y divide-slate-100">
-            {dashboardData.recentActivity.map((item) => (
-              <li key={item.id} className="flex items-center justify-between gap-4 py-2.5">
-                <span className="min-w-0 truncate text-sm text-slate-700">{item.message}</span>
-                <span className="shrink-0 text-xs tabular-nums text-slate-400">{formatRelativeTime(item.timestamp)}</span>
-              </li>
-            ))}
-          </ul>
         )}
       </div>
 

@@ -16,7 +16,13 @@ const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
   live: "success",
 };
 
-const ROW_GRID = "grid-cols-[minmax(0,1.3fr)_100px_100px_56px_56px_56px_56px_120px_20px]";
+// Two column counts, not one grid hidden down to fewer visible cells: a
+// fixed 9-track template with cells merely hidden below `xl` still
+// reserves those tracks' width, leaving dead gaps and misaligning the
+// remaining columns at 1024-1279px. The container's own template changes
+// column count at the breakpoint instead, matching how many cells are
+// actually rendered at each size.
+const ROW_GRID = "grid-cols-[minmax(0,1fr)_92px_92px_112px_20px] xl:grid-cols-[minmax(0,1.3fr)_92px_92px_52px_52px_52px_52px_112px_20px]";
 
 export type ClientRow = {
   organization: AgencyOrganizationSnapshot;
@@ -63,7 +69,7 @@ export function ClientOperations({ rows, totalCount }: { rows: ClientRow[]; tota
           <span className="hidden text-right text-xs text-slate-400 xl:block">Appts</span>
           <span className="hidden text-right text-xs text-slate-400 xl:block">Jobs</span>
           <span className="hidden text-right text-xs text-slate-400 xl:block">AI</span>
-          <span className="text-xs text-slate-400">Last activity</span>
+          <span className="text-xs text-slate-400 whitespace-nowrap">Last activity</span>
           <span />
         </div>
         <div className="divide-y divide-slate-100">

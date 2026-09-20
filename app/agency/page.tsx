@@ -154,7 +154,7 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
       </div>
 
       <div className="mt-8 border-t border-slate-200 pt-8">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Clients</p>
           <AgencyToolbar initialQuery={query} initialFilter={filter} />
         </div>
