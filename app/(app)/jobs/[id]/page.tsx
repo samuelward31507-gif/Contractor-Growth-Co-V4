@@ -13,7 +13,7 @@ import { formatCurrency } from "@/lib/dashboard/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
-import { DetailHero } from "@/lib/ui/detail-hero";
+import { DetailHeader } from "@/lib/ui/detail-header";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../_components/status";
 import { JobActions } from "./_components/job-actions";
 import { ReviewReferralPanel } from "./_components/review-referral-panel";
@@ -65,18 +65,18 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
     <div className="flex flex-1 flex-col">
       {/*
         JOB hierarchy: status -> value/payment -> customer -> schedule ->
-        activity. Amount leads the hero exactly like Lead/Estimate's own
+        activity. Amount leads the header exactly like Lead/Estimate's own
         headline number - this is a contracted amount, not collected
         revenue.
       */}
-      <DetailHero
+      <DetailHeader
         eyebrow="Job"
         backHref="/jobs"
         backLabel="Back to Jobs"
         title={job.title}
         subtitle={customerName}
         badges={
-          <Badge surface="dark" tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
+          <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
             {JOB_STATUS_LABELS[job.status]}
           </Badge>
         }
@@ -84,7 +84,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
         meta={
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Amount</p>
-            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-white">
+            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
               {job.amount != null ? formatCurrency(job.amount) : "—"}
             </p>
           </div>

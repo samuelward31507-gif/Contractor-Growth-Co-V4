@@ -64,7 +64,7 @@ export function StatCard({
   icon?: LucideIcon;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="rounded-xl border border-slate-200 bg-white p-5">
       <div className="flex items-start justify-between gap-3">
         <p className={kpiLabelClass}>{label}</p>
         {Icon ? (

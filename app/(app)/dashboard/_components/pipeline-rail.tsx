@@ -29,7 +29,7 @@ export function PipelineRail({ pipeline }: { pipeline: PipelineCounts }) {
       {total === 0 ? (
         <p className="mt-3 text-sm text-slate-500">Your pipeline will appear here once leads start coming in.</p>
       ) : (
-        <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white px-6 py-8 sm:px-10">
+        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white px-6 py-8 sm:px-10">
           <ol className="relative flex min-w-[560px] items-start justify-between">
             <span aria-hidden className="absolute left-0 right-0 top-[22px] h-px bg-slate-200" />
             {PIPELINE_STAGES.map(({ stage, label }) => {

@@ -22,7 +22,7 @@ import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/
 import { Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
-import { DetailHero } from "@/lib/ui/detail-hero";
+import { DetailHeader } from "@/lib/ui/detail-header";
 import { LEAD_STATUS_TONE, LEAD_TEMPERATURE_TONE } from "../_components/lead-status";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointments/_components/status";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
@@ -91,15 +91,15 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
       {/*
         LEAD hierarchy: identity -> qualification -> activity -> related
         records. Value and temperature are the two facts that decide "how
-        urgently do I chase this" - both surface directly in the hero's meta
-        row, not buried below the fold.
+        urgently do I chase this" - both surface directly in the header's
+        meta row, not buried below the fold.
       */}
-      <DetailHero
+      <DetailHeader
         eyebrow="Lead"
         backHref="/leads"
         backLabel="Back to Leads"
         avatar={
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/10 text-base font-medium text-white ring-1 ring-inset ring-white/10">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-base font-medium text-slate-600 ring-1 ring-inset ring-slate-200">
             {lead.contact ? contactInitials(lead.contact) : "?"}
           </span>
         }
@@ -107,10 +107,8 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
         subtitle={lead.service || "General inquiry"}
         badges={
           <>
-            <Badge surface="dark" tone={LEAD_STATUS_TONE[lead.status]}>
-              {STATUS_LABELS[lead.status]}
-            </Badge>
-            <Badge surface="dark" tone={LEAD_TEMPERATURE_TONE[lead.temperature]} icon={lead.temperature === "hot" ? Flame : undefined}>
+            <Badge tone={LEAD_STATUS_TONE[lead.status]}>{STATUS_LABELS[lead.status]}</Badge>
+            <Badge tone={LEAD_TEMPERATURE_TONE[lead.temperature]} icon={lead.temperature === "hot" ? Flame : undefined}>
               {TEMPERATURE_LABELS[lead.temperature]}
             </Badge>
           </>
@@ -119,7 +117,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
         meta={
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Estimated value</p>
-            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-white">
+            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
               {lead.estimated_value != null ? formatCurrency(lead.estimated_value) : "—"}
             </p>
           </div>

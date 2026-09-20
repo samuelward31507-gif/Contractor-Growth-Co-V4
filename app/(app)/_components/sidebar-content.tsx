@@ -36,7 +36,7 @@ export function SidebarContent({
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0a120f]">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_50%_at_50%_-20%,rgba(16,185,129,0.18),transparent)]"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_40%_at_50%_-15%,rgba(16,185,129,0.10),transparent)]"
       />
 
       <div className="relative flex items-center gap-2.5 px-5 pb-4 pt-6">

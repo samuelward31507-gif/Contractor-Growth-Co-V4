@@ -22,7 +22,7 @@ export function MobileNav({
       <header className="relative flex items-center justify-between overflow-hidden border-b border-white/[0.06] bg-[#0a120f] px-4 py-3">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_100%_at_20%_-40%,rgba(16,185,129,0.18),transparent)]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_80%_at_20%_-30%,rgba(16,185,129,0.10),transparent)]"
         />
         <span className="relative flex items-center gap-2.5">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500 text-xs font-bold text-slate-950">

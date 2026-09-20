@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
@@ -14,7 +15,6 @@ import { PipelineRail } from "./_components/pipeline-rail";
 import { RecentActivity } from "./_components/recent-activity";
 import { BusinessGlance } from "./_components/business-glance";
 import { AiInsightsPanel } from "./_components/ai-insights-panel";
-import { UrgentDuo } from "./_components/urgent-duo";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
 
 function greeting(): string {
@@ -88,18 +88,35 @@ export default async function DashboardPage() {
             </h1>
             <p className={`mt-1.5 ${pageDescriptionClass}`}>{statusLine(data.attentionItems.length)}</p>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-start gap-6">
             <div className="text-right">
               <p className={sectionLabelClass}>Pipeline value</p>
               <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
                 {formatCurrency(businessMetrics.pipelineMetrics.pipelineValue)}
               </p>
+              {/* Real breakdown, not a fabricated one - the same two counts
+                  a contractor opens the dashboard to check, reused from
+                  Leads/Appointments' own summarize functions rather than two
+                  large cards competing with Needs Attention below. */}
+              <p className="mt-1.5 text-sm text-slate-500">
+                <Link
+                  href="/leads?temperature=hot"
+                  className={leadSummary.hotCount > 0 ? "font-medium text-red-600 hover:underline" : "hover:text-slate-900"}
+                >
+                  {leadSummary.hotCount} hot {leadSummary.hotCount === 1 ? "lead" : "leads"}
+                </Link>
+                <span className="mx-1.5 text-slate-300">·</span>
+                <Link
+                  href="/appointments?view=today"
+                  className={appointmentSummary.today > 0 ? "font-medium text-accent-text hover:underline" : "hover:text-slate-900"}
+                >
+                  {appointmentSummary.today} today
+                </Link>
+              </p>
             </div>
             {contacts.length > 0 ? <AddLeadButton contacts={contacts} /> : null}
           </div>
         </div>
-
-        <UrgentDuo hotLeadCount={leadSummary.hotCount} todayAppointmentCount={appointmentSummary.today} />
 
         <AttentionPanel items={data.attentionItems} />
 

@@ -47,7 +47,7 @@ export function HeroStatRow({
 
   return (
     <div className={`grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,220px)_1fr]`}>
-      <div className={`flex items-center gap-4 rounded-2xl border p-5 ${style.border} ${style.bg}`}>
+      <div className={`flex items-center gap-4 rounded-xl border p-5 ${style.border} ${style.bg}`}>
         <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${style.iconBg} ${style.iconText}`}>
           <HeroIcon className="h-5 w-5" aria-hidden />
         </span>
@@ -61,7 +61,7 @@ export function HeroStatRow({
           one row of N on sm+ - a fixed N-wide single row was clipping longer
           labels ("Completed value", "Total estimates") at 390px. */}
       <div
-        className={`grid grid-cols-2 divide-x divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white sm:divide-y-0 ${SECONDARY_SM_COLS[secondary.length] ?? "sm:grid-cols-4"}`}
+        className={`grid grid-cols-2 divide-x divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white sm:divide-y-0 ${SECONDARY_SM_COLS[secondary.length] ?? "sm:grid-cols-4"}`}
       >
         {secondary.map((stat) => (
           <div key={stat.label} className="flex min-w-0 flex-col justify-center gap-1 px-4 py-4 sm:px-5">

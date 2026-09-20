@@ -19,8 +19,8 @@ export default function EstimatesLoading() {
       {/* Mirrors lib/ui/hero-stat-row.tsx's shape - an emphasized callout
           beside a divided strip - not the old 4-item flex-wrap row. */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,220px)_1fr]">
-        <div className="h-[84px] animate-pulse rounded-2xl bg-slate-100" />
-        <div className="grid grid-cols-4 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+        <div className="h-[84px] animate-pulse rounded-xl bg-slate-100" />
+        <div className="grid grid-cols-4 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="bg-white px-5 py-4">
               <div className="h-2.5 w-16 animate-pulse rounded bg-slate-100" />

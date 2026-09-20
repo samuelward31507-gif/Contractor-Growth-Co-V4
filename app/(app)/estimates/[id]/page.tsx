@@ -14,7 +14,7 @@ import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/
 import { Badge } from "@/lib/ui/badge";
 import { successBannerClass } from "@/lib/ui/form";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
-import { DetailHero } from "@/lib/ui/detail-hero";
+import { DetailHeader } from "@/lib/ui/detail-header";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../_components/status";
 import { EstimateActions } from "./_components/estimate-actions";
 
@@ -67,19 +67,19 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
       {/*
         ESTIMATE hierarchy: value -> status -> customer -> line items/
         actions. Amount is the number that decides everything else about
-        this record, so it leads the hero exactly like the Leads detail
+        this record, so it leads the header exactly like the Leads detail
         page's own "Estimated value" moment - the two pages deliberately
         share that grammar since both are ultimately about a dollar figure
         and a decision.
       */}
-      <DetailHero
+      <DetailHeader
         eyebrow="Estimate"
         backHref="/estimates"
         backLabel="Back to Estimates"
         title={estimate.title}
         subtitle={customerName}
         badges={
-          <Badge surface="dark" tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
+          <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
             {ESTIMATE_STATUS_LABELS[estimate.status]}
           </Badge>
         }
@@ -87,7 +87,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
         meta={
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Amount</p>
-            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-white">
+            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
               {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
             </p>
           </div>

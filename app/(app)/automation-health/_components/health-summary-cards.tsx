@@ -56,7 +56,7 @@ export function HealthSummaryCards({ health }: { health: OrganizationHealthSumma
   ];
 
   return (
-    <div className={`grid grid-cols-1 gap-4 rounded-2xl border border-slate-200 bg-white p-5 ring-4 sm:p-6 lg:grid-cols-[auto_1fr] lg:items-center lg:gap-8 ${style.ring}`}>
+    <div className={`grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-5 ring-4 sm:p-6 lg:grid-cols-[auto_1fr] lg:items-center lg:gap-8 ${style.ring}`}>
       <div className="flex items-center gap-4">
         <span className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${style.iconBg} ${style.iconText}`}>
           <StatusIcon className="h-7 w-7" aria-hidden />

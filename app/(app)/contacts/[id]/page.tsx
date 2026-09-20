@@ -20,7 +20,7 @@ import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/
 import { Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
-import { DetailHero } from "@/lib/ui/detail-hero";
+import { DetailHeader } from "@/lib/ui/detail-header";
 import { LEAD_STATUS_TONE } from "../../leads/_components/lead-status";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointments/_components/status";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
@@ -106,17 +106,17 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
       {/*
         CONTACT hierarchy: identity -> communication -> activity -> related
         records. Contacts have no status enum (they're people, not a
-        pipeline stage), so the hero's meta row carries this customer's
+        pipeline stage), so the header's meta row carries this customer's
         relationship snapshot instead - the same four real counts the old
         StatGrid showed, now the thing that answers "how much history do I
         have with this person" right in the header.
       */}
-      <DetailHero
+      <DetailHeader
         eyebrow="Contact"
         backHref="/contacts"
         backLabel="Back to Contacts"
         avatar={
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/10 text-base font-medium text-white ring-1 ring-inset ring-white/10">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-base font-medium text-slate-600 ring-1 ring-inset ring-slate-200">
             {contactInitials(contact)}
           </span>
         }
@@ -136,7 +136,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                   <stat.icon className="h-3 w-3 shrink-0" aria-hidden />
                   {stat.label}
                 </p>
-                <p className="mt-1 text-xl font-bold tabular-nums text-white">{stat.value}</p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{stat.value}</p>
               </div>
             ))}
           </div>
