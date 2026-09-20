@@ -80,9 +80,13 @@ async function makeExecution(status: "running" | "completed" | "cancelled" | "fa
 }
 
 before(async () => {
-  const { data: org } = await service.from("organizations").insert({ name: "Outbound Gate Integration Test Org" }).select("id").single();
+  // automation_mode: "live" on both orgs - every test below in this file
+  // predates and is unrelated to the Fast-Track Pass 3 go-live gate, so it
+  // must not be the reason any of them denies/allows. The gate's own
+  // dedicated "organization_not_live" behavior is covered separately below.
+  const { data: org } = await service.from("organizations").insert({ name: "Outbound Gate Integration Test Org", automation_mode: "live" }).select("id").single();
   organizationId = org!.id;
-  const { data: other } = await service.from("organizations").insert({ name: "Outbound Gate Integration Test Org (Other)" }).select("id").single();
+  const { data: other } = await service.from("organizations").insert({ name: "Outbound Gate Integration Test Org (Other)", automation_mode: "live" }).select("id").single();
   otherOrgId = other!.id;
 
   const { data: contact } = await service
@@ -368,4 +372,45 @@ test("18. retry after provider failure -> real retry mechanism (a NEW execution 
   assert.equal(rows?.length, 2);
   assert.equal(rows?.filter((r) => r.status === "sent").length, 1, "exactly one message was actually sent");
   assert.equal(rows?.filter((r) => r.status === "failed").length, 1);
+});
+
+// ==================== Fast-Track Production Readiness ====================
+
+test("19. organization in Test mode -> organization_not_live, even with an otherwise-valid send", async () => {
+  const { data: testModeOrg } = await service.from("organizations").insert({ name: "Outbound Gate Test-Mode Org" }).select("id").single();
+  const testModeOrgId = testModeOrg!.id as string;
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: testModeOrgId, first_name: "Test", last_name: "Mode", phone: VALID_PHONE }).select("id").single();
+    const { data: conversation } = await service.from("conversations").insert({ organization_id: testModeOrgId, contact_id: contact!.id, channel: "sms", status: "open" }).select("id").single();
+    const { data: event } = await service.from("automation_events").insert({ organization_id: testModeOrgId, event_type: "lead.created", entity_type: "lead", entity_id: null, payload: {}, status: "processing" }).select("id").single();
+    const { data: execution } = await service.from("workflow_executions").insert({ organization_id: testModeOrgId, automation_event_id: event!.id, workflow_name: "lead_created_followup", status: "running", attempt: 1 }).select("id").single();
+
+    const result = await evaluateOutboundGate(service, {
+      organizationId: testModeOrgId,
+      executionId: execution!.id as string,
+      contactId: contact!.id,
+      conversationId: conversation!.id,
+      leadId: null,
+      aiResult: baseAiResult(),
+    });
+    assert.deepEqual(result, { allowed: false, reason: "organization_not_live", detail: undefined });
+  } finally {
+    await service.from("organizations").delete().eq("id", testModeOrgId); // cascades contacts/conversations/automation_events/workflow_executions
+  }
+});
+
+test("20. conversation with ai_enabled:false -> conversation_ai_disabled, even though this specific aiResult says needs_human:false", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "AI", last_name: "Locked", phone: VALID_PHONE }).select("id").single();
+  const { data: lockedConversation } = await service.from("conversations").insert({ organization_id: organizationId, contact_id: contact!.id, channel: "sms", status: "open", ai_enabled: false }).select("id").single();
+  const executionId = await makeExecution("running");
+
+  const result = await evaluateOutboundGate(service, {
+    organizationId,
+    executionId,
+    contactId: contact!.id,
+    conversationId: lockedConversation!.id,
+    leadId: null,
+    aiResult: baseAiResult({ needs_human: false }),
+  });
+  assert.deepEqual(result, { allowed: false, reason: "conversation_ai_disabled", detail: undefined });
 });

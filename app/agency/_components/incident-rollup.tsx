@@ -1,8 +1,8 @@
-import { AlertOctagon, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { AlertOctagon, CheckCircle2, AlertTriangle, XCircle, Radio } from "lucide-react";
 import { SectionCard } from "@/lib/ui/section-card";
 import { formatCount } from "./format";
 import { StatGrid, type Stat } from "./stat-grid";
-import type { AgencyIncidentRollup } from "@/lib/agency/health";
+import type { AgencyIncidentRollup, SchedulerHeartbeat } from "@/lib/agency/health";
 
 /**
  * Automation Health + Alerting V1 rollup for the Agency Command Center - a
@@ -12,7 +12,13 @@ import type { AgencyIncidentRollup } from "@/lib/agency/health";
  * getOrganizationHealth per already-authorized organization) - nothing is
  * recomputed here.
  */
-export function IncidentRollup({ rollup }: { rollup: AgencyIncidentRollup }) {
+export function IncidentRollup({ rollup, schedulerHeartbeat }: { rollup: AgencyIncidentRollup; schedulerHeartbeat: SchedulerHeartbeat }) {
+  const heartbeatValue = schedulerHeartbeat.lastCheckedAt === null
+    ? "Never run"
+    : schedulerHeartbeat.minutesSinceLastCheck !== null && schedulerHeartbeat.minutesSinceLastCheck < 60
+      ? `${schedulerHeartbeat.minutesSinceLastCheck}m ago`
+      : `${Math.round((schedulerHeartbeat.minutesSinceLastCheck ?? 0) / 60)}h ago`;
+
   const stats: Stat[] = [
     {
       key: "healthy",
@@ -49,11 +55,18 @@ export function IncidentRollup({ rollup }: { rollup: AgencyIncidentRollup }) {
       icon: AlertTriangle,
       tone: rollup.warningIncidents > 0 ? "warning" : "default",
     },
+    {
+      key: "scheduler",
+      label: "Scheduler last ran",
+      value: heartbeatValue,
+      icon: Radio,
+      tone: schedulerHeartbeat.stale ? "danger" : "default",
+    },
   ];
 
   return (
     <SectionCard title="Automation incidents" description="Operational health across client organizations" icon={AlertOctagon}>
-      <StatGrid stats={stats} columns="sm:grid-cols-3 lg:grid-cols-5" />
+      <StatGrid stats={stats} columns="sm:grid-cols-3 lg:grid-cols-6" />
     </SectionCard>
   );
 }

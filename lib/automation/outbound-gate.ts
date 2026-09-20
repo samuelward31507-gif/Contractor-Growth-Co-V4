@@ -140,6 +140,8 @@ export type OutboundGateDenialReason =
   | "execution_wrong_organization"
   | "execution_not_eligible"
   | "duplicate_outbound_send"
+  | "conversation_ai_disabled"
+  | "organization_not_live"
   | "appointment_not_found"
   | "appointment_wrong_organization"
   | "appointment_status_ineligible"
@@ -260,7 +262,7 @@ export async function evaluateOutboundGate(
   if (!input.contactId) return deny("missing_contact_id");
   if (!input.conversationId) return deny("missing_conversation_id");
 
-  const [{ data: contact }, { data: conversation }, { data: execution }] = await Promise.all([
+  const [{ data: contact }, { data: conversation }, { data: execution }, { data: organization }] = await Promise.all([
     supabase
       .from("contacts")
       .select("id, organization_id, sms_opt_out, phone")
@@ -268,7 +270,7 @@ export async function evaluateOutboundGate(
       .maybeSingle(),
     supabase
       .from("conversations")
-      .select("id, organization_id, contact_id, lead_id, channel, status")
+      .select("id, organization_id, contact_id, lead_id, channel, status, ai_enabled")
       .eq("id", input.conversationId)
       .maybeSingle(),
     supabase
@@ -276,7 +278,21 @@ export async function evaluateOutboundGate(
       .select("id, organization_id, status")
       .eq("id", input.executionId)
       .maybeSingle(),
+    supabase
+      .from("organizations")
+      .select("automation_mode")
+      .eq("id", input.organizationId)
+      .maybeSingle(),
   ]);
+
+  // Fast-Track Production Readiness, Pass 3: go-live protection. An
+  // organization that has not been explicitly switched to 'live' (new
+  // organizations default to 'test') can never have a customer-facing
+  // automated message actually reach a customer - this can only ever add a
+  // restriction on top of every other check in this function, never bypass
+  // one. Manual CRM actions (creating leads/appointments/etc.) are
+  // unaffected; only this send path is gated.
+  if (organization?.automation_mode !== "live") return deny("organization_not_live");
 
   if (!contact || contact.organization_id !== input.organizationId) return deny("contact_not_found");
   if (contact.sms_opt_out) return deny("contact_opted_out");
@@ -293,6 +309,19 @@ export async function evaluateOutboundGate(
   if (conversation.channel !== "sms") return deny("conversation_not_sms");
   if (conversation.status !== "open") return deny("conversation_not_open");
   if (conversation.contact_id !== input.contactId) return deny("conversation_contact_mismatch");
+
+  // Fast-Track Production Readiness, Pass 2: durable needs_human lockout.
+  // conversations.ai_enabled already exists and already has a staff-facing
+  // "Enable AI" / "Disable AI" toggle (app/(app)/conversations/[id]/_components/
+  // conversation-actions.tsx) - it was just never consulted before a send.
+  // The n8n callback route now sets it false the moment any AI result comes
+  // back with needs_human:true (see that route), which makes this a real,
+  // persistent lock: unlike the earlier aiResult.needs_human check above
+  // (which only blocks the one message that triggered it), this blocks
+  // every future automated send into this conversation - across every
+  // automation type, not only customer replies - until a human explicitly
+  // re-enables AI using the exact same toggle they already have today.
+  if (conversation.ai_enabled === false) return deny("conversation_ai_disabled");
 
   if (input.leadId) {
     const { data: lead } = await supabase

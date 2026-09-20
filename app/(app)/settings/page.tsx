@@ -4,6 +4,7 @@ import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import {
   getAiSettings,
+  getAutomationMode,
   getBookingSettings,
   getBusinessHours,
   getBusinessProfile,
@@ -15,6 +16,7 @@ import {
 import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { AiSettingsSection } from "./_components/ai-settings-section";
+import { AutomationModeSection } from "./_components/automation-mode-section";
 import { BookingSettingsSection } from "./_components/booking-settings-section";
 import { BusinessHoursSection } from "./_components/business-hours-section";
 import { BusinessProfileSection } from "./_components/business-profile-section";
@@ -51,7 +53,7 @@ export default async function SettingsPage() {
   const canEdit = membership.role === "owner" || membership.role === "admin";
   const organizationId = membership.organizationId;
 
-  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings, smsPhoneNumber] =
+  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings, smsPhoneNumber, automationMode] =
     await Promise.all([
       getBusinessProfile(supabase, organizationId),
       getBusinessHours(supabase, organizationId),
@@ -61,6 +63,7 @@ export default async function SettingsPage() {
       getBookingSettings(supabase, organizationId),
       getNotificationSettings(supabase, organizationId),
       getOrganizationSmsNumber(supabase, organizationId),
+      getAutomationMode(supabase, organizationId),
     ]);
 
   if (!profile) {
@@ -92,6 +95,10 @@ export default async function SettingsPage() {
       <div>
         <SettingsGroup label="Business">
           <BusinessProfileSection profile={profile} canEdit={canEdit} />
+        </SettingsGroup>
+
+        <SettingsGroup label="Go Live">
+          <AutomationModeSection mode={automationMode} canEdit={canEdit} />
         </SettingsGroup>
 
         <SettingsGroup label="Operations">

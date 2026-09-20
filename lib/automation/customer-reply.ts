@@ -59,6 +59,22 @@ export async function emitCustomerReplyFollowup(
   supabase: SupabaseClient,
   input: CustomerReplyInput,
 ): Promise<void> {
+  // Fast-Track Production Readiness, Pass 2: durable needs_human lockout.
+  // A conversation staff has taken over (ai_enabled:false, set automatically
+  // the moment any prior AI result said needs_human, or manually via the
+  // conversation's own "Disable AI" toggle) must never even be dispatched to
+  // n8n for a fresh AI draft - the outbound gate would block the resulting
+  // send anyway, but skipping dispatch entirely avoids burning an AI call
+  // and an execution row for a conversation a human is already handling.
+  const { data: lockedConversation } = await supabase
+    .from("conversations")
+    .select("ai_enabled")
+    .eq("id", input.conversationId)
+    .eq("organization_id", input.organizationId)
+    .maybeSingle();
+
+  if (lockedConversation?.ai_enabled === false) return;
+
   const eventResult = await createAutomationEventAsService(supabase, input.organizationId, {
     eventType: "customer.message.received",
     entityType: "conversation",

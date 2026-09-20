@@ -92,6 +92,51 @@ async function loadIncidentRollup(serviceSupabase: SupabaseClient, organizationI
   return { organizationsHealthy, organizationsDegraded, organizationsUnhealthy, criticalIncidents, warningIncidents };
 }
 
+/**
+ * Fast-Track Production Readiness, Pass 4: the only trigger for every
+ * scheduled automation (appointment reminders, estimate follow-ups, lost-lead
+ * nurture, lead reactivation) and for this very health-check sweep is an
+ * external n8n Schedule Trigger - Vercel Cron was deliberately removed in
+ * favor of it (see lib/automation/cron-auth.ts). If that external schedule
+ * ever stops, nothing in Trackpr would notice on its own, because the one
+ * place that would normally detect it (this health check) also only runs
+ * when that same schedule fires it. automation_health_check_runs already
+ * gets one row written every time /api/automation/health actually executes
+ * (see that route) - the smallest possible heartbeat is to surface how long
+ * ago that last happened, here, in the one place an operator already looks
+ * (see AREA 8 of the pre-launch audit: "check the Agency Command Center
+ * daily"). This never calls n8n or Vercel - it is purely a passive read of
+ * data that already exists.
+ */
+const SCHEDULER_STALE_THRESHOLD_MINUTES = 120;
+
+export type SchedulerHeartbeat = {
+  lastCheckedAt: string | null;
+  minutesSinceLastCheck: number | null;
+  /** True both when the last run is older than the threshold AND when there has never been a run at all. */
+  stale: boolean;
+};
+
+async function loadSchedulerHeartbeat(serviceSupabase: SupabaseClient): Promise<SchedulerHeartbeat> {
+  const { data } = await serviceSupabase
+    .from("automation_health_check_runs")
+    .select("checked_at")
+    .order("checked_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!data?.checked_at) {
+    return { lastCheckedAt: null, minutesSinceLastCheck: null, stale: true };
+  }
+
+  const minutesSinceLastCheck = Math.round((Date.now() - new Date(data.checked_at).getTime()) / 60000);
+  return {
+    lastCheckedAt: data.checked_at,
+    minutesSinceLastCheck,
+    stale: minutesSinceLastCheck > SCHEDULER_STALE_THRESHOLD_MINUTES,
+  };
+}
+
 export type AgencyHealthResult =
   | {
       ok: true;
@@ -99,6 +144,7 @@ export type AgencyHealthResult =
       stuck: StuckExecution[];
       organizations: AgencyOrganizationHealth[];
       incidentRollup: AgencyIncidentRollup;
+      schedulerHeartbeat: SchedulerHeartbeat;
       generatedAt: string;
     }
   | AgencyAuthFailure;
@@ -189,10 +235,13 @@ export async function getAgencyHealth(
     };
   });
 
-  const incidentRollup = await loadIncidentRollup(
-    serviceSupabase,
-    organizations.map((org) => org.organizationId),
-  );
+  const [incidentRollup, schedulerHeartbeat] = await Promise.all([
+    loadIncidentRollup(
+      serviceSupabase,
+      organizations.map((org) => org.organizationId),
+    ),
+    loadSchedulerHeartbeat(serviceSupabase),
+  ]);
 
   return {
     ok: true,
@@ -200,6 +249,7 @@ export async function getAgencyHealth(
     stuck,
     organizations: orgHealth,
     incidentRollup,
+    schedulerHeartbeat,
     generatedAt: new Date().toISOString(),
   };
 }

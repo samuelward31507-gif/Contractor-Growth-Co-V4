@@ -544,6 +544,24 @@ export async function POST(request: NextRequest) {
         console.error("[automation] failed to update lead ai_summary", { executionId: execution.id, error: leadUpdateError.message });
       }
     }
+
+    // Fast-Track Production Readiness, Pass 2: durable needs_human lockout.
+    // Reuses the existing conversations.ai_enabled column/toggle (see
+    // lib/automation/outbound-gate.ts's own comment) rather than adding a
+    // new one - once any AI result for this conversation says a human is
+    // needed, AI stays locked out of it for every future automated send
+    // until staff explicitly re-enable it from the conversation itself.
+    if (aiResult.needs_human && conversationId) {
+      const { error: aiLockError } = await service
+        .from("conversations")
+        .update({ ai_enabled: false })
+        .eq("id", conversationId)
+        .eq("organization_id", event.organization_id);
+
+      if (aiLockError) {
+        console.error("[automation] failed to lock conversation ai_enabled after needs_human", { executionId: execution.id, error: aiLockError.message });
+      }
+    }
   }
 
   if (!aiResult || !aiResult.should_send) {

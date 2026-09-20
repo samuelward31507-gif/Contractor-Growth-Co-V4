@@ -427,6 +427,36 @@ export async function updateBookingSettings(
   return { success: true };
 }
 
+// ==================== Automation Mode ====================
+
+/**
+ * Fast-Track Production Readiness, Pass 3: the only way an organization
+ * moves from 'test' to 'live' (or back) - always an explicit, admin-only
+ * action, never automatic. lib/automation/outbound-gate.ts is the actual
+ * enforcement point; this action only flips the stored value it reads.
+ */
+export async function updateAutomationMode(
+  _prevState: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const { supabase, organizationId, error: authError } = await requireSettingsAdmin();
+  if (authError || !organizationId) return { error: authError ?? "Something went wrong. Please try again." };
+
+  const mode = String(formData.get("mode") ?? "");
+  if (mode !== "test" && mode !== "live") {
+    return { error: "Invalid automation mode." };
+  }
+
+  const { error } = await supabase.from("organizations").update({ automation_mode: mode }).eq("id", organizationId);
+
+  if (error) {
+    return { error: "We couldn't update the automation mode. Please try again." };
+  }
+
+  revalidatePath("/settings");
+  return { success: true };
+}
+
 // ==================== Notifications ====================
 
 export async function updateNotificationSettings(

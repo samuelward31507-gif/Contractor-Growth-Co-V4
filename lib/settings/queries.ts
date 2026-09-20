@@ -150,6 +150,26 @@ export async function getServiceAreas(
   return (data ?? []) as ServiceArea[];
 }
 
+export type AutomationMode = "test" | "live";
+
+/**
+ * Fast-Track Production Readiness, Pass 3: the organization-level go-live
+ * gate consulted by lib/automation/outbound-gate.ts before any
+ * customer-facing automated send. Defaults to 'test' via the column's own
+ * DEFAULT - a missing row/value is impossible once the migration has run,
+ * but this still fails to the safe value rather than trusting an
+ * unexpected shape.
+ */
+export async function getAutomationMode(supabase: SupabaseClient, organizationId: string): Promise<AutomationMode> {
+  const { data } = await supabase
+    .from("organizations")
+    .select("automation_mode")
+    .eq("id", organizationId)
+    .maybeSingle();
+
+  return data?.automation_mode === "live" ? "live" : "test";
+}
+
 export const AI_TONE_OPTIONS = ["Professional", "Friendly", "Casual", "Direct", "Empathetic"];
 
 export type AiSettings = {

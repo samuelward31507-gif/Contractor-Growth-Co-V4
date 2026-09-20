@@ -77,6 +77,28 @@ export async function emitJobCreatedFromEstimate(
     jobId = inserted.id;
   }
 
+  // Fast-Track Production Readiness, Pass 4: the audit found leads.status
+  // was never synced when an estimate is accepted and a job is created, so
+  // a lead could stay stuck at 'estimate' forever even after the deal was
+  // actually won - a real dashboard/BI-pipeline drift, not just a display
+  // nit. Scoped to the estimate's own lead (if any) and guarded with
+  // neq("status", "won") so this is a safe no-op on the idempotent-replay
+  // path above (job already existed) and never overwrites a lead a human
+  // has since moved past 'won' for some other reason. Never blocks job
+  // creation itself if this update fails.
+  if (estimate.lead_id) {
+    const { error: leadWonUpdateError } = await supabase
+      .from("leads")
+      .update({ status: "won" })
+      .eq("id", estimate.lead_id)
+      .eq("organization_id", organizationId)
+      .neq("status", "won");
+
+    if (leadWonUpdateError) {
+      console.error("[automation] failed to sync lead status to won", { estimateId, leadId: estimate.lead_id, error: leadWonUpdateError.message });
+    }
+  }
+
   const eventResult = await createAutomationEvent(supabase, {
     eventType: "job.created",
     entityType: "job",
