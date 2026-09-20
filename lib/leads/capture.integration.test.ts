@@ -150,6 +150,25 @@ test("7. organization isolation: a lead created under one organization's token i
   assert.equal(matchInOtherOrg, null, "a contact created for org A must never be found when querying org B");
 });
 
+/**
+ * emitLeadCreatedFollowupAsService's final step dispatches to n8n via
+ * next/server's after(), which throws "was called outside a request scope"
+ * when invoked from a bare script/test runner rather than a real route
+ * handler - a test-harness limitation, not a production code path (in
+ * production this only ever runs inside app/api/leads/capture/[token]/route.ts's
+ * POST handler, a real request scope). The DB work this test actually
+ * verifies - the automation_events row and its idempotency - is already
+ * committed before after() is reached, so that specific, expected error is
+ * tolerated here rather than treated as a failure.
+ */
+async function callEmitLeadCreatedFollowupAsServiceTolerant(input: Parameters<typeof emitLeadCreatedFollowupAsService>[1]) {
+  try {
+    await emitLeadCreatedFollowupAsService(service, input);
+  } catch (e) {
+    if (!String(e).includes("after` was called outside a request scope")) throw e;
+  }
+}
+
 test("8. emitLeadCreatedFollowupAsService creates a real lead.created automation event, idempotently on replay", async () => {
   const orgId = (await resolveOrganizationByToken(intakeToken))!;
   const contactResult = await resolveOrCreateContact(service, { organizationId: orgId, phone: "+15555551005" });
@@ -163,32 +182,25 @@ test("8. emitLeadCreatedFollowupAsService creates a real lead.created automation
     .single();
   const leadId = lead!.id;
 
-  await emitLeadCreatedFollowupAsService(service, {
+  const emitInput = {
     leadId,
     contactId,
     organizationId: orgId,
     source: "lead_capture_api",
     service: "Kitchen remodel",
-    status: "new",
-    temperature: "cold",
+    status: "new" as const,
+    temperature: "cold" as const,
     estimatedValue: null,
-  });
+  };
+
+  await callEmitLeadCreatedFollowupAsServiceTolerant(emitInput);
 
   const { data: events } = await service.from("automation_events").select("id, event_type, entity_id").eq("organization_id", orgId).eq("entity_id", leadId);
   assert.equal(events?.length, 1);
   assert.equal(events?.[0].event_type, "lead.created");
 
   // Replay (e.g. a caller retrying the same lead id) must not create a second event.
-  await emitLeadCreatedFollowupAsService(service, {
-    leadId,
-    contactId,
-    organizationId: orgId,
-    source: "lead_capture_api",
-    service: "Kitchen remodel",
-    status: "new",
-    temperature: "cold",
-    estimatedValue: null,
-  });
+  await callEmitLeadCreatedFollowupAsServiceTolerant(emitInput);
   const { data: eventsAfterReplay } = await service.from("automation_events").select("id").eq("organization_id", orgId).eq("entity_id", leadId);
   assert.equal(eventsAfterReplay?.length, 1, "no duplicate automation event on replay");
 });
