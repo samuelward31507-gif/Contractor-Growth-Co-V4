@@ -31,7 +31,7 @@ export function SystemRail({
   /** Smaller nodes/type for the compact hero preview. */
   dense?: boolean;
 }) {
-  const nodeBg = tone === "dark" ? "bg-slate-950" : "bg-white";
+  const nodeBg = tone === "dark" ? "bg-[#0a120f]" : "bg-white";
   const circleIdle = tone === "dark" ? "border-white/15 bg-white/[0.04] text-slate-400" : "border-slate-200 bg-white text-slate-400";
   const circleAccent = "border-emerald-500/40 bg-emerald-500/15 text-emerald-400";
   const lineColor = tone === "dark" ? "bg-white/10" : "bg-slate-200";

@@ -24,8 +24,11 @@ export function Section({
   id?: string;
   tone?: "light" | "dark" | "subtle";
 }) {
+  // The dark tone uses the exact same near-black as Trackpr's own sidebar
+  // (see app/(app)/_components/sidebar-content.tsx) - the two products share
+  // one dark token, not two similar-but-different near-blacks.
   const toneClass =
-    tone === "dark" ? "bg-slate-950 text-white" : tone === "subtle" ? "bg-slate-50" : "bg-white";
+    tone === "dark" ? "bg-[#0a120f] text-white" : tone === "subtle" ? "bg-slate-50" : "bg-white";
   return (
     <section id={id} className={`${toneClass} py-20 sm:py-24 lg:py-28 ${className}`}>
       <Container>{children}</Container>

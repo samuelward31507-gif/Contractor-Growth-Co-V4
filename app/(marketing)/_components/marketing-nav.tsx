@@ -9,6 +9,7 @@ import { CtaLink } from "./cta-button";
 const NAV_LINKS = [
   { href: "/how-it-works", label: "How It Works" },
   { href: "/services", label: "Services" },
+  { href: "/#trackpr", label: "Trackpr" },
 ];
 
 export function MarketingNav() {

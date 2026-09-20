@@ -23,7 +23,7 @@ const LEAD_JOURNEY: RailStep[] = [
 
 export function Hero() {
   return (
-    <div className="relative overflow-hidden bg-slate-950">
+    <div className="relative overflow-hidden bg-[#0a120f]">
       {/* Restrained depth: a soft radial glow, well under the headline in
           visual weight. */}
       <div
