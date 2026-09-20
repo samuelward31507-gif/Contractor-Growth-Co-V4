@@ -16,11 +16,14 @@ export default function AppointmentsLoading() {
         <div className="h-10 w-40 animate-pulse rounded-lg bg-slate-100" />
       </div>
 
-      <div className="flex flex-wrap gap-x-10 gap-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i}>
-            <div className="h-2.5 w-20 animate-pulse rounded bg-slate-100" />
-            <div className="mt-2 h-6 w-14 animate-pulse rounded bg-slate-100" />
+          <div key={i} className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="h-2.5 w-20 animate-pulse rounded bg-slate-100" />
+              <div className="h-7 w-7 shrink-0 animate-pulse rounded-full bg-slate-100" />
+            </div>
+            <div className="mt-3 h-7 w-14 animate-pulse rounded bg-slate-100" />
           </div>
         ))}
       </div>

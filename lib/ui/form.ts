@@ -16,7 +16,15 @@ export const errorBannerClass =
   "rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700";
 
 export const successBannerClass =
-  "rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-700";
+  "rounded-lg border border-accent-border bg-accent-muted px-3.5 py-2.5 text-sm text-accent-text";
+
+// Final visual polish pass: an accent (emerald) primary tier, reserved for
+// a page's one genuinely positive/activate-type action (e.g. "Enable AI",
+// "Mark Reviewed", a workflow's "Activate") - never a blanket swap for
+// primaryButtonClass/primaryButtonAutoClass, which stay the app's default
+// near-black primary. Most pages should have zero or one of these.
+export const accentButtonAutoClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground shadow-sm transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-emerald-300";
 
 // Premium-polish pass: the button hierarchy every route should reach for
 // instead of hand-rolling its own "secondary"/"destructive" button classes

@@ -29,7 +29,7 @@ function AppointmentRow({
     <li>
       <Link
         href={`/appointments/${appointment.id}`}
-        className="group flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50"
+        className="group flex items-center gap-3 rounded-md px-2 py-3.5 transition-colors hover:bg-slate-50"
       >
         {/* Leading time column - this list reads as "the contractor's day"
             first and foremost, so the answer to "when" is the first thing

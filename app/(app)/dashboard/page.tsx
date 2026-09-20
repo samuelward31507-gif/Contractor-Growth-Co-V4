@@ -75,7 +75,7 @@ export default async function DashboardPage() {
 
       <AiInsightsPanel cached={cachedInsights} />
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 lg:grid-cols-2">
         <PipelineSnapshot pipeline={data.pipeline} />
         <RecentActivity items={data.recentActivity} />
       </div>

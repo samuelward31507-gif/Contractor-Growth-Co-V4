@@ -1,9 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 
-export type Stat = { key: string; label: string; value: string; icon?: LucideIcon; tone?: "default" | "danger" | "warning" };
+export type Stat = { key: string; label: string; value: string; icon?: LucideIcon; tone?: "default" | "success" | "danger" | "warning" };
 
 const VALUE_TONE: Record<NonNullable<Stat["tone"]>, string> = {
   default: "text-slate-900",
+  // Final visual polish pass: the app's one accent token, restrained to a
+  // handful of genuinely-positive counts (see incident-rollup.tsx,
+  // automation-activity.tsx) - never the default for every stat.
+  success: "text-accent-text",
   danger: "text-red-600",
   warning: "text-amber-600",
 };

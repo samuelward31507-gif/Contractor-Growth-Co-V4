@@ -12,7 +12,13 @@ import type { AgencyBusinessSummary } from "@/lib/agency/queries";
 export function AutomationActivity({ summary, stuckCount }: { summary: AgencyBusinessSummary; stuckCount: number }) {
   const stats: Stat[] = [
     { key: "workflow-executions", label: "Executions", value: formatCount(summary.workflowExecutions), icon: Workflow },
-    { key: "completed", label: "Completed", value: formatCount(summary.successfulWorkflowExecutions), icon: CheckCircle2 },
+    {
+      key: "completed",
+      label: "Completed",
+      value: formatCount(summary.successfulWorkflowExecutions),
+      icon: CheckCircle2,
+      tone: summary.successfulWorkflowExecutions > 0 ? "success" : "default",
+    },
     { key: "failed", label: "Failed", value: formatCount(summary.failedWorkflowExecutions), icon: XCircle, tone: summary.failedWorkflowExecutions > 0 ? "danger" : "default" },
     { key: "running", label: "Running", value: formatCount(summary.runningWorkflowExecutions), icon: Loader2 },
     { key: "stuck", label: "Stuck", value: formatCount(stuckCount), icon: AlertTriangle, tone: stuckCount > 0 ? "warning" : "default" },

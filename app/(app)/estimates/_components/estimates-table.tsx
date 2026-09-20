@@ -33,7 +33,7 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
           LeadsTable, sharing column positions across header and rows via a
           grid template. */}
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-4 border-b border-slate-200 px-2 pb-2`}>
+        <div className={`grid ${ROW_GRID} gap-6 border-b border-slate-200 px-2 pb-3`}>
           <span className="text-xs text-slate-400">Estimate</span>
           <span className="text-xs text-slate-400">Status</span>
           <span className="text-right text-xs text-slate-400">Amount</span>
@@ -45,7 +45,7 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
             <Link
               key={estimate.id}
               href={`/estimates/${estimate.id}`}
-              className={`group grid ${ROW_GRID} items-center gap-4 rounded-md px-2 py-3 transition-colors hover:bg-slate-50`}
+              className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-slate-50`}
             >
               <span className="flex min-w-0 items-center gap-3">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">

@@ -8,12 +8,18 @@ const STATS: { key: keyof ReviewReferralSummary; label: string }[] = [
   { key: "referralsConverted", label: "Referrals converted" },
 ];
 
-/** Same integrated-row convention as JobsSummary/EstimatesSummary/LeadsSummary - restrained counts, not boxed metric cards. */
+/**
+ * Deliberately still the integrated-row convention (not StatGrid/StatCard) -
+ * this is secondary, supporting context under JobsSummary's own boxed
+ * primary metrics, not a second set of headline numbers competing for the
+ * same visual weight. A border-t separates it from JobsSummary above so the
+ * two rows read as distinct tiers rather than one continuous strip.
+ */
 export function ReviewReferralSummaryRow({ summary }: { summary: ReviewReferralSummary }) {
   if (summary.reviewsRequested === 0 && summary.referralsRequested === 0) return null;
 
   return (
-    <div>
+    <div className="border-t border-slate-200 pt-6">
       <p className={sectionLabelClass}>Review &amp; Referral</p>
       <dl className="mt-3 flex flex-wrap gap-x-10 gap-y-4">
         {STATS.map(({ key, label }) => (

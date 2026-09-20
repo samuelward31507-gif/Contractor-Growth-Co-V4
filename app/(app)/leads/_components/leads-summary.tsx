@@ -1,30 +1,28 @@
-import { sectionLabelClass, statLabelClass, statValueClass } from "@/lib/ui/typography";
+import { Flame, Wallet } from "lucide-react";
+import { StatGrid, StatCard } from "@/lib/ui/stat-card";
+import { sectionLabelClass } from "@/lib/ui/typography";
 import { formatCurrency } from "@/lib/dashboard/format";
 import type { LeadSummary } from "@/lib/leads/queries";
 
-const STATS: { key: keyof LeadSummary; label: string; currency?: boolean }[] = [
-  { key: "total", label: "Total leads" },
-  { key: "newCount", label: "New leads" },
-  { key: "hotCount", label: "Hot leads" },
-  { key: "openValue", label: "Open opportunity value", currency: true },
-];
-
 /**
- * One integrated row instead of four boxed metric cards - matches the
- * dashboard's overview strip.
+ * Final visual polish pass: the four PRIMARY overview metrics get their own
+ * bordered StatCard (lib/ui/stat-card.tsx) instead of the old inline
+ * label/value strip, so pipeline value and lead counts use the available
+ * desktop width instead of clustering in one left-aligned row. Hot leads
+ * and open opportunity value get a success-tone icon chip - both are
+ * genuinely positive signals worth calling out; total/new stay neutral so
+ * the accent doesn't spread across every card.
  */
 export function LeadsSummary({ summary }: { summary: LeadSummary }) {
   return (
     <div>
       <p className={sectionLabelClass}>Overview</p>
-      <dl className="mt-3 flex flex-wrap gap-x-10 gap-y-4">
-        {STATS.map(({ key, label, currency }) => (
-          <div key={key}>
-            <dt className={statLabelClass}>{label}</dt>
-            <dd className={statValueClass}>{currency ? formatCurrency(summary[key]) : summary[key]}</dd>
-          </div>
-        ))}
-      </dl>
+      <StatGrid columns={4} className="mt-3">
+        <StatCard label="Total leads" value={summary.total} />
+        <StatCard label="New leads" value={summary.newCount} />
+        <StatCard label="Hot leads" value={summary.hotCount} tone="success" icon={Flame} />
+        <StatCard label="Open opportunity value" value={formatCurrency(summary.openValue)} tone="success" icon={Wallet} />
+      </StatGrid>
     </div>
   );
 }

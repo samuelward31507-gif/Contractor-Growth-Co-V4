@@ -24,7 +24,7 @@ export function ContactsTable({ contacts, query }: { contacts: Contact[]; query:
   return (
     <div>
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-4 border-b border-slate-200 px-2 pb-2`}>
+        <div className={`grid ${ROW_GRID} gap-6 border-b border-slate-200 px-2 pb-3`}>
           <span className="text-xs text-slate-400">Contact</span>
           <span className="text-xs text-slate-400">Details</span>
           <span className="text-xs text-slate-400">Created</span>
@@ -35,7 +35,7 @@ export function ContactsTable({ contacts, query }: { contacts: Contact[]; query:
             <Link
               key={contact.id}
               href={`/contacts/${contact.id}`}
-              className={`group grid ${ROW_GRID} items-center gap-4 rounded-md px-2 py-3 transition-colors hover:bg-slate-50`}
+              className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-slate-50`}
             >
               <span className="flex min-w-0 items-center gap-3">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">

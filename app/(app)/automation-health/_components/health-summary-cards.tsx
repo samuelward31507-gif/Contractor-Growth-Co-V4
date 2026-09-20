@@ -1,7 +1,8 @@
 import { CheckCircle2, AlertTriangle, AlertOctagon, type LucideIcon } from "lucide-react";
 import type { OrganizationHealthSummary } from "@/lib/automation-health/types";
 import type { BadgeTone } from "@/lib/ui/badge";
-import { metaClass, statLabelClass } from "@/lib/ui/typography";
+import { metaClass } from "@/lib/ui/typography";
+import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 
 /**
  * Single source of truth for how an organization/automation health status
@@ -34,38 +35,38 @@ function formatRelative(iso: string | null): string {
  * deterministic, read directly from lib/automation-health/health.ts's own
  * getOrganizationHealth. The overall status itself already leads the page
  * (see the page header's badge, built from HEALTH_STATUS_BADGE above); this
- * strip is the "why" behind that answer, not a second headline.
+ * grid is the "why" behind that answer, not a second headline.
  *
- * Deliberately the same restrained "integrated row" convention as
- * Leads/Estimates/Jobs' own overview strips (label recedes, number carries
- * the weight - see lib/ui/typography.ts's statLabelClass/statValueClass),
- * not a grid of bordered monitoring-tool metric tiles: when every number
- * here is zero, six boxed cards read like a DevOps dashboard even though
- * nothing is wrong, which fights the "calm when healthy" brief. Six plain
- * numbers in a row, with color reserved for the ones that are actually
- * nonzero, reads calm at rest and still gets your eye to whatever number
- * needs it.
+ * Final visual polish pass: converted from the prior pass's de-boxed
+ * "integrated row" back to the app-wide StatCard primitive (every other
+ * page's primary metrics now use it, and an unboxed strip here reads
+ * inconsistent rather than calm). The calm-when-healthy intent survives
+ * through color discipline alone, not through avoiding the card treatment:
+ * every stat defaults to `tone="neutral"` and only flips to `warning`/
+ * `danger` when the underlying count is actually nonzero - the exact same
+ * rule the prior pass's plain-text row used (color reserved for numbers
+ * that need attention). Six zero counts in six neutral cards still reads
+ * calm; a real incident still turns exactly its own card amber/red, no
+ * more colorful than the previous plain-text version was. 3+3 (columns=3,
+ * wrapping to two rows) instead of a cramped 6-wide row.
  */
 export function HealthSummaryCards({ health }: { health: OrganizationHealthSummary }) {
-  const stats = [
-    { key: "active", label: "Active incidents", value: formatCount(health.activeIncidentCount), tone: health.activeIncidentCount > 0 ? "text-amber-600" : "text-slate-900" },
-    { key: "critical", label: "Critical", value: formatCount(health.criticalIncidentCount), tone: health.criticalIncidentCount > 0 ? "text-red-600" : "text-slate-900" },
-    { key: "warning", label: "Warning", value: formatCount(health.warningIncidentCount), tone: health.warningIncidentCount > 0 ? "text-amber-600" : "text-slate-900" },
-    { key: "stuck", label: "Stuck executions", value: formatCount(health.stuckExecutionCount), tone: health.stuckExecutionCount > 0 ? "text-amber-600" : "text-slate-900" },
-    { key: "delivery", label: "SMS delivery failures", value: formatCount(health.smsDeliveryFailureCount), tone: health.smsDeliveryFailureCount > 0 ? "text-amber-600" : "text-slate-900" },
-    { key: "success-rate", label: "Success rate (30d)", value: formatRate(health.automationSuccessRate), tone: "text-slate-900" },
+  const stats: { key: string; label: string; value: string; tone: BadgeTone; icon: LucideIcon }[] = [
+    { key: "active", label: "Active incidents", value: formatCount(health.activeIncidentCount), tone: health.activeIncidentCount > 0 ? "warning" : "neutral", icon: AlertTriangle },
+    { key: "critical", label: "Critical", value: formatCount(health.criticalIncidentCount), tone: health.criticalIncidentCount > 0 ? "danger" : "neutral", icon: AlertOctagon },
+    { key: "warning", label: "Warning", value: formatCount(health.warningIncidentCount), tone: health.warningIncidentCount > 0 ? "warning" : "neutral", icon: AlertTriangle },
+    { key: "stuck", label: "Stuck executions", value: formatCount(health.stuckExecutionCount), tone: health.stuckExecutionCount > 0 ? "warning" : "neutral", icon: AlertTriangle },
+    { key: "delivery", label: "SMS delivery failures", value: formatCount(health.smsDeliveryFailureCount), tone: health.smsDeliveryFailureCount > 0 ? "warning" : "neutral", icon: AlertTriangle },
+    { key: "success-rate", label: "Success rate (30d)", value: formatRate(health.automationSuccessRate), tone: "neutral", icon: CheckCircle2 },
   ];
 
   return (
     <div className="flex flex-col gap-3">
-      <dl className="flex flex-wrap gap-x-10 gap-y-4">
+      <StatGrid columns={3}>
         {stats.map((stat) => (
-          <div key={stat.key}>
-            <dt className={statLabelClass}>{stat.label}</dt>
-            <dd className={`mt-1 text-2xl font-semibold tracking-tight tabular-nums ${stat.tone}`}>{stat.value}</dd>
-          </div>
+          <StatCard key={stat.key} label={stat.label} value={stat.value} tone={stat.tone} icon={stat.icon} />
         ))}
-      </dl>
+      </StatGrid>
       <p className={metaClass}>
         Last success: {formatRelative(health.lastSuccessfulActivityAt)} · Last failure: {formatRelative(health.lastFailureAt)}
       </p>

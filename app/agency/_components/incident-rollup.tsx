@@ -14,7 +14,13 @@ import type { AgencyIncidentRollup } from "@/lib/agency/health";
  */
 export function IncidentRollup({ rollup }: { rollup: AgencyIncidentRollup }) {
   const stats: Stat[] = [
-    { key: "healthy", label: "Organizations healthy", value: formatCount(rollup.organizationsHealthy), icon: CheckCircle2 },
+    {
+      key: "healthy",
+      label: "Organizations healthy",
+      value: formatCount(rollup.organizationsHealthy),
+      icon: CheckCircle2,
+      tone: rollup.organizationsHealthy > 0 ? "success" : "default",
+    },
     {
       key: "degraded",
       label: "Organizations degraded",

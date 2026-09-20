@@ -1,4 +1,5 @@
 import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { formatCurrency } from "@/lib/dashboard/format";
 import type { BusinessMetricsSnapshot, PeriodComparison } from "@/lib/bi/types";
 
@@ -91,16 +92,14 @@ export function KeyMetrics({ snapshot }: { snapshot: BusinessMetricsSnapshot }) 
   return (
     <div className="border-t border-slate-200 pt-8">
       <p className={sectionLabelClass}>Key metrics · last 30 days</p>
-      <dl className="mt-3 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
-        {stats.map((stat) => (
-          <div key={stat.key}>
-            <dt className="text-xs text-slate-500">{stat.label}</dt>
-            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{stat.value}</dd>
-            {stat.comparison ? <p className="mt-0.5 text-xs text-slate-500">{stat.comparison}</p> : null}
-            {stat.detail ? <p className="mt-0.5 text-xs text-slate-500">{stat.detail}</p> : null}
-          </div>
-        ))}
-      </dl>
+      <div className="mt-3">
+        <StatGrid columns={3}>
+          {stats.map((stat) => {
+            const description = [stat.comparison, stat.detail].filter(Boolean).join(" · ") || undefined;
+            return <StatCard key={stat.key} label={stat.label} value={stat.value} description={description} />;
+          })}
+        </StatGrid>
+      </div>
       <p className={`mt-4 ${metaClass}`}>
         Pipeline, estimate, and job values shown here are quoted amounts, not collected payments - Trackpr does not yet track payment data.
       </p>

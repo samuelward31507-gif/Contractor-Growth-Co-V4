@@ -159,7 +159,13 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
   const automationStats: Stat[] = [
     { key: "workflow-executions", label: "Executions", value: formatCount(m.automationMetrics.workflowExecutions), icon: Workflow },
-    { key: "completed", label: "Completed", value: formatCount(m.automationMetrics.successfulWorkflowExecutions), icon: CheckCircle2 },
+    {
+      key: "completed",
+      label: "Completed",
+      value: formatCount(m.automationMetrics.successfulWorkflowExecutions),
+      icon: CheckCircle2,
+      tone: m.automationMetrics.successfulWorkflowExecutions > 0 ? "success" : "default",
+    },
     {
       key: "failed",
       label: "Failed",

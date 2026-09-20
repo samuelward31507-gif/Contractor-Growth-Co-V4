@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { sectionLabelClass, metaClass, statLabelClass, statValueClass } from "@/lib/ui/typography";
+import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { formatCurrency } from "@/lib/dashboard/format";
 import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
 import { formatRate, formatComparisonBadge } from "./bi-format";
@@ -88,19 +89,18 @@ export function LeadsPipelineSection({ snapshot }: { snapshot: BusinessMetricsSn
       label="Leads & pipeline"
       note="Pipeline and average pipeline value are manually entered estimates on the lead, not revenue - Trackpr does not track collected payments."
     >
-      <StatRow
-        stats={[
-          { key: "leads", label: "Leads", value: String(comparisons.leadCount.current), detail: formatComparisonBadge(comparisons.leadCount) },
-          { key: "open-opportunities", label: "Open opportunities", value: String(pipelineMetrics.openOpportunityCount) },
-          { key: "pipeline-value", label: "Pipeline value", value: formatCurrency(pipelineMetrics.pipelineValue) },
-          {
-            key: "avg-pipeline-value",
-            label: "Avg. opportunity value",
-            value: pipelineMetrics.averagePipelineValue === null ? "Not enough data yet" : formatCurrency(pipelineMetrics.averagePipelineValue),
-          },
-          { key: "lost-rate", label: "Lost rate", value: formatRate(leadMetrics.lostRate) },
-        ]}
-      />
+      <div className="mt-3">
+        <StatGrid columns={5}>
+          <StatCard label="Leads" value={String(comparisons.leadCount.current)} description={formatComparisonBadge(comparisons.leadCount)} />
+          <StatCard label="Open opportunities" value={String(pipelineMetrics.openOpportunityCount)} />
+          <StatCard label="Pipeline value" value={formatCurrency(pipelineMetrics.pipelineValue)} />
+          <StatCard
+            label="Avg. opportunity value"
+            value={pipelineMetrics.averagePipelineValue === null ? "Not enough data yet" : formatCurrency(pipelineMetrics.averagePipelineValue)}
+          />
+          <StatCard label="Lost rate" value={formatRate(leadMetrics.lostRate)} />
+        </StatGrid>
+      </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div>

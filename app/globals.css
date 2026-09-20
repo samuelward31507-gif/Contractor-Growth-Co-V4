@@ -3,11 +3,31 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Final visual polish pass: a restrained emerald accent layered on the
+     existing white/charcoal/slate workspace - semantic tokens, not a new
+     theme. These exist for the ~10-15% of the UI that should read as
+     positive/active/healthy/money (primary CTAs, healthy/success states,
+     accepted/won/completed badges, small accent indicators) - never a
+     page-section background or a decorative fill. The app's dominant
+     palette stays neutral slate/white/charcoal. */
+  --accent: #16a34a; /* emerald-600 */
+  --accent-strong: #15803d; /* emerald-700 - hover/pressed */
+  --accent-foreground: #ffffff;
+  --accent-muted: #f0fdf4; /* emerald-50 - subtle tinted backgrounds */
+  --accent-border: #bbf7d0; /* emerald-200 */
+  --accent-text: #166534; /* emerald-800 - text on accent-muted backgrounds */
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-muted: var(--accent-muted);
+  --color-accent-border: var(--accent-border);
+  --color-accent-text: var(--accent-text);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

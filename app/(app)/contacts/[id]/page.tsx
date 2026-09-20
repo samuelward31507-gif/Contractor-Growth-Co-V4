@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Briefcase, CalendarClock, FileSearch, FileX2, Flame, MessagesSquare } from "lucide-react";
+import { ArrowLeft, Briefcase, CalendarClock, FileSearch, FileX2, Flame, MessagesSquare, Wallet } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContact } from "@/lib/contacts/queries";
@@ -16,10 +16,11 @@ import { formatAppointmentDate, formatAppointmentTimeRange, STATUS_LABELS as APP
 import { STATUS_LABELS as LEAD_STATUS_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
 import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
-import { detailLabelClass, detailValueClass, statLabelClass, statValueClass, subsectionTitleClass } from "@/lib/ui/typography";
+import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
+import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import type { LeadStatus } from "@/lib/leads/queries";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
@@ -158,26 +159,19 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
         <ContactActions contact={contact} />
       </div>
 
-      {/* SNAPSHOT: a quick read of this customer's relationship value */}
+      {/* SNAPSHOT: a quick read of this customer's relationship value. Final
+          visual polish pass: StatGrid/StatCard (lib/ui/stat-card.tsx)
+          instead of an inline label/value strip, so these numbers use the
+          available desktop width. Open opportunity value gets the one
+          success-tone icon chip here - it's the genuinely positive/money
+          signal among the four. */}
       <div className="border-t border-slate-200 pt-8">
-        <dl className="flex flex-wrap gap-x-10 gap-y-4">
-          <div>
-            <dt className={statLabelClass}>Leads</dt>
-            <dd className={statValueClass}>{relationshipCounts.leads}</dd>
-          </div>
-          <div>
-            <dt className={statLabelClass}>Open opportunity value</dt>
-            <dd className={statValueClass}>{formatCurrency(openLeadsValue)}</dd>
-          </div>
-          <div>
-            <dt className={statLabelClass}>Appointments</dt>
-            <dd className={statValueClass}>{relationshipCounts.appointments}</dd>
-          </div>
-          <div>
-            <dt className={statLabelClass}>Jobs</dt>
-            <dd className={statValueClass}>{relationshipCounts.jobs}</dd>
-          </div>
-        </dl>
+        <StatGrid columns={4}>
+          <StatCard label="Leads" value={relationshipCounts.leads} />
+          <StatCard label="Open opportunity value" value={formatCurrency(openLeadsValue)} tone="success" icon={Wallet} />
+          <StatCard label="Appointments" value={relationshipCounts.appointments} />
+          <StatCard label="Jobs" value={relationshipCounts.jobs} />
+        </StatGrid>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">

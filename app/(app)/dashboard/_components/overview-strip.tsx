@@ -1,4 +1,5 @@
 import { sectionLabelClass } from "@/lib/ui/typography";
+import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import type { OverviewMetrics } from "@/lib/dashboard/queries";
 
 const STATS: { key: keyof OverviewMetrics; label: string }[] = [
@@ -9,24 +10,21 @@ const STATS: { key: keyof OverviewMetrics; label: string }[] = [
 ];
 
 /**
- * Real counts, read as one integrated row directly on the page canvas - not
- * four boxed metric cards. The section label recedes (see sectionLabelClass)
- * so the numbers themselves carry the weight.
+ * Real counts, given room via StatGrid/StatCard (final polish pass) instead
+ * of the old inline flex-wrap row - four primary metrics fill a single row
+ * of boxed cards at desktop width rather than clustering left.
  */
 export function OverviewStrip({ overview }: { overview: OverviewMetrics }) {
   return (
     <div className="border-t border-slate-200 pt-8">
       <p className={sectionLabelClass}>Business activity</p>
-      <dl className="mt-3 flex flex-wrap gap-x-10 gap-y-4">
-        {STATS.map(({ key, label }) => (
-          <div key={key}>
-            <dt className="text-xs text-slate-500">{label}</dt>
-            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-slate-900">
-              {overview[key]}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <div className="mt-3">
+        <StatGrid columns={4}>
+          {STATS.map(({ key, label }) => (
+            <StatCard key={key} label={label} value={overview[key]} />
+          ))}
+        </StatGrid>
+      </div>
     </div>
   );
 }
