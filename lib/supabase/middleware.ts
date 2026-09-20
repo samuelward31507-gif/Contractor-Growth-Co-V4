@@ -34,12 +34,14 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // The marketing home page, the email-confirmation callback, and API routes
-  // stay public and untouched regardless of auth state. API routes (e.g. the
-  // n8n callback) authenticate themselves - n8n never presents a Supabase
-  // session, so redirecting them to /login would make those routes
-  // unreachable by design rather than by any check they actually perform.
-  if (pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/api/")) {
+  // The public marketing site (home + its sub-pages), the email-confirmation
+  // callback, and API routes stay public and untouched regardless of auth
+  // state. API routes (e.g. the n8n callback) authenticate themselves - n8n
+  // never presents a Supabase session, so redirecting them to /login would
+  // make those routes unreachable by design rather than by any check they
+  // actually perform.
+  const PUBLIC_MARKETING_PATHS = new Set(["/", "/how-it-works", "/services", "/get-started"]);
+  if (PUBLIC_MARKETING_PATHS.has(pathname) || pathname.startsWith("/auth") || pathname.startsWith("/api/")) {
     return supabaseResponse;
   }
 
