@@ -21,22 +21,31 @@ export const E164_PATTERN = /^\+[1-9]\d{1,14}$/;
 
 const STATUS_CALLBACK_PATH = "/api/webhooks/sms/status";
 
+// The single canonical production URL. `VERCEL_PROJECT_PRODUCTION_URL` is
+// NOT reliably exposed to every Vercel Function (it depends on a project-level
+// "Automatically expose System Environment Variables" setting) - a real
+// 2026-09-21 production incident proved it absent at runtime here, which
+// silently fell through to a request-header-based fallback that produced
+// `http://localhost:3000` in a live Supabase confirmation email. `VERCEL_ENV`,
+// by contrast, is unconditionally injected by Vercel on every request, so
+// gating on it is the one deterministic, production-safe signal available.
+const PRODUCTION_APP_URL = "https://contractor-growth-co-v4.vercel.app";
+
 /**
- * Resolves Trackpr's own stable, public base URL for constructing the
- * Twilio StatusCallback URL - never a hardcoded domain, never a temporary
- * per-deployment preview URL. `APP_BASE_URL` is an explicit opt-in override
- * (e.g. for a custom domain), checked first. Absent that, this falls back
- * to `VERCEL_PROJECT_PRODUCTION_URL` - a Vercel platform-provided system
- * environment variable that always holds the project's stable, assigned
- * production domain (not the per-deployment `VERCEL_URL`, which changes on
- * every deploy) - so this requires zero manual production configuration to
- * work correctly on Vercel. Returns null (not a guess) when neither is
- * available, e.g. running locally with no .env override; callers must
- * treat that as "status callbacks are not configured yet", the same
+ * Resolves Trackpr's own stable, public base URL - never a temporary
+ * per-deployment preview URL, and never a guess. In production this is
+ * always the hardcoded canonical URL above, regardless of any other env
+ * var's availability. Outside production, `APP_BASE_URL` is an explicit
+ * opt-in override (e.g. for a custom preview domain), checked first, then
+ * `VERCEL_PROJECT_PRODUCTION_URL` where it happens to be exposed. Returns
+ * null (not a guess) when none apply, e.g. running locally with no .env
+ * override; callers must treat that as "not configured yet", the same
  * graceful-degradation shape sendSms() already uses for missing Twilio
  * credentials.
  */
 export function resolveAppBaseUrl(): string | null {
+  if (process.env.VERCEL_ENV === "production") return PRODUCTION_APP_URL;
+
   const explicit = process.env.APP_BASE_URL;
   if (explicit) return explicit.replace(/\/+$/, "");
 

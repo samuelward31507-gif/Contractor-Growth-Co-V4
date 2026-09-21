@@ -28,20 +28,37 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
   }
 }
 
-test("APP_BASE_URL, when set, is used and its trailing slash is stripped", () => {
-  withEnv({ APP_BASE_URL: "https://example.com/", VERCEL_PROJECT_PRODUCTION_URL: "should-not-be-used.vercel.app" }, () => {
-    assert.equal(resolveAppBaseUrl(), "https://example.com");
-  });
-});
-
-test("falls back to VERCEL_PROJECT_PRODUCTION_URL (the stable production domain, not the per-deployment VERCEL_URL)", () => {
-  withEnv({ APP_BASE_URL: undefined, VERCEL_PROJECT_PRODUCTION_URL: "contractor-growth-co-v4.vercel.app" }, () => {
+test("in production (VERCEL_ENV=production), always returns the hardcoded canonical URL - never localhost, never a per-deployment URL, regardless of APP_BASE_URL/VERCEL_PROJECT_PRODUCTION_URL", () => {
+  withEnv({ VERCEL_ENV: "production", APP_BASE_URL: undefined, VERCEL_PROJECT_PRODUCTION_URL: undefined }, () => {
     assert.equal(resolveAppBaseUrl(), "https://contractor-growth-co-v4.vercel.app");
   });
 });
 
-test("returns null (never a guessed/hardcoded URL) when neither is configured", () => {
-  withEnv({ APP_BASE_URL: undefined, VERCEL_PROJECT_PRODUCTION_URL: undefined }, () => {
+test("in production, the canonical URL wins even if APP_BASE_URL or VERCEL_PROJECT_PRODUCTION_URL are set to something else (e.g. localhost) - reproduces and proves the fix for the 2026-09-21 incident", () => {
+  withEnv(
+    { VERCEL_ENV: "production", APP_BASE_URL: "http://localhost:3000", VERCEL_PROJECT_PRODUCTION_URL: "some-preview-xyz.vercel.app" },
+    () => {
+      const result = resolveAppBaseUrl();
+      assert.equal(result, "https://contractor-growth-co-v4.vercel.app");
+      assert.doesNotMatch(result!, /localhost/);
+    },
+  );
+});
+
+test("outside production (VERCEL_ENV unset, i.e. local dev), APP_BASE_URL is used and its trailing slash is stripped", () => {
+  withEnv({ VERCEL_ENV: undefined, APP_BASE_URL: "https://example.com/", VERCEL_PROJECT_PRODUCTION_URL: "should-not-be-used.vercel.app" }, () => {
+    assert.equal(resolveAppBaseUrl(), "https://example.com");
+  });
+});
+
+test("outside production, falls back to VERCEL_PROJECT_PRODUCTION_URL when APP_BASE_URL is unset (e.g. a preview deployment)", () => {
+  withEnv({ VERCEL_ENV: "preview", APP_BASE_URL: undefined, VERCEL_PROJECT_PRODUCTION_URL: "contractor-growth-co-v4.vercel.app" }, () => {
+    assert.equal(resolveAppBaseUrl(), "https://contractor-growth-co-v4.vercel.app");
+  });
+});
+
+test("outside production, returns null (never a guessed/hardcoded URL, and never localhost) when nothing is configured - local dev's own headers()-based fallback takes over from here", () => {
+  withEnv({ VERCEL_ENV: undefined, APP_BASE_URL: undefined, VERCEL_PROJECT_PRODUCTION_URL: undefined }, () => {
     assert.equal(resolveAppBaseUrl(), null);
   });
 });
