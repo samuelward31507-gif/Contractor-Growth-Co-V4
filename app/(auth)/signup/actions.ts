@@ -5,6 +5,7 @@ import { getUserOrganization } from "@/lib/auth/organization";
 import { mapAuthError } from "@/lib/auth/errors";
 import { isValidEmail, validatePassword } from "@/lib/auth/validation";
 import { createClient } from "@/lib/supabase/server";
+import { sendSignupNotification } from "@/lib/email/send-signup-notification";
 
 export type SignupState = {
   error?: string;
@@ -47,6 +48,16 @@ export async function signup(
       error:
         "An account with this email may already exist. Try signing in, or check your inbox for a confirmation link.",
     };
+  }
+
+  // A genuinely new account was just created by Supabase (the duplicate-email
+  // signal above has already been ruled out) - notify Contractor Growth Co.
+  // internally, exactly once, from this single server-side path. This never
+  // touches or replaces the customer's own Supabase confirmation email, and
+  // a failure here can never fail the signup itself - see
+  // sendSignupNotification's own error handling.
+  if (data.user) {
+    await sendSignupNotification({ email, userId: data.user.id });
   }
 
   if (!data.session) {
