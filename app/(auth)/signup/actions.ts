@@ -1,16 +1,35 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { mapAuthError } from "@/lib/auth/errors";
 import { isValidEmail, validatePassword } from "@/lib/auth/validation";
 import { createClient } from "@/lib/supabase/server";
 import { sendSignupNotification } from "@/lib/email/send-signup-notification";
+import { resolveAppBaseUrl } from "@/lib/automation/sms";
 
 export type SignupState = {
   error?: string;
   success?: boolean;
 };
+
+/**
+ * Resolves an absolute base URL for Supabase's confirmation-email link,
+ * same precedence as lib/billing/checkout.ts's resolveCheckoutBaseUrl:
+ * prefer the already-established resolveAppBaseUrl() (APP_BASE_URL, falling
+ * back to Vercel's own production-URL env var), only falling back to the
+ * incoming request's own Host header when neither is set (local dev).
+ */
+async function resolveSignupBaseUrl(): Promise<string> {
+  const configured = resolveAppBaseUrl();
+  if (configured) return configured;
+
+  const headerList = await headers();
+  const host = headerList.get("host") ?? "localhost:3000";
+  const proto = headerList.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
+}
 
 export async function signup(
   _prevState: SignupState,
@@ -34,7 +53,12 @@ export async function signup(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const baseUrl = await resolveSignupBaseUrl();
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: `${baseUrl}/auth/confirm` },
+  });
 
   if (error) {
     return { error: mapAuthError(error) };
