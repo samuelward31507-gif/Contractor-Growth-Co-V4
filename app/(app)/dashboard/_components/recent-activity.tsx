@@ -7,7 +7,7 @@ export function RecentActivity({ items }: { items: ActivityItem[] }) {
     <div>
       <p className={sectionLabelClass}>Recent activity</p>
       {items.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">No activity yet.</p>
+        <p className="mt-3 text-sm text-slate-500">Activity will appear here as leads come in and you work your pipeline.</p>
       ) : (
         <ul className="mt-3 divide-y divide-slate-100">
           {items.map((item) => (

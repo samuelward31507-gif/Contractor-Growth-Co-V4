@@ -52,7 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Insights",
+    label: "Grow",
     items: [{ href: "/activity", label: "Analytics", icon: "BarChart3" }],
   },
   {

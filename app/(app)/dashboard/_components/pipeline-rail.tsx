@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Inbox, PhoneCall, ListChecks, CalendarCheck2, FileCheck2, Trophy, type LucideIcon } from "lucide-react";
 import { sectionLabelClass } from "@/lib/ui/typography";
 import { PIPELINE_STAGES, type PipelineCounts } from "@/lib/dashboard/queries";
@@ -20,14 +21,24 @@ const STAGE_ICON: Record<string, LucideIcon> = {
  * one real lead right now; every count is read straight from PipelineCounts
  * (lib/dashboard/queries.ts), nothing here is estimated or invented.
  */
-export function PipelineRail({ pipeline }: { pipeline: PipelineCounts }) {
+export function PipelineRail({ pipeline, hasNeverHadLeads }: { pipeline: PipelineCounts; hasNeverHadLeads?: boolean }) {
   const total = PIPELINE_STAGES.reduce((sum, { stage }) => sum + pipeline[stage], 0);
 
   return (
     <div>
       <p className={sectionLabelClass}>Pipeline</p>
       {total === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">Your pipeline will appear here once leads start coming in.</p>
+        hasNeverHadLeads ? (
+          <p className="mt-3 text-sm text-slate-500">
+            Your system is ready.{" "}
+            <Link href="/onboarding" className="font-medium text-slate-900 hover:underline">
+              Send a test lead
+            </Link>{" "}
+            to see it in action.
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">Your pipeline will appear here once leads start coming in.</p>
+        )
       ) : (
         <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white px-6 py-8 sm:px-10">
           <ol className="relative flex min-w-[560px] items-start justify-between">

@@ -4,17 +4,22 @@ import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getDashboardData } from "@/lib/dashboard/queries";
 import { getDashboardBusinessMetrics, getCachedBusinessInsights } from "@/lib/dashboard/business-metrics";
+import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
+import { getOrganizationHealth } from "@/lib/automation-health/health";
 import { getLeads, summarizeLeads } from "@/lib/leads/queries";
 import { getAppointments, summarizeAppointments } from "@/lib/appointments/queries";
 import { getContacts } from "@/lib/contacts/queries";
+import { isSameCalendarDay } from "@/lib/appointments/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { Panel } from "@/lib/ui/section-card";
 import { AttentionPanel } from "./_components/attention-panel";
 import { PipelineRail } from "./_components/pipeline-rail";
+import { TodaysSchedule } from "./_components/todays-schedule";
 import { RecentActivity } from "./_components/recent-activity";
 import { BusinessGlance } from "./_components/business-glance";
 import { AiInsightsPanel } from "./_components/ai-insights-panel";
+import { SystemStatus } from "./_components/system-status";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
 
 function greeting(): string {
@@ -25,16 +30,13 @@ function greeting(): string {
 }
 
 /**
- * Real, derived status line answering "is everything working" at a glance -
- * not a fabricated health score, just a plain read of the same attention
- * count the page itself is about to show. No system-status section is added
- * below this: there is no real system-health data source yet to report, and
- * a fabricated one would violate "do not invent metrics."
+ * A stable framing line, not a restatement of the exact attention count -
+ * AttentionPanel immediately below already shows the specifics (or its own
+ * "You're all caught up" empty state), so the header doesn't need to repeat
+ * that number a second time.
  */
 function statusLine(attentionCount: number): string {
-  if (attentionCount === 0) return "Everything is running smoothly.";
-  const noun = attentionCount === 1 ? "thing needs" : "things need";
-  return `${attentionCount} ${noun} your attention.`;
+  return attentionCount === 0 ? "You're all caught up." : "Here's what needs your attention today.";
 }
 
 export default async function DashboardPage() {
@@ -61,17 +63,28 @@ export default async function DashboardPage() {
   // numbers a contractor actually opens it to check (hot leads, today's
   // schedule) and offer the same "Add Lead" action Leads itself offers,
   // without duplicating summarizeLeads/summarizeAppointments's logic.
-  const [data, businessMetrics, cachedInsights, leads, appointments, contacts] = await Promise.all([
+  // getOrganizationHealth is the exact same deterministic health read the
+  // Agency Command Center and /automation-health already use - no second
+  // health model. The "today" snapshot reuses the exact same
+  // getBusinessMetricsSnapshot the rest of this page already calls (with
+  // "last30Days"), just a different real date-range preset - not a new
+  // metrics engine.
+  const [data, businessMetrics, cachedInsights, leads, appointments, contacts, health, todaySnapshot] = await Promise.all([
     getDashboardData(supabase, membership.organizationId),
     getDashboardBusinessMetrics(supabase, membership.organizationId),
     getCachedBusinessInsights(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getAppointments(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
+    getOrganizationHealth(supabase, membership.organizationId),
+    getBusinessMetricsSnapshot(supabase, membership.organizationId, "today"),
   ]);
   const businessName = membership.organizationName ?? "there";
   const leadSummary = summarizeLeads(leads);
   const appointmentSummary = summarizeAppointments(appointments);
+  const now = new Date();
+  const todaysAppointments = appointments.filter((appointment) => isSameCalendarDay(new Date(appointment.start_at), now));
+  const lastLeadCapturedAt = leads[0]?.created_at ?? null;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -118,17 +131,26 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        <AttentionPanel items={data.attentionItems} />
-
-        <div className="border-t border-slate-200 pt-8">
-          <PipelineRail pipeline={data.pipeline} />
+        {/* Section order follows Phase 2's priority (attention, pipeline,
+            today, activity, system status, AI) on desktop - the natural DOM
+            order below. On mobile, System Status moves to right after the
+            greeting (Phase 12) via the order-* overrides, since a contractor
+            glancing at their phone wants "is everything working" before
+            scrolling into specifics; the AI insights panel stays last at
+            every width, since it isn't part of the core priority list. */}
+        <div className="order-2 border-t border-slate-200 pt-8 lg:order-none lg:border-t-0 lg:pt-0">
+          <AttentionPanel items={data.attentionItems} />
         </div>
 
-        <div className="border-t border-slate-200 pt-8">
-          <AiInsightsPanel cached={cachedInsights} />
+        <div className="order-3 border-t border-slate-200 pt-8 lg:order-none">
+          <PipelineRail pipeline={data.pipeline} hasNeverHadLeads={leads.length === 0} />
         </div>
 
-        <div className="grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="order-4 border-t border-slate-200 pt-8 lg:order-none">
+          <TodaysSchedule appointments={todaysAppointments} />
+        </div>
+
+        <div className="order-5 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 lg:order-none lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="min-w-0">
             <RecentActivity items={data.recentActivity} />
           </div>
@@ -137,6 +159,19 @@ export default async function DashboardPage() {
               <BusinessGlance overview={data.overview} snapshot={businessMetrics} />
             </Panel>
           </div>
+        </div>
+
+        <div className="order-1 pt-0 lg:order-none lg:border-t lg:border-slate-200 lg:pt-8">
+          <SystemStatus
+            status={health.status}
+            lastLeadCapturedAt={lastLeadCapturedAt}
+            automationActivityToday={todaySnapshot.automationMetrics.automationEvents}
+            issuesRequiringAttention={health.activeIncidentCount}
+          />
+        </div>
+
+        <div className="order-6 border-t border-slate-200 pt-8 lg:order-none">
+          <AiInsightsPanel cached={cachedInsights} />
         </div>
       </div>
     </div>

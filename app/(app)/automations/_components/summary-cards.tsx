@@ -32,9 +32,9 @@ export function SummaryCards({ overview, summaries }: { overview: AutomationMetr
   return (
     <StatGrid columns={4}>
       <StatCard label="Active automations" value={formatCount(activeCount)} tone={activeCount > 0 ? "success" : "neutral"} icon={activeCount > 0 ? Zap : undefined} />
-      <StatCard label="Recent executions" value={formatCount(overview.totalWorkflowExecutions)} />
+      <StatCard label="Automation activity" value={formatCount(overview.totalWorkflowExecutions)} />
       <StatCard
-        label="Failed executions"
+        label="Needs attention"
         value={formatCount(overview.failedWorkflows)}
         tone={overview.failedWorkflows > 0 ? "danger" : "neutral"}
         icon={overview.failedWorkflows > 0 ? AlertTriangle : undefined}

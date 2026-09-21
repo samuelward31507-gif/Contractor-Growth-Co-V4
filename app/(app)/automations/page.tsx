@@ -49,7 +49,7 @@ export default async function AutomationsPage() {
       <div className="flex flex-col gap-2">
         <p className={sectionLabelClass}>Overview</p>
         <SummaryCards overview={overview} summaries={summaries} />
-        <p className={metaClass}>Execution counts reflect the last 30 days.</p>
+        <p className={metaClass}>Activity reflects the last 30 days.</p>
       </div>
 
       <div className="flex flex-col gap-2">

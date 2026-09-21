@@ -159,7 +159,7 @@ export default async function AutomationDetailPage({ params }: { params: Promise
         <div className={errorBannerClass}>
           <p className="font-medium">Attention</p>
           <p>
-            {formatCount(summary.failedExecutions)} failed execution{summary.failedExecutions === 1 ? "" : "s"} in the last 30 days.
+            {formatCount(summary.failedExecutions)} {summary.failedExecutions === 1 ? "activity" : "activities"} needing attention in the last 30 days.
           </p>
         </div>
       ) : null}
@@ -234,7 +234,7 @@ export default async function AutomationDetailPage({ params }: { params: Promise
         </>
       ) : null}
 
-      <SectionCard title="Recent executions" icon={History}>
+      <SectionCard title="Automation activity" icon={History}>
         {definition.workflowNames.length === 0 ? (
           <EmptyState
             icon={Icon}
