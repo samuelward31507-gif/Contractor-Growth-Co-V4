@@ -2,18 +2,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type OrganizationRole = "owner" | "admin" | "member";
 
+/** See 20260921120000_organization_payment_status.sql. 'suspended'/'cancelled' are reserved for future subscription-lifecycle handling - no code in this pass reads or writes them. */
+export type OrganizationPaymentStatus = "payment_required" | "active" | "suspended" | "cancelled";
+
 export type OrganizationMembership = {
   organizationId: string;
   organizationName: string | null;
   role: OrganizationRole;
+  paymentStatus: OrganizationPaymentStatus;
 };
 
-type EmbeddedOrganization = { name: string | null } | { name: string | null }[] | null;
+type EmbeddedOrganization = { name: string | null; payment_status: string | null } | { name: string | null; payment_status: string | null }[] | null;
 
-function resolveOrganizationName(organizations: EmbeddedOrganization): string | null {
-  if (!organizations) return null;
+function resolveOrganization(organizations: EmbeddedOrganization): { name: string | null; paymentStatus: OrganizationPaymentStatus } {
   const org = Array.isArray(organizations) ? organizations[0] : organizations;
-  return org?.name ?? null;
+  const paymentStatus = org?.payment_status;
+  return {
+    name: org?.name ?? null,
+    // Fails closed: an unrecognized/missing value is treated as still
+    // gated, never as implicitly active.
+    paymentStatus: paymentStatus === "active" || paymentStatus === "suspended" || paymentStatus === "cancelled" ? paymentStatus : "payment_required",
+  };
 }
 
 /**
@@ -21,8 +30,8 @@ function resolveOrganizationName(organizations: EmbeddedOrganization): string | 
  * scoped to a server-verified `userId` (from `supabase.auth.getUser()`). This
  * never accepts a client-supplied organization id - RLS also enforces that a
  * user can only ever see their own membership row here. The organization name
- * is embedded in the same query (PostgREST FK join) so callers that need it
- * for display don't need a second round trip.
+ * and payment_status are embedded in the same query (PostgREST FK join) so
+ * callers that need them for display/gating don't need a second round trip.
  */
 export async function getUserOrganization(
   supabase: SupabaseClient,
@@ -30,7 +39,7 @@ export async function getUserOrganization(
 ): Promise<OrganizationMembership | null> {
   const { data, error } = await supabase
     .from("organization_members")
-    .select("organization_id, role, organizations(name)")
+    .select("organization_id, role, organizations(name, payment_status)")
     .eq("user_id", userId)
     .limit(1);
 
@@ -39,9 +48,11 @@ export async function getUserOrganization(
   }
 
   const [row] = data;
+  const organization = resolveOrganization(row.organizations as EmbeddedOrganization);
   return {
     organizationId: row.organization_id,
-    organizationName: resolveOrganizationName(row.organizations as EmbeddedOrganization),
+    organizationName: organization.name,
     role: row.role as OrganizationRole,
+    paymentStatus: organization.paymentStatus,
   };
 }

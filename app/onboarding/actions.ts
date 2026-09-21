@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 import { emitLeadCreatedFollowup } from "@/lib/automation/lead-followup";
 import { ONBOARDING_TEST_LEAD_SOURCE } from "@/lib/onboarding/readiness";
+import { createOrganizationCheckoutSession } from "@/lib/billing/checkout";
 
 export type OnboardingState = {
   error?: string;
@@ -87,6 +88,50 @@ export async function createOrganization(
   }
 
   redirect("/onboarding");
+}
+
+export type StartCheckoutState = {
+  error?: string;
+};
+
+/**
+ * Payment Gate V1: creates a Stripe Checkout Session for the caller's own
+ * organization and sends the browser straight to Stripe's hosted checkout
+ * page. organizationId comes exclusively from getUserOrganization(session)
+ * - never from form data, a query string, or any other client-supplied
+ * value - so this can only ever start a checkout for the organization the
+ * signed-in caller actually belongs to. Nothing here marks the
+ * organization as paid; only app/api/webhooks/stripe/route.ts does that,
+ * after Stripe itself confirms the payment server-to-server.
+ */
+export async function startCheckout(_prevState: StartCheckoutState, _formData: FormData): Promise<StartCheckoutState> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const membership = await getUserOrganization(supabase, user.id);
+  if (!membership) redirect("/onboarding");
+
+  if (membership.paymentStatus === "active") {
+    redirect("/onboarding");
+  }
+
+  let session;
+  try {
+    session = await createOrganizationCheckoutSession(membership.organizationId);
+  } catch (error) {
+    console.error("[billing] failed to create checkout session", { error: error instanceof Error ? error.message : "unknown error" });
+    return { error: "We couldn't start checkout right now. Please try again in a moment." };
+  }
+
+  if (!session.url) {
+    return { error: "We couldn't start checkout right now. Please try again in a moment." };
+  }
+
+  redirect(session.url);
 }
 
 export type TestLeadState = {

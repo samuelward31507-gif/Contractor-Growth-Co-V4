@@ -23,6 +23,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     redirect("/onboarding");
   }
 
+  // Payment Gate V1: an organization existing is not the same as an
+  // organization being usable. /onboarding is where the payment-required
+  // state is actually explained and resolved (see its own page.tsx); this
+  // is the one server-side chokepoint every route under (app)/ passes
+  // through, so no individual page needs its own payment check.
+  if (membership.paymentStatus !== "active") {
+    redirect("/onboarding");
+  }
+
   const organizationName = membership.organizationName ?? "Your business";
 
   // Resolved once, here, for the whole authenticated shell - the Agency nav
