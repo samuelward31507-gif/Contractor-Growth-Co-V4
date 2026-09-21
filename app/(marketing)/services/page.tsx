@@ -139,7 +139,7 @@ export default function ServicesPage() {
             business.
           </p>
           <div className="mt-8">
-            <CtaLink href="/get-started">Get Started</CtaLink>
+            <CtaLink href="/signup">Get Started</CtaLink>
           </div>
         </div>
       </Section>

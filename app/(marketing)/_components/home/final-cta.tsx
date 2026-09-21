@@ -12,7 +12,7 @@ export function FinalCta() {
           Contractor Growth Co. builds the system that turns more of those opportunities into booked work.
         </p>
         <div className="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
-          <CtaLink href="/get-started">Get Started</CtaLink>
+          <CtaLink href="/signup">Get Started</CtaLink>
           <CtaLink href="/how-it-works" variant="secondaryDark">
             See How It Works
           </CtaLink>

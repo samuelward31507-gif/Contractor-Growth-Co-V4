@@ -45,7 +45,7 @@ export function Hero() {
           </p>
 
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <CtaLink href="/get-started">
+            <CtaLink href="/signup">
               Get Started
               <ArrowRight className="h-4 w-4" aria-hidden />
             </CtaLink>

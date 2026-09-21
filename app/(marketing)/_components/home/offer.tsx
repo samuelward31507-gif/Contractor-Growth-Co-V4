@@ -32,7 +32,7 @@ export function Offer() {
             We build and manage the system around your business — not another platform to configure yourself.
           </p>
           <div className="mt-6">
-            <CtaLink href="/get-started">Get Started</CtaLink>
+            <CtaLink href="/signup">Get Started</CtaLink>
           </div>
         </div>
       </div>

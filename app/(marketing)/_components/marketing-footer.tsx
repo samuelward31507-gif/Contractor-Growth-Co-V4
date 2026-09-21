@@ -4,7 +4,7 @@ import { Container } from "./section";
 const FOOTER_LINKS = [
   { href: "/how-it-works", label: "How It Works" },
   { href: "/services", label: "Services" },
-  { href: "/get-started", label: "Get Started" },
+  { href: "/signup", label: "Get Started" },
   { href: "/login", label: "Login" },
 ];
 

@@ -70,7 +70,7 @@ export function Faq() {
       </div>
 
       <div className="mt-10 text-center">
-        <CtaLink href="/get-started" variant="secondary">
+        <CtaLink href="/signup" variant="secondary">
           Get Started
         </CtaLink>
       </div>

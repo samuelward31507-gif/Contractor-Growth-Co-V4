@@ -56,7 +56,7 @@ export function MarketingNav() {
           </nav>
 
           <div className="hidden lg:block">
-            <CtaLink href="/get-started" className="!px-5 !py-2.5 !text-sm">
+            <CtaLink href="/signup" className="!px-5 !py-2.5 !text-sm">
               Get Started
             </CtaLink>
           </div>
@@ -135,7 +135,7 @@ export function MarketingNav() {
           </nav>
 
           <div className="mt-auto pt-8">
-            <CtaLink href="/get-started" className="w-full justify-center" onClick={() => setOpen(false)} tabIndex={open ? 0 : -1}>
+            <CtaLink href="/signup" className="w-full justify-center" onClick={() => setOpen(false)} tabIndex={open ? 0 : -1}>
               Get Started
             </CtaLink>
           </div>

@@ -125,7 +125,7 @@ export default function HowItWorksPage() {
             Every business handles leads a little differently. Let&apos;s look at how yours currently works.
           </p>
           <div className="mt-8">
-            <CtaLink href="/get-started">Get Started</CtaLink>
+            <CtaLink href="/signup">Get Started</CtaLink>
           </div>
         </div>
       </Section>
