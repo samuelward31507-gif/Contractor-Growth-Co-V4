@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 import { emitLeadCreatedFollowupAsService } from "@/lib/automation/lead-followup";
+import { emitLeadStageChangedAsService } from "@/lib/automation/lead-stage-history";
 
 const MAX_SHORT_FIELD_LENGTH = 200;
 const MAX_MESSAGE_LENGTH = 2000;
@@ -161,6 +162,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     console.error("[lead-capture] failed to create lead", { organizationId, contactId, error: leadInsertError?.message });
     return NextResponse.json({ ok: false, error: "Could not create this lead. Please try again." }, { status: 500 });
   }
+
+  await emitLeadStageChangedAsService(service, organizationId, { leadId: lead.id, previousStatus: null, newStatus: "new", source: "automation" });
 
   await emitLeadCreatedFollowupAsService(service, {
     leadId: lead.id,

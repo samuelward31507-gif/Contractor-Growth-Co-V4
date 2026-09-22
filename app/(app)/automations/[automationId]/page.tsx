@@ -14,6 +14,7 @@ import {
   readInstantLeadFollowupConfig,
   readLostLeadNurtureConfig,
   readLeadReactivationConfig,
+  readCustomerReactivationConfig,
   readAppointmentLifecycleConfig,
   readJobLifecycleConfig,
   readReviewReferralFollowupConfig,
@@ -36,6 +37,7 @@ import { InboundCustomerReplyConfigForm } from "../_components/inbound-customer-
 import { InstantLeadFollowupConfigForm } from "../_components/instant-lead-followup-config";
 import { LostLeadNurtureConfigForm } from "../_components/lost-lead-nurture-config";
 import { LeadReactivationConfigForm } from "../_components/lead-reactivation-config";
+import { CustomerReactivationConfigForm } from "../_components/customer-reactivation-config";
 import { AppointmentLifecycleConfigForm } from "../_components/appointment-lifecycle-config";
 import { JobLifecycleConfigForm } from "../_components/job-lifecycle-config";
 import { ReviewReferralFollowupConfigForm } from "../_components/review-referral-followup-config";
@@ -48,6 +50,7 @@ const CONFIGURABLE_AUTOMATION_IDS = new Set([
   "instant-lead-followup",
   "lost-lead-nurture",
   "lead-reactivation",
+  "customer-reactivation",
   "appointment-lifecycle",
   "job-lifecycle",
   "review-referral-followup",
@@ -57,6 +60,7 @@ const CONFIGURABLE_AUTOMATION_IDS = new Set([
 const BUSINESS_HOURS_AUTOMATION_IDS = new Set([
   "inbound-customer-reply",
   "instant-lead-followup",
+  "customer-reactivation",
   "appointment-lifecycle",
   "job-lifecycle",
   "review-referral-followup",
@@ -214,6 +218,12 @@ export default async function AutomationDetailPage({ params }: { params: Promise
             <LeadReactivationConfigForm
               initialTouch1Days={readLeadReactivationConfig(rawConfig).touch_1_days}
               initialTouch2Days={readLeadReactivationConfig(rawConfig).touch_2_days}
+            />
+          ) : definition.id === "customer-reactivation" ? (
+            <CustomerReactivationConfigForm
+              initialInactivityDays={readCustomerReactivationConfig(rawConfig).inactivity_days}
+              initialRespectBusinessHours={readCustomerReactivationConfig(rawConfig).respect_business_hours}
+              hasBusinessHoursConfigured={hasBusinessHoursConfigured}
             />
           ) : definition.id === "appointment-lifecycle" ? (
             <AppointmentLifecycleConfigForm

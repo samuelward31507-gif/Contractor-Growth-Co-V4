@@ -596,6 +596,78 @@ export function validateReviewReferralFollowupConfig(input: unknown): ConfigVali
   return { ok: true, value: { respect_business_hours: obj.respect_business_hours } };
 }
 
+// ---- customer-reactivation: inactivity_days / respect_business_hours ----
+//
+// Growth System Completion Pass 2, Part 7. inactivity_days controls the
+// elapsed-time threshold (measured from a contact's most recently completed
+// job) lib/automation/customer-reactivation.ts uses to decide whether a
+// dormant past customer is due its single re-engagement touch - see
+// processOneCustomer() there. Unlike the *_days pairs above, this is a
+// single-touch cadence (one message per dormancy period, anchored to the
+// specific completed job via the idempotency key), not a two-touch nurture
+// sequence - a repeat cold outreach to a past customer needs a real new
+// trigger (another completed job) before it can fire again, not a second
+// scheduled touch off the same one.
+//
+// respect_business_hours defaults to true here - the only automation in this
+// file to default true rather than false. Every other respect_business_hours
+// default above preserves pre-existing behavior for an automation that
+// already existed before the setting did; this is a brand new automation
+// with no prior behavior to preserve, and an unsolicited "it's been a
+// while" message to a customer who hasn't engaged in months deserves the
+// more conservative default.
+
+export type CustomerReactivationConfig = { inactivity_days: number; respect_business_hours: boolean };
+
+export const DEFAULT_CUSTOMER_REACTIVATION_CONFIG: CustomerReactivationConfig = { inactivity_days: 180, respect_business_hours: true };
+
+/** Same "conservative, documented, not technically derived" rationale as every other timing bound in this file. 30 days rules out reactivating a customer whose job only just closed; 730 days (2 years) keeps the ceiling bounded. */
+export const CUSTOMER_REACTIVATION_INACTIVITY_DAYS_MIN = 30;
+export const CUSTOMER_REACTIVATION_INACTIVITY_DAYS_MAX = 730;
+
+/** Lenient read path - see the module comment above. Never throws. Each field is defaulted independently, mirroring readInboundCustomerReplyConfig's identical rationale (no cross-field constraint between the two). */
+export function readCustomerReactivationConfig(raw: unknown): CustomerReactivationConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...DEFAULT_CUSTOMER_REACTIVATION_CONFIG };
+  }
+  const obj = raw as Record<string, unknown>;
+
+  const days = obj.inactivity_days;
+  const inactivityDays =
+    isFiniteInteger(days) && days >= CUSTOMER_REACTIVATION_INACTIVITY_DAYS_MIN && days <= CUSTOMER_REACTIVATION_INACTIVITY_DAYS_MAX
+      ? days
+      : DEFAULT_CUSTOMER_REACTIVATION_CONFIG.inactivity_days;
+
+  const respectBusinessHours =
+    typeof obj.respect_business_hours === "boolean" ? obj.respect_business_hours : DEFAULT_CUSTOMER_REACTIVATION_CONFIG.respect_business_hours;
+
+  return { inactivity_days: inactivityDays, respect_business_hours: respectBusinessHours };
+}
+
+const CUSTOMER_REACTIVATION_CONFIG_KEYS = new Set(["inactivity_days", "respect_business_hours"]);
+
+/** Strict validation path for an admin-submitted write - see the module comment above. Rejects, never coerces. */
+export function validateCustomerReactivationConfig(input: unknown): ConfigValidationResult<CustomerReactivationConfig> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "Invalid configuration." };
+  }
+  const obj = input as Record<string, unknown>;
+  const extraKeys = Object.keys(obj).filter((key) => !CUSTOMER_REACTIVATION_CONFIG_KEYS.has(key));
+  if (extraKeys.length > 0) {
+    return { ok: false, error: `Unknown configuration field(s): ${extraKeys.join(", ")}.` };
+  }
+  const days = obj.inactivity_days;
+  if (typeof days !== "number" || !Number.isFinite(days)) return { ok: false, error: "Inactivity threshold must be a number." };
+  if (!Number.isInteger(days)) return { ok: false, error: "Inactivity threshold must be a whole number of days." };
+  if (days < CUSTOMER_REACTIVATION_INACTIVITY_DAYS_MIN || days > CUSTOMER_REACTIVATION_INACTIVITY_DAYS_MAX) {
+    return { ok: false, error: `Inactivity threshold must be between ${CUSTOMER_REACTIVATION_INACTIVITY_DAYS_MIN} and ${CUSTOMER_REACTIVATION_INACTIVITY_DAYS_MAX} days.` };
+  }
+  if (typeof obj.respect_business_hours !== "boolean") {
+    return { ok: false, error: "Respect business hours must be true or false." };
+  }
+  return { ok: true, value: { inactivity_days: days, respect_business_hours: obj.respect_business_hours } };
+}
+
 // ---- Shared DB access ----
 
 /** Single organization, single automation - raw config, for a dry-run preview or any other single-org read. */

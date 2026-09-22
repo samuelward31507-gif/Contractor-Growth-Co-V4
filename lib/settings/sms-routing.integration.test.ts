@@ -107,8 +107,12 @@ let memberA: { id: string; email: string; password: string };
 let ownerB: { id: string; email: string; password: string };
 
 before(async () => {
-  const { data: orgA } = await service.from("organizations").insert({ name: "SMS Routing Test Org A" }).select("id").single();
-  const { data: orgB } = await service.from("organizations").insert({ name: "SMS Routing Test Org B" }).select("id").single();
+  // payment_status: 'active' is required here - create_organization_audit_event
+  // is one of the payment-gated SECURITY DEFINER RPCs, and test B8 below calls
+  // it through a real, non-service-role session, so the payment gate genuinely
+  // applies to it.
+  const { data: orgA } = await service.from("organizations").insert({ name: "SMS Routing Test Org A", payment_status: "active" }).select("id").single();
+  const { data: orgB } = await service.from("organizations").insert({ name: "SMS Routing Test Org B", payment_status: "active" }).select("id").single();
   orgAId = orgA!.id;
   orgBId = orgB!.id;
   cleanupOrgIds.push(orgAId, orgBId);

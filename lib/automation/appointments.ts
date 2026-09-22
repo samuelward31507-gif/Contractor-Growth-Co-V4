@@ -1,12 +1,17 @@
 import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 import { createAutomationEvent } from "./events";
 import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
+import { evaluateOutboundGate } from "./outbound-gate";
+import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
-import { getAppointment } from "@/lib/appointments/queries";
+import { getAppointment, type AppointmentStatus } from "@/lib/appointments/queries";
 import { formatAppointmentDate, formatAppointmentTimeRange } from "@/lib/appointments/format";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
+import { notifyFounder } from "@/lib/notifications/founder";
+import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 
 export const APPOINTMENT_CREATED_WORKFLOW = "appointment_created_followup";
 export const APPOINTMENT_NO_SHOW_WORKFLOW = "appointment_no_show_followup";
@@ -87,12 +92,28 @@ export async function emitAppointmentCreated(supabase: SupabaseClient, appointme
     return;
   }
 
+  const businessProfile = await getBusinessProfile(supabase, organizationId);
+
+  // Founder Notifications V1: fires once per genuinely new appointment.created
+  // event - guarded by the `eventResult.duplicate`/`skipped` early returns
+  // above, exactly the same idempotency every other automation in this
+  // function already relies on. Independent of whether the customer-facing
+  // AI confirmation message below ends up sent/blocked/failed - a booked
+  // appointment is a booked appointment regardless of that message's fate.
+  await notifyFounder(supabase, {
+    organizationId,
+    kind: "appointment_booked",
+    summary: `"${appointment.title}" on ${formatAppointmentDate(appointment.start_at, businessProfile?.timezone ?? "UTC")}.`,
+    detailPath: `/appointments/${appointmentId}`,
+  });
+
   await dispatchAppointmentWorkflow(supabase, {
     organizationId,
     eventId: eventResult.event.id,
     eventType: "appointment.created",
     executionId: executionResult.execution.id,
     attempt: executionResult.execution.attempt,
+    businessProfile,
     workflowName: APPOINTMENT_CREATED_WORKFLOW,
     appointment,
     asService: false,
@@ -157,13 +178,15 @@ async function dispatchAppointmentWorkflow(
     workflowName: string;
     appointment: NonNullable<Awaited<ReturnType<typeof getAppointment>>>;
     asService: boolean;
+    /** Reuses an already-fetched profile (see emitAppointmentCreated, which needs it earlier for the founder notification too) rather than fetching it a second time. Fetched here when omitted. */
+    businessProfile?: Awaited<ReturnType<typeof getBusinessProfile>>;
   },
 ): Promise<void> {
   const { organizationId, appointment } = input;
 
   const [aiSettings, businessProfile] = await Promise.all([
     getAiSettings(supabase, organizationId),
-    getBusinessProfile(supabase, organizationId),
+    input.businessProfile !== undefined ? Promise.resolve(input.businessProfile) : getBusinessProfile(supabase, organizationId),
   ]);
 
   const timezone = businessProfile?.timezone ?? "UTC";
@@ -239,24 +262,127 @@ async function dispatchAppointmentWorkflow(
 }
 
 /**
- * Records a lifecycle-only appointment automation event: created,
- * immediately started, immediately completed, with no AI generation and no
- * outbound message this phase. Used for appointment.completed,
- * appointment.cancelled, and appointment.rescheduled - none of which have an
- * explicit messaging requirement in Phase 4.4 (see the phase report for the
- * reasoning), but all of which still need a real, idempotent, queryable
- * automation-event record the same way every other lifecycle transition
- * does. `idempotencySuffix` lets rescheduled events key on the appointment's
- * current `updated_at` (the smallest reliable "revision" proxy the existing
- * schema supports - see the migration-free reasoning in the phase report),
- * since completed/cancelled don't need one (a given appointment can only
- * complete or get cancelled once).
+ * Growth System Completion Pass 1: deterministic, Trackpr-composed message
+ * bodies for the two lifecycle transitions that now send a customer-facing
+ * message (cancelled/rescheduled) - never AI/n8n-drafted, matching this
+ * codebase's own established precedent (composeReminderBody) that simple,
+ * fact-only lifecycle notifications are pure fact-recitation with no
+ * judgment call for a model to make.
+ */
+function composeCancellationBody(appointment: { title: string }, timezone: string, startAt: string): string {
+  return `Your appointment "${appointment.title}" on ${formatAppointmentDate(startAt, timezone)} has been cancelled. Reply if you'd like to reschedule. Reply STOP to opt out of texts.`;
+}
+
+function composeRescheduledBody(appointment: { title: string }, timezone: string, startAt: string, endAt: string): string {
+  return `Your appointment "${appointment.title}" has been moved to ${formatAppointmentDate(startAt, timezone)} at ${formatAppointmentTimeRange(startAt, endAt, timezone)}. Reply STOP to opt out of texts.`;
+}
+
+const CANCELLED_ELIGIBLE_STATUSES: AppointmentStatus[] = ["cancelled"];
+const RESCHEDULED_ELIGIBLE_STATUSES: AppointmentStatus[] = ["scheduled", "confirmed"];
+
+/**
+ * Growth System Completion Pass 1: sends the deterministic cancellation/
+ * reschedule notification through the exact same gate + sendOutboundMessage
+ * path every other automated message uses - opt-out, duplicate-send
+ * protection, and live appointment-status re-verification are all still
+ * enforced, even though this message is never AI-drafted. Never blocks or
+ * fails the lifecycle event itself (already recorded by the caller) - a
+ * failure here is logged, not thrown.
+ *
+ * Deliberately uses its own internal service-role client rather than the
+ * caller's (which, for emitAppointmentLifecycleEvent, is always a real user
+ * session - see that function's own comment) - `messages` has no RLS UPDATE
+ * policy at all (only service-role/the n8n-callback route ever transitions a
+ * message from queued to sent/failed), so sendOutboundMessage's own status
+ * update would silently affect zero rows under a session client. This
+ * mirrors the exact same reasoning lib/calendar/connection.ts's
+ * getFreshAccessToken already established for a privileged operation reached
+ * from a caller that might only have a session client.
+ */
+async function sendAppointmentLifecycleMessage(
+  organizationId: string,
+  appointmentId: string,
+  eventType: "appointment.cancelled" | "appointment.rescheduled",
+  executionId: string,
+  /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+): Promise<void> {
+  const service = createServiceRoleClient();
+
+  const fullAppointment = await getAppointment(service, organizationId, appointmentId);
+  if (!fullAppointment) return;
+
+  const businessProfile = await getBusinessProfile(service, organizationId);
+  const timezone = businessProfile?.timezone ?? "UTC";
+
+  let conversationId: string | null = null;
+  if (fullAppointment.contact_id) {
+    const conversation = await findOrCreateOpenConversation(service, organizationId, fullAppointment.contact_id, "sms", fullAppointment.lead_id);
+    conversationId = conversation?.id ?? null;
+  }
+
+  const body =
+    eventType === "appointment.cancelled"
+      ? composeCancellationBody(fullAppointment, timezone, fullAppointment.start_at)
+      : composeRescheduledBody(fullAppointment, timezone, fullAppointment.start_at, fullAppointment.end_at);
+
+  const eligibleStatuses = eventType === "appointment.cancelled" ? CANCELLED_ELIGIBLE_STATUSES : RESCHEDULED_ELIGIBLE_STATUSES;
+
+  const gateResult = await evaluateOutboundGate(service, {
+    organizationId,
+    executionId,
+    contactId: fullAppointment.contact_id,
+    conversationId,
+    leadId: fullAppointment.lead_id,
+    aiResult: { should_send: true, response_message: body, needs_human: false },
+    appointmentId,
+    appointmentEligibleStatuses: eligibleStatuses,
+  });
+
+  if (!gateResult.allowed) {
+    console.error(`[automation] ${eventType} message blocked`, { appointmentId, reason: gateResult.reason });
+    return;
+  }
+
+  const sendResult = await sendOutboundMessage(service, {
+    organizationId,
+    contactId: gateResult.contactId,
+    conversationId: gateResult.conversationId,
+    channel: "sms",
+    body: gateResult.body,
+    senderType: "ai",
+    workflowExecutionId: executionId,
+    sendSmsFn,
+  });
+
+  if (!sendResult.ok) {
+    console.error(`[automation] failed to send ${eventType} message`, { appointmentId, error: sendResult.error });
+  }
+}
+
+/**
+ * Records the appointment.completed/appointment.cancelled/
+ * appointment.rescheduled automation event. appointment.completed remains
+ * lifecycle-only (created, started, completed, no message - unchanged, per
+ * the original Phase 4.4 decision). appointment.cancelled and
+ * appointment.rescheduled now ALSO send a deterministic, Trackpr-composed
+ * customer notification (Growth System Completion Pass 1) - see
+ * sendAppointmentLifecycleMessage above. `idempotencySuffix` lets
+ * rescheduled events key on the appointment's current `updated_at` (the
+ * smallest reliable "revision" proxy the existing schema supports), since
+ * completed/cancelled don't need one (a given appointment can only complete
+ * or get cancelled once) - this is also what prevents a duplicate message: a
+ * retried/replayed call for the exact same transition resolves to the same
+ * automation_events row (`eventResult.duplicate`) and is skipped below,
+ * exactly like every other automation in this codebase.
  */
 export async function emitAppointmentLifecycleEvent(
   supabase: SupabaseClient,
   appointmentId: string,
   eventType: AppointmentLifecycleEventType,
   idempotencySuffix?: string,
+  /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
 ): Promise<void> {
   const idempotencyKey = idempotencySuffix
     ? `${eventType}:${appointmentId}:${idempotencySuffix}`
@@ -281,6 +407,10 @@ export async function emitAppointmentLifecycleEvent(
   if (!executionResult.ok) {
     console.error(`[automation] failed to start ${eventType} execution`, { appointmentId, error: executionResult.error });
     return;
+  }
+
+  if (eventType === "appointment.cancelled" || eventType === "appointment.rescheduled") {
+    await sendAppointmentLifecycleMessage(eventResult.event.organization_id, appointmentId, eventType, executionResult.execution.id, sendSmsFn);
   }
 
   const completed = await completeWorkflowExecution(supabase, executionResult.execution.id, {

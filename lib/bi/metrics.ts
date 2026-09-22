@@ -23,6 +23,7 @@ import type {
   BiAutomationMetrics,
   BiAiMetrics,
   BiFollowUpMetrics,
+  BiRevenueOpportunity,
   BiDataQuality,
   BusinessMetricsSnapshot,
 } from "./types";
@@ -191,15 +192,128 @@ async function getLeadsTouchedByAutomation(supabase: SupabaseClient, organizatio
   return new Set(rows.map((row) => row.entity_id).filter((id): id is string => id !== null)).size;
 }
 
+/**
+ * Growth System Completion Pass 2, Part 2: leads (created within `range`)
+ * cross-referenced against real appointments by `appointments.lead_id` -
+ * "did this lead ever get booked", regardless of the appointment's own date
+ * or status. Also returns the subset with status = 'qualified' and no
+ * appointment, reused directly by buildRevenueOpportunity (Part 3) below so
+ * leads/appointments are each fetched only once for both metrics.
+ */
+async function getLeadBookingCrossReference(
+  supabase: SupabaseClient,
+  organizationId: string,
+  range: ResolvedDateRange,
+): Promise<{ leadsInRange: number; leadsWithAppointment: number; qualifiedLeadsWithoutAppointment: number }> {
+  let leadQuery = supabase.from("leads").select("id, status").eq("organization_id", organizationId).limit(MAX_ROWS);
+  if (range.from) leadQuery = leadQuery.gte("created_at", range.from);
+  if (range.to) leadQuery = leadQuery.lt("created_at", range.to);
+
+  const { data: leadRows } = await leadQuery;
+  const leads = (leadRows ?? []) as { id: string; status: string }[];
+  if (leads.length === 0) return { leadsInRange: 0, leadsWithAppointment: 0, qualifiedLeadsWithoutAppointment: 0 };
+
+  const leadIds = new Set(leads.map((row) => row.id));
+
+  const { data: appointmentRows } = await supabase
+    .from("appointments")
+    .select("lead_id")
+    .eq("organization_id", organizationId)
+    .not("lead_id", "is", null)
+    .limit(MAX_ROWS);
+  const bookedLeadIds = new Set(
+    ((appointmentRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id).filter((id): id is string => id !== null && leadIds.has(id)),
+  );
+
+  const qualifiedLeadsWithoutAppointment = leads.filter((row) => row.status === "qualified" && !bookedLeadIds.has(row.id)).length;
+
+  return { leadsInRange: leads.length, leadsWithAppointment: bookedLeadIds.size, qualifiedLeadsWithoutAppointment };
+}
+
+/** Growth System Completion Pass 2, Part 3: SUM(estimates.amount) grouped by status = 'sent' (openEstimateValue), 'expired', and 'declined' - one query for all three "opportunity" value fields. */
+async function getEstimateOpportunityValues(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ openEstimateValue: number; expiredEstimateValue: number; lostEstimateValue: number }> {
+  let query = supabase.from("estimates").select("status, amount").eq("organization_id", organizationId).in("status", ["sent", "expired", "declined"]).limit(MAX_ROWS);
+  if (range.from) query = query.gte("created_at", range.from);
+  if (range.to) query = query.lt("created_at", range.to);
+
+  const { data } = await query;
+  const rows = (data ?? []) as { status: "sent" | "expired" | "declined"; amount: number | null }[];
+
+  let openEstimateValue = 0;
+  let expiredEstimateValue = 0;
+  let lostEstimateValue = 0;
+  for (const row of rows) {
+    if (row.status === "sent") openEstimateValue += row.amount ?? 0;
+    else if (row.status === "expired") expiredEstimateValue += row.amount ?? 0;
+    else lostEstimateValue += row.amount ?? 0;
+  }
+  return { openEstimateValue, expiredEstimateValue, lostEstimateValue };
+}
+
+/** Growth System Completion Pass 2, Part 3: completed appointments (in `range`) whose lead has no estimate at all - a real visit that never turned into a quote. Estimate existence is checked without its own date bound - the question is "does one exist at all," not "was one created in the same window." */
+async function getCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<number> {
+  let appointmentQuery = supabase
+    .from("appointments")
+    .select("lead_id")
+    .eq("organization_id", organizationId)
+    .eq("status", "completed")
+    .not("lead_id", "is", null)
+    .limit(MAX_ROWS);
+  if (range.from) appointmentQuery = appointmentQuery.gte("created_at", range.from);
+  if (range.to) appointmentQuery = appointmentQuery.lt("created_at", range.to);
+
+  const { data: appointmentRows } = await appointmentQuery;
+  const leadIds = new Set(((appointmentRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id).filter((id): id is string => id !== null));
+  if (leadIds.size === 0) return 0;
+
+  const { data: estimateRows } = await supabase.from("estimates").select("lead_id").eq("organization_id", organizationId).in("lead_id", [...leadIds]).limit(MAX_ROWS);
+  const leadsWithEstimate = new Set(((estimateRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id));
+
+  return [...leadIds].filter((id) => !leadsWithEstimate.has(id)).length;
+}
+
+/**
+ * Growth System Completion Pass 2, Part 3: "Revenue Opportunity" - see
+ * BiRevenueOpportunity's own documentation in lib/bi/types.ts for the exact,
+ * deliberately factual meaning of each field. Reuses
+ * getLeadBookingCrossReference's own leads/appointments fetch (Part 2) for
+ * qualifiedLeadsWithoutAppointment rather than querying leads a second time.
+ */
+async function buildRevenueOpportunity(
+  supabase: SupabaseClient,
+  organizationId: string,
+  range: ResolvedDateRange,
+  qualifiedLeadsWithoutAppointment: number,
+): Promise<BiRevenueOpportunity> {
+  const [{ openEstimateValue, expiredEstimateValue, lostEstimateValue }, completedAppointmentsWithoutEstimate] = await Promise.all([
+    getEstimateOpportunityValues(supabase, organizationId, range),
+    getCompletedAppointmentsWithoutEstimate(supabase, organizationId, range),
+  ]);
+
+  return {
+    openEstimateValue,
+    expiredEstimateValue,
+    lostEstimateValue,
+    recoverableEstimateValue: openEstimateValue + expiredEstimateValue,
+    qualifiedLeadsWithoutAppointment,
+    completedAppointmentsWithoutEstimate,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Metric group builders - each wraps exactly one Phase 5.1 query function
 // (plus, where noted, one of the small new queries above) and adds rates.
 // ---------------------------------------------------------------------------
 
-async function buildLeadMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ lead: BiLeadMetrics; pipeline: BiPipelineMetrics }> {
-  const [{ leads, pipeline }, sourceCounts] = await Promise.all([
+async function buildLeadMetrics(
+  supabase: SupabaseClient,
+  organizationId: string,
+  range: ResolvedDateRange,
+): Promise<{ lead: BiLeadMetrics; pipeline: BiPipelineMetrics; qualifiedLeadsWithoutAppointment: number }> {
+  const [{ leads, pipeline }, sourceCounts, bookingCrossReference] = await Promise.all([
     getLeadAndPipelineMetrics(supabase, organizationId, range),
     getSourceCounts(supabase, organizationId, range),
+    getLeadBookingCrossReference(supabase, organizationId, range),
   ]);
 
   const lead: BiLeadMetrics = {
@@ -216,6 +330,7 @@ async function buildLeadMetrics(supabase: SupabaseClient, organizationId: string
     coldLeads: leads.coldLeads,
     lostRate: rate(leads.lostLeads, leads.wonLeads + leads.lostLeads),
     sourceCounts,
+    leadToBookingRate: rate(bookingCrossReference.leadsWithAppointment, bookingCrossReference.leadsInRange),
   };
 
   const biPipeline: BiPipelineMetrics = {
@@ -224,7 +339,7 @@ async function buildLeadMetrics(supabase: SupabaseClient, organizationId: string
     averagePipelineValue: safeAverage(pipeline.pipelineValue, leads.openLeads),
   };
 
-  return { lead, pipeline: biPipeline };
+  return { lead, pipeline: biPipeline, qualifiedLeadsWithoutAppointment: bookingCrossReference.qualifiedLeadsWithoutAppointment };
 }
 
 async function buildEstimateMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiEstimateMetrics> {
@@ -327,10 +442,36 @@ async function buildAutomationMetrics(supabase: SupabaseClient, organizationId: 
   return { automation: biAutomation, followUp: biFollowUp };
 }
 
+/**
+ * Growth System Completion Pass 2, Part 4: SUM/AVG/count over
+ * ai_interactions.tokens_used - only ever real, provider-reported totals
+ * (see AiResult.usage in the n8n-callback route); never estimated. Rows
+ * with a null tokens_used are excluded from the sum/average and counted
+ * separately, matching getNonNullAmountCount's own established null-vs-zero
+ * discipline for estimates/jobs.
+ */
+async function getAiUsageTotals(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ totalTokensUsed: number | null; averageTokensPerInteraction: number | null; interactionsWithUsageData: number }> {
+  let query = supabase.from("ai_interactions").select("tokens_used").eq("organization_id", organizationId).not("tokens_used", "is", null).limit(MAX_ROWS);
+  if (range.from) query = query.gte("created_at", range.from);
+  if (range.to) query = query.lt("created_at", range.to);
+
+  const { data } = await query;
+  const rows = (data ?? []) as { tokens_used: number | null }[];
+  const values = rows.map((row) => row.tokens_used).filter((value): value is number => value !== null);
+
+  if (values.length === 0) {
+    return { totalTokensUsed: null, averageTokensPerInteraction: null, interactionsWithUsageData: 0 };
+  }
+
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return { totalTokensUsed: total, averageTokensPerInteraction: total / values.length, interactionsWithUsageData: values.length };
+}
+
 async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiAiMetrics> {
-  const [ai, outputFields] = await Promise.all([
+  const [ai, outputFields, usage] = await Promise.all([
     getAiMetrics(supabase, organizationId, range),
     getAiOutputFields(supabase, organizationId, range),
+    getAiUsageTotals(supabase, organizationId, range),
   ]);
 
   return {
@@ -338,21 +479,31 @@ async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, 
     aiOutboundInteractions: outputFields.aiOutboundInteractions,
     customerReplyAiInteractions: outputFields.customerReplyAiInteractions,
     aiNeedsHumanCount: outputFields.aiNeedsHumanCount,
+    totalTokensUsed: usage.totalTokensUsed,
+    averageTokensPerInteraction: usage.averageTokensPerInteraction,
+    interactionsWithUsageData: usage.interactionsWithUsageData,
   };
 }
 
-function buildDataQuality(): BiDataQuality {
+function buildDataQuality(aiUsage: BiAiMetrics): BiDataQuality {
+  const aiTokenUsageUnavailable = aiUsage.interactionsWithUsageData === 0;
+  const notes = [
+    "No payment/invoicing infrastructure exists - pipelineValue, estimateValue, and contractedJobValue are quoted/contracted figures, never collected revenue.",
+    "leads.source is nullable and not standardized - sourceCounts is exposed for transparency only, never as a performance ranking.",
+    "No lead stage-transition history is used for timing/duration claims by this layer - lead_stage_history exists at the infrastructure level (see lib/automation/lead-stage-history.ts) but is not yet wired into a historical conversion-rate calculation here.",
+  ];
+  notes.push(
+    aiTokenUsageUnavailable
+      ? "No ai_interactions row in this period has provider-reported token usage - n8n's own AI call did not report it for any interaction in range."
+      : `Token usage is available for ${aiUsage.interactionsWithUsageData} of ${aiUsage.aiInteractions} AI interaction(s) in this period - only n8n calls that reported usage are included.`,
+  );
+
   return {
     collectedRevenueUnavailable: true,
     sourceAttributionLimited: true,
     stageHistoryUnavailable: true,
-    aiTokenUsageUnavailable: true,
-    notes: [
-      "No payment/invoicing infrastructure exists - pipelineValue, estimateValue, and contractedJobValue are quoted/contracted figures, never collected revenue.",
-      "leads.source is nullable and not standardized - sourceCounts is exposed for transparency only, never as a performance ranking.",
-      "No lead stage-transition history exists - all counts/rates here are current-state or activity counts, not true historical conversion rates.",
-      "ai_interactions.tokens_used is never populated in this codebase - no AI cost figure is calculated anywhere in this layer.",
-    ],
+    aiTokenUsageUnavailable,
+    notes,
   };
 }
 
@@ -377,7 +528,7 @@ export async function getBusinessMetricsSnapshot(
   const range = resolveDateRange(dateRangeInput);
   const previousRange = previousPeriodOf(range);
 
-  const [{ lead, pipeline }, estimateMetrics, jobMetrics, appointmentMetrics, communicationMetrics, { automation, followUp }, aiMetrics, previousTotals] =
+  const [{ lead, pipeline, qualifiedLeadsWithoutAppointment }, estimateMetrics, jobMetrics, appointmentMetrics, communicationMetrics, { automation, followUp }, aiMetrics, previousTotals] =
     await Promise.all([
       buildLeadMetrics(supabase, organizationId, range),
       buildEstimateMetrics(supabase, organizationId, range),
@@ -396,6 +547,8 @@ export async function getBusinessMetricsSnapshot(
     ]);
 
   estimateMetrics.estimateToJobRate = rate(jobMetrics.totalJobs, estimateMetrics.acceptedEstimates);
+
+  const revenueOpportunity = await buildRevenueOpportunity(supabase, organizationId, range, qualifiedLeadsWithoutAppointment);
 
   const comparisons: BusinessMetricsComparisons = previousTotals
     ? {
@@ -422,7 +575,8 @@ export async function getBusinessMetricsSnapshot(
     automationMetrics: automation,
     aiMetrics,
     followUpMetrics: followUp,
-    dataQuality: buildDataQuality(),
+    revenueOpportunity,
+    dataQuality: buildDataQuality(aiMetrics),
     generatedAt: new Date().toISOString(),
   };
 }

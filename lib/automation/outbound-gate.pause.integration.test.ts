@@ -99,7 +99,11 @@ function baseInput(overrides: Partial<OutboundGateInput> = {}): OutboundGateInpu
 }
 
 before(async () => {
-  const { data: org, error: orgErr } = await service.from("organizations").insert({ name: "Kill Switch Test Org", automation_mode: "live" }).select("id").single();
+  // payment_status: "active" - this suite predates and is unrelated to the
+  // Final Outbound Safety Hardening payment gate, so it must not be the
+  // reason any test here denies/allows; that gate's own dedicated behavior
+  // is covered separately in outbound-gate.payment.integration.test.ts.
+  const { data: org, error: orgErr } = await service.from("organizations").insert({ name: "Kill Switch Test Org", automation_mode: "live", payment_status: "active" }).select("id").single();
   if (orgErr) throw orgErr;
   organizationId = org!.id;
 

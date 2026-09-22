@@ -60,8 +60,11 @@ let memberUser: { id: string; email: string; password: string };
 let otherOwner: { id: string; email: string; password: string };
 
 before(async () => {
-  const { data: org } = await service.from("organizations").insert({ name: "Contact Merge Test Org" }).select("id").single();
-  const { data: other } = await service.from("organizations").insert({ name: "Contact Merge Test Org - Other" }).select("id").single();
+  // payment_status: 'active' is required here - merge_contacts is one of the
+  // payment-gated SECURITY DEFINER RPCs, and this suite calls it through a
+  // real, non-service-role session, so the payment gate genuinely applies.
+  const { data: org } = await service.from("organizations").insert({ name: "Contact Merge Test Org", payment_status: "active" }).select("id").single();
+  const { data: other } = await service.from("organizations").insert({ name: "Contact Merge Test Org - Other", payment_status: "active" }).select("id").single();
   organizationId = org!.id;
   otherOrgId = other!.id;
 

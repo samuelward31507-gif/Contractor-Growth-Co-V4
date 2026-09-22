@@ -362,6 +362,15 @@ export type BiLeadMetrics = {
    * performance. See dataQuality.sourceAttributionLimited.
    */
   sourceCounts: Record<string, number>;
+  /**
+   * Growth System Completion Pass 2, Part 2: the fraction of leads (created
+   * within the requested range) that have at least one real appointment
+   * (any `appointments.lead_id` match, regardless of the appointment's own
+   * status or date) - a current-state cross-reference over real data, not a
+   * time-based conversion rate (see dataQuality.stageHistoryUnavailable).
+   * `null` when there are zero leads in range.
+   */
+  leadToBookingRate: Rate;
 };
 
 export type BiPipelineMetrics = {
@@ -468,6 +477,17 @@ export type BiAiMetrics = {
   customerReplyAiInteractions: number;
   /** ai_interactions where the stored structured output has needs_human = true. */
   aiNeedsHumanCount: number;
+  /**
+   * Growth System Completion Pass 2, Part 4: SUM(ai_interactions.tokens_used)
+   * over rows that actually have a non-null value - `null` when zero rows in
+   * range have any usage data at all (never a fabricated 0, since 0 would
+   * misrepresent "not reported" as "reported zero tokens").
+   */
+  totalTokensUsed: number | null;
+  /** AVG(ai_interactions.tokens_used) over the same non-null rows. `null` under the same condition as totalTokensUsed. */
+  averageTokensPerInteraction: number | null;
+  /** Count of ai_interactions in range that have a non-null tokens_used - lets a caller show "usage data available for N of M interactions" rather than implying every interaction was measured. */
+  interactionsWithUsageData: number;
 };
 
 export type BiFollowUpMetrics = {
@@ -495,6 +515,32 @@ export type BiFollowUpMetrics = {
 };
 
 /**
+ * Growth System Completion Pass 2, Part 3: "Revenue Opportunity" - factual,
+ * currently-open-or-recoverable amounts and counts built entirely from
+ * existing estimates/leads/appointments data. Every field name and comment
+ * here is deliberately explicit that this is quoted/contracted opportunity,
+ * never revenue, and never a probability-weighted or close-rate-adjusted
+ * figure - see lib/bi/types.ts's own file-level naming discipline. Nothing
+ * here is fabricated: each field is a real SUM/COUNT over a real, already-
+ * existing status, and any figure that cannot be reliably computed from
+ * existing data is simply absent from this type rather than estimated.
+ */
+export type BiRevenueOpportunity = {
+  /** SUM(estimates.amount) where status = 'sent' - real, quoted work still awaiting a customer decision. */
+  openEstimateValue: number;
+  /** SUM(estimates.amount) where status = 'expired' - quoted work whose follow-up window closed with no customer decision ever recorded. */
+  expiredEstimateValue: number;
+  /** SUM(estimates.amount) where status = 'declined' - quoted work the customer explicitly turned down. Shown for reference only; never summed into recoverableEstimateValue. */
+  lostEstimateValue: number;
+  /** openEstimateValue + expiredEstimateValue - real, quoted amounts that have NOT been explicitly declined and could still convert. Deliberately excludes lostEstimateValue (a customer already said no) and is never probability-weighted. */
+  recoverableEstimateValue: number;
+  /** Count of leads currently in 'qualified' status with no appointment ever booked - a real, ready-to-book opportunity sitting idle. */
+  qualifiedLeadsWithoutAppointment: number;
+  /** Count of appointments with status = 'completed' whose lead has no estimate at all - a completed visit that never turned into a quote. */
+  completedAppointmentsWithoutEstimate: number;
+};
+
+/**
  * Explicit, honest limitations of the current data - see the Phase 5.1
  * audit. Every flag here is a fact about this codebase/schema today, not a
  * per-organization computed judgment - kept deliberately small per the
@@ -507,8 +553,16 @@ export type BiDataQuality = {
   sourceAttributionLimited: true;
   /** No table or trigger records lead status-transition history - every rate/count here is a current-state or activity-count metric, never a true historical conversion rate. */
   stageHistoryUnavailable: true;
-  /** ai_interactions.tokens_used is never populated by any code path in this repo - no AI cost figure is calculated anywhere in this layer. */
-  aiTokenUsageUnavailable: true;
+  /**
+   * Growth System Completion Pass 2, Part 4: ai_interactions.tokens_used CAN
+   * now be populated (when n8n's own AI call reports usage - see
+   * app/api/automation/n8n-callback/route.ts's AiResult.usage), but whether
+   * it actually IS populated depends entirely on what n8n sends. This is
+   * computed dynamically per snapshot - `true` only when zero interactions
+   * in the requested range have any usage data at all, never a hardcoded
+   * assumption either way.
+   */
+  aiTokenUsageUnavailable: boolean;
   /** Short, human-readable notes elaborating on the flags above. */
   notes: string[];
 };
@@ -526,6 +580,7 @@ export type BusinessMetricsSnapshot = {
   automationMetrics: BiAutomationMetrics;
   aiMetrics: BiAiMetrics;
   followUpMetrics: BiFollowUpMetrics;
+  revenueOpportunity: BiRevenueOpportunity;
   dataQuality: BiDataQuality;
   /** Wall-clock time this snapshot was computed - not a business timestamp. */
   generatedAt: string;

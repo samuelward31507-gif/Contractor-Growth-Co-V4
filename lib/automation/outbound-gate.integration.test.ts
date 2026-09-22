@@ -80,13 +80,16 @@ async function makeExecution(status: "running" | "completed" | "cancelled" | "fa
 }
 
 before(async () => {
-  // automation_mode: "live" on both orgs - every test below in this file
-  // predates and is unrelated to the Fast-Track Pass 3 go-live gate, so it
-  // must not be the reason any of them denies/allows. The gate's own
-  // dedicated "organization_not_live" behavior is covered separately below.
-  const { data: org } = await service.from("organizations").insert({ name: "Outbound Gate Integration Test Org", automation_mode: "live" }).select("id").single();
+  // automation_mode: "live" and payment_status: "active" on both orgs -
+  // every test below in this file predates and is unrelated to the
+  // Fast-Track Pass 3 go-live gate or the Final Outbound Safety Hardening
+  // payment gate, so neither must be the reason any of them denies/allows.
+  // Both gates' own dedicated denial behaviors are covered separately below
+  // (organization_not_live in test 19, organization_payment_inactive in
+  // outbound-gate.payment.integration.test.ts).
+  const { data: org } = await service.from("organizations").insert({ name: "Outbound Gate Integration Test Org", automation_mode: "live", payment_status: "active" }).select("id").single();
   organizationId = org!.id;
-  const { data: other } = await service.from("organizations").insert({ name: "Outbound Gate Integration Test Org (Other)", automation_mode: "live" }).select("id").single();
+  const { data: other } = await service.from("organizations").insert({ name: "Outbound Gate Integration Test Org (Other)", automation_mode: "live", payment_status: "active" }).select("id").single();
   otherOrgId = other!.id;
 
   const { data: contact } = await service

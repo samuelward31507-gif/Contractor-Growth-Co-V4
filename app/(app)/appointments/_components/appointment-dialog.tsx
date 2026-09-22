@@ -1,8 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { AlertCircle } from "lucide-react";
-import { errorBannerClass, ghostButtonClass, inputClass, labelClass, primaryButtonAutoClass } from "@/lib/ui/form";
+import { AlertCircle, AlertTriangle } from "lucide-react";
+import { errorBannerClass, ghostButtonClass, inputClass, labelClass, primaryButtonAutoClass, secondaryButtonAutoClass } from "@/lib/ui/form";
 import { Dialog, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
@@ -46,11 +46,16 @@ export function AppointmentDialog({
   const closedRef = useRef(false);
 
   useEffect(() => {
-    if (state.success && !closedRef.current) {
+    // Phase 1 Scheduling Foundation, Stage 5: a successful save that also
+    // carries a Google Calendar sync warning stays open (with a manual
+    // "Done" affordance below) so the contractor actually sees it, instead
+    // of auto-closing the instant it appears - the appointment itself was
+    // still saved successfully either way.
+    if (state.success && !state.warning && !closedRef.current) {
       closedRef.current = true;
       onClose();
     }
-  }, [state.success, onClose]);
+  }, [state.success, state.warning, onClose]);
 
   return (
     <Dialog onClose={onClose} className="max-h-[90vh] max-w-md overflow-y-auto" labelledBy="appointment-dialog-title">
@@ -65,6 +70,13 @@ export function AppointmentDialog({
             <p className={`flex items-start gap-2 ${errorBannerClass}`} role="alert">
               <AlertCircle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{state.error}</span>
+            </p>
+          ) : null}
+
+          {state.success && state.warning ? (
+            <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-700" role="status">
+              <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{state.warning}</span>
             </p>
           ) : null}
 
@@ -164,18 +176,26 @@ export function AppointmentDialog({
           </div>
 
           <DialogFooter>
-            <button type="button" onClick={onClose} className={ghostButtonClass}>
-              Cancel
-            </button>
-            <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
-              {isPending
-                ? mode === "create"
-                  ? "Creating…"
-                  : "Saving…"
-                : mode === "create"
-                  ? "Create Appointment"
-                  : "Save Changes"}
-            </button>
+            {state.success && state.warning ? (
+              <button type="button" onClick={onClose} className={secondaryButtonAutoClass}>
+                Done
+              </button>
+            ) : (
+              <>
+                <button type="button" onClick={onClose} className={ghostButtonClass}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={isPending} className={primaryButtonAutoClass}>
+                  {isPending
+                    ? mode === "create"
+                      ? "Creating…"
+                      : "Saving…"
+                    : mode === "create"
+                      ? "Create Appointment"
+                      : "Save Changes"}
+                </button>
+              </>
+            )}
           </DialogFooter>
         </form>
     </Dialog>

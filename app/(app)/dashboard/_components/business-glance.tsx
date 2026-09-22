@@ -55,8 +55,17 @@ export function BusinessGlance({ overview, snapshot }: { overview: OverviewMetri
         />
         <Row label="Jobs" value={String(snapshot.comparisons.jobCount.current)} description={formatComparisonBadge(snapshot.comparisons.jobCount) ?? undefined} />
         <Row label="Contracted job value" value={formatCurrency(snapshot.jobMetrics.contractedJobValue)} />
+        <Row label="Lead → booking rate" value={formatRate(snapshot.leadMetrics.leadToBookingRate)} description="Leads that got an appointment" />
       </div>
       <p className={`mt-3 ${metaClass}`}>Quoted amounts, not collected payments.</p>
+
+      <p className={`mt-5 ${sectionLabelClass}`}>Revenue opportunity</p>
+      <div className="mt-1.5 divide-y divide-slate-100">
+        <Row label="Recoverable estimate value" value={formatCurrency(snapshot.revenueOpportunity.recoverableEstimateValue)} description="Open + expired, not yet declined" />
+        <Row label="Qualified leads, no appointment" value={String(snapshot.revenueOpportunity.qualifiedLeadsWithoutAppointment)} />
+        <Row label="Completed visits, no estimate" value={String(snapshot.revenueOpportunity.completedAppointmentsWithoutEstimate)} />
+      </div>
+      <p className={`mt-3 ${metaClass}`}>Real opportunity, not guaranteed revenue or a close probability.</p>
     </div>
   );
 }

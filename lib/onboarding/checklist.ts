@@ -20,9 +20,11 @@ import { computeOnboardingReadiness, getLatestTestLeadOutcome, type OnboardingRe
  * something actually blocked).
  */
 export type SetupChecklistItem = {
-  key: "business" | "trade" | "serviceArea" | "hours" | "sms" | "leadCapture" | "testCompleted" | "testVerified" | "goLive";
+  key: "business" | "trade" | "serviceArea" | "hours" | "sms" | "leadCapture" | "testCompleted" | "testVerified" | "goLive" | "booking" | "calendar";
   label: string;
   complete: boolean;
+  /** Growth System Completion Pass 1: mirrors ReadinessItem's own three-way state for booking/calendar - "ready"/"not_ready" for every pre-existing item, which never produces "disabled_by_intent". */
+  state: import("./readiness").ReadinessState;
 };
 
 export type OnboardingStage = "new" | "configuring" | "testing" | "ready" | "live";
@@ -44,6 +46,10 @@ export type SetupChecklist = {
 
 function findItem(readiness: OnboardingReadiness, key: "business" | "hours" | "leadCapture" | "sms"): boolean {
   return readiness.items.find((item) => item.key === key)?.complete ?? false;
+}
+
+function findState(readiness: OnboardingReadiness, key: "booking" | "calendar"): import("./readiness").ReadinessState {
+  return readiness.items.find((item) => item.key === key)?.state ?? "not_ready";
 }
 
 /**
@@ -81,17 +87,27 @@ export async function computeSetupChecklist(supabase: SupabaseClient, organizati
   const testAttempted = testLeadOutcome !== null;
   const testVerified = isTestVerified(testLeadOutcome);
   const isLive = readiness.automationMode === "live";
+  const bookingState = findState(readiness, "booking");
+  const calendarState = findState(readiness, "calendar");
 
   const items: SetupChecklistItem[] = [
-    { key: "business", label: "Business profile", complete: businessComplete },
-    { key: "trade", label: "Trade configured", complete: tradeComplete },
-    { key: "serviceArea", label: "Service area configured", complete: serviceAreaComplete },
-    { key: "hours", label: "Business hours", complete: hoursComplete },
-    { key: "sms", label: "SMS configured", complete: smsComplete },
-    { key: "leadCapture", label: "Lead capture", complete: leadCaptureComplete },
-    { key: "testCompleted", label: "Automation test completed", complete: testAttempted },
-    { key: "testVerified", label: "Test lead verified", complete: testVerified },
-    { key: "goLive", label: "Go Live approved", complete: isLive },
+    { key: "business", label: "Business profile", complete: businessComplete, state: businessComplete ? "ready" : "not_ready" },
+    { key: "trade", label: "Trade configured", complete: tradeComplete, state: tradeComplete ? "ready" : "not_ready" },
+    { key: "serviceArea", label: "Service area configured", complete: serviceAreaComplete, state: serviceAreaComplete ? "ready" : "not_ready" },
+    { key: "hours", label: "Business hours", complete: hoursComplete, state: hoursComplete ? "ready" : "not_ready" },
+    { key: "sms", label: "SMS configured", complete: smsComplete, state: smsComplete ? "ready" : "not_ready" },
+    { key: "leadCapture", label: "Lead capture", complete: leadCaptureComplete, state: leadCaptureComplete ? "ready" : "not_ready" },
+    { key: "testCompleted", label: "Automation test completed", complete: testAttempted, state: testAttempted ? "ready" : "not_ready" },
+    { key: "testVerified", label: "Test lead verified", complete: testVerified, state: testVerified ? "ready" : "not_ready" },
+    { key: "goLive", label: "Go Live approved", complete: isLive, state: isLive ? "ready" : "not_ready" },
+    // Growth System Completion Pass 1: surfaced here (never blocking - see
+    // canGoLive below, unchanged) so a contractor cannot appear fully
+    // configured while AI booking or Google Calendar sync is silently
+    // unconfigured - the audit's own onboarding gap finding. "ready" and
+    // "disabled_by_intent" both count as `complete` (see ReadinessItem's own
+    // documentation); only "not_ready" does not.
+    { key: "booking", label: "AI appointment booking", complete: bookingState !== "not_ready", state: bookingState },
+    { key: "calendar", label: "Google Calendar sync", complete: calendarState !== "not_ready", state: calendarState },
   ];
 
   const coreConfigured = businessComplete && hoursComplete && smsComplete && leadCaptureComplete;

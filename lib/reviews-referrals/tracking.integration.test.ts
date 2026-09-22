@@ -35,7 +35,9 @@ if (fs.existsSync(envPath)) {
 }
 
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
-const { recordPostJobFollowupOutcome, recordRequestResponses }: typeof import("./tracking") = require(path.join(REPO_ROOT, "lib/reviews-referrals/tracking.ts"));
+const { recordPostJobFollowupOutcome, recordRequestResponses, classifyReviewReplySentiment, classifyAndEscalateReviewReply }: typeof import("./tracking") = require(
+  path.join(REPO_ROOT, "lib/reviews-referrals/tracking.ts"),
+);
 
 const service = createServiceRoleClient();
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -385,4 +387,116 @@ test("cross-org update is blocked - a member of another org cannot mark this org
 
   const { data: unchanged } = await service.from("referral_requests").select("status").eq("job_id", jobId).single();
   assert.equal(unchanged?.status, "requested");
+});
+
+// ==================== Growth System Completion Pass 1: Review Escalation (Part 5) ====================
+//
+// Uses its own dedicated contact/conversation (never the shared contactId/
+// conversationId above) - earlier tests in this file create review_request
+// rows against the shared contact that are only cleaned up in this file's
+// own after() teardown, so reusing it here would make "no active review
+// request" tests depend on execution order.
+
+let escalationContactId: string;
+let escalationConversationId: string;
+
+test("setup: dedicated contact/conversation for Review Escalation tests", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, phone: "+15555550177" }).select("id").single();
+  escalationContactId = contact!.id;
+  const { data: conversation } = await service.from("conversations").insert({ organization_id: organizationId, contact_id: escalationContactId, channel: "sms", status: "open", ai_enabled: true }).select("id").single();
+  escalationConversationId = conversation!.id;
+});
+
+test("classifyReviewReplySentiment: a clearly negative reply is classified 'negative'", () => {
+  assert.equal(classifyReviewReplySentiment("Honestly this was a terrible experience, I want a refund"), "negative");
+  assert.equal(classifyReviewReplySentiment("Not happy with the service at all"), "negative");
+});
+
+test("classifyReviewReplySentiment: a clearly positive reply is classified 'positive'", () => {
+  assert.equal(classifyReviewReplySentiment("This was great, thank you so much!"), "positive");
+  assert.equal(classifyReviewReplySentiment("Yes"), "positive");
+});
+
+test("classifyReviewReplySentiment: an ambiguous or empty reply is classified 'unclear', never silently treated as positive", () => {
+  assert.equal(classifyReviewReplySentiment("What time works for you?"), "unclear");
+  assert.equal(classifyReviewReplySentiment(""), "unclear");
+});
+
+async function makeReviewRequest(status: "requested" | "responded" = "requested") {
+  const jobId = await makeJob();
+  const { data } = await service.from("review_requests").insert({ organization_id: organizationId, job_id: jobId, contact_id: escalationContactId, status, requested_at: status === "requested" ? new Date().toISOString() : null }).select("id").single();
+  return data!.id as string;
+}
+
+test("classifyAndEscalateReviewReply: a negative reply to an active review request locks the conversation's AI (ai_enabled -> false)", async () => {
+  await makeReviewRequest("requested");
+  await service.from("conversations").update({ ai_enabled: true }).eq("id", escalationConversationId);
+
+  await classifyAndEscalateReviewReply(service, organizationId, escalationContactId, escalationConversationId, "This was a terrible experience, I want a refund");
+
+  const { data: conversation } = await service.from("conversations").select("ai_enabled").eq("id", escalationConversationId).single();
+  assert.equal(conversation?.ai_enabled, false);
+});
+
+test("classifyAndEscalateReviewReply: an unclear reply ALSO locks the conversation's AI - conservative by design", async () => {
+  await makeReviewRequest("requested");
+  await service.from("conversations").update({ ai_enabled: true }).eq("id", escalationConversationId);
+
+  await classifyAndEscalateReviewReply(service, organizationId, escalationContactId, escalationConversationId, "hmm not sure");
+
+  const { data: conversation } = await service.from("conversations").select("ai_enabled").eq("id", escalationConversationId).single();
+  assert.equal(conversation?.ai_enabled, false);
+});
+
+test("classifyAndEscalateReviewReply: a clearly positive reply does NOT lock the conversation's AI", async () => {
+  await makeReviewRequest("requested");
+  await service.from("conversations").update({ ai_enabled: true }).eq("id", escalationConversationId);
+
+  await classifyAndEscalateReviewReply(service, organizationId, escalationContactId, escalationConversationId, "This was great, thank you!");
+
+  const { data: conversation } = await service.from("conversations").select("ai_enabled").eq("id", escalationConversationId).single();
+  assert.equal(conversation?.ai_enabled, true);
+});
+
+test("classifyAndEscalateReviewReply: no active ('requested') review_request for this contact is a no-op, regardless of sentiment", async () => {
+  // Ensure any review_request created by earlier tests in THIS section for
+  // escalationContactId is no longer 'requested' - this test's own premise.
+  await service.from("review_requests").update({ status: "responded" }).eq("contact_id", escalationContactId).eq("status", "requested");
+  await service.from("conversations").update({ ai_enabled: true }).eq("id", escalationConversationId);
+
+  await classifyAndEscalateReviewReply(service, organizationId, escalationContactId, escalationConversationId, "This was a terrible experience, awful");
+
+  const { data: conversation } = await service.from("conversations").select("ai_enabled").eq("id", escalationConversationId).single();
+  assert.equal(conversation?.ai_enabled, true, "a reply with no active review request must never lock AI, even if it reads negative");
+});
+
+test("classifyAndEscalateReviewReply: idempotent - a second negative reply after the conversation is already locked is a safe no-op", async () => {
+  await makeReviewRequest("requested");
+  await service.from("conversations").update({ ai_enabled: true }).eq("id", escalationConversationId);
+
+  await classifyAndEscalateReviewReply(service, organizationId, escalationContactId, escalationConversationId, "terrible, awful experience");
+  const { data: firstLock } = await service.from("conversations").select("ai_enabled, updated_at").eq("id", escalationConversationId).single();
+  assert.equal(firstLock?.ai_enabled, false);
+
+  // A second call must not throw, must not error, and must leave ai_enabled
+  // exactly where the first call left it - the `.eq("ai_enabled", true)`
+  // guard means this UPDATE simply matches zero rows the second time.
+  await classifyAndEscalateReviewReply(service, organizationId, escalationContactId, escalationConversationId, "still terrible");
+  const { data: secondLock } = await service.from("conversations").select("ai_enabled").eq("id", escalationConversationId).single();
+  assert.equal(secondLock?.ai_enabled, false);
+});
+
+test("classifyAndEscalateReviewReply: cross-org isolation - a review request in another organization is never matched", async () => {
+  await service.from("review_requests").update({ status: "responded" }).eq("contact_id", escalationContactId).eq("status", "requested");
+  const { data: otherJob } = await service.from("jobs").insert({ organization_id: otherOrgId, contact_id: null, title: "Other org job", status: "completed" }).select("id").single();
+  await service.from("review_requests").insert({ organization_id: otherOrgId, job_id: otherJob!.id, status: "requested", requested_at: new Date().toISOString() });
+  await service.from("conversations").update({ ai_enabled: true }).eq("id", escalationConversationId);
+
+  // escalationContactId belongs to organizationId, not otherOrgId - the
+  // query is scoped by organizationId, so the other org's review request
+  // (even though a row exists) must never be matched here.
+  await classifyAndEscalateReviewReply(service, organizationId, escalationContactId, escalationConversationId, "terrible experience");
+
+  const { data: conversation } = await service.from("conversations").select("ai_enabled").eq("id", escalationConversationId).single();
+  assert.equal(conversation?.ai_enabled, true, "no active review_request for THIS organization/contact exists, so nothing should lock");
 });

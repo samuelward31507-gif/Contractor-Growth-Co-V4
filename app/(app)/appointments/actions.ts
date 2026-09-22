@@ -7,15 +7,21 @@ import { createClient } from "@/lib/supabase/server";
 import { APPOINTMENT_STATUSES, type AppointmentStatus } from "@/lib/appointments/queries";
 import { checkAppointmentOverlap } from "@/lib/appointments/overlap";
 import { emitAppointmentCreated, emitAppointmentNoShow, emitAppointmentLifecycleEvent } from "@/lib/automation/appointments";
+import { syncAppointmentCreatedToGoogle, syncAppointmentUpdatedToGoogle, syncAppointmentRemovedFromGoogle } from "@/lib/calendar/appointment-sync";
 
 export type AppointmentFormState = {
   error?: string;
   success?: boolean;
+  /** Phase 1 Scheduling Foundation, Stage 5: set only when the Trackpr write itself succeeded but syncing the change to Google Calendar needs attention - never a reason to treat the save as failed. */
+  warning?: string;
 };
 
 export type DeleteAppointmentState = {
   error?: string;
 };
+
+/** The conflict message Stage 1's application-level pre-check already uses - reused verbatim so a race that only the database's own exclusion constraint catches (23P01) is indistinguishable to the user from the ordinary pre-check catching it first. */
+const APPOINTMENT_CONFLICT_ERROR = "This time conflicts with another appointment. Choose a different time.";
 
 type AppointmentInput = {
   contact_id: string;
@@ -163,7 +169,7 @@ async function validateRelationships(
 
   const hasOverlap = await checkAppointmentOverlap(supabase, organizationId, input, excludeId);
   if (hasOverlap) {
-    return "This time conflicts with another appointment. Choose a different time.";
+    return APPOINTMENT_CONFLICT_ERROR;
   }
 
   return null;
@@ -193,16 +199,36 @@ export async function createAppointment(
     if (insertError.code === "23514") {
       return { error: "End time must be after the start time." };
     }
+    // Phase 1 Scheduling Foundation, Stage 1's appointments_no_overlap
+    // exclusion constraint (23P01) is the actual concurrency guarantee -
+    // the checkAppointmentOverlap() pre-check above is only a fast,
+    // friendly path that catches the common case before ever reaching the
+    // database. A race between two near-simultaneous requests can still
+    // both pass that pre-check; the constraint is what makes exactly one
+    // of them succeed, and the loser lands here needing the exact same
+    // user-facing message the pre-check already gives, not a generic
+    // "something went wrong".
+    if (insertError.code === "23P01") {
+      return { error: APPOINTMENT_CONFLICT_ERROR };
+    }
     return { error: "We couldn't create this appointment. Please try again." };
   }
 
+  let warning: string | undefined;
   if (created) {
     await emitAppointmentCreated(supabase, created.id);
+    // Google Calendar sync (Stage 5) is deliberately a separate, independent
+    // step from the n8n/AI confirmation-message automation above - a
+    // calendar sync failure must never affect, or be affected by, that
+    // automation, and vice versa. The Trackpr appointment above is already
+    // fully committed by this point regardless of what happens next.
+    const syncResult = await syncAppointmentCreatedToGoogle(supabase, organizationId, created.id);
+    warning = syncResult.warning;
   }
 
   revalidatePath("/appointments");
   revalidatePath("/dashboard");
-  return { success: true };
+  return { success: true, warning };
 }
 
 export async function updateAppointment(
@@ -228,10 +254,13 @@ export async function updateAppointment(
   // driven by comparing the prior state to the new one - this single,
   // generic update is the only place status/time transitions happen, so
   // detecting "what actually changed" here is the only way to know which
-  // automation event(s), if any, a given save represents.
+  // automation event(s), if any, a given save represents. external_event_id/
+  // external_calendar_id (Stage 5) are read in this same query for the
+  // identical reason - whether and how to sync this save to Google depends
+  // on whether the appointment already had a synced event before this write.
   const { data: previous } = await supabase
     .from("appointments")
-    .select("status, start_at, end_at")
+    .select("status, start_at, end_at, external_event_id, external_calendar_id")
     .eq("id", id)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -248,6 +277,13 @@ export async function updateAppointment(
     if (updateError.code === "23514") {
       return { error: "End time must be after the start time." };
     }
+    // See createAppointment's identical handling above - the same race
+    // Stage 1's exclusion constraint guards against on insert can also
+    // occur here (e.g. two concurrent reschedules landing on the same
+    // slot).
+    if (updateError.code === "23P01") {
+      return { error: APPOINTMENT_CONFLICT_ERROR };
+    }
     return { error: "We couldn't save these changes. Please try again." };
   }
 
@@ -255,14 +291,54 @@ export async function updateAppointment(
     return { error: "This appointment could not be found." };
   }
 
+  let warning: string | undefined;
   if (previous) {
     await emitAppointmentTransitions(supabase, id, previous, { status: input.status, start_at: input.start_at, end_at: input.end_at, updated_at: data.updated_at });
+    warning = await syncAppointmentEditToGoogle(supabase, organizationId, id, previous, input.status);
   }
 
   revalidatePath("/appointments");
   revalidatePath(`/appointments/${id}`);
   revalidatePath("/dashboard");
-  return { success: true };
+  return { success: true, warning };
+}
+
+/**
+ * Phase 1 Scheduling Foundation, Stage 5: decides which Google Calendar
+ * sync action (if any) this specific save represents, then performs it.
+ * An appointment newly transitioning to 'cancelled' has its Google event
+ * DELETED (not updated to show "cancelled") and its external ids cleared -
+ * per this stage's own domain semantics, a cancelled appointment no longer
+ * needs to occupy time on the contractor's calendar, and clearing the ids
+ * keeps any future save from trying to update an event that no longer
+ * exists. Any other save to an already-synced appointment updates its
+ * event. An appointment with no synced event is never touched here - see
+ * syncAppointmentUpdatedToGoogle's own comment for why this stage
+ * deliberately never auto-creates one on an unrelated edit.
+ */
+async function syncAppointmentEditToGoogle(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  organizationId: string,
+  appointmentId: string,
+  previous: { status: AppointmentStatus; external_event_id: string | null; external_calendar_id: string | null },
+  nextStatus: AppointmentStatus,
+): Promise<string | undefined> {
+  const newlyCancelled = previous.status !== "cancelled" && nextStatus === "cancelled";
+
+  if (newlyCancelled && previous.external_event_id && previous.external_calendar_id) {
+    const result = await syncAppointmentRemovedFromGoogle(supabase, organizationId, previous.external_event_id, previous.external_calendar_id);
+    if (!result.warning) {
+      await supabase.from("appointments").update({ external_event_id: null, external_calendar_id: null }).eq("id", appointmentId).eq("organization_id", organizationId);
+    }
+    return result.warning;
+  }
+
+  if (!newlyCancelled && previous.external_event_id) {
+    const result = await syncAppointmentUpdatedToGoogle(supabase, organizationId, appointmentId);
+    return result.warning;
+  }
+
+  return undefined;
 }
 
 /**
@@ -307,12 +383,17 @@ export async function deleteAppointment(
 
   const { supabase, organizationId } = await requireOrganization();
 
+  // external_event_id/external_calendar_id (Stage 5) are selected as part
+  // of this same DELETE ... RETURNING - the only chance to capture them,
+  // since the row itself is gone immediately after. Trackpr's own delete
+  // happens first and unconditionally; Google sync below only ever runs
+  // once it has already succeeded, never the reverse.
   const { data, error: deleteError } = await supabase
     .from("appointments")
     .delete()
     .eq("id", id)
     .eq("organization_id", organizationId)
-    .select("id")
+    .select("id, external_event_id, external_calendar_id")
     .maybeSingle();
 
   if (deleteError) {
@@ -326,6 +407,16 @@ export async function deleteAppointment(
 
   if (!data) {
     return { error: "This appointment could not be found." };
+  }
+
+  if (data.external_event_id && data.external_calendar_id) {
+    // Best-effort, matching every other Google sync call in this file -
+    // never undoes the already-committed Trackpr deletion. A failure here
+    // has nowhere to be surfaced (this action redirects immediately after),
+    // but is still logged server-side via syncAppointmentRemovedFromGoogle's
+    // own console.error, and the connection's own status/last_error (Stage
+    // 3/4) already records it durably if the cause was connection-level.
+    await syncAppointmentRemovedFromGoogle(supabase, organizationId, data.external_event_id, data.external_calendar_id);
   }
 
   revalidatePath("/appointments");

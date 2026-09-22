@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { notifyFounder } from "@/lib/notifications/founder";
 
 const MAX_FAILURE_REASON_LENGTH = 300;
 
@@ -178,5 +179,132 @@ export async function recordRequestResponses(supabase: SupabaseClient, organizat
     if (data) {
       await supabase.from(table).update({ status: "responded", responded_at: respondedAt }).eq("id", data.id).eq("status", "requested");
     }
+  }
+}
+
+// ==================== Growth System Completion Pass 1: Review Escalation ====================
+
+export type ReviewReplySentiment = "positive" | "negative" | "unclear";
+
+/**
+ * A small, deterministic, non-AI heuristic - never a model call, never
+ * something that could itself compose a reply. Its ONLY job is to decide
+ * whether a reply to a review request needs a human's eyes before anything
+ * else happens to this conversation; it never argues with the customer,
+ * never posts anything publicly, and never makes any reputation decision
+ * itself. Deliberately conservative: anything not clearly positive is
+ * "unclear" and escalates right alongside "negative" - the cost of a human
+ * glancing at an ambiguous reply is far lower than the cost of an unhappy
+ * customer's reply going unnoticed.
+ */
+const NEGATIVE_PATTERNS: RegExp[] = [
+  /\bnot happy\b/i,
+  /\bnot satisfied\b/i,
+  /\bunhappy\b/i,
+  /\bdissatisfied\b/i,
+  /\bdisappoint(ed|ing)?\b/i,
+  /\bterrible\b/i,
+  /\bhorrible\b/i,
+  /\bawful\b/i,
+  /\bworst\b/i,
+  /\bbad experience\b/i,
+  /\bpoor (service|job|work)\b/i,
+  /\brip[\s-]?off\b/i,
+  /\bscam\b/i,
+  /\bunacceptable\b/i,
+  /\bwaste of money\b/i,
+  /\brefund\b/i,
+  /\bcomplain(t|ing)?\b/i,
+  /\bnever again\b/i,
+  /\bwould not recommend\b/i,
+  /\bwouldn'?t recommend\b/i,
+  /\b1 star\b|\bone star\b/i,
+  /\b2 star\b|\btwo star\b/i,
+];
+
+const POSITIVE_PATTERNS: RegExp[] = [
+  /\bgreat\b/i,
+  /\bawesome\b/i,
+  /\bamazing\b/i,
+  /\bexcellent\b/i,
+  /\bperfect\b/i,
+  /\blove(d)? it\b/i,
+  /\bhappy\b/i,
+  /\bsatisfied\b/i,
+  /\bthank(s| you)\b/i,
+  /\bwill do\b/i,
+  /\bsure,? (i'?ll|i will)\b/i,
+  /\b5 star\b|\bfive star\b/i,
+  /\bsounds good\b/i,
+  /^\s*(yes|yep|yeah|ok|okay|sure)[.!\s]*$/i,
+];
+
+export function classifyReviewReplySentiment(body: string): ReviewReplySentiment {
+  const text = body.trim();
+  if (!text) return "unclear";
+  if (NEGATIVE_PATTERNS.some((pattern) => pattern.test(text))) return "negative";
+  if (POSITIVE_PATTERNS.some((pattern) => pattern.test(text))) return "positive";
+  return "unclear";
+}
+
+/**
+ * Called from the inbound SMS webhook, BEFORE emitCustomerReplyFollowup, so
+ * that a negative/unclear reply to a review request locks AI out of this
+ * conversation (the exact same durable conversations.ai_enabled mechanism
+ * n8n-callback's own needs_human handling already uses) before the AI
+ * automation is ever dispatched - satisfying "do not automatically argue
+ * with customers" by construction, not by convention. A clearly positive
+ * reply changes nothing here; recordRequestResponses' own deterministic
+ * status bookkeeping (unchanged) still runs for every reply regardless of
+ * sentiment.
+ *
+ * Idempotent: the ai_enabled UPDATE below only affects a row that is
+ * currently true (`.eq("ai_enabled", true)`), so a second negative reply to
+ * an already-escalated conversation is a safe no-op, and notifyFounder is
+ * only called when this call is the one that actually performed the lock.
+ */
+export async function classifyAndEscalateReviewReply(
+  supabase: SupabaseClient,
+  organizationId: string,
+  contactId: string,
+  conversationId: string,
+  messageBody: string,
+): Promise<void> {
+  const { data: activeReviewRequest } = await supabase
+    .from("review_requests")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .eq("status", "requested")
+    .order("requested_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!activeReviewRequest) return;
+
+  const sentiment = classifyReviewReplySentiment(messageBody);
+  if (sentiment === "positive") return;
+
+  const { data: lockedRow, error: lockError } = await supabase
+    .from("conversations")
+    .update({ ai_enabled: false })
+    .eq("id", conversationId)
+    .eq("organization_id", organizationId)
+    .eq("ai_enabled", true)
+    .select("id")
+    .maybeSingle();
+
+  if (lockError) {
+    console.error("[reviews-referrals] failed to lock conversation after a negative/unclear review reply", { organizationId, conversationId, error: lockError.message });
+    return;
+  }
+
+  if (lockedRow) {
+    await notifyFounder(supabase, {
+      organizationId,
+      kind: "ai_escalation",
+      summary: sentiment === "negative" ? "A customer replied negatively to a review request." : "A customer's reply to a review request needs a human look.",
+      detailPath: `/conversations/${conversationId}`,
+    });
   }
 }

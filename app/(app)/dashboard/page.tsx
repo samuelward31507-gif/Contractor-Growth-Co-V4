@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getDashboardData } from "@/lib/dashboard/queries";
+import { getOwnerDailyBriefing, getEndOfDaySummary } from "@/lib/briefing/queries";
 import { getDashboardBusinessMetrics, getCachedBusinessInsights } from "@/lib/dashboard/business-metrics";
 import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
 import { getOrganizationHealth } from "@/lib/automation-health/health";
@@ -20,6 +21,7 @@ import { RecentActivity } from "./_components/recent-activity";
 import { BusinessGlance } from "./_components/business-glance";
 import { AiInsightsPanel } from "./_components/ai-insights-panel";
 import { SystemStatus } from "./_components/system-status";
+import { BriefingPanel } from "./_components/briefing-panel";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
 
 function greeting(): string {
@@ -69,7 +71,7 @@ export default async function DashboardPage() {
   // getBusinessMetricsSnapshot the rest of this page already calls (with
   // "last30Days"), just a different real date-range preset - not a new
   // metrics engine.
-  const [data, businessMetrics, cachedInsights, leads, appointments, contacts, health, todaySnapshot] = await Promise.all([
+  const [data, businessMetrics, cachedInsights, leads, appointments, contacts, health, todaySnapshot, dailyBriefing, endOfDaySummary] = await Promise.all([
     getDashboardData(supabase, membership.organizationId),
     getDashboardBusinessMetrics(supabase, membership.organizationId),
     getCachedBusinessInsights(supabase, membership.organizationId),
@@ -78,6 +80,8 @@ export default async function DashboardPage() {
     getContacts(supabase, membership.organizationId),
     getOrganizationHealth(supabase, membership.organizationId),
     getBusinessMetricsSnapshot(supabase, membership.organizationId, "today"),
+    getOwnerDailyBriefing(supabase, membership.organizationId),
+    getEndOfDaySummary(supabase, membership.organizationId),
   ]);
   const businessName = membership.organizationName ?? "there";
   const leadSummary = summarizeLeads(leads);
@@ -148,6 +152,10 @@ export default async function DashboardPage() {
 
         <div className="order-4 border-t border-slate-200 pt-8 lg:order-none">
           <TodaysSchedule appointments={todaysAppointments} />
+        </div>
+
+        <div className="order-4 border-t border-slate-200 pt-8 lg:order-none">
+          <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
         </div>
 
         <div className="order-5 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 lg:order-none lg:grid-cols-[minmax(0,1fr)_320px]">

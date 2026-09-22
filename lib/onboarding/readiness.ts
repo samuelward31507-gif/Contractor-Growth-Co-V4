@@ -1,6 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getBusinessProfile, getBusinessHours, getLeadIntakeToken, getAutomationMode, hasAiSettingsConfigured, type AutomationMode } from "@/lib/settings/queries";
+import {
+  getBusinessProfile,
+  getBusinessHours,
+  getLeadIntakeToken,
+  getAutomationMode,
+  hasAiSettingsConfigured,
+  hasBookingSettingsConfigured,
+  getBookingSettings,
+  type AutomationMode,
+} from "@/lib/settings/queries";
 import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
+import { getCalendarConnection } from "@/lib/calendar/connection";
 
 /**
  * First Client Onboarding V1: a single, factual readiness computation
@@ -25,10 +35,26 @@ import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
  */
 export type OnboardingStatus = "setup" | "blocked" | "testing" | "ready" | "live";
 
+/**
+ * Growth System Completion Pass 1: a three-way distinction, not just
+ * complete/incomplete - a Growth System capability (AI booking, Google
+ * Calendar sync) that a contractor has never configured is genuinely
+ * "not_ready" (a real gap the founder should see), but one they explicitly
+ * configured OFF/disconnected is "disabled_by_intent" (a valid choice, never
+ * displayed or treated as a problem). `complete` stays true for both "ready"
+ * and "disabled_by_intent" (neither blocks anything downstream, including
+ * canGoLive below) - only "not_ready" is ever actually incomplete. Pre-
+ * existing items (business/hours/leadCapture/sms/ai) only ever resolve to
+ * "ready"/"not_ready" - the "disabled_by_intent" state has no meaning for
+ * them and is never produced.
+ */
+export type ReadinessState = "ready" | "not_ready" | "disabled_by_intent";
+
 export type ReadinessItem = {
-  key: "business" | "hours" | "leadCapture" | "sms" | "ai";
+  key: "business" | "hours" | "leadCapture" | "sms" | "ai" | "booking" | "calendar";
   label: string;
   complete: boolean;
+  state: ReadinessState;
   detail: string;
 };
 
@@ -41,13 +67,16 @@ export type OnboardingReadiness = {
 };
 
 export async function computeOnboardingReadiness(supabase: SupabaseClient, organizationId: string): Promise<OnboardingReadiness> {
-  const [profile, hours, smsNumber, aiConfigured, intakeToken, automationMode] = await Promise.all([
+  const [profile, hours, smsNumber, aiConfigured, intakeToken, automationMode, bookingConfigured, bookingSettings, calendarConnection] = await Promise.all([
     getBusinessProfile(supabase, organizationId),
     getBusinessHours(supabase, organizationId),
     getOrganizationSmsNumber(supabase, organizationId),
     hasAiSettingsConfigured(supabase, organizationId),
     getLeadIntakeToken(supabase, organizationId),
     getAutomationMode(supabase, organizationId),
+    hasBookingSettingsConfigured(supabase, organizationId),
+    getBookingSettings(supabase, organizationId),
+    getCalendarConnection(supabase, organizationId),
   ]);
 
   const businessComplete = Boolean(profile?.name) && Boolean(profile?.phone);
@@ -55,36 +84,80 @@ export async function computeOnboardingReadiness(supabase: SupabaseClient, organ
   const smsComplete = Boolean(smsNumber);
   const leadCaptureComplete = Boolean(intakeToken);
 
+  // Growth System Completion Pass 1: AI booking is "ready" once a
+  // booking_settings row exists AND the contractor left it enabled;
+  // "disabled_by_intent" once configured and explicitly turned off (a valid
+  // choice); "not_ready" only when never configured at all - the state
+  // hasBookingSettingsConfigured (row existence) exists specifically to
+  // distinguish from getBookingSettings' safe false-default.
+  const bookingState: ReadinessState = !bookingConfigured ? "not_ready" : bookingSettings.booking_enabled ? "ready" : "disabled_by_intent";
+
+  // Calendar: no connection at all is a valid choice (not every contractor
+  // uses Google Calendar) - "disabled_by_intent", never "not_ready". A
+  // connection that exists but is currently unhealthy (status: "error") IS a
+  // real, "not_ready" problem - something is broken and needs the
+  // contractor's attention, distinct from having never opted in.
+  const calendarState: ReadinessState = !calendarConnection ? "disabled_by_intent" : calendarConnection.status === "error" ? "not_ready" : "ready";
+
   const items: ReadinessItem[] = [
     {
       key: "business",
       label: "Business information",
       complete: businessComplete,
+      state: businessComplete ? "ready" : "not_ready",
       detail: businessComplete ? "Business name and phone on file." : "Add your business name and phone number.",
     },
     {
       key: "hours",
       label: "Business hours",
       complete: hoursComplete,
+      state: hoursComplete ? "ready" : "not_ready",
       detail: hoursComplete ? "Business hours configured." : "Configure your business hours.",
     },
     {
       key: "leadCapture",
       label: "Lead capture",
       complete: leadCaptureComplete,
+      state: leadCaptureComplete ? "ready" : "not_ready",
       detail: leadCaptureComplete ? "Your lead intake URL is ready to use." : "Lead intake is not yet available for this organization.",
     },
     {
       key: "sms",
       label: "Business phone number",
       complete: smsComplete,
+      state: smsComplete ? "ready" : "not_ready",
       detail: smsComplete ? "Connected — customer replies can reach Trackpr." : "Connect your business number so customer replies can reach Trackpr.",
     },
     {
       key: "ai",
       label: "AI response settings",
       complete: aiConfigured,
+      state: aiConfigured ? "ready" : "not_ready",
       detail: aiConfigured ? "Reviewed." : "Review how Trackpr should respond to new leads (AI can stay off).",
+    },
+    {
+      key: "booking",
+      label: "AI appointment booking",
+      complete: bookingState !== "not_ready",
+      state: bookingState,
+      detail:
+        bookingState === "ready"
+          ? "Booking is configured and enabled."
+          : bookingState === "disabled_by_intent"
+            ? "Online booking is turned off — a valid choice, not a problem."
+            : "Review booking settings, or turn booking off if you don't want AI scheduling.",
+    },
+    {
+      key: "calendar",
+      label: "Google Calendar sync",
+      complete: calendarState !== "not_ready",
+      state: calendarState,
+      detail:
+        calendarState === "ready"
+          ? "Connected and healthy."
+          : calendarState === "disabled_by_intent"
+            ? "No calendar connected — a valid choice, not a problem."
+            : "Your Google Calendar connection needs attention — reconnect it in Settings.",
     },
   ];
 

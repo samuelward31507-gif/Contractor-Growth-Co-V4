@@ -60,8 +60,12 @@ let memberUser: { id: string; email: string; password: string };
 let otherOrgOwner: { id: string; email: string; password: string };
 
 before(async () => {
-  const { data: org } = await service.from("organizations").insert({ name: "Automation Health Security Test Org" }).select("id").single();
-  const { data: other } = await service.from("organizations").insert({ name: "Automation Health Security Test Org - Other" }).select("id").single();
+  // payment_status: 'active' is required here - record_automation_incident_signal
+  // and its resolve/acknowledge siblings are payment-gated SECURITY DEFINER
+  // RPCs, and this suite calls them through real, non-service-role sessions,
+  // so the payment gate genuinely applies.
+  const { data: org } = await service.from("organizations").insert({ name: "Automation Health Security Test Org", payment_status: "active" }).select("id").single();
+  const { data: other } = await service.from("organizations").insert({ name: "Automation Health Security Test Org - Other", payment_status: "active" }).select("id").single();
   organizationId = org!.id;
   otherOrgId = other!.id;
 

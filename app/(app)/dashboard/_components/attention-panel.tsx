@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clock, Flame, FileText, ChevronRight, type LucideIcon } from "lucide-react";
+import { Clock, Flame, FileText, CalendarOff, ChevronRight, type LucideIcon } from "lucide-react";
 import { surfaceClass } from "@/lib/ui/surface";
 import { primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
 import type { AttentionItem } from "@/lib/dashboard/queries";
@@ -8,12 +8,14 @@ const KIND_ICON: Record<AttentionItem["kind"], LucideIcon> = {
   overdue_appointment: Clock,
   hot_lead: Flame,
   pending_estimate: FileText,
+  calendar_disconnected: CalendarOff,
 };
 
 const KIND_STYLE: Record<AttentionItem["kind"], string> = {
   overdue_appointment: "bg-amber-50 text-amber-600",
   hot_lead: "bg-red-50 text-red-600",
   pending_estimate: "bg-blue-50 text-blue-600",
+  calendar_disconnected: "bg-red-50 text-red-600",
 };
 
 /**

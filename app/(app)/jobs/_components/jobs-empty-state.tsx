@@ -1,25 +1,29 @@
 import Link from "next/link";
 import { Hammer } from "lucide-react";
 import { EmptyState } from "@/lib/ui/empty-state";
-import { primaryButtonAutoClass } from "@/lib/ui/form";
+import { secondaryButtonAutoClass } from "@/lib/ui/form";
+import type { Contact } from "@/lib/contacts/queries";
+import type { Lead } from "@/lib/leads/queries";
+import { AddJobButton } from "./add-job-button";
 
 /**
- * Unlike Leads/Estimates, there is no "Add Job" action here - jobs are only
- * ever created by accepting an estimate (lib/automation/jobs.ts's
- * emitJobCreatedFromEstimate, the sole job-creation path per explicit
- * decision). The empty state explains that workflow instead of offering a
- * button to a feature that doesn't exist.
+ * Growth System Completion Pass 1: jobs are still created automatically when
+ * a customer accepts an estimate (unchanged), but a contractor can now also
+ * create one directly (see AddJobButton) - the empty state offers both.
  */
-export function JobsEmptyState() {
+export function JobsEmptyState({ contacts, leads }: { contacts: Contact[]; leads: Lead[] }) {
   return (
     <EmptyState
       icon={Hammer}
       title="No jobs yet."
-      description="Jobs are created automatically when a customer accepts an estimate. Once that happens, it'll show up here ready to schedule."
+      description="Jobs are created automatically when a customer accepts an estimate, or you can create one directly."
       action={
-        <Link href="/estimates" className={primaryButtonAutoClass}>
-          Go to Estimates
-        </Link>
+        <div className="flex flex-wrap items-center justify-center gap-2.5">
+          <AddJobButton contacts={contacts} leads={leads} />
+          <Link href="/estimates" className={secondaryButtonAutoClass}>
+            Go to Estimates
+          </Link>
+        </div>
       }
     />
   );

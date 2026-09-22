@@ -7,6 +7,8 @@ import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getEstimate } from "@/lib/estimates/queries";
 import { getJob, getJobByEstimateId } from "@/lib/jobs/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
+import { emitLeadStageChanged } from "./lead-stage-history";
+import type { LeadStatus } from "@/lib/leads/queries";
 
 export const JOB_CREATED_WORKFLOW = "job_created_followup";
 
@@ -87,23 +89,59 @@ export async function emitJobCreatedFromEstimate(
   // has since moved past 'won' for some other reason. Never blocks job
   // creation itself if this update fails.
   if (estimate.lead_id) {
-    const { error: leadWonUpdateError } = await supabase
+    // Growth System Completion Pass 2 (Part 1): read the lead's own status
+    // BEFORE the conditional update below, so a genuine transition can be
+    // recorded with a real previous stage - the update itself still uses
+    // the exact same neq("status", "won") guard as before (unchanged
+    // behavior), this read only ever informs the history entry.
+    const { data: leadBeforeWon } = await supabase.from("leads").select("status").eq("id", estimate.lead_id).eq("organization_id", organizationId).maybeSingle();
+
+    const { data: wonLead, error: leadWonUpdateError } = await supabase
       .from("leads")
       .update({ status: "won" })
       .eq("id", estimate.lead_id)
       .eq("organization_id", organizationId)
-      .neq("status", "won");
+      .neq("status", "won")
+      .select("id")
+      .maybeSingle();
 
     if (leadWonUpdateError) {
       console.error("[automation] failed to sync lead status to won", { estimateId, leadId: estimate.lead_id, error: leadWonUpdateError.message });
+    } else if (wonLead && leadBeforeWon) {
+      await emitLeadStageChanged(supabase, {
+        leadId: estimate.lead_id,
+        previousStatus: leadBeforeWon.status as LeadStatus,
+        newStatus: "won",
+        source: "automation",
+        // Tied to this specific estimate - a retried/replayed call for the
+        // SAME estimate acceptance resolves to the same history row; a
+        // genuinely different estimate winning this lead again later gets
+        // its own distinct entry.
+        idempotencySuffix: estimateId,
+      });
     }
   }
 
+  await emitJobCreatedEvent(supabase, organizationId, jobId, estimateId);
+}
+
+/**
+ * Growth System Completion Pass 1: extracted from emitJobCreatedFromEstimate
+ * above (byte-identical behavior, not a rewrite) so Direct Job Creation
+ * (app/(app)/jobs/actions.ts's createJob) can dispatch the exact same
+ * job.created event/kickoff notification for a manually-created job -
+ * "preserve lifecycle automation where appropriate" - without a second,
+ * divergent implementation. `estimateId` is null for a directly-created job
+ * (there is no originating estimate to record in the payload); everything
+ * else - idempotency, the AI-drafted kickoff message, eligibility - is
+ * identical regardless of which path created the job.
+ */
+export async function emitJobCreatedEvent(supabase: SupabaseClient, organizationId: string, jobId: string, estimateId: string | null): Promise<void> {
   const eventResult = await createAutomationEvent(supabase, {
     eventType: "job.created",
     entityType: "job",
     entityId: jobId,
-    payload: { job_id: jobId, estimate_id: estimateId },
+    payload: estimateId ? { job_id: jobId, estimate_id: estimateId } : { job_id: jobId },
     idempotencyKey: `job.created:${jobId}`,
   });
 

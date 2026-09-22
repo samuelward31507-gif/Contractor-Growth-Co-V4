@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Zap, MessageSquareReply, ShieldCheck, CalendarClock, BellRing, FileText, Wrench, Star, HeartPulse, RotateCcw } from "lucide-react";
+import { Zap, MessageSquareReply, ShieldCheck, CalendarClock, BellRing, FileText, Wrench, Star, HeartPulse, RotateCcw, PhoneMissed, Sparkles } from "lucide-react";
 
 /**
  * Centralized, typed catalog of Trackpr's automation capabilities -
@@ -54,6 +54,27 @@ export type AutomationDefinition = {
 };
 
 export const AUTOMATION_CATALOG: AutomationDefinition[] = [
+  {
+    id: "missed-call-recovery",
+    name: "Missed Call Recovery",
+    description: "Sends an immediate SMS when a call to the business goes unanswered, inviting the caller to continue by text.",
+    category: "Leads",
+    icon: PhoneMissed,
+    kind: "event-triggered",
+    trigger: "An inbound call arrives and cannot be answered",
+    eventTypes: ["call.missed"],
+    workflowNames: ["missed_call_recovery"],
+    dispatch: "trackpr",
+    steps: [
+      "Trigger: an inbound call arrives at the Twilio Voice webhook",
+      "Trackpr identifies or creates the contact from the caller's number, and associates an existing open lead or creates a new one",
+      "Trackpr records the call.missed event, composed directly - no AI, no n8n round trip",
+      "Trackpr sends an immediate SMS inviting the caller to continue by text",
+      "Safe AI Outbound gate still re-verifies opt-out status and duplicate-send protection",
+      "From here, any reply the caller sends is a normal inbound SMS - qualification, AI conversation, and booking all follow the exact same existing pipeline as any other lead",
+      "Execution recorded as completed",
+    ],
+  },
   {
     id: "instant-lead-followup",
     name: "Instant Lead Follow-Up",
@@ -258,6 +279,26 @@ export const AUTOMATION_CATALOG: AutomationDefinition[] = [
       "n8n drafts a re-engagement message",
       "Trackpr's callback route records the AI result",
       "Safe AI Outbound gate re-verifies the lead is still inactive and has no active engagement before sending",
+      "Message sent",
+      "Execution recorded as completed",
+    ],
+  },
+  {
+    id: "customer-reactivation",
+    name: "Old Customer Reactivation",
+    description: "Sends a single re-engagement message to past customers who have gone quiet since their last completed job, composed directly by Trackpr.",
+    category: "Customers",
+    icon: Sparkles,
+    kind: "scheduled",
+    trigger: "Scheduled - runs on a recurring schedule, based on time since a customer's last completed job",
+    eventTypes: ["customer.reactivation"],
+    workflowNames: ["customer_reactivation_followup"],
+    dispatch: "trackpr",
+    steps: [
+      "Scheduled run finds past customers whose most recently completed job crossed the organization's configured inactivity threshold",
+      "Trackpr composes the re-engagement message directly, naming the customer and the actual service they last had done - no AI, no n8n round trip",
+      "Excludes any contact with an open lead, an active appointment/estimate/job, or an already-open conversation",
+      "Safe AI Outbound gate re-verifies the job is still completed, opt-out status, and duplicate-send protection before sending",
       "Message sent",
       "Execution recorded as completed",
     ],

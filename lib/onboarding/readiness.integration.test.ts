@@ -104,7 +104,12 @@ test("3. business + SMS complete but hours not configured reports status 'testin
 test("4. business + SMS + hours all complete reports status 'ready' - Go Live is available", async () => {
   const readiness = await computeOnboardingReadiness(service, readyOrgId);
   assert.equal(readiness.status, "ready");
-  assert.equal(readiness.items.every((i) => i.key === "ai" || i.complete), true);
+  // "ai" and "booking" are optional/never-configured-yet on this fresh
+  // fixture org and never block Go Live readiness - see canGoLive, which
+  // only ever checks business/hours/sms. "calendar" IS included in this
+  // check: with no connection at all it correctly reports
+  // state: "disabled_by_intent" (complete: true), a valid choice, not a gap.
+  assert.equal(readiness.items.every((i) => i.key === "ai" || i.key === "booking" || i.complete), true);
 });
 
 test("5. automation_mode 'live' always reports status 'live', regardless of other configuration", async () => {
@@ -161,4 +166,70 @@ test("10. getLatestTestLeadOutcome correctly reads back a real test lead's autom
   assert.equal(outcome?.leadId, lead!.id);
   assert.equal(outcome?.executionStatus, "completed");
   assert.equal(outcome?.blockedReason, "organization_not_live");
+});
+
+// ==================== Growth System Completion Pass 1: booking/calendar readiness ====================
+
+test("11. booking: never configured at all reports state 'not_ready' (complete: false) - a real gap, not a choice", async () => {
+  const readiness = await computeOnboardingReadiness(service, setupOrgId);
+  const item = readiness.items.find((i) => i.key === "booking");
+  assert.equal(item?.state, "not_ready");
+  assert.equal(item?.complete, false);
+});
+
+test("12. booking: configured and explicitly left disabled reports state 'disabled_by_intent' (complete: true) - a valid choice, not a gap", async () => {
+  await service.from("booking_settings").upsert({ organization_id: readyOrgId, booking_enabled: false }, { onConflict: "organization_id" });
+  const readiness = await computeOnboardingReadiness(service, readyOrgId);
+  const item = readiness.items.find((i) => i.key === "booking");
+  assert.equal(item?.state, "disabled_by_intent");
+  assert.equal(item?.complete, true);
+  await service.from("booking_settings").delete().eq("organization_id", readyOrgId);
+});
+
+test("13. booking: configured and enabled reports state 'ready'", async () => {
+  await service.from("booking_settings").upsert({ organization_id: readyOrgId, booking_enabled: true }, { onConflict: "organization_id" });
+  const readiness = await computeOnboardingReadiness(service, readyOrgId);
+  const item = readiness.items.find((i) => i.key === "booking");
+  assert.equal(item?.state, "ready");
+  assert.equal(item?.complete, true);
+  await service.from("booking_settings").delete().eq("organization_id", readyOrgId);
+});
+
+test("14. calendar: no connection at all reports state 'disabled_by_intent' (complete: true) - not every contractor uses Google Calendar", async () => {
+  const readiness = await computeOnboardingReadiness(service, setupOrgId);
+  const item = readiness.items.find((i) => i.key === "calendar");
+  assert.equal(item?.state, "disabled_by_intent");
+  assert.equal(item?.complete, true);
+});
+
+test("15. calendar: a connected but unhealthy (status: 'error') connection reports state 'not_ready' (complete: false) - a real, broken thing that needs attention", async () => {
+  await service.from("calendar_connections").insert({ organization_id: readyOrgId, provider: "google", account_email: "owner@example.com", status: "error", last_error: "token revoked" });
+  const readiness = await computeOnboardingReadiness(service, readyOrgId);
+  const item = readiness.items.find((i) => i.key === "calendar");
+  assert.equal(item?.state, "not_ready");
+  assert.equal(item?.complete, false);
+  await service.from("calendar_connections").delete().eq("organization_id", readyOrgId);
+});
+
+test("16. calendar: a connected and healthy connection reports state 'ready'", async () => {
+  await service.from("calendar_connections").insert({ organization_id: readyOrgId, provider: "google", account_email: "owner@example.com", status: "connected" });
+  const readiness = await computeOnboardingReadiness(service, readyOrgId);
+  const item = readiness.items.find((i) => i.key === "calendar");
+  assert.equal(item?.state, "ready");
+  assert.equal(item?.complete, true);
+  await service.from("calendar_connections").delete().eq("organization_id", readyOrgId);
+});
+
+test("17. booking/calendar readiness never blocks canGoLive - only business/hours/sms do", async () => {
+  const { canGoLive }: typeof import("./checklist") = require(path.join(REPO_ROOT, "lib/onboarding/checklist.ts"));
+  const check = canGoLive({
+    items: [
+      { key: "business", label: "Business profile", complete: true, state: "ready" },
+      { key: "hours", label: "Business hours", complete: true, state: "ready" },
+      { key: "sms", label: "SMS configured", complete: true, state: "ready" },
+      { key: "booking", label: "AI appointment booking", complete: false, state: "not_ready" },
+      { key: "calendar", label: "Google Calendar sync", complete: false, state: "not_ready" },
+    ],
+  });
+  assert.equal(check.allowed, true, "booking/calendar must never block Go Live - they are surfaced, not enforced");
 });

@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { LEAD_STATUSES, LEAD_TEMPERATURES, type LeadStatus, type LeadTemperature } from "@/lib/leads/queries";
 import { emitLeadCreatedFollowup } from "@/lib/automation/lead-followup";
 import { emitLeadLost } from "@/lib/automation/lead-lost";
+import { emitLeadStageChanged } from "@/lib/automation/lead-stage-history";
 
 export type LeadFormState = {
   error?: string;
@@ -95,7 +96,7 @@ async function requireOrganization() {
     redirect("/onboarding");
   }
 
-  return { supabase, organizationId: membership.organizationId };
+  return { supabase, organizationId: membership.organizationId, userId: user.id };
 }
 
 /**
@@ -124,7 +125,7 @@ export async function createLead(_prevState: LeadFormState, formData: FormData):
   const { input, error } = parseLeadForm(formData);
   if (error || !input) return { error: error ?? "Enter lead details." };
 
-  const { supabase, organizationId } = await requireOrganization();
+  const { supabase, organizationId, userId } = await requireOrganization();
 
   const contactValid = await verifyContactInOrganization(supabase, organizationId, input.contact_id);
   if (!contactValid) {
@@ -140,6 +141,11 @@ export async function createLead(_prevState: LeadFormState, formData: FormData):
   if (insertError || !lead) {
     return { error: "We couldn't create this lead. Please try again." };
   }
+
+  // Growth System Completion Pass 2 (Part 1): the first lead-stage-history
+  // entry - previousStatus: null marks this as the lead's origin, never a
+  // real transition from some prior stage.
+  await emitLeadStageChanged(supabase, { leadId: lead.id, previousStatus: null, newStatus: input.status, source: "manual", actorUserId: userId });
 
   // Best-effort: the lead is already created and is the source of truth
   // regardless of what happens here. emitLeadCreatedFollowup never throws
@@ -169,7 +175,7 @@ export async function updateLead(_prevState: LeadFormState, formData: FormData):
   const { input, error } = parseLeadForm(formData);
   if (error || !input) return { error: error ?? "Enter lead details." };
 
-  const { supabase, organizationId } = await requireOrganization();
+  const { supabase, organizationId, userId } = await requireOrganization();
 
   const contactValid = await verifyContactInOrganization(supabase, organizationId, input.contact_id);
   if (!contactValid) {
@@ -181,6 +187,8 @@ export async function updateLead(_prevState: LeadFormState, formData: FormData):
   // an already-lost lead (requirement C) - this is the only way to know
   // the lead's previous status, since updateLead is a single generic
   // update covering every field, not a dedicated status-transition action.
+  // Growth System Completion Pass 2 (Part 1) reuses this exact same
+  // read-before-write for lead-stage history - one comparison, two uses.
   const { data: previous } = await supabase
     .from("leads")
     .select("status")
@@ -202,6 +210,10 @@ export async function updateLead(_prevState: LeadFormState, formData: FormData):
 
   if (!data) {
     return { error: "This lead could not be found." };
+  }
+
+  if (previous && previous.status !== input.status) {
+    await emitLeadStageChanged(supabase, { leadId: id, previousStatus: previous.status as LeadStatus, newStatus: input.status, source: "manual", actorUserId: userId });
   }
 
   if (previous && previous.status !== "lost" && input.status === "lost") {

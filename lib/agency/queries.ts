@@ -235,6 +235,10 @@ export type AgencyBusinessSummary = {
   aiInteractions: number;
   aiInteractionsByType: Record<string, number>;
   aiInteractionsByModel: Record<string, number>;
+  /** Growth System Completion Pass 2, Part 4: SUM across every organization's own metrics.aiMetrics.totalTokensUsed - `null` when not a single organization has any usage data at all. */
+  totalTokensUsed: number | null;
+  /** Count of organizations (out of organizationCount) with at least one AI interaction carrying real usage data - lets the agency view show "usage data available for N of M clients" rather than implying full coverage. */
+  organizationsWithUsageData: number;
 };
 
 export type AgencyBusinessMetricsResult =
@@ -247,7 +251,7 @@ export type AgencyBusinessMetricsResult =
         collectedRevenueUnavailable: true;
         sourceAttributionLimited: true;
         stageHistoryUnavailable: true;
-        aiTokenUsageUnavailable: true;
+        aiTokenUsageUnavailable: boolean;
         notes: string[];
       };
       generatedAt: string;
@@ -337,7 +341,13 @@ export async function getAgencyBusinessMetrics(
     aiInteractions: sum((s) => s.metrics.aiMetrics.aiInteractions),
     aiInteractionsByType: mergeCounts(organizations, (s) => s.aiInteractionsByType),
     aiInteractionsByModel: mergeCounts(organizations, (s) => s.aiInteractionsByModel),
+    totalTokensUsed: organizations.some((s) => s.metrics.aiMetrics.totalTokensUsed !== null)
+      ? sum((s) => s.metrics.aiMetrics.totalTokensUsed ?? 0)
+      : null,
+    organizationsWithUsageData: organizations.filter((s) => s.metrics.aiMetrics.interactionsWithUsageData > 0).length,
   };
+
+  const aiTokenUsageUnavailable = summary.organizationsWithUsageData === 0;
 
   return {
     ok: true,
@@ -347,10 +357,12 @@ export async function getAgencyBusinessMetrics(
       collectedRevenueUnavailable: true,
       sourceAttributionLimited: true,
       stageHistoryUnavailable: true,
-      aiTokenUsageUnavailable: true,
+      aiTokenUsageUnavailable,
       notes: [
         "No payment infrastructure exists - every value figure across the agency is quoted/contracted, never confirmed collected money.",
-        "ai_interactions.tokens_used is never populated by any write path in this codebase (verified: the n8n-callback route's upsert and lib/bi/insights.ts's persistence both omit it) - AI usage is reported as interaction counts only, never a token or cost figure.",
+        aiTokenUsageUnavailable
+          ? "No organization has any ai_interactions row with provider-reported token usage yet - n8n's own AI call has not reported it for any interaction."
+          : `Token usage is available for ${summary.organizationsWithUsageData} of ${organizations.length} client(s) - only n8n calls that reported usage are included.`,
       ],
     },
     generatedAt: new Date().toISOString(),

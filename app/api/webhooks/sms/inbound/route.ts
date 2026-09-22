@@ -6,7 +6,7 @@ import { emitCustomerReplyFollowup } from "@/lib/automation/customer-reply";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { buildHelpResponseMessage } from "@/lib/messaging/help-response";
 import { isValidTwilioSignature } from "@/lib/messaging/twilio-signature";
-import { recordRequestResponses } from "@/lib/reviews-referrals/tracking";
+import { recordRequestResponses, classifyAndEscalateReviewReply } from "@/lib/reviews-referrals/tracking";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
@@ -167,6 +167,15 @@ export async function POST(request: NextRequest) {
       .select("lead_id")
       .eq("id", conversation.id)
       .maybeSingle();
+
+    // Growth System Completion Pass 1 (Part 5): runs BEFORE the customer-reply
+    // AI dispatch below, and only ever locks AI out of the conversation
+    // (never sends anything itself) - so a negative/unclear reply to a
+    // review request is guaranteed to never receive an AI-drafted response,
+    // by construction, not by convention. A no-op when there is no
+    // currently-'requested' review_request for this contact, or the reply
+    // reads as clearly positive.
+    await classifyAndEscalateReviewReply(service, organization.id, contact.id, conversation.id, body);
 
     await emitCustomerReplyFollowup(service, {
       organizationId: organization.id,

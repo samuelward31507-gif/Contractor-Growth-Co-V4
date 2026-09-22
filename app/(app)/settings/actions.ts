@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isValidHttpUrl, isValidTimezone } from "@/lib/settings/format";
 import { DAYS_OF_WEEK, LEAD_SOURCE_OPTIONS, type DayOfWeek, type LeadSourceValue } from "@/lib/settings/queries";
 import { canGoLive, computeSetupChecklist } from "@/lib/onboarding/checklist";
+import { getCalendarConnection, selectCalendar, disconnectCalendar, checkConnectionHealth } from "@/lib/calendar/connection";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -599,5 +600,62 @@ export async function updateNotificationSettings(
   }
 
   revalidatePath("/settings");
+  return { success: true };
+}
+
+// ==================== Calendar Connection (Phase 1 Scheduling Foundation, Stage 3) ====================
+//
+// Connecting itself happens via a plain navigation to
+// app/api/calendar/oauth/start (a route, not a Server Action - it needs to
+// issue an HTTP redirect to Google, which a Server Action can't do in the
+// way a normal link click can). These three actions cover everything else:
+// choosing which of the connected account's calendars Trackpr uses,
+// disconnecting, and an explicit health check. None of them accept a
+// connection/credential id from the client - every one resolves the
+// organization's one Google connection itself, via the same
+// requireSettingsAdmin() -> getCalendarConnection() chain, so there is
+// nothing for a client-supplied id to spoof.
+
+export async function selectCalendarAction(_prevState: SettingsActionState, formData: FormData): Promise<SettingsActionState> {
+  const { supabase, organizationId, error: authError } = await requireSettingsAdmin();
+  if (authError || !organizationId) return { error: authError ?? "Something went wrong. Please try again." };
+
+  const calendarId = String(formData.get("calendarId") ?? "").trim();
+  const calendarName = String(formData.get("calendarName") ?? "").trim();
+  if (!calendarId) return { error: "Choose a calendar." };
+
+  const connection = await getCalendarConnection(supabase, organizationId);
+  if (!connection) return { error: "Connect a Google Calendar first." };
+
+  const result = await selectCalendar(supabase, organizationId, calendarId, calendarName || calendarId);
+  if (!result.ok) return { error: "We couldn't save your calendar selection. Please try again." };
+
+  revalidatePath("/settings");
+  return { success: true };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- required by useActionState's action signature; this action needs neither the previous state nor any submitted field.
+export async function disconnectCalendarAction(_prevState: SettingsActionState, _formData: FormData): Promise<SettingsActionState> {
+  const { supabase, organizationId, error: authError } = await requireSettingsAdmin();
+  if (authError || !organizationId) return { error: authError ?? "Something went wrong. Please try again." };
+
+  const result = await disconnectCalendar(supabase, organizationId);
+  if (!result.ok) return { error: "We couldn't disconnect the calendar. Please try again." };
+
+  revalidatePath("/settings");
+  return { success: true };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- required by useActionState's action signature; this action needs neither the previous state nor any submitted field.
+export async function checkCalendarHealthAction(_prevState: SettingsActionState, _formData: FormData): Promise<SettingsActionState> {
+  const { supabase, organizationId, error: authError } = await requireSettingsAdmin();
+  if (authError || !organizationId) return { error: authError ?? "Something went wrong. Please try again." };
+
+  const connection = await getCalendarConnection(supabase, organizationId);
+  if (!connection) return { error: "No calendar is connected." };
+
+  const result = await checkConnectionHealth(connection.id);
+  revalidatePath("/settings");
+  if (!result.ok) return { error: result.error ?? "The calendar connection is currently unhealthy." };
   return { success: true };
 }

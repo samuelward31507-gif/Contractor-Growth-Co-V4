@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { filterJobs, getJobs, summarizeJobs, type JobStatus } from "@/lib/jobs/queries";
+import { getContacts } from "@/lib/contacts/queries";
+import { getLeads } from "@/lib/leads/queries";
 import { getReviewRequests, getReferralRequests, summarizeReviewRequests, summarizeReferralRequests } from "@/lib/reviews-referrals/queries";
 import { PageHeader } from "@/lib/ui/page-header";
 import { JobsEmptyState } from "./_components/jobs-empty-state";
@@ -9,6 +11,7 @@ import { JobsSummary } from "./_components/jobs-summary";
 import { ReviewReferralSummaryRow } from "./_components/review-referral-summary";
 import { JobsTable } from "./_components/jobs-table";
 import { JobsToolbar } from "./_components/jobs-toolbar";
+import { AddJobButton } from "./_components/add-job-button";
 
 const VALID_STATUSES = new Set<string>(["scheduled", "in_progress", "completed", "cancelled"]);
 
@@ -36,10 +39,12 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
     redirect("/onboarding");
   }
 
-  const [allJobs, reviewRequests, referralRequests] = await Promise.all([
+  const [allJobs, reviewRequests, referralRequests, contacts, leads] = await Promise.all([
     getJobs(supabase, membership.organizationId),
     getReviewRequests(supabase, membership.organizationId),
     getReferralRequests(supabase, membership.organizationId),
+    getContacts(supabase, membership.organizationId),
+    getLeads(supabase, membership.organizationId),
   ]);
 
   const summary = summarizeJobs(allJobs);
@@ -49,13 +54,18 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
 
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <PageHeader eyebrow="Operate" title="Jobs" description="Track work from an accepted estimate through completion." />
+      <PageHeader
+        eyebrow="Operate"
+        title="Jobs"
+        description="Track work from an accepted estimate through completion."
+        action={<AddJobButton contacts={contacts} leads={leads} />}
+      />
 
       <JobsSummary summary={summary} />
       <ReviewReferralSummaryRow summary={reviewReferralSummary} />
 
       {allJobs.length === 0 ? (
-        <JobsEmptyState />
+        <JobsEmptyState contacts={contacts} leads={leads} />
       ) : (
         <div className="border-t border-slate-200 pt-8">
           <JobsToolbar initialQuery={query} initialStatus={status} />

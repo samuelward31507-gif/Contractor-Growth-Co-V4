@@ -32,6 +32,12 @@ export type StuckExecution = {
   ageMinutes: number;
 };
 
+/** Mirrors lib/calendar/connection.ts's CalendarConnectionStatus, plus "not_connected" for an organization with no row at all - a valid, common state, never itself a problem. */
+export type AgencyCalendarStatus = "connected" | "error" | "not_connected";
+
+/** Mirrors organizations.payment_status's own check constraint exactly (see the organization_payment_status migration) - founder/admin-visible only, and this module never writes it: the column's own database trigger already rejects any non-service_role write, so there is no client-side modification path to weaken here or anywhere else. */
+export type AgencyPaymentStatus = "payment_required" | "active" | "suspended" | "cancelled";
+
 export type AgencyOrganizationHealth = {
   organizationId: string;
   organizationName: string;
@@ -43,7 +49,14 @@ export type AgencyOrganizationHealth = {
   failedMessages: number;
   undeliveredMessages: number;
   aiInteractions: number;
-  /** A simple, honest signal - not a score, not a ranking, and never a claim that automation or AI caused any outcome. True when at least one stuck execution, one failed execution, one failed message, or one undelivered message was observed in the current period. */
+  /** Growth System Completion Pass 1: safe-metadata-only (status/last_error, never a token) - see getCalendarConnection's own documentation for why calendar_credentials is never touched from agency code. */
+  calendarStatus: AgencyCalendarStatus;
+  calendarLastError: string | null;
+  /** Growth System Completion Pass 2, Part 9/10: read-only - see AgencyPaymentStatus's own documentation for why there is no write path to weaken. */
+  paymentStatus: AgencyPaymentStatus;
+  /** The same founder-facing kill switch evaluateOutboundGate already checks before every send (organizations.automation_paused) - surfaced here read-only so an agency admin can see a client is fully paused without opening that organization directly. */
+  automationPaused: boolean;
+  /** A simple, honest signal - not a score, not a ranking, and never a claim that automation or AI caused any outcome. True when at least one stuck execution, one failed execution, one failed message, one undelivered message, a broken (status: "error") calendar connection, automation paused, or payment suspended/cancelled was observed in the current period. A newly onboarding organization's payment_status of "payment_required" is deliberately excluded - that is an expected, transient state, not a regression, and flagging it would be a false positive. */
   needsAttention: boolean;
 };
 
@@ -179,6 +192,44 @@ async function loadStuckExecutions(
   return data as StuckExecutionRow[];
 }
 
+type CalendarConnectionHealthRow = { organization_id: string; status: "connected" | "disconnected" | "error"; last_error: string | null };
+
+/**
+ * Growth System Completion Pass 1: scoped strictly to the already-authorized
+ * organization ids (the same caller-verified list every other loader in this
+ * file uses), and to exactly the two safe-metadata columns needed - never
+ * account_email/calendar_id/calendar_name (not needed here), and never
+ * calendar_credentials, which this module does not import a path to at all.
+ */
+async function loadCalendarHealth(serviceSupabase: SupabaseClient, organizationIds: string[]): Promise<Map<string, CalendarConnectionHealthRow>> {
+  if (organizationIds.length === 0) return new Map();
+
+  const { data } = await serviceSupabase
+    .from("calendar_connections")
+    .select("organization_id, status, last_error")
+    .eq("provider", "google")
+    .in("organization_id", organizationIds);
+
+  return new Map(((data ?? []) as CalendarConnectionHealthRow[]).map((row) => [row.organization_id, row]));
+}
+
+type PaymentAndPauseRow = { id: string; payment_status: AgencyPaymentStatus; automation_paused: boolean | null };
+
+/**
+ * Growth System Completion Pass 2, Part 9/10: scoped strictly to the
+ * already-authorized organization ids, and to exactly the two columns
+ * needed here - never anything Stripe-adjacent (no card/invoice detail
+ * exists on this table at all; payment_status is the whole of what
+ * Trackpr's own payment gate tracks).
+ */
+async function loadPaymentAndPauseStatus(serviceSupabase: SupabaseClient, organizationIds: string[]): Promise<Map<string, PaymentAndPauseRow>> {
+  if (organizationIds.length === 0) return new Map();
+
+  const { data } = await serviceSupabase.from("organizations").select("id, payment_status, automation_paused").in("id", organizationIds);
+
+  return new Map(((data ?? []) as PaymentAndPauseRow[]).map((row) => [row.id, row]));
+}
+
 export async function getAgencyHealth(
   sessionSupabase: SupabaseClient,
   serviceSupabase: SupabaseClient,
@@ -192,11 +243,21 @@ export async function getAgencyHealth(
   const { organizations } = snapshots;
   const organizationNameById = new Map(organizations.map((org) => [org.organizationId, org.organizationName]));
 
-  const stuckRows = await loadStuckExecutions(
-    serviceSupabase,
-    organizations.map((org) => org.organizationId),
-    stuckThresholdMinutes,
-  );
+  const [stuckRows, calendarHealthByOrg, paymentAndPauseByOrg] = await Promise.all([
+    loadStuckExecutions(
+      serviceSupabase,
+      organizations.map((org) => org.organizationId),
+      stuckThresholdMinutes,
+    ),
+    loadCalendarHealth(
+      serviceSupabase,
+      organizations.map((org) => org.organizationId),
+    ),
+    loadPaymentAndPauseStatus(
+      serviceSupabase,
+      organizations.map((org) => org.organizationId),
+    ),
+  ]);
 
   const now = Date.now();
   const stuck: StuckExecution[] = stuckRows.map((row) => ({
@@ -221,6 +282,15 @@ export async function getAgencyHealth(
     const failedMessages = org.messagesByStatus.failed ?? 0;
     const undeliveredMessages = org.messagesByStatus.undelivered ?? 0;
 
+    const calendarRow = calendarHealthByOrg.get(org.organizationId);
+    const calendarStatus: AgencyCalendarStatus = !calendarRow ? "not_connected" : calendarRow.status === "error" ? "error" : "connected";
+    const calendarLastError = calendarRow?.status === "error" ? calendarRow.last_error : null;
+
+    const paymentAndPauseRow = paymentAndPauseByOrg.get(org.organizationId);
+    const paymentStatus: AgencyPaymentStatus = paymentAndPauseRow?.payment_status ?? "payment_required";
+    const automationPaused = paymentAndPauseRow?.automation_paused === true;
+    const paymentProblem = paymentStatus === "suspended" || paymentStatus === "cancelled";
+
     return {
       organizationId: org.organizationId,
       organizationName: org.organizationName,
@@ -231,7 +301,18 @@ export async function getAgencyHealth(
       failedMessages,
       undeliveredMessages,
       aiInteractions: org.metrics.aiMetrics.aiInteractions,
-      needsAttention: stuckExecutionCount > 0 || failedWorkflowExecutions > 0 || failedMessages > 0 || undeliveredMessages > 0,
+      calendarStatus,
+      calendarLastError,
+      paymentStatus,
+      automationPaused,
+      needsAttention:
+        stuckExecutionCount > 0 ||
+        failedWorkflowExecutions > 0 ||
+        failedMessages > 0 ||
+        undeliveredMessages > 0 ||
+        calendarStatus === "error" ||
+        automationPaused ||
+        paymentProblem,
     };
   });
 

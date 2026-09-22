@@ -142,6 +142,7 @@ export type OutboundGateDenialReason =
   | "duplicate_outbound_send"
   | "conversation_ai_disabled"
   | "organization_not_live"
+  | "organization_payment_inactive"
   | "organization_automation_paused"
   | "appointment_not_found"
   | "appointment_wrong_organization"
@@ -263,7 +264,7 @@ export async function evaluateOutboundGate(
   if (!input.contactId) return deny("missing_contact_id");
   if (!input.conversationId) return deny("missing_conversation_id");
 
-  const [{ data: contact }, { data: conversation }, { data: execution }, { data: organization }, { data: pauseRow, error: pauseError }] =
+  const [{ data: contact }, { data: conversation }, { data: execution }, { data: organization }, { data: paymentRow, error: paymentError }, { data: pauseRow, error: pauseError }] =
     await Promise.all([
       supabase
         .from("contacts")
@@ -285,6 +286,22 @@ export async function evaluateOutboundGate(
         .select("automation_mode")
         .eq("id", input.organizationId)
         .maybeSingle(),
+      // Final Outbound Safety Hardening: kept as its own independent query,
+      // for the exact same reason automation_paused's query is kept
+      // separate below (see that comment) - a combined select would fail as
+      // a single all-or-nothing request if this column were ever unreadable,
+      // which would silently take the pre-existing automation_mode check
+      // down with it. This is the same authoritative payment_status column
+      // (organizations.payment_status) every other payment-gated read path
+      // in this codebase already uses - lib/scheduling/booking.ts's
+      // bookAppointment, app/api/webhooks/voice/inbound/route.ts's missed-
+      // call recovery, lib/automation/customer-reactivation.ts, and the
+      // organization_payment_active() RESTRICTIVE RLS policy - never a
+      // second, divergent payment concept. Only "active" is ever allowed;
+      // "payment_required" (new/onboarding orgs that have never paid),
+      // "suspended", and "cancelled" are all blocked identically, matching
+      // that RLS policy's own `payment_status = 'active'` check exactly.
+      supabase.from("organizations").select("payment_status").eq("id", input.organizationId).maybeSingle(),
       // Launch Blocker #5: kept as its own independent query, deliberately
       // NOT combined into the automation_mode select above. A combined
       // select would fail as a single all-or-nothing request if this column
@@ -304,6 +321,18 @@ export async function evaluateOutboundGate(
   // one. Manual CRM actions (creating leads/appointments/etc.) are
   // unaffected; only this send path is gated.
   if (organization?.automation_mode !== "live") return deny("organization_not_live");
+
+  // Final Outbound Safety Hardening: the centralized, authoritative payment
+  // gate for every automated outbound message, whatever triggered it
+  // (event-driven, scheduled/cron, or a manual "run now"). Re-checked live
+  // on every send, from its own independent query above - never cached. A
+  // query error fails closed here too, exactly like the automation_paused
+  // check immediately below - neither is ever treated as "payment is fine".
+  // This can only ever add a restriction on top of every other check in
+  // this function, never bypass one, and it has no bearing on manual CRM
+  // actions (creating leads/appointments/jobs) or onboarding flows, which
+  // never call this function at all.
+  if (paymentError || paymentRow?.payment_status !== "active") return deny("organization_payment_inactive");
 
   // Launch Blocker #5: founder-facing kill switch. Re-checked live on every
   // send, from its own independent query above - never cached. A query

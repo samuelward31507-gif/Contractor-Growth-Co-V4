@@ -9,7 +9,7 @@ import { SectionCard } from "@/lib/ui/section-card";
 import type { ReviewRequest, ReferralRequest } from "@/lib/reviews-referrals/queries";
 import { REVIEW_STATUS_LABELS, REFERRAL_STATUS_LABELS } from "@/lib/reviews-referrals/format";
 import { REVIEW_STATUS_TONE, REVIEW_STATUS_ICON, REFERRAL_STATUS_TONE, REFERRAL_STATUS_ICON } from "../../_components/status";
-import { markReviewCompleted, markReviewDeclined, markReferralConverted, markReferralDeclined } from "../../actions";
+import { markReviewCompleted, markReviewDeclined, markReferralConverted, markReferralDeclined, createLeadFromReferral } from "../../actions";
 
 /**
  * The only place a review/referral request can ever be moved to a terminal
@@ -35,6 +35,9 @@ export function ReviewReferralPanel({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState("");
+  const [showNewLeadForm, setShowNewLeadForm] = useState(false);
+  const [newLeadName, setNewLeadName] = useState("");
+  const [newLeadPhone, setNewLeadPhone] = useState("");
   const router = useRouter();
 
   if (!reviewRequest && !referralRequest) return null;
@@ -111,6 +114,44 @@ export function ReviewReferralPanel({
                 </button>
                 <button type="button" disabled={isPending} onClick={() => run(() => markReferralDeclined(jobId))} className={secondaryButtonSmallClass}>
                   Mark Declined
+                </button>
+                {!showNewLeadForm ? (
+                  <button type="button" disabled={isPending} onClick={() => setShowNewLeadForm(true)} className="text-xs font-medium text-slate-500 hover:text-slate-900">
+                    Don&apos;t have a lead yet? Create one
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {referralResolvable && showNewLeadForm ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                <input
+                  type="text"
+                  aria-label="Referred person's name"
+                  placeholder="Referred person's name"
+                  value={newLeadName}
+                  onChange={(event) => setNewLeadName(event.target.value)}
+                  disabled={isPending}
+                  className={`${inputClass} max-w-[180px] py-1.5 text-xs`}
+                />
+                <input
+                  type="tel"
+                  aria-label="Referred person's phone"
+                  placeholder="Phone number"
+                  value={newLeadPhone}
+                  onChange={(event) => setNewLeadPhone(event.target.value)}
+                  disabled={isPending}
+                  className={`${inputClass} max-w-[160px] py-1.5 text-xs`}
+                />
+                <button
+                  type="button"
+                  disabled={isPending || !newLeadName.trim() || !newLeadPhone.trim()}
+                  onClick={() => run(() => createLeadFromReferral(jobId, { firstName: newLeadName, phone: newLeadPhone }))}
+                  className={primaryButtonSmallClass}
+                >
+                  Create Lead
+                </button>
+                <button type="button" disabled={isPending} onClick={() => setShowNewLeadForm(false)} className={secondaryButtonSmallClass}>
+                  Cancel
                 </button>
               </div>
             ) : null}

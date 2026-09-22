@@ -236,16 +236,16 @@ test("8. organization isolation: the checklist for one organization never reflec
 // ==================== Go Live gate ====================
 
 test("9. canGoLive rejects a new organization (no business profile)", () => {
-  const result = canGoLive({ items: [{ key: "business", label: "Business profile", complete: false }] });
+  const result = canGoLive({ items: [{ key: "business", label: "Business profile", complete: false, state: "not_ready" }] });
   assert.equal(result.allowed, false);
 });
 
 test("10. canGoLive rejects when business hours are not configured, even with business + SMS complete", () => {
   const result = canGoLive({
     items: [
-      { key: "business", label: "Business profile", complete: true },
-      { key: "hours", label: "Business hours", complete: false },
-      { key: "sms", label: "SMS configured", complete: true },
+      { key: "business", label: "Business profile", complete: true, state: "ready" },
+      { key: "hours", label: "Business hours", complete: false, state: "not_ready" },
+      { key: "sms", label: "SMS configured", complete: true, state: "ready" },
     ],
   });
   assert.equal(result.allowed, false);
@@ -255,9 +255,9 @@ test("10. canGoLive rejects when business hours are not configured, even with bu
 test("11. canGoLive rejects when SMS is not configured, even with business + hours complete", () => {
   const result = canGoLive({
     items: [
-      { key: "business", label: "Business profile", complete: true },
-      { key: "hours", label: "Business hours", complete: true },
-      { key: "sms", label: "SMS configured", complete: false },
+      { key: "business", label: "Business profile", complete: true, state: "ready" },
+      { key: "hours", label: "Business hours", complete: true, state: "ready" },
+      { key: "sms", label: "SMS configured", complete: false, state: "not_ready" },
     ],
   });
   assert.equal(result.allowed, false);
@@ -266,10 +266,10 @@ test("11. canGoLive rejects when SMS is not configured, even with business + hou
 test("12. canGoLive allows when business + hours + SMS are all complete, without requiring a verified test lead", () => {
   const result = canGoLive({
     items: [
-      { key: "business", label: "Business profile", complete: true },
-      { key: "hours", label: "Business hours", complete: true },
-      { key: "sms", label: "SMS configured", complete: true },
-      { key: "testVerified", label: "Test lead verified", complete: false },
+      { key: "business", label: "Business profile", complete: true, state: "ready" },
+      { key: "hours", label: "Business hours", complete: true, state: "ready" },
+      { key: "sms", label: "SMS configured", complete: true, state: "ready" },
+      { key: "testVerified", label: "Test lead verified", complete: false, state: "not_ready" },
     ],
   });
   assert.equal(result.allowed, true, "Go Live must never be permanently blocked by the n8n outage");

@@ -24,6 +24,7 @@ import { getAppointments } from "@/lib/appointments/queries";
 import { getEstimates } from "@/lib/estimates/queries";
 import { getConversations, getMessages, type Message } from "@/lib/conversations/queries";
 import { getJobs } from "@/lib/jobs/queries";
+import { getLeadStageHistory } from "@/lib/automation/lead-stage-history";
 import {
   STATUS_LABELS as APPOINTMENT_STATUS_LABELS,
   formatAppointmentDate,
@@ -79,13 +80,14 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
     redirect("/onboarding");
   }
 
-  const [lead, contacts, allAppointments, allEstimates, allConversations, allJobs] = await Promise.all([
+  const [lead, contacts, allAppointments, allEstimates, allConversations, allJobs, stageHistory] = await Promise.all([
     getLead(supabase, membership.organizationId, id),
     getContacts(supabase, membership.organizationId),
     getAppointments(supabase, membership.organizationId),
     getEstimates(supabase, membership.organizationId),
     getConversations(supabase, membership.organizationId),
     getJobs(supabase, membership.organizationId),
+    getLeadStageHistory(supabase, membership.organizationId, id),
   ]);
 
   if (!lead) {
@@ -133,10 +135,12 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
 
   // "What happened" - a real, chronological event feed built only from
   // timestamps that actually exist (lead.created_at, appointment/estimate/
-  // job creation, estimates.sent_at/responded_at, message.created_at).
-  // Deliberately does NOT include "contacted"/"qualified" as timeline
-  // events - this schema has no stage-transition history, so a fabricated
-  // timestamp for those would violate "never invent a timestamp."
+  // job creation, estimates.sent_at/responded_at, message.created_at,
+  // and now - Growth System Completion Pass 2, Part 1 - real lead-stage
+  // transitions from lead_stage_history). The first history entry
+  // (previousStatus: null) is the lead's own creation, already covered by
+  // the "Lead created" entry below - only genuine transitions are added
+  // here, never a duplicate of it.
   const timeline: TimelineEvent[] = [
     {
       id: `lead-${lead.id}`,
@@ -145,6 +149,15 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
       label: "Lead created",
       detail: lead.source ? `via ${lead.source}` : undefined,
     },
+    ...stageHistory
+      .filter((entry) => entry.previousStatus !== null)
+      .map((entry) => ({
+        id: `stage-${entry.id}`,
+        at: entry.changedAt,
+        icon: ArrowRightLeft,
+        label: `${STATUS_LABELS[entry.previousStatus!]} → ${STATUS_LABELS[entry.newStatus]}`,
+        detail: entry.source === "automation" ? "Automatic" : "Updated by staff",
+      })),
     ...appointments.map((appointment) => ({
       id: `apt-${appointment.id}`,
       at: appointment.created_at,

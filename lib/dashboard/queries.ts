@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatCurrency, formatRelativeTime } from "./format";
+import { getCalendarConnection } from "@/lib/calendar/connection";
 
 export type PipelineStage = "new" | "contacted" | "qualified" | "appointment" | "estimate" | "won";
 
@@ -25,7 +26,7 @@ export type PipelineCounts = Record<PipelineStage, number>;
 
 export type AttentionItem = {
   id: string;
-  kind: "overdue_appointment" | "hot_lead" | "pending_estimate";
+  kind: "overdue_appointment" | "hot_lead" | "pending_estimate" | "calendar_disconnected";
   title: string;
   detail: string;
   value: string | null;
@@ -71,7 +72,7 @@ export async function getDashboardData(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<DashboardData> {
-  const [leadsResult, appointmentsResult, auditResult] = await Promise.all([
+  const [leadsResult, appointmentsResult, auditResult, calendarConnection] = await Promise.all([
     supabase
       .from("leads")
       .select("id, status, temperature, estimated_value, service, created_at, contacts(first_name, last_name)")
@@ -90,6 +91,15 @@ export async function getDashboardData(
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
       .limit(10),
+    // Growth System Completion Pass 2, Part 11: reuses the exact same safe-
+    // metadata-only calendar_connections read the Agency Command Center
+    // already uses (see lib/agency/health.ts's loadCalendarHealth) - the
+    // contractor's own dashboard had no visibility into this at all before
+    // now, only the agency admin did. Only status:"error" is ever surfaced
+    // here (a real, actionable sync failure); "disconnected"/no-row-at-all
+    // is a normal, common state, never itself a problem - matching the
+    // agency-level AgencyCalendarStatus's identical distinction.
+    getCalendarConnection(supabase, organizationId),
   ]);
 
   const leads = leadsResult.data ?? [];
@@ -149,7 +159,21 @@ export async function getDashboardData(
       href: "/estimates",
     }));
 
-  const attentionItems = [...overdueAppointments, ...hotLeads, ...pendingEstimateLeads].slice(0, 6);
+  const calendarAttention: AttentionItem[] =
+    calendarConnection?.status === "error"
+      ? [
+          {
+            id: `calendar-${calendarConnection.id}`,
+            kind: "calendar_disconnected",
+            title: "Google Calendar sync failed",
+            detail: calendarConnection.lastError ?? "Reconnect your calendar to keep bookings in sync.",
+            value: null,
+            href: "/settings",
+          },
+        ]
+      : [];
+
+  const attentionItems = [...calendarAttention, ...overdueAppointments, ...hotLeads, ...pendingEstimateLeads].slice(0, 6);
 
   const leadActivity: ActivityItem[] = leads.slice(0, 5).map((lead) => ({
     id: `lead-${lead.id}`,

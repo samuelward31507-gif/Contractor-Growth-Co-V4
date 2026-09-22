@@ -174,6 +174,8 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
           schedulerHeartbeat={health.schedulerHeartbeat}
           smsFailureCount={smsFailureCount}
           aiEscalationCount={escalations.conversations.length}
+          paymentIssueCount={health.organizations.filter((org) => org.paymentStatus === "suspended" || org.paymentStatus === "cancelled").length}
+          automationPausedCount={health.organizations.filter((org) => org.automationPaused).length}
         />
       </div>
 

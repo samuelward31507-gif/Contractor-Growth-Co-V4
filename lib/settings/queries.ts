@@ -300,6 +300,21 @@ export async function getBookingSettings(
   return data ? (data as BookingSettings) : DEFAULT_BOOKING_SETTINGS;
 }
 
+/**
+ * Onboarding Readiness V1: whether a booking_settings row has ever been
+ * saved at all - distinct from getBookingSettings()'s safe-default return
+ * (booking_enabled: false for an org that has never touched this page).
+ * Onboarding readiness needs to tell "never configured" (not ready) apart
+ * from "configured, and the contractor explicitly chose to keep booking off"
+ * (a valid, optional choice, not a missing prerequisite) - this checks real
+ * row existence, the same pattern hasAiSettingsConfigured already
+ * established for ai_settings.
+ */
+export async function hasBookingSettingsConfigured(supabase: SupabaseClient, organizationId: string): Promise<boolean> {
+  const { data } = await supabase.from("booking_settings").select("organization_id").eq("organization_id", organizationId).maybeSingle();
+  return Boolean(data);
+}
+
 export type NotificationSettings = {
   notification_email: string | null;
   notification_phone: string | null;

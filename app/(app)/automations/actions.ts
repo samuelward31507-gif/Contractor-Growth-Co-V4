@@ -21,6 +21,8 @@ import {
   validateLostLeadNurtureConfig,
   readLeadReactivationConfig,
   validateLeadReactivationConfig,
+  readCustomerReactivationConfig,
+  validateCustomerReactivationConfig,
   readAppointmentLifecycleConfig,
   validateAppointmentLifecycleConfig,
   readJobLifecycleConfig,
@@ -933,6 +935,75 @@ export async function updateLeadReactivationConfig(touch1Days: number, touch2Day
     console.error("[automation] failed to record audit log entry", {
       organizationId,
       automationId: "lead-reactivation",
+      action: auditPlan.action,
+      error: auditError.message,
+    });
+    return { success: true, config: validation.value, auditWarning: "The configuration was updated, but the audit record could not be saved." };
+  }
+
+  return { success: true, config: validation.value };
+}
+
+/**
+ * Growth System Completion Pass 2, Part 7/13: updates customer-reactivation's
+ * configured inactivity threshold and respect_business_hours flag. Same
+ * pattern as updateInboundCustomerReplyConfig above (a numeric field plus a
+ * business-hours toggle, saved together as one config object) - see that
+ * comment for the shared rationale. Only changes how
+ * lib/automation/customer-reactivation.ts decides whether a dormant past
+ * customer is due its single re-engagement touch, and whether the outbound
+ * gate additionally requires business hours - no effect on the "no active
+ * opportunity"/"no open conversation" eligibility checks, opt-out handling,
+ * duplicate-send protection, the payment check, or any message already sent.
+ */
+export async function updateCustomerReactivationConfig(inactivityDays: number, respectBusinessHours: boolean): Promise<ConfigActionState> {
+  const session = await requireOrgAdminSession();
+  if (!session.ok) {
+    return { error: session.error };
+  }
+  const { supabase, organizationId } = session;
+
+  const validation = validateCustomerReactivationConfig({ inactivity_days: inactivityDays, respect_business_hours: respectBusinessHours });
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+
+  const { data: existingRow } = await supabase
+    .from("automation_settings")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("automation_id", "customer-reactivation")
+    .maybeSingle();
+
+  const previousConfig = readCustomerReactivationConfig(existingRow?.config ?? null);
+
+  const { error: upsertError } = await supabase.from("automation_settings").upsert(
+    { organization_id: organizationId, automation_id: "customer-reactivation", config: validation.value },
+    { onConflict: "organization_id,automation_id" },
+  );
+
+  if (upsertError) {
+    return { error: "We couldn't update this automation's configuration. Please try again." };
+  }
+
+  revalidatePath("/automations/customer-reactivation");
+
+  const auditPlan = shouldAuditConfigUpdate(previousConfig, validation.value);
+  if (!auditPlan) {
+    return { success: true, config: validation.value };
+  }
+
+  const { error: auditError } = await supabase.rpc("create_automation_audit_event", {
+    p_organization_id: organizationId,
+    p_action: auditPlan.action,
+    p_automation_id: "customer-reactivation",
+    p_metadata: auditPlan.metadata,
+  });
+
+  if (auditError) {
+    console.error("[automation] failed to record audit log entry", {
+      organizationId,
+      automationId: "customer-reactivation",
       action: auditPlan.action,
       error: auditError.message,
     });

@@ -16,10 +16,14 @@ import {
 } from "@/lib/settings/queries";
 import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
 import { resolveAppBaseUrl } from "@/lib/automation/sms";
+import { getCalendarConnection, listConnectedCalendars } from "@/lib/calendar/connection";
+import type { CalendarListItem } from "@/lib/calendar/provider";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
+import { successBannerClass, errorBannerClass } from "@/lib/ui/form";
 import { AiSettingsSection } from "./_components/ai-settings-section";
 import { AutomationModeSection } from "./_components/automation-mode-section";
 import { BookingSettingsSection } from "./_components/booking-settings-section";
+import { CalendarConnectionSection } from "./_components/calendar-connection-section";
 import { BusinessHoursSection } from "./_components/business-hours-section";
 import { BusinessProfileSection } from "./_components/business-profile-section";
 import { LeadCaptureSection } from "./_components/lead-capture-section";
@@ -39,7 +43,21 @@ function SettingsGroup({ label, children }: { label: string; children: ReactNode
   );
 }
 
-export default async function SettingsPage() {
+const CALENDAR_STATUS_MESSAGE: Record<string, string> = {
+  connected: "Google Calendar connected.",
+  invalid_state: "That connection attempt couldn't be verified. Please try connecting again.",
+  not_authorized: "Only owners and admins can connect a calendar.",
+  access_denied: "Google Calendar access was not granted.",
+  exchange_failed: "We couldn't complete the connection to Google Calendar. Please try again.",
+  storage_failed: "We couldn't save the calendar connection. Please try again.",
+};
+
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const params = await searchParams;
+  const calendarParam = typeof params.calendar === "string" ? params.calendar : null;
+  const calendarReason = typeof params.reason === "string" ? params.reason : null;
+  const calendarBannerMessage = calendarParam === "connected" ? CALENDAR_STATUS_MESSAGE.connected : calendarParam === "error" ? (calendarReason && CALENDAR_STATUS_MESSAGE[calendarReason]) || "We couldn't connect Google Calendar. Please try again." : null;
+
   const supabase = await createClient();
 
   const {
@@ -75,6 +93,16 @@ export default async function SettingsPage() {
   const appBaseUrl = resolveAppBaseUrl();
   const leadIntakeUrl = appBaseUrl && leadIntakeToken ? `${appBaseUrl}/api/leads/capture/${leadIntakeToken}` : null;
 
+  // Only fetched (a real provider call) when there's actually a connection
+  // with no calendar chosen yet - see calendar-connection-section.tsx's own
+  // comment for why this isn't fetched unconditionally on every page load.
+  const calendarConnection = await getCalendarConnection(supabase, organizationId);
+  let availableCalendars: CalendarListItem[] = [];
+  if (calendarConnection && !calendarConnection.calendarId) {
+    const listResult = await listConnectedCalendars(calendarConnection.id);
+    if (listResult.ok) availableCalendars = listResult.value;
+  }
+
   if (!profile) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
@@ -99,6 +127,9 @@ export default async function SettingsPage() {
             You have read-only access. Only owners and admins can change these settings.
           </p>
         ) : null}
+        {calendarBannerMessage ? (
+          <p className={`mt-3 ${calendarParam === "connected" ? successBannerClass : errorBannerClass}`}>{calendarBannerMessage}</p>
+        ) : null}
       </div>
 
       <div>
@@ -115,6 +146,7 @@ export default async function SettingsPage() {
           <ServicesSection services={services} canEdit={canEdit} />
           <ServiceAreasSection areas={serviceAreas} canEdit={canEdit} />
           <BookingSettingsSection settings={bookingSettings} canEdit={canEdit} />
+          <CalendarConnectionSection connection={calendarConnection} availableCalendars={availableCalendars} canEdit={canEdit} />
           <OperationsDetailSection profile={profile} canEdit={canEdit} />
         </SettingsGroup>
 

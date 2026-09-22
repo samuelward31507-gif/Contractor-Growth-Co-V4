@@ -16,6 +16,10 @@ import {
 } from "@/lib/automation/settings";
 import { recordPostJobFollowupOutcome } from "@/lib/reviews-referrals/tracking";
 import { recordAutomationHealthSignal } from "@/lib/automation-health/service";
+import { notifyFounder } from "@/lib/notifications/founder";
+import { getAvailableBookingSlots, bookAppointment, type BookingSlot } from "@/lib/scheduling/booking";
+import { formatAppointmentDate, formatAppointmentTimeRange } from "@/lib/appointments/format";
+import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -25,9 +29,54 @@ const MAX_MISSING_INFO_ITEMS = 10;
 
 const QUALIFICATION_STATUSES = new Set(["new", "qualifying", "qualified", "needs_human"]);
 const URGENCY_LEVELS = new Set(["low", "normal", "high", "emergency"]);
+const BOOKING_ACTIONS = new Set(["none", "check_availability", "book"]);
 
 type QualificationStatus = "new" | "qualifying" | "qualified" | "needs_human";
 type Urgency = "low" | "normal" | "high" | "emergency";
+type BookingAction = "none" | "check_availability" | "book";
+
+/**
+ * Growth System Completion Pass 1 (Part 3): the minimal extension to the
+ * AI/n8n contract for appointment booking. The AI (via n8n) only ever
+ * expresses INTENT here - it never computes availability itself and never
+ * touches the Trackpr booking interface directly; this route is the only
+ * caller of lib/scheduling/booking.ts (Stage 6, completely unchanged). When
+ * action is "check_availability", date_range_start/date_range_end drive a
+ * real getAvailableBookingSlots() call, and the real slots are returned in
+ * this callback's own JSON response (never invented, never Google metadata)
+ * for n8n's own next AI step to present. When action is "book", start_at/
+ * end_at/title drive a real bookAppointment() call; Trackpr - never the AI -
+ * composes the resulting confirmation/decline message, exactly like every
+ * other deterministic, fact-only message in this codebase (see
+ * lib/automation/appointment-reminders.ts's own established precedent).
+ * should_send/response_message are ignored for any turn where action is not
+ * "none" - n8n should send should_send:false/response_message:null on a
+ * booking-intent turn, since Trackpr owns messaging for it.
+ */
+export type BookingIntent = {
+  action: BookingAction;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  title: string | null;
+};
+
+/**
+ * Growth System Completion Pass 2 (Part 4): the minimal extension to the
+ * AI/n8n contract for usage tracking. n8n's own AI call is the only place
+ * real provider token counts exist - Trackpr never estimates or invents
+ * them. Every field is independently nullable: a provider or n8n workflow
+ * that doesn't expose one (or any) of these must send null for it rather
+ * than omitting `usage` entirely or guessing - "if provider metadata is
+ * unavailable, store null rather than inventing usage," per the task's own
+ * instruction.
+ */
+export type AiUsage = {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+};
 
 type AiResult = {
   should_send: boolean;
@@ -41,6 +90,10 @@ type AiResult = {
   // lead.created - both are valid, existing behavior is unchanged either way.
   intent: string | null;
   summary: string | null;
+  /** Optional - absent/null means "no booking intent this turn", identical to the pre-Part-3 contract. */
+  booking_intent: BookingIntent | null;
+  /** Optional - absent/null means "no usage data this turn" (e.g. n8n's workflow doesn't expose it yet). */
+  usage: AiUsage | null;
 };
 
 type CallbackBody = {
@@ -121,6 +174,60 @@ function validateBody(raw: unknown): ValidationResult {
       return { ok: false, error: "ai_result.response_message is required when should_send is true." };
     }
 
+    let bookingIntent: BookingIntent | null = null;
+    if (raw2.booking_intent !== null && raw2.booking_intent !== undefined) {
+      if (typeof raw2.booking_intent !== "object") {
+        return { ok: false, error: "ai_result.booking_intent must be an object or null." };
+      }
+      const rawIntent = raw2.booking_intent as Record<string, unknown>;
+
+      if (typeof rawIntent.action !== "string" || !BOOKING_ACTIONS.has(rawIntent.action)) {
+        return { ok: false, error: "ai_result.booking_intent.action must be one of none, check_availability, book." };
+      }
+
+      const isIsoDateOrNull = (value: unknown): value is string | null => {
+        if (value === null || value === undefined) return true;
+        return typeof value === "string" && value.length <= MAX_SHORT_FIELD_LENGTH && !Number.isNaN(Date.parse(value));
+      };
+      if (!isIsoDateOrNull(rawIntent.date_range_start) || !isIsoDateOrNull(rawIntent.date_range_end) || !isIsoDateOrNull(rawIntent.start_at) || !isIsoDateOrNull(rawIntent.end_at)) {
+        return { ok: false, error: "ai_result.booking_intent date/time fields must be ISO 8601 strings or null." };
+      }
+      if (!isOptionalString(rawIntent.title, MAX_SHORT_FIELD_LENGTH)) {
+        return { ok: false, error: "ai_result.booking_intent.title must be a short string or null." };
+      }
+
+      bookingIntent = {
+        action: rawIntent.action as BookingAction,
+        date_range_start: (rawIntent.date_range_start as string | null) ?? null,
+        date_range_end: (rawIntent.date_range_end as string | null) ?? null,
+        start_at: (rawIntent.start_at as string | null) ?? null,
+        end_at: (rawIntent.end_at as string | null) ?? null,
+        title: (rawIntent.title as string | null) ?? null,
+      };
+    }
+
+    let usage: AiUsage | null = null;
+    if (raw2.usage !== null && raw2.usage !== undefined) {
+      if (typeof raw2.usage !== "object") {
+        return { ok: false, error: "ai_result.usage must be an object or null." };
+      }
+      const rawUsage = raw2.usage as Record<string, unknown>;
+
+      const isNonNegativeIntOrNull = (value: unknown): value is number | null => {
+        if (value === null || value === undefined) return true;
+        return typeof value === "number" && Number.isInteger(value) && value >= 0;
+      };
+      if (!isNonNegativeIntOrNull(rawUsage.input_tokens) || !isNonNegativeIntOrNull(rawUsage.output_tokens) || !isNonNegativeIntOrNull(rawUsage.total_tokens)) {
+        return { ok: false, error: "ai_result.usage.input_tokens/output_tokens/total_tokens must each be a non-negative integer or null." };
+      }
+
+      usage = {
+        input_tokens: (rawUsage.input_tokens as number | null) ?? null,
+        output_tokens: (rawUsage.output_tokens as number | null) ?? null,
+        total_tokens: (rawUsage.total_tokens as number | null) ?? null,
+      };
+    }
+
     aiResult = {
       should_send: raw2.should_send,
       response_message: (raw2.response_message as string | null) ?? null,
@@ -131,6 +238,8 @@ function validateBody(raw: unknown): ValidationResult {
       model: (raw2.model as string | null) ?? null,
       intent: (raw2.intent as string | null) ?? null,
       summary: (raw2.summary as string | null) ?? null,
+      booking_intent: bookingIntent,
+      usage,
     };
   }
 
@@ -403,6 +512,206 @@ async function automationEnabledFor(
   return getAutomationEnabled(service, organizationId, automation.id);
 }
 
+const BOOKING_ELIGIBLE_APPOINTMENT_STATUSES = ["scheduled", "confirmed"] as const;
+const BOOKING_DECLINE_MESSAGE = "Sorry, that time is no longer available. Let us know another time that works for you.";
+const BOOKING_FALLBACK_MESSAGE = "We're having trouble booking that automatically right now. Our team will reach out shortly to get you scheduled.";
+/** Reasons that mean something is genuinely wrong (config, payment, an internal error, an untrustworthy contact) - these escalate to a human. slot_unavailable is a normal, non-escalating retry case: someone else took the slot, or the AI proposed a time that's no longer offered. */
+const BOOKING_ESCALATING_FAILURE_REASONS = new Set(["invalid_contact", "organization_not_active", "booking_disabled", "configuration_error", "internal_error"]);
+
+function serializeSlots(slots: BookingSlot[]): { start_at: string; end_at: string }[] {
+  return slots.map((slot) => ({ start_at: slot.start_at, end_at: slot.end_at }));
+}
+
+/**
+ * Growth System Completion Pass 1 (Part 3): the entire AI appointment
+ * booking branch, kept as its own self-contained function rather than woven
+ * into the existing should_send/gate/send flow - the same "each concern is
+ * its own legible function" choice this codebase already made for
+ * lib/automation/appointment-reminders.ts's deterministic sends. Reuses
+ * lib/scheduling/booking.ts (Stage 6) completely unchanged: payment check,
+ * organization isolation, contact ownership, a fresh availability recheck
+ * immediately before insert, Stage 1's exclusion constraint as the final
+ * concurrency guarantee, idempotency (via `idempotencyKey`), and Stage 5's
+ * Google sync are ALL still enforced by that module, not re-implemented
+ * here. This route never sees Google credentials, event ids, or calendar
+ * metadata - only what getAvailableBookingSlots/bookAppointment already
+ * expose ({start_at, end_at} and a safe success/failure result).
+ */
+/** Exported only so a test can exercise a real successful send (via the sendSmsFn seam below) without fighting Next.js's own generated type contract for POST's signature - POST itself is never given an extra parameter, matching every other route handler in this codebase. */
+export async function handleBookingIntent(
+  service: SupabaseClient,
+  params: {
+    organizationId: string;
+    executionId: string;
+    contactId: string | null;
+    leadId: string | null;
+    conversationId: string | null;
+    bookingIntent: BookingIntent;
+  },
+  /** Test seam only - production (real n8n) callers never pass this; see lib/messaging/outbound.ts's own identical seam. */
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+): Promise<NextResponse> {
+  const { organizationId, executionId, contactId, leadId, conversationId, bookingIntent } = params;
+
+  if (bookingIntent.action === "check_availability") {
+    if (!bookingIntent.date_range_start || !bookingIntent.date_range_end) {
+      const result = await completeWorkflowExecutionAsService(service, executionId, { should_send: false, booking_action: "check_availability", error: "missing_date_range" });
+      if (!result.ok && !isAlreadyProcessedError(result.error)) {
+        console.error("[automation] failed to complete check_availability execution", { executionId, error: result.error });
+      }
+      return NextResponse.json({ ok: true, booking: { status: "invalid_request", slots: [] } });
+    }
+
+    const availability = await getAvailableBookingSlots(service, organizationId, new Date(bookingIntent.date_range_start), new Date(bookingIntent.date_range_end));
+
+    const result = await completeWorkflowExecutionAsService(service, executionId, {
+      should_send: false,
+      booking_action: "check_availability",
+      availability_status: availability.status,
+      slot_count: availability.status === "available" ? availability.slots.length : 0,
+    });
+    if (!result.ok) {
+      if (isAlreadyProcessedError(result.error)) return NextResponse.json({ ok: true, alreadyProcessed: true });
+      console.error("[automation] failed to complete check_availability execution", { executionId, error: result.error });
+      return NextResponse.json({ ok: false, error: "Could not record the availability check." }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      booking: {
+        status: availability.status,
+        slots: availability.status === "available" ? serializeSlots(availability.slots) : [],
+      },
+    });
+  }
+
+  // action === "book"
+  if (!bookingIntent.start_at || !bookingIntent.end_at || !contactId) {
+    const result = await completeWorkflowExecutionAsService(service, executionId, { should_send: false, booking_action: "book", error: "missing_required_fields" });
+    if (!result.ok && !isAlreadyProcessedError(result.error)) {
+      console.error("[automation] failed to complete book execution", { executionId, error: result.error });
+    }
+    return NextResponse.json({ ok: true, booking: { status: "invalid_request" } });
+  }
+
+  const bookingResult = await bookAppointment(service, {
+    organizationId,
+    contactId,
+    leadId,
+    startAt: bookingIntent.start_at,
+    endAt: bookingIntent.end_at,
+    title: bookingIntent.title ?? "Service Appointment",
+    // Deterministic and derivable again from this exact execution id alone -
+    // a retried/replayed callback for the same execution resolves to the
+    // same idempotency key bookAppointment() itself already de-duplicates
+    // on (see lib/scheduling/booking.ts), never a second booking attempt.
+    idempotencyKey: `booking:${executionId}`,
+  });
+
+  let body: string;
+  let needsHuman = false;
+  let appointmentIdForGate: string | null = null;
+  let freshSlots: { start_at: string; end_at: string }[] = [];
+
+  if (bookingResult.success) {
+    const timezone = bookingResult.timezone;
+    body = `You're booked! Your appointment is confirmed for ${formatAppointmentDate(bookingResult.startAt, timezone)} at ${formatAppointmentTimeRange(bookingResult.startAt, bookingResult.endAt, timezone)}. Reply STOP to opt out of texts.`;
+    appointmentIdForGate = bookingResult.appointmentId;
+
+    // Founder Notifications V1: the AI-booking equivalent of
+    // lib/automation/appointments.ts's own notifyFounder call in
+    // emitAppointmentCreated (the manual-creation path) - bookAppointment()
+    // itself is never modified to call emitAppointmentCreated (that would
+    // dispatch a SECOND, AI-drafted confirmation via n8n, double-messaging
+    // the customer), so this is the one place an AI-driven booking's
+    // "appointment booked" notification fires.
+    await notifyFounder(service, {
+      organizationId,
+      kind: "appointment_booked",
+      summary: `AI-booked appointment on ${formatAppointmentDate(bookingResult.startAt, timezone)}.`,
+      detailPath: `/appointments/${bookingResult.appointmentId}`,
+    });
+  } else if (bookingResult.reason === "slot_unavailable") {
+    body = BOOKING_DECLINE_MESSAGE;
+    // Re-offers real, freshly-computed alternatives in the same response -
+    // never a second round trip needed just to recover from a benign race.
+    const recheckStart = new Date(bookingIntent.start_at);
+    const recheckEnd = new Date(recheckStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const availability = await getAvailableBookingSlots(service, organizationId, recheckStart, recheckEnd);
+    freshSlots = availability.status === "available" ? serializeSlots(availability.slots) : [];
+  } else {
+    body = BOOKING_FALLBACK_MESSAGE;
+    needsHuman = BOOKING_ESCALATING_FAILURE_REASONS.has(bookingResult.reason);
+  }
+
+  if (needsHuman && conversationId) {
+    const { data: lockedRow, error: lockError } = await service
+      .from("conversations")
+      .update({ ai_enabled: false })
+      .eq("id", conversationId)
+      .eq("organization_id", organizationId)
+      .eq("ai_enabled", true)
+      .select("id")
+      .maybeSingle();
+    if (lockError) {
+      console.error("[automation] failed to lock conversation after a booking failure", { executionId, error: lockError.message });
+    } else if (lockedRow) {
+      await notifyFounder(service, {
+        organizationId,
+        kind: "ai_escalation",
+        summary: "AI appointment booking could not complete safely and needs a human.",
+        detailPath: conversationId ? `/conversations/${conversationId}` : null,
+      });
+    }
+  }
+
+  const gateResult = await evaluateOutboundGate(service, {
+    organizationId,
+    executionId,
+    contactId,
+    conversationId,
+    leadId,
+    aiResult: { should_send: true, response_message: body, needs_human: false },
+    appointmentId: appointmentIdForGate,
+    appointmentEligibleStatuses: appointmentIdForGate ? [...BOOKING_ELIGIBLE_APPOINTMENT_STATUSES] : undefined,
+  });
+
+  let sent = false;
+  if (gateResult.allowed) {
+    const sendResult = await sendOutboundMessage(service, {
+      organizationId,
+      contactId: gateResult.contactId,
+      conversationId: gateResult.conversationId,
+      channel: "sms",
+      body: gateResult.body,
+      senderType: "ai",
+      workflowExecutionId: executionId,
+      sendSmsFn,
+    });
+    sent = sendResult.ok;
+  }
+
+  const completed = await completeWorkflowExecutionAsService(service, executionId, {
+    should_send: sent,
+    booking_action: "book",
+    booking_success: bookingResult.success,
+    booking_failure_reason: bookingResult.success ? null : bookingResult.reason,
+    appointment_id: bookingResult.success ? bookingResult.appointmentId : null,
+  });
+  if (!completed.ok && !isAlreadyProcessedError(completed.error)) {
+    console.error("[automation] failed to complete book execution", { executionId, error: completed.error });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    booking: {
+      status: bookingResult.success ? "booked" : bookingResult.reason,
+      appointment_id: bookingResult.success ? bookingResult.appointmentId : null,
+      slots: freshSlots,
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
@@ -505,6 +814,12 @@ export async function POST(request: NextRequest) {
         input: { event_type: event.event_type, entity_type: event.entity_type, entity_id: event.entity_id, payload: event.payload },
         output: aiResult,
         model: aiResult.model,
+        // Growth System Completion Pass 2 (Part 4): the existing
+        // tokens_used column, populated only when n8n's own AI call
+        // actually reported a total - left null otherwise (never
+        // estimated), so a real SQL SUM/AVG over this column never silently
+        // includes a fabricated number.
+        tokens_used: aiResult.usage?.total_tokens ?? null,
       },
       { onConflict: "workflow_execution_id", ignoreDuplicates: true },
     );
@@ -543,6 +858,25 @@ export async function POST(request: NextRequest) {
       if (leadUpdateError) {
         console.error("[automation] failed to update lead ai_summary", { executionId: execution.id, error: leadUpdateError.message });
       }
+
+      // Founder Notifications V1: "hot lead" reuses the AI's own existing
+      // urgency signal directly - never a second, competing definition of
+      // "hot". Guarded by this same aiResult block only ever running once
+      // per execution (the `execution.status !== "running"` early return
+      // above), so a replayed/retried callback for the same execution can
+      // never send this twice; a lead independently flagged high/emergency
+      // urgency again on a LATER, different execution is a legitimately new
+      // occurrence, not a duplicate.
+      if (aiResult.urgency === "high" || aiResult.urgency === "emergency") {
+        await notifyFounder(service, {
+          organizationId: event.organization_id,
+          kind: "hot_lead",
+          summary: aiResult.summary
+            ? `Urgency: ${aiResult.urgency}. ${aiResult.summary}`
+            : `A lead was flagged as ${aiResult.urgency} urgency.`,
+          detailPath: `/leads/${leadId}`,
+        });
+      }
     }
 
     // Fast-Track Production Readiness, Pass 2: durable needs_human lockout.
@@ -552,15 +886,50 @@ export async function POST(request: NextRequest) {
     // needed, AI stays locked out of it for every future automated send
     // until staff explicitly re-enable it from the conversation itself.
     if (aiResult.needs_human && conversationId) {
-      const { error: aiLockError } = await service
+      // Founder Notifications V1: `.eq("ai_enabled", true)` turns this from
+      // an unconditional set into a real "only if this is the first time"
+      // transition - if the conversation was already locked, the UPDATE
+      // matches zero rows (still succeeds, still a no-op, identical net
+      // effect on the table as before) and `lockedRow` is null, so the
+      // notification is sent exactly once per lockout, never on a replayed
+      // callback or a second needs_human result for an already-locked
+      // conversation.
+      const { data: lockedRow, error: aiLockError } = await service
         .from("conversations")
         .update({ ai_enabled: false })
         .eq("id", conversationId)
-        .eq("organization_id", event.organization_id);
+        .eq("organization_id", event.organization_id)
+        .eq("ai_enabled", true)
+        .select("id")
+        .maybeSingle();
 
       if (aiLockError) {
         console.error("[automation] failed to lock conversation ai_enabled after needs_human", { executionId: execution.id, error: aiLockError.message });
+      } else if (lockedRow) {
+        await notifyFounder(service, {
+          organizationId: event.organization_id,
+          kind: "ai_escalation",
+          summary: aiResult.summary ? `AI handed off to a human: ${aiResult.summary}` : "The AI handed a conversation off to a human.",
+          detailPath: `/conversations/${conversationId}`,
+        });
       }
+    }
+
+    // Growth System Completion Pass 1 (Part 3): a booking-intent turn is
+    // handled entirely separately from the should_send/gate/send flow below
+    // - Trackpr, not the AI, owns every message this branch produces. Runs
+    // only once per execution, for the same reason every other branch in
+    // this aiResult block does (the running-status guard at the top of this
+    // function).
+    if (aiResult.booking_intent && aiResult.booking_intent.action !== "none") {
+      return handleBookingIntent(service, {
+        organizationId: event.organization_id,
+        executionId: execution.id,
+        contactId,
+        leadId,
+        conversationId,
+        bookingIntent: aiResult.booking_intent,
+      });
     }
   }
 

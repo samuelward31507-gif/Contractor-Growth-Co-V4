@@ -32,6 +32,41 @@ const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
 };
 
 /**
+ * Growth System Completion Pass 1: the three-way booking/calendar readiness
+ * state (lib/onboarding/readiness.ts) rendered as a short, distinct label -
+ * never collapsed back down to a plain complete/incomplete boolean, so a
+ * founder can immediately tell "not configured, needs attention" apart from
+ * "configured and intentionally off".
+ */
+function readinessStateLabel(state: "ready" | "not_ready" | "disabled_by_intent" | undefined): string {
+  if (state === "ready") return "Ready";
+  if (state === "disabled_by_intent") return "Off by choice";
+  return "Not ready";
+}
+
+/**
+ * Growth System Completion Pass 2, Part 9: founder/admin-only, read-only
+ * display of organizations.payment_status - see AgencyPaymentStatus's own
+ * documentation in lib/agency/health.ts for why there is no write path here
+ * to weaken. "payment_required" is labeled neutrally (not a danger tone) -
+ * it is the normal state for an organization still in onboarding, before its
+ * first payment, not itself a regression.
+ */
+const PAYMENT_STATUS_LABEL: Record<string, string> = {
+  payment_required: "Payment required",
+  active: "Active",
+  suspended: "Suspended",
+  cancelled: "Cancelled",
+};
+
+const PAYMENT_STATUS_TONE: Record<string, "default" | "danger" | "warning" | "success"> = {
+  payment_required: "default",
+  active: "success",
+  suspended: "danger",
+  cancelled: "danger",
+};
+
+/**
  * Agency Command Center UI review: the operational detail page for one
  * managed client, restructured around the information hierarchy Phase 5
  * asks for (identity/status, readiness, configuration, automation,
@@ -244,10 +279,20 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           <Row label="Service area" value={serviceAreas.length > 0 ? serviceAreas.map((a) => a.name).join(", ") : "Not set"} />
         </RowGroup>
         <RowGroup label="Setup">
+          <Row
+            label="Payment status"
+            value={PAYMENT_STATUS_LABEL[orgHealth.paymentStatus] ?? orgHealth.paymentStatus}
+            tone={PAYMENT_STATUS_TONE[orgHealth.paymentStatus] ?? "default"}
+          />
           <Row label="Business hours" value={readiness.items.find((i) => i.key === "hours")?.complete ? "Configured" : "Not configured"} />
           <Row label="SMS" value={readiness.items.find((i) => i.key === "sms")?.complete ? "Configured" : "Not configured"} />
           <Row label="Lead capture" value={readiness.items.find((i) => i.key === "leadCapture")?.complete ? "Ready" : "Unavailable"} />
           <Row label="AI review" value={readiness.items.find((i) => i.key === "ai")?.complete ? "Reviewed" : "Not reviewed"} />
+          <Row label="AI appointment booking" value={readinessStateLabel(readiness.items.find((i) => i.key === "booking")?.state)} tone={readiness.items.find((i) => i.key === "booking")?.state === "not_ready" ? "warning" : "default"} />
+          <Row label="Google Calendar sync" value={readinessStateLabel(readiness.items.find((i) => i.key === "calendar")?.state)} tone={readiness.items.find((i) => i.key === "calendar")?.state === "not_ready" ? "warning" : "default"} />
+          {orgHealth.calendarStatus === "error" ? (
+            <Row label="Calendar connection" value="Disconnected" tone="danger" description={orgHealth.calendarLastError ?? undefined} />
+          ) : null}
           <Row label="Automation mode" value={readiness.automationMode === "live" ? "Live" : "Test"} tone={readiness.automationMode === "live" ? "success" : "default"} />
         </RowGroup>
       </div>
@@ -351,6 +396,13 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         <div className="mt-8 border-t border-slate-200 pt-8">
           <RowGroup label="AI activity">
             <Row label="Total interactions" value={formatCount(m.aiMetrics.aiInteractions)} />
+            {m.aiMetrics.totalTokensUsed !== null ? (
+              <Row
+                label="Tokens used"
+                value={formatCount(m.aiMetrics.totalTokensUsed)}
+                description={`${m.aiMetrics.interactionsWithUsageData} of ${m.aiMetrics.aiInteractions} interactions`}
+              />
+            ) : null}
             {Object.entries(org.aiInteractionsByType)
               .sort(([, a], [, b]) => b - a)
               .map(([type, count]) => (

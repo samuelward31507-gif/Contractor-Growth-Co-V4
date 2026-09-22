@@ -90,6 +90,25 @@ export async function getAgencyNeedsAttentionItems(
       });
     }
 
+    // Growth System Completion Pass 1: surfaces lib/agency/health.ts's own
+    // calendarStatus (safe metadata only, never a credential) - the audit's
+    // own finding that a broken client calendar connection was previously
+    // invisible anywhere in the Agency Command Center.
+    const orgHealthSummary = health.organizations.find((o) => o.organizationId === org.organizationId);
+    if (orgHealthSummary?.calendarStatus === "error") {
+      items.push({
+        id: `calendar-${org.organizationId}`,
+        severity: "warning",
+        organizationId: org.organizationId,
+        organizationName: org.organizationName,
+        problem: "Google Calendar connection broken",
+        why: orgHealthSummary.calendarLastError ?? "The calendar connection needs to be reconnected.",
+        timestamp: detail.generatedAt,
+        actionHref,
+        actionLabel: "View client",
+      });
+    }
+
     if (detail.smsDeliveryFailureCount > 0) {
       items.push({
         id: `sms-${org.organizationId}`,

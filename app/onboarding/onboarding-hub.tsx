@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle } from "lucide-react";
+import { CheckCircle2, Circle, MinusCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
   getBookingSettings,
@@ -120,12 +120,15 @@ export async function OnboardingHub({ organizationId, canEdit }: { organizationI
         <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
           {checklist.items.map((item) => (
             <li key={item.key} className="flex items-center gap-3 px-4 py-3">
-              {item.complete ? (
+              {item.state === "ready" ? (
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+              ) : item.state === "disabled_by_intent" ? (
+                <MinusCircle className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
               ) : (
                 <Circle className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
               )}
               <p className="text-sm font-medium text-slate-900">{item.label}</p>
+              {item.state === "disabled_by_intent" ? <span className="ml-auto text-xs text-slate-400">Off by choice</span> : null}
             </li>
           ))}
         </ul>
