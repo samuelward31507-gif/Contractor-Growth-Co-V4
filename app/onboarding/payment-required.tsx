@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { authButtonClass, authErrorBannerClass } from "@/lib/ui/auth-form";
 import { startCheckout, type StartCheckoutState } from "./actions";
@@ -38,6 +39,18 @@ export function PaymentRequired({ organizationName }: { organizationName: string
           {isPending ? "Redirecting to checkout…" : "Complete payment"}
         </button>
       </form>
+
+      <p className="mt-4 text-center text-[12px] leading-relaxed text-slate-400">
+        By continuing, you agree to the Contractor Growth Co.{" "}
+        <Link href="/terms" target="_blank" className="underline-offset-4 hover:underline">
+          Terms of Service
+        </Link>{" "}
+        and acknowledge the{" "}
+        <Link href="/privacy" target="_blank" className="underline-offset-4 hover:underline">
+          Privacy Policy
+        </Link>
+        .
+      </p>
 
       <p className="mt-6 text-center text-[13px] text-slate-500">
         Already paid? If this doesn&apos;t update shortly, contact Contractor Growth Co.

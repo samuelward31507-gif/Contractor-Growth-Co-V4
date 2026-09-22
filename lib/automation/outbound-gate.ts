@@ -142,6 +142,7 @@ export type OutboundGateDenialReason =
   | "duplicate_outbound_send"
   | "conversation_ai_disabled"
   | "organization_not_live"
+  | "organization_automation_paused"
   | "appointment_not_found"
   | "appointment_wrong_organization"
   | "appointment_status_ineligible"
@@ -262,28 +263,38 @@ export async function evaluateOutboundGate(
   if (!input.contactId) return deny("missing_contact_id");
   if (!input.conversationId) return deny("missing_conversation_id");
 
-  const [{ data: contact }, { data: conversation }, { data: execution }, { data: organization }] = await Promise.all([
-    supabase
-      .from("contacts")
-      .select("id, organization_id, sms_opt_out, phone")
-      .eq("id", input.contactId)
-      .maybeSingle(),
-    supabase
-      .from("conversations")
-      .select("id, organization_id, contact_id, lead_id, channel, status, ai_enabled")
-      .eq("id", input.conversationId)
-      .maybeSingle(),
-    supabase
-      .from("workflow_executions")
-      .select("id, organization_id, status")
-      .eq("id", input.executionId)
-      .maybeSingle(),
-    supabase
-      .from("organizations")
-      .select("automation_mode")
-      .eq("id", input.organizationId)
-      .maybeSingle(),
-  ]);
+  const [{ data: contact }, { data: conversation }, { data: execution }, { data: organization }, { data: pauseRow, error: pauseError }] =
+    await Promise.all([
+      supabase
+        .from("contacts")
+        .select("id, organization_id, sms_opt_out, phone")
+        .eq("id", input.contactId)
+        .maybeSingle(),
+      supabase
+        .from("conversations")
+        .select("id, organization_id, contact_id, lead_id, channel, status, ai_enabled")
+        .eq("id", input.conversationId)
+        .maybeSingle(),
+      supabase
+        .from("workflow_executions")
+        .select("id, organization_id, status")
+        .eq("id", input.executionId)
+        .maybeSingle(),
+      supabase
+        .from("organizations")
+        .select("automation_mode")
+        .eq("id", input.organizationId)
+        .maybeSingle(),
+      // Launch Blocker #5: kept as its own independent query, deliberately
+      // NOT combined into the automation_mode select above. A combined
+      // select would fail as a single all-or-nothing request if this column
+      // were ever unreadable (e.g. mid-migration-rollout), which would
+      // silently take the pre-existing automation_mode check down with it
+      // and deny every send for every organization, not just paused ones.
+      // Keeping the query separate means a failure here can only ever add
+      // its own fail-closed restriction, never corrupt the existing check.
+      supabase.from("organizations").select("automation_paused").eq("id", input.organizationId).maybeSingle(),
+    ]);
 
   // Fast-Track Production Readiness, Pass 3: go-live protection. An
   // organization that has not been explicitly switched to 'live' (new
@@ -293,6 +304,14 @@ export async function evaluateOutboundGate(
   // one. Manual CRM actions (creating leads/appointments/etc.) are
   // unaffected; only this send path is gated.
   if (organization?.automation_mode !== "live") return deny("organization_not_live");
+
+  // Launch Blocker #5: founder-facing kill switch. Re-checked live on every
+  // send, from its own independent query above - never cached. A query
+  // error (including the column not existing yet, pre-migration) fails
+  // closed here too, exactly like a missing/unreadable value does - neither
+  // is ever treated as "not paused". pauseRow?.automation_paused is only
+  // ever true when the column was actually read as true.
+  if (pauseError || pauseRow?.automation_paused) return deny("organization_automation_paused");
 
   if (!contact || contact.organization_id !== input.organizationId) return deny("contact_not_found");
   if (contact.sms_opt_out) return deny("contact_opted_out");

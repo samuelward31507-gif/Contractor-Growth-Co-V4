@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 
-const AUTH_PATHS = new Set(["/login", "/signup"]);
+const AUTH_PATHS = new Set(["/login", "/signup", "/forgot-password"]);
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -40,7 +40,7 @@ export async function updateSession(request: NextRequest) {
   // never presents a Supabase session, so redirecting them to /login would
   // make those routes unreachable by design rather than by any check they
   // actually perform.
-  const PUBLIC_MARKETING_PATHS = new Set(["/", "/how-it-works", "/services", "/get-started"]);
+  const PUBLIC_MARKETING_PATHS = new Set(["/", "/how-it-works", "/services", "/get-started", "/privacy", "/terms"]);
   if (PUBLIC_MARKETING_PATHS.has(pathname) || pathname.startsWith("/auth") || pathname.startsWith("/api/")) {
     return supabaseResponse;
   }

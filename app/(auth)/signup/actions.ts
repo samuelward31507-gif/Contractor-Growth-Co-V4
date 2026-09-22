@@ -8,6 +8,7 @@ import { isValidEmail, validatePassword } from "@/lib/auth/validation";
 import { createClient } from "@/lib/supabase/server";
 import { sendSignupNotification } from "@/lib/email/send-signup-notification";
 import { resolveAppBaseUrl } from "@/lib/automation/sms";
+import { TERMS_VERSION } from "@/lib/legal/terms-version";
 
 export type SignupState = {
   error?: string;
@@ -52,12 +53,33 @@ export async function signup(
     return { error: "Passwords do not match." };
   }
 
+  // Never trust the checkbox's client-side "checked" state alone - the only
+  // thing that matters is what actually arrived in the submitted form data.
+  // A truthy-but-"false" string (e.g. a hidden field default) must not pass;
+  // an unchecked HTML checkbox omits the field entirely, so this also
+  // covers that case. Rejected here, before signUp() is ever called, so no
+  // auth user (let alone an organization) is created without consent.
+  const agreeToTerms = formData.get("agreeToTerms") === "true";
+  if (!agreeToTerms) {
+    return { error: "You must agree to the Terms of Service and acknowledge the Privacy Policy to create an account." };
+  }
+
   const supabase = await createClient();
   const baseUrl = await resolveSignupBaseUrl();
+  const termsAcceptedAt = new Date().toISOString();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: `${baseUrl}/auth/confirm` },
+    options: {
+      emailRedirectTo: `${baseUrl}/auth/confirm`,
+      // Stamped into the auth user's own metadata, not a client-supplied
+      // value - termsAcceptedAt/TERMS_VERSION are both computed server-side,
+      // above. No organization exists yet at this point (see
+      // app/onboarding/actions.ts's createOrganization for why), so this is
+      // the one place consent can be durably recorded against the account
+      // itself, then copied onto the organization row once one exists.
+      data: { terms_accepted_at: termsAcceptedAt, terms_version: TERMS_VERSION },
+    },
   });
 
   if (error) {

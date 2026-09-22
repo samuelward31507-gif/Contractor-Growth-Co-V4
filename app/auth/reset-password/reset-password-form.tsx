@@ -1,20 +1,19 @@
 "use client";
 
-import Link from "next/link";
 import { useActionState } from "react";
 import { authButtonClass, authErrorBannerClass, authInputClass, authLabelClass } from "@/lib/ui/auth-form";
-import { login, type LoginState } from "./actions";
+import { resetPassword, type ResetPasswordState } from "./actions";
 
-const initialState: LoginState = {};
+const initialState: ResetPasswordState = {};
 
-export function LoginForm() {
-  const [state, formAction, isPending] = useActionState(login, initialState);
+export function ResetPasswordForm() {
+  const [state, formAction, isPending] = useActionState(resetPassword, initialState);
 
   return (
     <form action={formAction} className="space-y-7" noValidate>
       <div className="space-y-1.5">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Welcome back.</h1>
-        <p className="text-sm text-slate-500">Sign in to your workspace.</p>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Set a new password.</h1>
+        <p className="text-sm text-slate-500">Choose a new password for your account.</p>
       </div>
 
       {state.error ? (
@@ -32,37 +31,34 @@ export function LoginForm() {
 
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <label htmlFor="email" className={authLabelClass}>
-            Email
+          <label htmlFor="password" className={authLabelClass}>
+            New password
           </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            className={authInputClass}
-            placeholder="you@company.com"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label htmlFor="password" className={authLabelClass}>
-              Password
-            </label>
-            <Link href="/forgot-password" className="text-[13px] font-medium text-slate-500 underline-offset-4 hover:text-slate-900 hover:underline">
-              Forgot password?
-            </Link>
-          </div>
           <input
             id="password"
             name="password"
             type="password"
-            autoComplete="current-password"
+            autoComplete="new-password"
             required
+            minLength={8}
             className={authInputClass}
-            placeholder="••••••••"
+            placeholder="At least 8 characters"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="confirmPassword" className={authLabelClass}>
+            Confirm new password
+          </label>
+          <input
+            id="confirmPassword"
+            name="confirmPassword"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+            className={authInputClass}
+            placeholder="Re-enter your new password"
           />
         </div>
       </div>
@@ -74,10 +70,10 @@ export function LoginForm() {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4Z" />
             </svg>
-            <span className="ml-2">Signing in…</span>
+            <span className="ml-2">Updating…</span>
           </>
         ) : (
-          "Sign in"
+          "Update password"
         )}
       </button>
     </form>

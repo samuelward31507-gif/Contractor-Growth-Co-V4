@@ -37,10 +37,13 @@ const ACTIONS_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/(auth)/signup/a
 const CHECKOUT_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "lib/billing/checkout.ts"), "utf8");
 
 test("1. signUp() is called with emailRedirectTo pointing at ${baseUrl}/auth/confirm", () => {
-  const fnMatch = ACTIONS_SOURCE.match(/const \{ data, error \} = await supabase\.auth\.signUp\(\{[\s\S]*?\}\);/);
+  const fnMatch = ACTIONS_SOURCE.match(/const \{ data, error \} = await supabase\.auth\.signUp\(\{[\s\S]*?\n  \}\);/);
   assert.ok(fnMatch, "expected to find the supabase.auth.signUp(...) call");
   const body = fnMatch![0];
-  assert.match(body, /options:\s*\{\s*emailRedirectTo:\s*`\$\{baseUrl\}\/auth\/confirm`\s*\}/);
+  // options now also carries the Launch Blocker #3 consent payload (see
+  // actions.consent.test.ts) - this only needs to confirm emailRedirectTo
+  // is still present and correct, not that it's the only key in options.
+  assert.match(body, /emailRedirectTo:\s*`\$\{baseUrl\}\/auth\/confirm`/);
 });
 
 test("2. baseUrl is resolved before signUp() is called, so emailRedirectTo is never built from a stale/undefined value", () => {

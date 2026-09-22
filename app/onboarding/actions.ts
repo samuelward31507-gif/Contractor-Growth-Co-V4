@@ -26,6 +26,16 @@ export type OnboardingState = {
  * these extra fields is non-fatal (the org itself was already created
  * successfully) and simply means Settings/onboarding will show them as
  * still incomplete - never a reason to fail an otherwise-successful signup.
+ *
+ * Also persists terms_accepted_at/terms_version onto the new organization
+ * row, in this same update - the earliest point an organizations row
+ * exists to write them onto. The values themselves were captured
+ * server-side at signup() (app/(auth)/signup/actions.ts) and stored on the
+ * auth user's own metadata, since consent has to be recorded before an
+ * organization exists at all; this just copies them across, and only if
+ * they're actually present - an account created before this consent flow
+ * existed has no such metadata, and must never have acceptance fabricated
+ * for it here.
  */
 export async function createOrganization(
   _prevState: OnboardingState,
@@ -73,12 +83,16 @@ export async function createOrganization(
   const organizationId = typeof orgId === "string" ? orgId : (await getUserOrganization(supabase, user.id))?.organizationId;
 
   if (organizationId) {
+    const termsAcceptedAt = typeof user.user_metadata?.terms_accepted_at === "string" ? user.user_metadata.terms_accepted_at : null;
+    const termsVersion = typeof user.user_metadata?.terms_version === "string" ? user.user_metadata.terms_version : null;
+
     await supabase
       .from("organizations")
       .update({
         owner_name: ownerName || null,
         trade: trade || null,
         phone: phone || null,
+        ...(termsAcceptedAt && termsVersion ? { terms_accepted_at: termsAcceptedAt, terms_version: termsVersion } : {}),
       })
       .eq("id", organizationId);
 

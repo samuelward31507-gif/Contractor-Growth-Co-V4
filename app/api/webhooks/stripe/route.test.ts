@@ -69,6 +69,7 @@ const anon = createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process
 
 let organizationId: string;
 let secondOrganizationId: string;
+let subscriptionOrgId: string;
 
 before(async () => {
   const { data: org, error } = await service.from("organizations").insert({ name: "Payment Gate Webhook Test Org" }).select("id, payment_status").single();
@@ -78,11 +79,22 @@ before(async () => {
   const { data: org2, error: error2 } = await service.from("organizations").insert({ name: "Payment Gate Webhook Test Org (Isolation)" }).select("id").single();
   if (error2) throw error2;
   secondOrganizationId = org2!.id;
+
+  // Dedicated org for subscription-lifecycle tests below, kept separate from
+  // organizationId/secondOrganizationId so those tests' assertions never
+  // depend on what earlier checkout.session.completed tests already did to
+  // shared state.
+  const { data: org3, error: error3 } = await service.from("organizations").insert({ name: "Payment Gate Webhook Test Org (Subscription Lifecycle)" }).select("id").single();
+  if (error3) throw error3;
+  subscriptionOrgId = org3!.id;
+  const { error: activateErr } = await service.from("organizations").update({ payment_status: "active" }).eq("id", subscriptionOrgId);
+  if (activateErr) throw activateErr;
 });
 
 after(async () => {
   await service.from("organizations").delete().eq("id", organizationId);
   await service.from("organizations").delete().eq("id", secondOrganizationId);
+  await service.from("organizations").delete().eq("id", subscriptionOrgId);
 });
 
 function checkoutCompletedPayload(orgId: string) {
@@ -96,6 +108,29 @@ function checkoutCompletedPayload(orgId: string) {
         object: "checkout.session",
         client_reference_id: orgId,
         metadata: { organization_id: orgId },
+      },
+    },
+  });
+}
+
+/**
+ * Matches the exact shape a real customer.subscription.updated/deleted
+ * event delivers - data.object IS the Subscription itself, carrying
+ * organization_id in its own metadata (see lib/billing/checkout.ts's
+ * subscription_data.metadata), never a client_reference_id (Subscriptions
+ * don't have one - that's a Checkout Session-only field).
+ */
+function subscriptionEventPayload(type: "customer.subscription.updated" | "customer.subscription.deleted", orgId: string | null, status: string = "active") {
+  return JSON.stringify({
+    id: `evt_test_${type}_${orgId}_${status}_${Math.random()}`,
+    object: "event",
+    type,
+    data: {
+      object: {
+        id: `sub_test_${orgId}`,
+        object: "subscription",
+        status,
+        metadata: orgId ? { organization_id: orgId } : {},
       },
     },
   });
@@ -231,14 +266,116 @@ test("8. activateOrganizationPayment itself is safely idempotent when called twi
   assert.equal(data?.payment_status, "active");
 });
 
-test("9. a non-checkout event type is acknowledged (200) but never touches payment_status", async () => {
+test("9. an unrelated event type (customer.updated) is acknowledged (200) but never touches payment_status", async () => {
   const payload = JSON.stringify({
     id: "evt_test_ignored",
     object: "event",
-    type: "customer.subscription.deleted",
-    data: { object: { id: "sub_test", object: "subscription" } },
+    type: "customer.updated",
+    data: { object: { id: "cus_test", object: "customer" } },
   });
   const request = signedRequest(payload);
   const response = await POST(request as never);
   assert.equal(response.status, 200);
+
+  // organizationId was activated to 'active' by test 6 - confirms an
+  // unrelated event genuinely leaves it exactly where it was, not merely
+  // that the route returns 200.
+  const { data } = await service.from("organizations").select("payment_status").eq("id", organizationId).single();
+  assert.equal(data?.payment_status, "active");
+});
+
+// ===========================================================================
+// SUBSCRIPTION LIFECYCLE HARDENING
+// ===========================================================================
+
+test("10. customer.subscription.updated with status 'past_due' suspends a previously-active organization", async () => {
+  const request = signedRequest(subscriptionEventPayload("customer.subscription.updated", subscriptionOrgId, "past_due"));
+  const response = await POST(request as never);
+  assert.equal(response.status, 200);
+
+  const { data } = await service.from("organizations").select("payment_status").eq("id", subscriptionOrgId).single();
+  assert.equal(data?.payment_status, "suspended");
+});
+
+test("11. customer.subscription.updated with status 'unpaid' also suspends (retries exhausted, still not cancelled)", async () => {
+  await service.from("organizations").update({ payment_status: "active" }).eq("id", subscriptionOrgId);
+  const request = signedRequest(subscriptionEventPayload("customer.subscription.updated", subscriptionOrgId, "unpaid"));
+  const response = await POST(request as never);
+  assert.equal(response.status, 200);
+
+  const { data } = await service.from("organizations").select("payment_status").eq("id", subscriptionOrgId).single();
+  assert.equal(data?.payment_status, "suspended");
+});
+
+test("12. customer.subscription.updated with status 'active' recovers a suspended organization back to active", async () => {
+  await service.from("organizations").update({ payment_status: "suspended" }).eq("id", subscriptionOrgId);
+  const request = signedRequest(subscriptionEventPayload("customer.subscription.updated", subscriptionOrgId, "active"));
+  const response = await POST(request as never);
+  assert.equal(response.status, 200);
+
+  const { data } = await service.from("organizations").select("payment_status").eq("id", subscriptionOrgId).single();
+  assert.equal(data?.payment_status, "active");
+});
+
+test("13. customer.subscription.updated with status 'canceled' cancels the organization", async () => {
+  await service.from("organizations").update({ payment_status: "active" }).eq("id", subscriptionOrgId);
+  const request = signedRequest(subscriptionEventPayload("customer.subscription.updated", subscriptionOrgId, "canceled"));
+  const response = await POST(request as never);
+  assert.equal(response.status, 200);
+
+  const { data } = await service.from("organizations").select("payment_status").eq("id", subscriptionOrgId).single();
+  assert.equal(data?.payment_status, "cancelled");
+});
+
+test("14. customer.subscription.deleted cancels the organization regardless of prior state", async () => {
+  await service.from("organizations").update({ payment_status: "active" }).eq("id", subscriptionOrgId);
+  const request = signedRequest(subscriptionEventPayload("customer.subscription.deleted", subscriptionOrgId));
+  const response = await POST(request as never);
+  assert.equal(response.status, 200);
+
+  const { data } = await service.from("organizations").select("payment_status").eq("id", subscriptionOrgId).single();
+  assert.equal(data?.payment_status, "cancelled");
+});
+
+test("15. customer.subscription.updated with status 'incomplete' is acknowledged but never mutates payment_status - a transitional/ambiguous status is never guessed at", async () => {
+  await service.from("organizations").update({ payment_status: "active" }).eq("id", subscriptionOrgId);
+  const request = signedRequest(subscriptionEventPayload("customer.subscription.updated", subscriptionOrgId, "incomplete"));
+  const response = await POST(request as never);
+  assert.equal(response.status, 200);
+
+  const { data } = await service.from("organizations").select("payment_status").eq("id", subscriptionOrgId).single();
+  assert.equal(data?.payment_status, "active", "an ambiguous/transitional status must never change payment_status either direction");
+});
+
+test("16. a subscription event with no resolvable organization id is acknowledged (200) but changes nothing", async () => {
+  const request = signedRequest(subscriptionEventPayload("customer.subscription.updated", null, "past_due"));
+  const response = await POST(request as never);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.reason, "missing_organization_id");
+});
+
+test("17. a duplicate delivery of the same subscription-cancellation event is idempotent - no error, still cancelled, no double side effect", async () => {
+  await service.from("organizations").update({ payment_status: "active" }).eq("id", subscriptionOrgId);
+  const payload = subscriptionEventPayload("customer.subscription.deleted", subscriptionOrgId);
+
+  const first = await POST(signedRequest(payload) as never);
+  assert.equal(first.status, 200);
+  const second = await POST(signedRequest(payload) as never);
+  assert.equal(second.status, 200);
+
+  const { data } = await service.from("organizations").select("payment_status").eq("id", subscriptionOrgId).single();
+  assert.equal(data?.payment_status, "cancelled");
+});
+
+test("18. a subscription event for one organization never changes a different organization's payment_status", async () => {
+  await service.from("organizations").update({ payment_status: "active" }).eq("id", subscriptionOrgId);
+  const { data: before } = await service.from("organizations").select("payment_status").eq("id", organizationId).single();
+
+  const request = signedRequest(subscriptionEventPayload("customer.subscription.deleted", subscriptionOrgId));
+  const response = await POST(request as never);
+  assert.equal(response.status, 200);
+
+  const { data: after } = await service.from("organizations").select("payment_status").eq("id", organizationId).single();
+  assert.equal(after?.payment_status, before?.payment_status, "an unrelated organization must be completely untouched");
 });

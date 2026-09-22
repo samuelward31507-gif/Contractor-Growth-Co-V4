@@ -8,7 +8,7 @@ const SITE_URL = "https://contractor-growth-co-v4.vercel.app";
  * excluded, matching robots.ts's disallow rules for the same paths.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const routes = ["/", "/how-it-works", "/services", "/get-started"];
+  const routes = ["/", "/how-it-works", "/services", "/get-started", "/privacy", "/terms"];
   const lastModified = new Date();
 
   return routes.map((route) => ({

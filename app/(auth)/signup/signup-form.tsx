@@ -104,6 +104,29 @@ export function SignupForm() {
             placeholder="Re-enter your password"
           />
         </div>
+
+        <div className="flex items-start gap-2.5 pt-1">
+          <input
+            id="agreeToTerms"
+            name="agreeToTerms"
+            type="checkbox"
+            value="true"
+            required
+            aria-required="true"
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
+          />
+          <label htmlFor="agreeToTerms" className="text-[13px] leading-relaxed text-slate-600">
+            I agree to the{" "}
+            <Link href="/terms" target="_blank" className="font-medium text-slate-900 underline-offset-4 hover:underline">
+              Terms of Service
+            </Link>{" "}
+            and acknowledge the{" "}
+            <Link href="/privacy" target="_blank" className="font-medium text-slate-900 underline-offset-4 hover:underline">
+              Privacy Policy
+            </Link>
+            .
+          </label>
+        </div>
       </div>
 
       <button type="submit" disabled={isPending} className={authButtonClass}>

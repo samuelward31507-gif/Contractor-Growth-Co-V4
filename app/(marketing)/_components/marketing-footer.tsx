@@ -8,6 +8,11 @@ const FOOTER_LINKS = [
   { href: "/login", label: "Login" },
 ];
 
+const LEGAL_LINKS = [
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
+];
+
 export function MarketingFooter() {
   return (
     <footer className="border-t border-slate-200 bg-white">
@@ -34,8 +39,15 @@ export function MarketingFooter() {
           </nav>
         </div>
 
-        <div className="mt-12 border-t border-slate-100 pt-6">
+        <div className="mt-12 flex flex-col gap-4 border-t border-slate-100 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-slate-400">&copy; {new Date().getFullYear()} Contractor Growth Co. All rights reserved.</p>
+          <nav aria-label="Legal" className="flex gap-x-6">
+            {LEGAL_LINKS.map((link) => (
+              <Link key={link.href} href={link.href} className="text-xs text-slate-400 transition-colors hover:text-slate-600">
+                {link.label}
+              </Link>
+            ))}
+          </nav>
         </div>
       </Container>
     </footer>

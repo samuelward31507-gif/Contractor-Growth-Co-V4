@@ -6,7 +6,7 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: "*",
-      allow: ["/", "/how-it-works", "/services", "/get-started"],
+      allow: ["/", "/how-it-works", "/services", "/get-started", "/privacy", "/terms"],
       // The authenticated Trackpr application and its APIs are not part of
       // the public marketing site and should never be indexed.
       disallow: [

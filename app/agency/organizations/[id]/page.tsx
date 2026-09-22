@@ -21,6 +21,7 @@ import { UnauthorizedState } from "../../_components/unauthorized-state";
 import { ErrorState } from "../../_components/error-state";
 import { NeedsAttention } from "../../_components/needs-attention";
 import { AutomationsPanel } from "../../_components/automations-panel";
+import { AutomationPauseControl } from "./_components/automation-pause-control";
 
 const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
   new: "neutral",
@@ -107,13 +108,21 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   // already-authorized organizations (the check immediately above) - never
   // a second, independent authorization path. Uses the service-role client
   // like every other agency read on this page.
-  const [incidents, checklist, profile, serviceAreas, dashboardData] = await Promise.all([
+  const [incidents, checklist, profile, serviceAreas, dashboardData, automationPauseRow] = await Promise.all([
     listIncidents(service, id, { status: ["open", "acknowledged"] }),
     computeSetupChecklist(service, id),
     getBusinessProfile(service, id),
     getServiceAreas(service, id),
     getDashboardData(service, id),
+    // Launch Blocker #5: not yet part of getAgencyBusinessMetrics's snapshot
+    // shape - read directly here, the same way profile/serviceAreas/
+    // dashboardData already are, scoped to this same already-authorized `id`.
+    service.from("organizations").select("automation_paused").eq("id", id).maybeSingle(),
   ]);
+  // Fail closed on a read error too, not only a true value - an org whose
+  // pause state couldn't be confirmed is shown (and, via outbound-gate,
+  // enforced) as paused, never silently assumed to be running.
+  const isAutomationPaused = automationPauseRow.error ? true : Boolean(automationPauseRow.data?.automation_paused);
   const { readiness, testLeadOutcome } = checklist;
   const { metrics: m } = org;
   const missingItems = checklist.items.filter((item) => !item.complete);
@@ -144,6 +153,10 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
             <Badge tone="success" icon={CheckCircle2}>Healthy</Badge>
           )}
         </div>
+      </div>
+
+      <div className="mt-4">
+        <AutomationPauseControl organizationId={id} isPaused={isAutomationPaused} />
       </div>
 
       {clientNeedsAttention.length > 0 ? (
