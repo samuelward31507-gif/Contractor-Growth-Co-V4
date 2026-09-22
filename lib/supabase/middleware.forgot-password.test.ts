@@ -30,8 +30,8 @@ test("3. the /auth/* prefix exemption is untouched - reset-password (and confirm
   assert.match(SOURCE, /pathname\.startsWith\("\/auth"\)/);
 });
 
-test("4. PUBLIC_MARKETING_PATHS is untouched by this change (still exactly the 6 paths from the legal-pages work, no /forgot-password added here by mistake)", () => {
-  assert.match(SOURCE, /const PUBLIC_MARKETING_PATHS = new Set\(\["\/", "\/how-it-works", "\/services", "\/get-started", "\/privacy", "\/terms"\]\);/);
+test("4. PUBLIC_MARKETING_PATHS is untouched by this change - no /forgot-password added here by mistake (its exact contents, including the later /robots.txt and /sitemap.xml addition, are covered by middleware.seo-routes.test.ts)", () => {
+  assert.doesNotMatch(SOURCE, /const PUBLIC_MARKETING_PATHS = new Set\([^)]*"\/forgot-password"[^)]*\);/);
 });
 
 test("5. AUTH_PATHS still redirects an authenticated user away to dashboard/onboarding (unchanged) - the same bounce /login and /signup already had now also applies correctly to /forgot-password", () => {
