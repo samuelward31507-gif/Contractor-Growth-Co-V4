@@ -120,7 +120,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">System</p>
         <h1 className={pageTitleClass}>Settings</h1>
         <p className={`mt-1.5 ${pageDescriptionClass}`}>
-          Configure the business rules Trackpr and future automation will use.
+          Configure the business rules your automations use.
         </p>
         {!canEdit ? (
           <p className="mt-3 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">

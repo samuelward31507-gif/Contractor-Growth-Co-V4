@@ -14,9 +14,7 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
   return (
     <section>
       <h2 className={subsectionTitleClass}>AI &amp; communication</h2>
-      <p className={`mt-1 ${metaClass}`}>
-        How AI should represent and communicate for your business, once it&apos;s connected.
-      </p>
+      <p className={`mt-1 ${metaClass}`}>How AI represents and communicates for your business.</p>
 
       <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
@@ -24,8 +22,8 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
           {state.success ? <p className={successBannerClass}>AI settings saved.</p> : null}
 
           <div className="rounded-md border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-700">
-            These settings only store configuration. No AI is connected yet - future automation will read these
-            rules once it&apos;s built.
+            These settings are sent to every automated lead reply, follow-up, and customer conversation - a change
+            here takes effect on the next message AI sends, not just future ones.
           </div>
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -35,7 +33,7 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
               defaultChecked={settings.ai_enabled}
               className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
             />
-            Allow AI to represent this business once connected
+            Allow AI to represent this business
           </label>
 
           <div className="space-y-1.5">

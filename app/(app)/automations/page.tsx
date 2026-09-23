@@ -1,12 +1,14 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
-import { getAutomationOverview, getWorkflowNameStats, buildAutomationSummaries } from "@/lib/automation/queries";
+import { getAutomationOverview, getWorkflowNameStats, buildAutomationSummaries, getRecentExecutionsForWorkflows } from "@/lib/automation/queries";
 import { getAutomationEnabledMap } from "@/lib/automation/settings";
 import { metaClass, sectionLabelClass } from "@/lib/ui/typography";
 import { PageHeader } from "@/lib/ui/page-header";
 import { SummaryCards } from "./_components/summary-cards";
 import { AutomationList } from "./_components/automation-list";
+import { AiAgents, getAiAgentWorkflowNames } from "./_components/ai-agents";
+import { AiActivityFeed } from "./_components/ai-activity-feed";
 
 /**
  * Automation Control Center - organization-scoped, read-only for v1. Every
@@ -41,6 +43,7 @@ export default async function AutomationsPage() {
   ]);
 
   const summaries = buildAutomationSummaries(statsByName, enabledByAutomationId);
+  const recentAiExecutions = await getRecentExecutionsForWorkflows(supabase, membership.organizationId, getAiAgentWorkflowNames(), 15);
 
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
@@ -50,6 +53,13 @@ export default async function AutomationsPage() {
         <p className={sectionLabelClass}>Overview</p>
         <SummaryCards overview={overview} summaries={summaries} />
         <p className={metaClass}>Activity reflects the last 30 days.</p>
+      </div>
+
+      <AiAgents summaries={summaries} />
+
+      <div className="flex flex-col gap-2">
+        <p className={sectionLabelClass}>Recent AI activity</p>
+        <AiActivityFeed executions={recentAiExecutions} />
       </div>
 
       <div className="flex flex-col gap-2">
