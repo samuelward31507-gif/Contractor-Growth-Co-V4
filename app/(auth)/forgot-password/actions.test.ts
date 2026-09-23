@@ -42,6 +42,21 @@ const ACTIONS_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/(auth)/forgot-p
 // SECTION 1 - STATIC (structural, no database)
 // ===========================================================================
 
+test("0. every top-level VALUE export from this \"use server\" file is an async function - confirmed production root cause of the /forgot-password 500, verified against the actual Vercel runtime exception (`Error: A \"use server\" file can only export async functions, found string.`, digest 3533334004@E352): this file used to also `export { GENERIC_SUCCESS_MESSAGE }`, a plain string constant. Next.js's Server Actions runtime requires every export from a \"use server\" file to be an async function; exporting a non-function value crashes the entire module at runtime, on EVERY request regardless of input, which is exactly what was observed. `export type` is fine (erased at compile time); any `export const`/`export {}` of a non-function value is not.", () => {
+  const exportLines = ACTIONS_SOURCE.match(/^export .+$/gm) ?? [];
+  for (const line of exportLines) {
+    if (line.startsWith("export type")) continue;
+    assert.match(
+      line,
+      /^export (async function|\{ *\w+ *(as \w+)? *\})/,
+      `"use server" files may only export async functions (or types) - found a disallowed export: ${line}`,
+    );
+  }
+  // The specific historical culprit must not come back under this or any other name.
+  assert.doesNotMatch(ACTIONS_SOURCE, /export \{[^}]*GENERIC_SUCCESS_MESSAGE[^}]*\}/);
+  assert.doesNotMatch(ACTIONS_SOURCE, /export const \w+\s*=\s*["'`]/, "no exported string/value constant should ever exist in a \"use server\" file");
+});
+
 test("1. an invalid email is rejected via the existing isValidEmail utility before any Supabase call", () => {
   assert.match(ACTIONS_SOURCE, /import \{ isValidEmail \} from "@\/lib\/auth\/validation";/);
   const guardIndex = ACTIONS_SOURCE.indexOf("if (!email || !isValidEmail(email))");

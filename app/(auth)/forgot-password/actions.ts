@@ -33,8 +33,6 @@ async function resolveForgotPasswordBaseUrl(): Promise<string> {
   return `${proto}://${host}`;
 }
 
-const GENERIC_SUCCESS_MESSAGE = "If an account exists for that email, you'll receive instructions to reset your password.";
-
 /**
  * Never reveals whether the supplied email has an account - the exact same
  * generic message is returned whether resetPasswordForEmail succeeds,
@@ -65,14 +63,13 @@ export async function requestPasswordReset(
     redirectTo: `${baseUrl}/auth/confirm`,
   });
 
-  // Deliberately not surfaced to the user - see GENERIC_SUCCESS_MESSAGE
-  // above. Logged server-side only, for operational visibility, never
-  // returned to the client.
+  // Deliberately not surfaced to the user - the client always renders the
+  // same generic "check your email" copy regardless of what happened here
+  // (see forgot-password-form.tsx), so account existence is never leaked.
+  // Logged server-side only, for operational visibility.
   if (error) {
     console.error("[auth] resetPasswordForEmail failed", { error: error.message });
   }
 
   return { success: true };
 }
-
-export { GENERIC_SUCCESS_MESSAGE };
