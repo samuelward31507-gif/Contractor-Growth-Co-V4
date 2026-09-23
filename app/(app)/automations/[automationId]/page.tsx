@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
 import { getWorkflowNameStats, getRecentExecutionsForWorkflows, buildAutomationSummaries } from "@/lib/automation/queries";
+import { listIncidents } from "@/lib/automation-health/queries";
 import {
   getAutomationEnabledMap,
   getAutomationConfig,
@@ -31,6 +32,7 @@ import { HowItWorks } from "../_components/how-it-works";
 import { RecentExecutions } from "../_components/recent-executions";
 import { ManualRunControls } from "../_components/manual-run-controls";
 import { EnableToggle } from "../_components/enable-toggle";
+import { IncidentList } from "../_components/incident-list";
 import { AppointmentReminderConfigForm } from "../_components/appointment-reminder-config";
 import { EstimateFollowupConfigForm } from "../_components/estimate-followup-config";
 import { InboundCustomerReplyConfigForm } from "../_components/inbound-customer-reply-config";
@@ -115,13 +117,20 @@ export default async function AutomationDetailPage({ params }: { params: Promise
   const isConfigurable = CONFIGURABLE_AUTOMATION_IDS.has(definition.id);
   const needsBusinessHours = BUSINESS_HOURS_AUTOMATION_IDS.has(definition.id);
 
-  const [statsByName, executions, enabledByAutomationId, rawConfig, businessHours] = await Promise.all([
+  const [statsByName, executions, enabledByAutomationId, rawConfig, businessHours, orgIncidents] = await Promise.all([
     getWorkflowNameStats(supabase, membership.organizationId),
     getRecentExecutionsForWorkflows(supabase, membership.organizationId, definition.workflowNames),
     getAutomationEnabledMap(supabase, membership.organizationId),
     isConfigurable ? getAutomationConfig(supabase, membership.organizationId, definition.id) : Promise.resolve(null),
     needsBusinessHours ? getBusinessHours(supabase, membership.organizationId) : Promise.resolve([]),
+    listIncidents(supabase, membership.organizationId, { status: ["open", "acknowledged"] }),
   ]);
+
+  // listIncidents has no per-automation filter of its own (it is a small,
+  // org-wide bounded read - see its own MAX_INCIDENT_ROWS comment), so this
+  // page narrows to the one automation it cares about in memory, same as
+  // the org-wide /automations page does with getAutomationHealthSummaries.
+  const automationIncidents = orgIncidents.filter((incident) => incident.automationId === definition.id);
 
   const hasBusinessHoursConfigured = businessHours.length > 0;
 
@@ -243,6 +252,8 @@ export default async function AutomationDetailPage({ params }: { params: Promise
           )}
         </>
       ) : null}
+
+      {definition.kind !== "safety-layer" ? <IncidentList incidents={automationIncidents} /> : null}
 
       <SectionCard title="Automation activity" icon={History}>
         {definition.workflowNames.length === 0 ? (

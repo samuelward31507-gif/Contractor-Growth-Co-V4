@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { formatCount, formatRelativeTime, AUTOMATION_STATUS_BADGE } from "./format";
 import { Badge } from "@/lib/ui/badge";
 import type { AutomationSummary } from "@/lib/automation/queries";
+import type { AutomationHealthSummary } from "@/lib/automation-health/types";
 
 /**
  * Grouped by real operational status - "Needs attention" first, "Active"
@@ -17,7 +18,7 @@ const GROUPS: { statuses: AutomationSummary["status"][]; label: string }[] = [
   { statuses: ["no_activity", "not_configured", "disabled"], label: "Inactive" },
 ];
 
-function AutomationRow({ summary }: { summary: AutomationSummary }) {
+function AutomationRow({ summary, activeIncidentCount }: { summary: AutomationSummary; activeIncidentCount: number }) {
   const { definition, status, failedExecutions, lastExecutionAt } = summary;
   const Icon = definition.icon;
   const statusBadge = AUTOMATION_STATUS_BADGE[status];
@@ -50,6 +51,11 @@ function AutomationRow({ summary }: { summary: AutomationSummary }) {
             </span>
             <span>Last activity: {lastExecutionAt ? formatRelativeTime(lastExecutionAt) : "—"}</span>
             <span className={failedExecutions > 0 ? "font-medium text-red-600" : ""}>{formatCount(failedExecutions)} failures</span>
+            {activeIncidentCount > 0 ? (
+              <span className="font-medium text-red-600">
+                {formatCount(activeIncidentCount)} active incident{activeIncidentCount === 1 ? "" : "s"}
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -59,7 +65,8 @@ function AutomationRow({ summary }: { summary: AutomationSummary }) {
   );
 }
 
-export function AutomationList({ summaries }: { summaries: AutomationSummary[] }) {
+/** Trackpr 2.0 Phase 4: keyed by AutomationHealthSummary.automationId - the real, incident-based active count, alongside (not replacing) each row's existing AutomationDisplayStatus badge. */
+export function AutomationList({ summaries, healthByAutomationId }: { summaries: AutomationSummary[]; healthByAutomationId: Map<string, AutomationHealthSummary> }) {
   return (
     <div className="flex flex-col gap-6">
       {GROUPS.map((group) => {
@@ -73,7 +80,11 @@ export function AutomationList({ summaries }: { summaries: AutomationSummary[] }
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <ul className="divide-y divide-slate-100">
                 {items.map((summary) => (
-                  <AutomationRow key={summary.definition.id} summary={summary} />
+                  <AutomationRow
+                    key={summary.definition.id}
+                    summary={summary}
+                    activeIncidentCount={healthByAutomationId.get(summary.definition.id)?.activeIncidentCount ?? 0}
+                  />
                 ))}
               </ul>
             </div>

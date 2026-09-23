@@ -11,7 +11,6 @@ export type NavIconName =
   | "FileText"
   | "Briefcase"
   | "Workflow"
-  | "HeartPulse"
   | "BarChart3"
   | "Building2"
   | "Settings";
@@ -46,10 +45,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Automate",
-    items: [
-      { href: "/automations", label: "Automations", icon: "Workflow" },
-      { href: "/automation-health", label: "Automation Health", icon: "HeartPulse" },
-    ],
+    items: [{ href: "/automations", label: "Automations", icon: "Workflow" }],
   },
   {
     label: "Grow",

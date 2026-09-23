@@ -41,13 +41,20 @@ function formatRelative(iso: string | null): string {
  * from six equal-weight boxes. The six incident/failure counts still exist,
  * but as a quiet supporting list beside it - detail you check after the hero
  * has already answered "is my system working."
+ *
+ * Trackpr 2.0 Phase 4: `activeAutomationCount` folds in the one stat the
+ * retired standalone SummaryCards (the old /automations overview) showed
+ * that this hero did not - everything else it showed (automation activity,
+ * needs-attention count, success rate) either duplicated a number already
+ * here or was a cruder version of the real incident-based counts below.
  */
-export function HealthSummaryCards({ health }: { health: OrganizationHealthSummary }) {
+export function HealthSummaryCards({ health, activeAutomationCount }: { health: OrganizationHealthSummary; activeAutomationCount: number }) {
   const statusBadge = HEALTH_STATUS_BADGE[health.status];
   const style = STATUS_STYLE[health.status];
   const StatusIcon = statusBadge.icon;
 
   const detail: { key: string; label: string; value: string; alert: boolean }[] = [
+    { key: "automations", label: "Active automations", value: formatCount(activeAutomationCount), alert: false },
     { key: "active", label: "Active incidents", value: formatCount(health.activeIncidentCount), alert: health.activeIncidentCount > 0 },
     { key: "critical", label: "Critical", value: formatCount(health.criticalIncidentCount), alert: health.criticalIncidentCount > 0 },
     { key: "warning", label: "Warning", value: formatCount(health.warningIncidentCount), alert: health.warningIncidentCount > 0 },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { acknowledgeIncident, resolveIncident } from "../actions";
+import { acknowledgeIncident, resolveIncident } from "../health-actions";
 import type { IncidentStatus } from "@/lib/automation-health/types";
 
 /**

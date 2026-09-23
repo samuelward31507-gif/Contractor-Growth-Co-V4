@@ -9,15 +9,16 @@ import { mapIncidentRow, type AutomationIncident, type AutomationIncidentRow } f
 export type IncidentActionState = { ok: true; incident: AutomationIncident } | { ok: false; error: string };
 
 /**
- * Resolves the caller's own session/organization - shared by both actions
- * below. Never accepts an organization id from the caller. Authorization
- * itself (owner/admin only) is enforced inside the two RPCs
- * (acknowledge_automation_incident/resolve_automation_incident - see the
- * automation_health_and_alerting migration), which independently re-derive
- * the incident's real organization_id and re-check is_org_admin() -  this
- * function only needs to confirm a real session exists before making the
- * call, matching the "never trust the caller already checked it" rule every
- * other mutation in this codebase follows.
+ * Trackpr 2.0 Phase 4: moved from the retired app/(app)/automation-health/
+ * route (now a redirect to /automations - see that route's own comment) as
+ * part of consolidating Automations + Automation Health into one experience.
+ * Behavior is unchanged from the original - only the revalidated path
+ * changed to match where incidents are now shown. Authorization is still
+ * enforced entirely inside acknowledge_automation_incident/
+ * resolve_automation_incident (owner/admin only, re-derives the incident's
+ * real organization_id) - this function only confirms a real session exists
+ * first, matching every other mutation in this codebase's "never trust the
+ * caller already checked it" rule.
  */
 async function requireSession() {
   const supabase = await createClient();
@@ -41,9 +42,7 @@ async function requireSession() {
 /**
  * Acknowledge an open incident - owner/admin only, enforced by
  * acknowledge_automation_incident itself. The audit_log row is written
- * atomically inside that same RPC, not as a second, best-effort call - see
- * the migration's own comment for why that is a deliberate improvement over
- * this codebase's usual two-round-trip audit pattern.
+ * atomically inside that same RPC, not as a second, best-effort call.
  */
 export async function acknowledgeIncident(incidentId: string): Promise<IncidentActionState> {
   const { supabase } = await requireSession();
@@ -54,13 +53,13 @@ export async function acknowledgeIncident(incidentId: string): Promise<IncidentA
     return { ok: false, error: mapIncidentActionError(error?.message) };
   }
 
-  revalidatePath("/automation-health");
+  revalidatePath("/automations");
   return { ok: true, incident: mapIncidentRow(data as AutomationIncidentRow) };
 }
 
 /**
  * Resolve an open or acknowledged incident - owner/admin only, enforced by
- * resolve_automation_incident itself. See acknowledgeIncident's own comment.
+ * resolve_automation_incident itself.
  */
 export async function resolveIncident(incidentId: string): Promise<IncidentActionState> {
   const { supabase } = await requireSession();
@@ -71,7 +70,7 @@ export async function resolveIncident(incidentId: string): Promise<IncidentActio
     return { ok: false, error: mapIncidentActionError(error?.message) };
   }
 
-  revalidatePath("/automation-health");
+  revalidatePath("/automations");
   return { ok: true, incident: mapIncidentRow(data as AutomationIncidentRow) };
 }
 
