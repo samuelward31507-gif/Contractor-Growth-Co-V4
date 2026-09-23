@@ -22,7 +22,39 @@ const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
 // remaining columns at 1024-1279px. The container's own template changes
 // column count at the breakpoint instead, matching how many cells are
 // actually rendered at each size.
-const ROW_GRID = "grid-cols-[minmax(0,1fr)_92px_92px_112px_20px] xl:grid-cols-[minmax(0,1.3fr)_92px_92px_52px_52px_52px_52px_112px_20px]";
+const ROW_GRID = "grid-cols-[minmax(0,1fr)_92px_92px_112px_20px] xl:grid-cols-[minmax(0,1.3fr)_92px_92px_52px_52px_52px_52px_60px_112px_20px]";
+
+/**
+ * Trackpr 2.0 Phase 6: the row's one "why" signal - a client can be flagged
+ * for more than one real reason at once (billing, an open incident, being
+ * paused, a broken calendar, SMS delivery failures), and the master prompt
+ * asks the row to hint at WHY, not just THAT. Checked in a fixed priority
+ * order (worst/most-actionable first) so the single label shown is the most
+ * urgent true reason, with "+N" for any others - never a score, never a
+ * ranking beyond "which of these real conditions is worse."
+ */
+function attentionReasons(health: AgencyOrganizationHealth | undefined): string[] {
+  if (!health) return [];
+  const reasons: string[] = [];
+  if (health.paymentStatus === "suspended" || health.paymentStatus === "cancelled") reasons.push("Billing");
+  if (health.activeIncidentCount > 0) reasons.push("Incidents");
+  if (health.automationPaused) reasons.push("Paused");
+  if (health.calendarStatus === "error") reasons.push("Calendar");
+  if (health.failedMessages > 0 || health.undeliveredMessages > 0) reasons.push("SMS");
+  if (health.stuckExecutionCount > 0 && !reasons.includes("Incidents")) reasons.push("Stuck");
+  return reasons;
+}
+
+function HealthBadge({ health }: { health: AgencyOrganizationHealth | undefined }) {
+  const reasons = attentionReasons(health);
+  if (reasons.length === 0) return <span className="text-sm text-slate-500">Healthy</span>;
+  return (
+    <Badge tone="danger">
+      {reasons[0]}
+      {reasons.length > 1 ? ` +${reasons.length - 1}` : ""}
+    </Badge>
+  );
+}
 
 export type ClientRow = {
   organization: AgencyOrganizationSnapshot;
@@ -44,6 +76,12 @@ export type ClientRow = {
  * "Live" badge, no readiness note); a client needing attention gets the
  * danger rail regardless of its onboarding stage, since operational health
  * is the more urgent signal of the two.
+ *
+ * Trackpr 2.0 Phase 6: the Health cell now names the most urgent real reason
+ * (Billing/Incidents/Paused/Calendar/SMS/Stuck - see attentionReasons)
+ * instead of a bare "Needs attention" binary, and a new xl-only "Issues"
+ * column surfaces the raw open-incident count - both answer "why" at a
+ * glance, from data already fetched for this row (row.health), no new query.
  */
 export function ClientOperations({ rows, totalCount }: { rows: ClientRow[]; totalCount: number }) {
   if (rows.length === 0) {
@@ -69,6 +107,7 @@ export function ClientOperations({ rows, totalCount }: { rows: ClientRow[]; tota
           <span className="hidden text-right text-xs text-slate-400 xl:block">Appts</span>
           <span className="hidden text-right text-xs text-slate-400 xl:block">Jobs</span>
           <span className="hidden text-right text-xs text-slate-400 xl:block">AI</span>
+          <span className="hidden text-right text-xs text-slate-400 xl:block">Issues</span>
           <span className="text-xs text-slate-400 whitespace-nowrap">Last activity</span>
           <span />
         </div>
@@ -115,11 +154,7 @@ function ClientRowDesktop({ row }: { row: ClientRow }) {
         {note ? <span className="ml-1.5 text-xs text-slate-400">{note}</span> : null}
       </span>
       <span>
-        {health?.needsAttention ? (
-          <Badge tone="danger">Needs attention</Badge>
-        ) : (
-          <span className="text-sm text-slate-500">Healthy</span>
-        )}
+        <HealthBadge health={health} />
       </span>
       <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.leadMetrics.totalLeads)}</span>
       <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.appointmentMetrics.totalAppointments)}</span>
@@ -127,6 +162,13 @@ function ClientRowDesktop({ row }: { row: ClientRow }) {
       <span className="hidden text-right text-xs tabular-nums xl:block">
         {row.escalationCount > 0 ? (
           <span className="font-medium text-amber-600">{formatCount(row.escalationCount)}</span>
+        ) : (
+          <span className="text-slate-300">—</span>
+        )}
+      </span>
+      <span className="hidden text-right text-xs tabular-nums xl:block">
+        {(health?.activeIncidentCount ?? 0) > 0 ? (
+          <span className="font-medium text-red-600">{formatCount(health!.activeIncidentCount)}</span>
         ) : (
           <span className="text-slate-300">—</span>
         )}
@@ -156,8 +198,12 @@ function ClientRowMobile({ row }: { row: ClientRow }) {
             <Badge tone={STAGE_TONE[stage]}>{ONBOARDING_STAGE_LABEL[stage]}</Badge>
           </span>
           <span className="mt-0.5 flex items-center justify-between gap-2">
-            <span className="truncate text-xs text-slate-500">
-              {health?.needsAttention ? <span className="font-medium text-red-600">Needs attention</span> : "Healthy"}
+            <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-slate-500">
+              {attentionReasons(health).length > 0 ? (
+                <span className="font-medium text-red-600">{attentionReasons(health).join(", ")}</span>
+              ) : (
+                "Healthy"
+              )}
               {note ? ` · ${note}` : ""}
             </span>
             <span className="shrink-0 text-xs tabular-nums text-slate-400">

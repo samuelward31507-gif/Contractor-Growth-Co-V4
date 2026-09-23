@@ -56,7 +56,17 @@ export type AgencyOrganizationHealth = {
   paymentStatus: AgencyPaymentStatus;
   /** The same founder-facing kill switch evaluateOutboundGate already checks before every send (organizations.automation_paused) - surfaced here read-only so an agency admin can see a client is fully paused without opening that organization directly. */
   automationPaused: boolean;
-  /** A simple, honest signal - not a score, not a ranking, and never a claim that automation or AI caused any outcome. True when at least one stuck execution, one failed execution, one failed message, one undelivered message, a broken (status: "error") calendar connection, automation paused, or payment suspended/cancelled was observed in the current period. A newly onboarding organization's payment_status of "payment_required" is deliberately excluded - that is an expected, transient state, not a regression, and flagging it would be a false positive. */
+  /**
+   * Trackpr 2.0 Phase 6: open/acknowledged automation_incidents for this
+   * organization (lib/automation-health/health.ts's own
+   * getOrganizationHealth, the exact same read loadIncidentRollup below
+   * already performs per organization to build the agency-wide rollup - this
+   * just threads that already-fetched per-org detail through instead of
+   * discarding it, rather than a second query).
+   */
+  activeIncidentCount: number;
+  criticalIncidentCount: number;
+  /** A simple, honest signal - not a score, not a ranking, and never a claim that automation or AI caused any outcome. True when at least one stuck execution, one failed execution, one failed message, one undelivered message, one active automation incident, a broken (status: "error") calendar connection, automation paused, or payment suspended/cancelled was observed in the current period. A newly onboarding organization's payment_status of "payment_required" is deliberately excluded - that is an expected, transient state, not a regression, and flagging it would be a false positive. */
   needsAttention: boolean;
 };
 
@@ -81,9 +91,14 @@ export type AgencyIncidentRollup = {
   warningIncidents: number;
 };
 
-async function loadIncidentRollup(serviceSupabase: SupabaseClient, organizationIds: string[]): Promise<AgencyIncidentRollup> {
+type PerOrganizationIncidents = { activeIncidentCount: number; criticalIncidentCount: number };
+
+async function loadIncidentRollup(
+  serviceSupabase: SupabaseClient,
+  organizationIds: string[],
+): Promise<{ rollup: AgencyIncidentRollup; perOrganization: Map<string, PerOrganizationIncidents> }> {
   if (organizationIds.length === 0) {
-    return { organizationsHealthy: 0, organizationsDegraded: 0, organizationsUnhealthy: 0, criticalIncidents: 0, warningIncidents: 0 };
+    return { rollup: { organizationsHealthy: 0, organizationsDegraded: 0, organizationsUnhealthy: 0, criticalIncidents: 0, warningIncidents: 0 }, perOrganization: new Map() };
   }
 
   const results = await Promise.all(organizationIds.map((organizationId) => getOrganizationHealth(serviceSupabase, organizationId)));
@@ -93,6 +108,7 @@ async function loadIncidentRollup(serviceSupabase: SupabaseClient, organizationI
   let organizationsUnhealthy = 0;
   let criticalIncidents = 0;
   let warningIncidents = 0;
+  const perOrganization = new Map<string, PerOrganizationIncidents>();
 
   for (const health of results) {
     if (health.status === "healthy") organizationsHealthy += 1;
@@ -100,9 +116,10 @@ async function loadIncidentRollup(serviceSupabase: SupabaseClient, organizationI
     else organizationsUnhealthy += 1;
     criticalIncidents += health.criticalIncidentCount;
     warningIncidents += health.warningIncidentCount;
+    perOrganization.set(health.organizationId, { activeIncidentCount: health.activeIncidentCount, criticalIncidentCount: health.criticalIncidentCount });
   }
 
-  return { organizationsHealthy, organizationsDegraded, organizationsUnhealthy, criticalIncidents, warningIncidents };
+  return { rollup: { organizationsHealthy, organizationsDegraded, organizationsUnhealthy, criticalIncidents, warningIncidents }, perOrganization };
 }
 
 /**
@@ -275,7 +292,12 @@ export async function getAgencyHealth(
     stuckCountByOrg.set(row.organizationId, (stuckCountByOrg.get(row.organizationId) ?? 0) + 1);
   }
 
-  const orgHealth: AgencyOrganizationHealth[] = organizations.map((org) => {
+  // Intermediate shape: everything AgencyOrganizationHealth needs except
+  // activeIncidentCount/criticalIncidentCount/needsAttention, which depend on
+  // incidentsByOrg (loaded below) - plus paymentProblem, consumed only by the
+  // needsAttention computation right after and stripped before the final
+  // AgencyOrganizationHealth objects are built.
+  const orgHealth: (Omit<AgencyOrganizationHealth, "activeIncidentCount" | "criticalIncidentCount" | "needsAttention"> & { paymentProblem: boolean })[] = organizations.map((org) => {
     const failedWorkflowExecutions = org.metrics.automationMetrics.failedWorkflowExecutions;
     const runningWorkflowExecutions = org.metrics.automationMetrics.runningWorkflowExecutions;
     const stuckExecutionCount = stuckCountByOrg.get(org.organizationId) ?? 0;
@@ -305,18 +327,11 @@ export async function getAgencyHealth(
       calendarLastError,
       paymentStatus,
       automationPaused,
-      needsAttention:
-        stuckExecutionCount > 0 ||
-        failedWorkflowExecutions > 0 ||
-        failedMessages > 0 ||
-        undeliveredMessages > 0 ||
-        calendarStatus === "error" ||
-        automationPaused ||
-        paymentProblem,
+      paymentProblem,
     };
   });
 
-  const [incidentRollup, schedulerHeartbeat] = await Promise.all([
+  const [{ rollup: incidentRollup, perOrganization: incidentsByOrg }, schedulerHeartbeat] = await Promise.all([
     loadIncidentRollup(
       serviceSupabase,
       organizations.map((org) => org.organizationId),
@@ -324,11 +339,36 @@ export async function getAgencyHealth(
     loadSchedulerHeartbeat(serviceSupabase),
   ]);
 
+  // Trackpr 2.0 Phase 6: merges incidentsByOrg (already fetched above by
+  // loadIncidentRollup, not a second query) into each organization's health
+  // record, and widens needsAttention to also catch an active incident whose
+  // category (e.g. n8n_dispatch_failed) isn't already reflected in
+  // failedWorkflowExecutions/stuckExecutionCount/message counts.
+  const orgHealthWithIncidents: AgencyOrganizationHealth[] = orgHealth.map(({ paymentProblem, ...org }) => {
+    const incidents = incidentsByOrg.get(org.organizationId);
+    const activeIncidentCount = incidents?.activeIncidentCount ?? 0;
+    const criticalIncidentCount = incidents?.criticalIncidentCount ?? 0;
+    return {
+      ...org,
+      activeIncidentCount,
+      criticalIncidentCount,
+      needsAttention:
+        org.stuckExecutionCount > 0 ||
+        org.failedWorkflowExecutions > 0 ||
+        org.failedMessages > 0 ||
+        org.undeliveredMessages > 0 ||
+        activeIncidentCount > 0 ||
+        org.calendarStatus === "error" ||
+        org.automationPaused ||
+        paymentProblem,
+    };
+  });
+
   return {
     ok: true,
     stuckThresholdMinutes,
     stuck,
-    organizations: orgHealth,
+    organizations: orgHealthWithIncidents,
     incidentRollup,
     schedulerHeartbeat,
     generatedAt: new Date().toISOString(),

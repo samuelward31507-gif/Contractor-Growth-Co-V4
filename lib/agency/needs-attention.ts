@@ -10,9 +10,13 @@ const ONBOARDING_STALLED_THRESHOLD_MS = 3 * 24 * 60 * 60 * 1000;
 
 export type NeedsAttentionSeverity = "critical" | "warning";
 
+/** Trackpr 2.0 Phase 6: a fixed, small vocabulary for grouping the feed - assigned at each push site below from what the item itself already represents, never inferred or scored. */
+export type NeedsAttentionCategory = "billing" | "automation" | "onboarding" | "communication" | "system";
+
 export type NeedsAttentionItem = {
   id: string;
   severity: NeedsAttentionSeverity;
+  category: NeedsAttentionCategory;
   organizationId: string;
   organizationName: string;
   problem: string;
@@ -35,6 +39,14 @@ export type NeedsAttentionResult = { ok: true; items: NeedsAttentionItem[] } | A
  * invented. Severity follows the same CRITICAL/ATTENTION model
  * getOrganizationHealth already uses: a critical incident makes the item
  * critical, everything else recoverable is a warning.
+ *
+ * Trackpr 2.0 Phase 6: each item now also carries a `category`
+ * (NeedsAttentionCategory), assigned at the exact push site that already
+ * knows what kind of issue it is, for the UI to group by
+ * (app/agency/_components/needs-attention.tsx) - and a new billing item
+ * (paymentStatus suspended/cancelled) was added, since that signal already
+ * fed AgencyOrganizationHealth.needsAttention but had no itemized entry of
+ * its own here.
  */
 export async function getAgencyNeedsAttentionItems(
   sessionSupabase: SupabaseClient,
@@ -68,6 +80,7 @@ export async function getAgencyNeedsAttentionItems(
       items.push({
         id: `incident-critical-${org.organizationId}`,
         severity: "critical",
+        category: "automation",
         organizationId: org.organizationId,
         organizationName: org.organizationName,
         problem: detail.failedWorkflowExecutions > 0 ? "Automation execution failing" : "Critical operational incident",
@@ -80,6 +93,7 @@ export async function getAgencyNeedsAttentionItems(
       items.push({
         id: `incident-warning-${org.organizationId}`,
         severity: "warning",
+        category: "automation",
         organizationId: org.organizationId,
         organizationName: org.organizationName,
         problem: "Automation incident open",
@@ -99,6 +113,7 @@ export async function getAgencyNeedsAttentionItems(
       items.push({
         id: `calendar-${org.organizationId}`,
         severity: "warning",
+        category: "system",
         organizationId: org.organizationId,
         organizationName: org.organizationName,
         problem: "Google Calendar connection broken",
@@ -109,10 +124,31 @@ export async function getAgencyNeedsAttentionItems(
       });
     }
 
+    // Trackpr 2.0 Phase 6: the one signal that already fed AgencyOrganizationHealth.needsAttention
+    // (paymentProblem, see lib/agency/health.ts) but never surfaced as its
+    // own itemized entry in this feed - a client whose ONLY issue is billing
+    // previously showed as "needs attention" in the client list with nothing
+    // explaining why in this feed.
+    if (orgHealthSummary?.paymentStatus === "suspended" || orgHealthSummary?.paymentStatus === "cancelled") {
+      items.push({
+        id: `billing-${org.organizationId}`,
+        severity: "critical",
+        category: "billing",
+        organizationId: org.organizationId,
+        organizationName: org.organizationName,
+        problem: orgHealthSummary.paymentStatus === "cancelled" ? "Billing cancelled" : "Billing suspended",
+        why: "Automation is gated until payment is resolved - see lib/automation/outbound-gate.ts's own payment check.",
+        timestamp: detail.generatedAt,
+        actionHref,
+        actionLabel: "View client",
+      });
+    }
+
     if (detail.smsDeliveryFailureCount > 0) {
       items.push({
         id: `sms-${org.organizationId}`,
         severity: "warning",
+        category: "communication",
         organizationId: org.organizationId,
         organizationName: org.organizationName,
         problem: "SMS delivery failing",
@@ -128,6 +164,7 @@ export async function getAgencyNeedsAttentionItems(
       items.push({
         id: `onboarding-${org.organizationId}`,
         severity: "warning",
+        category: "onboarding",
         organizationId: org.organizationId,
         organizationName: org.organizationName,
         problem: "Stuck in onboarding",
@@ -155,6 +192,7 @@ export async function getAgencyNeedsAttentionItems(
     items.push({
       id: `escalation-${organizationId}`,
       severity: "warning",
+      category: "communication",
       organizationId,
       organizationName: org.organizationName,
       problem: "AI escalation waiting",
@@ -169,6 +207,7 @@ export async function getAgencyNeedsAttentionItems(
     items.push({
       id: `stuck-${execution.id}`,
       severity: "warning",
+      category: "automation",
       organizationId: execution.organizationId,
       organizationName: execution.organizationName,
       problem: `${execution.workflowName} stuck`,
