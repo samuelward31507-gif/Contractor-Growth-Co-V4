@@ -22,6 +22,7 @@ import { BusinessGlance } from "./_components/business-glance";
 import { AiInsightsPanel } from "./_components/ai-insights-panel";
 import { SystemStatus } from "./_components/system-status";
 import { BriefingPanel } from "./_components/briefing-panel";
+import { WhatAiHandled } from "./_components/what-ai-handled";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
 
 function greeting(): string {
@@ -156,6 +157,10 @@ export default async function DashboardPage() {
 
         <div className="order-4 border-t border-slate-200 pt-8 lg:order-none">
           <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
+        </div>
+
+        <div className="order-4 border-t border-slate-200 pt-8 lg:order-none">
+          <WhatAiHandled snapshot={todaySnapshot} />
         </div>
 
         <div className="order-5 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 lg:order-none lg:grid-cols-[minmax(0,1fr)_320px]">
