@@ -129,7 +129,7 @@ function dayOfWeekName(year: number, month: number, day: number): DayOfWeek {
  * makes it correct across a DST transition, since the same timezone's
  * offset differs on either side of one.
  */
-function zonedWallTimeToUtc(year: number, month: number, day: number, minutesSinceMidnight: number, timeZone: string): Date {
+export function zonedWallTimeToUtc(year: number, month: number, day: number, minutesSinceMidnight: number, timeZone: string): Date {
   const hour = Math.floor(minutesSinceMidnight / 60);
   const minute = minutesSinceMidnight % 60;
   const guessUtcMs = Date.UTC(year, month - 1, day, hour, minute, 0, 0);

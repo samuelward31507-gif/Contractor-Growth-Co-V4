@@ -8,6 +8,8 @@ import { APPOINTMENT_STATUSES, type AppointmentStatus } from "@/lib/appointments
 import { checkAppointmentOverlap } from "@/lib/appointments/overlap";
 import { emitAppointmentCreated, emitAppointmentNoShow, emitAppointmentLifecycleEvent } from "@/lib/automation/appointments";
 import { syncAppointmentCreatedToGoogle, syncAppointmentUpdatedToGoogle, syncAppointmentRemovedFromGoogle } from "@/lib/calendar/appointment-sync";
+import { zonedWallTimeToUtc } from "@/lib/scheduling/availability";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 
 export type AppointmentFormState = {
   error?: string;
@@ -39,7 +41,18 @@ type ParsedAppointmentForm =
   | { input: AppointmentInput; error?: undefined }
   | { input?: undefined; error: string };
 
-function parseAppointmentForm(formData: FormData): ParsedAppointmentForm {
+/**
+ * date/startTime/endTime come from plain HTML date/time inputs - "YYYY-MM-DD"
+ * and "HH:MM", with no timezone attached, because the browser has no idea
+ * what timezone the organization operates in. They represent wall-clock time
+ * AS THE CONTRACTOR MEANT IT (the organization's configured timezone), not
+ * server-local time - the server runs in UTC in production, so naively doing
+ * `new Date(`${date}T${startTime}`)` silently interpreted every entry as UTC
+ * (a real production bug: 2:00 PM entered was stored and later displayed as
+ * 7:00 AM). zonedWallTimeToUtc is the same DST-safe conversion already used
+ * for availability/booking - reused here rather than reimplemented.
+ */
+function parseAppointmentForm(formData: FormData, timeZone: string): ParsedAppointmentForm {
   const contactId = String(formData.get("contactId") ?? "").trim();
   const leadId = String(formData.get("leadId") ?? "").trim();
   const title = String(formData.get("title") ?? "").trim();
@@ -61,8 +74,25 @@ function parseAppointmentForm(formData: FormData): ParsedAppointmentForm {
     return { error: "Enter a date, start time, and end time." };
   }
 
-  const startAt = new Date(`${date}T${startTime}`);
-  const endAt = new Date(`${date}T${endTime}`);
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const startMatch = /^(\d{1,2}):(\d{2})$/.exec(startTime);
+  const endMatch = /^(\d{1,2}):(\d{2})$/.exec(endTime);
+
+  if (!dateMatch || !startMatch || !endMatch) {
+    return { error: "Enter a valid date and time." };
+  }
+
+  const [, yearStr, monthStr, dayStr] = dateMatch;
+  const [, startHourStr, startMinuteStr] = startMatch;
+  const [, endHourStr, endMinuteStr] = endMatch;
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  const startMinutesSinceMidnight = Number(startHourStr) * 60 + Number(startMinuteStr);
+  const endMinutesSinceMidnight = Number(endHourStr) * 60 + Number(endMinuteStr);
+
+  const startAt = zonedWallTimeToUtc(year, month, day, startMinutesSinceMidnight, timeZone);
+  const endAt = zonedWallTimeToUtc(year, month, day, endMinutesSinceMidnight, timeZone);
 
   if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
     return { error: "Enter a valid date and time." };
@@ -179,10 +209,11 @@ export async function createAppointment(
   _prevState: AppointmentFormState,
   formData: FormData,
 ): Promise<AppointmentFormState> {
-  const { input, error } = parseAppointmentForm(formData);
-  if (error || !input) return { error: error ?? "Enter appointment details." };
-
   const { supabase, organizationId } = await requireOrganization();
+  const timeZone = (await getOrganizationTimezone(supabase, organizationId)) ?? "UTC";
+
+  const { input, error } = parseAppointmentForm(formData, timeZone);
+  if (error || !input) return { error: error ?? "Enter appointment details." };
 
   const relationshipError = await validateRelationships(supabase, organizationId, input);
   if (relationshipError) {
@@ -240,10 +271,11 @@ export async function updateAppointment(
     return { error: "Missing appointment." };
   }
 
-  const { input, error } = parseAppointmentForm(formData);
-  if (error || !input) return { error: error ?? "Enter appointment details." };
-
   const { supabase, organizationId } = await requireOrganization();
+  const timeZone = (await getOrganizationTimezone(supabase, organizationId)) ?? "UTC";
+
+  const { input, error } = parseAppointmentForm(formData, timeZone);
+  if (error || !input) return { error: error ?? "Enter appointment details." };
 
   const relationshipError = await validateRelationships(supabase, organizationId, input, id);
   if (relationshipError) {
