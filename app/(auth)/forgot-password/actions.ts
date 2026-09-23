@@ -47,7 +47,8 @@ export async function requestPasswordReset(
   _prevState: ForgotPasswordState,
   formData: FormData,
 ): Promise<ForgotPasswordState> {
-  const email = String(formData.get("email") ?? "").trim();
+  const rawEmail = formData.get("email");
+  const email = String(rawEmail ?? "").trim();
 
   if (!email || !isValidEmail(email)) {
     return { error: "Enter a valid email address." };
