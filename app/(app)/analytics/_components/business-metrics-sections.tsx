@@ -17,13 +17,18 @@ import { BarList } from "./bar-list";
  * range-tabs.tsx), not a second computation path - no query or aggregation
  * logic is duplicated here.
  *
- * Ordered roughly by business relevance per the product brief: leads/
- * pipeline, estimates, jobs, appointments, follow-up, communication, AI
- * activity, automation, data quality. Each section is a flush stat strip
- * (matching LeadsSummary/ActivitySummaryCards/KeyMetrics) with a BarList only
- * where a category breakdown has enough buckets that a bare number list
- * would be hard to compare at a glance - never a fabricated or decorative
- * chart.
+ * Trackpr 2.0 Phase 5: reframed into named groups (see analytics/page.tsx)
+ * telling a coherent revenue story - business at a glance, revenue pipeline
+ * (leads/estimates/jobs/appointments), conversion, where follow-up is
+ * leaking, AI & automation, data quality - rather than nine flat sections in
+ * an arbitrary row. Every individual Section function below is unchanged in
+ * what it reads and computes; only the page-level grouping around them, and
+ * two new sections (ConversionSection, RevenueOpportunitySection) built
+ * entirely from already-computed snapshot fields, are new. Each section is a
+ * flush stat strip (matching LeadsSummary/ActivitySummaryCards/KeyMetrics)
+ * with a BarList only where a category breakdown has enough buckets that a
+ * bare number list would be hard to compare at a glance - never a fabricated
+ * or decorative chart.
  */
 
 type Stat = { key: string; label: string; value: string; detail?: string | null };
@@ -63,6 +68,83 @@ function Section({
       {children}
       {note ? <p className={`mt-4 ${metaClass}`}>{note}</p> : null}
     </div>
+  );
+}
+
+/**
+ * Trackpr 2.0 Phase 5: the page's executive summary - the four numbers that
+ * most directly answer "how is the business doing," each already computed
+ * and already reliable (comparisons.leadCount, and the two Phase 5 additions
+ * to BiEstimateMetrics/BiJobMetrics - acceptedEstimateValue,
+ * completedContractedJobValue - both threaded through from an existing
+ * lib/bi/queries.ts computation, not a new query). Deliberately keeps
+ * "accepted"/"completed" in every label rather than a bare dollar amount -
+ * this schema has no payment infrastructure, so every value figure here is
+ * still a quoted/contracted amount, never confirmed collected revenue.
+ */
+export function BusinessAtAGlance({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { comparisons, estimateMetrics, jobMetrics, leadMetrics } = snapshot;
+
+  return (
+    <StatGrid columns={4}>
+      <StatCard label="Leads" value={String(comparisons.leadCount.current)} description={formatComparisonBadge(comparisons.leadCount)} />
+      <StatCard label="Accepted estimate value" value={formatCurrency(estimateMetrics.acceptedEstimateValue)} description="Quoted work customers said yes to" />
+      <StatCard label="Completed job value" value={formatCurrency(jobMetrics.completedContractedJobValue)} description="Contracted value of finished jobs" />
+      <StatCard label="Lead → booking rate" value={formatRate(leadMetrics.leadToBookingRate)} description="Leads that got an appointment" />
+    </StatGrid>
+  );
+}
+
+/**
+ * Trackpr 2.0 Phase 5: the four conversion rates that already exist, each
+ * computed inside its own metric group (leadMetrics.leadToBookingRate,
+ * estimateMetrics.estimateAcceptanceRate, estimateMetrics.estimateToJobRate,
+ * jobMetrics.jobCompletionRate) but previously scattered across four
+ * separate sections with no single place to read the funnel end to end.
+ * Nothing here is recomputed - every rate is read as-is from the snapshot.
+ * Appointment -> estimate conversion is deliberately not included: no
+ * existing query reliably answers "did this specific appointment lead to an
+ * estimate," and inventing one is out of scope for a reframe.
+ */
+export function ConversionSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { leadMetrics, estimateMetrics, jobMetrics } = snapshot;
+
+  return (
+    <Section label="Conversion" note="Each rate is a current-state ratio over real records, not a time-based or causal claim - see each section's own definition above.">
+      <StatRow
+        stats={[
+          { key: "lead-booking", label: "Lead → booking", value: formatRate(leadMetrics.leadToBookingRate), detail: "Leads with a real appointment" },
+          { key: "estimate-acceptance", label: "Estimate acceptance", value: formatRate(estimateMetrics.estimateAcceptanceRate), detail: "Accepted vs. accepted + declined" },
+          { key: "estimate-job", label: "Estimate → job", value: formatRate(estimateMetrics.estimateToJobRate), detail: "Jobs per accepted estimate" },
+          { key: "job-completion", label: "Job completion", value: formatRate(jobMetrics.jobCompletionRate), detail: "Completed vs. completed + cancelled" },
+        ]}
+      />
+    </Section>
+  );
+}
+
+/**
+ * Trackpr 2.0 Phase 5: surfaces BiRevenueOpportunity (lib/bi/types.ts),
+ * already computed by getBusinessMetricsSnapshot for every caller but
+ * previously only ever rendered on the Dashboard (business-glance.tsx) -
+ * never on the Analytics page itself, despite this being exactly "where is
+ * follow-up leaking" (real, quoted work with no decision yet, and real
+ * leads/visits that stalled before the next real step). Same fields, same
+ * captions as the Dashboard's own rendering, for consistency.
+ */
+export function RevenueOpportunitySection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { revenueOpportunity } = snapshot;
+
+  return (
+    <Section label="Where follow-up is leaking" note="Real opportunity, not guaranteed revenue or a close probability.">
+      <StatRow
+        stats={[
+          { key: "recoverable", label: "Recoverable estimate value", value: formatCurrency(revenueOpportunity.recoverableEstimateValue), detail: "Open + expired, not yet declined" },
+          { key: "qualified-no-appt", label: "Qualified leads, no appointment", value: String(revenueOpportunity.qualifiedLeadsWithoutAppointment) },
+          { key: "completed-no-estimate", label: "Completed visits, no estimate", value: String(revenueOpportunity.completedAppointmentsWithoutEstimate) },
+        ]}
+      />
+    </Section>
   );
 }
 
@@ -162,6 +244,7 @@ export function EstimatesSection({ snapshot }: { snapshot: BusinessMetricsSnapsh
         stats={[
           { key: "estimates", label: "Estimates", value: String(comparisons.estimateCount.current), detail: formatComparisonBadge(comparisons.estimateCount) },
           { key: "estimate-value", label: "Estimate value", value: formatCurrency(estimateMetrics.estimateValue) },
+          { key: "accepted-estimate-value", label: "Accepted estimate value", value: formatCurrency(estimateMetrics.acceptedEstimateValue) },
           {
             key: "avg-estimate-value",
             label: "Avg. estimate value",
@@ -195,6 +278,7 @@ export function JobsSection({ snapshot }: { snapshot: BusinessMetricsSnapshot })
         stats={[
           { key: "jobs", label: "Jobs", value: String(comparisons.jobCount.current), detail: formatComparisonBadge(comparisons.jobCount) },
           { key: "contracted-value", label: "Contracted job value", value: formatCurrency(jobMetrics.contractedJobValue) },
+          { key: "completed-value", label: "Completed job value", value: formatCurrency(jobMetrics.completedContractedJobValue) },
           {
             key: "avg-contracted-value",
             label: "Avg. contracted value",

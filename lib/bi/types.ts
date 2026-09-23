@@ -392,6 +392,14 @@ export type BiEstimateMetrics = {
   expiredEstimates: number;
   /** SUM(estimates.amount) across all estimates - quoted/contracted total, never revenue. */
   estimateValue: number;
+  /**
+   * Trackpr 2.0 Phase 5: SUM(estimates.amount) where status = 'accepted' -
+   * already computed by lib/bi/queries.ts's getEstimateMetrics (one pass
+   * over the same rows as estimateValue), just not previously threaded
+   * through this layer. Still a quoted/contracted figure the customer
+   * agreed to, never collected payment.
+   */
+  acceptedEstimateValue: number;
   /** AVG(estimates.amount). `null` when there are zero estimates with a non-null amount. */
   averageEstimateValue: number | null;
   /**
@@ -419,6 +427,16 @@ export type BiJobMetrics = {
   cancelledJobs: number;
   /** SUM(jobs.amount) - the contracted job value, never "revenue collected" (no payment infrastructure exists). */
   contractedJobValue: number;
+  /**
+   * Trackpr 2.0 Phase 5: SUM(jobs.amount) where status = 'completed' -
+   * already computed by lib/bi/queries.ts's getJobMetrics (one pass over
+   * the same rows as contractedJobValue), just not previously threaded
+   * through this layer. The closest this schema can get to "revenue won" -
+   * still the contracted figure for completed work, not a payment record
+   * (no payment infrastructure exists), so it is deliberately never labeled
+   * "revenue" in the UI either.
+   */
+  completedContractedJobValue: number;
   /** AVG(jobs.amount). `null` when there are zero jobs with a non-null amount. */
   averageContractedJobValue: number | null;
   /** completedJobs / (completedJobs + cancelledJobs). `null` when the denominator is 0. */

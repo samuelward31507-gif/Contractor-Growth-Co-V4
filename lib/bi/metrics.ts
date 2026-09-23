@@ -356,6 +356,7 @@ async function buildEstimateMetrics(supabase: SupabaseClient, organizationId: st
     cancelledEstimates: estimates.cancelledEstimates,
     expiredEstimates: estimates.expiredEstimates,
     estimateValue: estimates.totalEstimateValue,
+    acceptedEstimateValue: estimates.acceptedEstimateValue,
     averageEstimateValue: amountCount === 0 ? null : estimates.averageEstimateValue,
     estimateAcceptanceRate: rate(estimates.acceptedEstimates, estimates.acceptedEstimates + estimates.declinedEstimates),
     estimateToJobRate: null, // filled in by the caller once job metrics are available
@@ -374,6 +375,7 @@ async function buildJobMetrics(supabase: SupabaseClient, organizationId: string,
     completedJobs: jobs.completedJobs,
     cancelledJobs: jobs.cancelledJobs,
     contractedJobValue: jobs.totalContractedJobValue,
+    completedContractedJobValue: jobs.completedContractedJobValue,
     averageContractedJobValue: amountCount === 0 ? null : jobs.averageContractedJobValue,
     jobCompletionRate: rate(jobs.completedJobs, jobs.completedJobs + jobs.cancelledJobs),
   };
