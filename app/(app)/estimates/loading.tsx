@@ -30,7 +30,7 @@ export default function EstimatesLoading() {
         </div>
       </div>
 
-      <div className="border-t border-slate-200 pt-8">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="h-10 w-full max-w-sm animate-pulse rounded-lg bg-slate-100" />
         <div className="mt-5 divide-y divide-slate-100">
           {ROWS.map((_, i) => (

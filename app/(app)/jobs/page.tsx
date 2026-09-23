@@ -6,6 +6,7 @@ import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { getReviewRequests, getReferralRequests, summarizeReviewRequests, summarizeReferralRequests } from "@/lib/reviews-referrals/queries";
 import { PageHeader } from "@/lib/ui/page-header";
+import { Panel } from "@/lib/ui/section-card";
 import { JobsEmptyState } from "./_components/jobs-empty-state";
 import { JobsSummary } from "./_components/jobs-summary";
 import { ReviewReferralSummaryRow } from "./_components/review-referral-summary";
@@ -67,12 +68,12 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
       {allJobs.length === 0 ? (
         <JobsEmptyState contacts={contacts} leads={leads} />
       ) : (
-        <div className="border-t border-slate-200 pt-8">
+        <Panel>
           <JobsToolbar initialQuery={query} initialStatus={status} />
           <div className="mt-5">
             <JobsTable jobs={filtered} hasActiveFilters={hasActiveFilters} />
           </div>
-        </div>
+        </Panel>
       )}
     </div>
   );

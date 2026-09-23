@@ -5,6 +5,7 @@ import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { filterEstimates, getEstimates, summarizeEstimates, type EstimateStatus } from "@/lib/estimates/queries";
 import { PageHeader } from "@/lib/ui/page-header";
+import { Panel } from "@/lib/ui/section-card";
 import { AddEstimateButton } from "./_components/add-estimate-button";
 import { EstimatesEmptyState } from "./_components/estimates-empty-state";
 import { EstimatesSummary } from "./_components/estimates-summary";
@@ -61,12 +62,12 @@ export default async function EstimatesPage({ searchParams }: PageProps<"/estima
       {allEstimates.length === 0 ? (
         <EstimatesEmptyState contacts={contacts} leads={leads} />
       ) : (
-        <div className="border-t border-slate-200 pt-8">
+        <Panel>
           <EstimatesToolbar initialQuery={query} initialStatus={status} />
           <div className="mt-5">
             <EstimatesTable estimates={filtered} hasActiveFilters={hasActiveFilters} />
           </div>
-        </div>
+        </Panel>
       )}
     </div>
   );
