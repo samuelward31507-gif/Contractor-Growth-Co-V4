@@ -34,7 +34,11 @@ function AppointmentRow({
         {/* Leading time column - this list reads as "the contractor's day"
             first and foremost, so the answer to "when" is the first thing
             scanned in each row, not buried in the subtext line below. */}
-        <span className="w-14 shrink-0 text-sm font-semibold tabular-nums text-slate-900">
+        {/* w-14 (56px) used to be tight enough that "11:30 AM"/"9:00 AM"
+            wrapped onto two lines on mobile widths - whitespace-nowrap plus
+            a slightly wider fixed column keeps every time on one line while
+            still aligning names into a consistent column across rows. */}
+        <span className="w-[68px] shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-slate-900">
           {formatAppointmentTime(appointment.start_at, timeZone)}
         </span>
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
