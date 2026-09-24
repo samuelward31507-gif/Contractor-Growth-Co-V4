@@ -8,8 +8,26 @@ import { getMessages, type Message } from "@/lib/conversations/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getLead } from "@/lib/leads/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
+import type { OrganizationVertical } from "@/lib/auth/organization";
 
 export const CUSTOMER_REPLY_FOLLOWUP_WORKFLOW = "customer_reply_followup";
+
+/**
+ * Gym Phase 2B.1: resolves organizations.vertical directly by id - this
+ * function has no user session (Twilio-authenticated, service-role client
+ * throughout), so it can't use lib/auth/organization.ts's
+ * getUserOrganization. Fails closed to "contractor" for a missing/
+ * unrecognized value, mirroring lib/auth/organization.ts's own
+ * resolveOrganization() convention exactly - same helper shape as
+ * lib/automation/lead-followup.ts's own resolveOrganizationVertical, kept
+ * as its own local copy rather than a shared export, matching how this
+ * codebase already keeps every *AsService-adjacent helper independently
+ * readable rather than introducing a new shared-core abstraction.
+ */
+export async function resolveOrganizationVertical(supabase: SupabaseClient, organizationId: string): Promise<OrganizationVertical> {
+  const { data } = await supabase.from("organizations").select("vertical").eq("id", organizationId).maybeSingle();
+  return data?.vertical === "gym" ? "gym" : "contractor";
+}
 
 export type ContractRecentMessage = { direction: Message["direction"]; sender_type: Message["sender_type"]; body: string; created_at: string };
 
@@ -128,13 +146,14 @@ export async function emitCustomerReplyFollowup(
   const attempt = executionResult.execution.attempt;
   const eventId = eventResult.event.id;
 
-  const [recentMessages, contact, lead, aiSettings, businessProfile, rawConfig] = await Promise.all([
+  const [recentMessages, contact, lead, aiSettings, businessProfile, rawConfig, vertical] = await Promise.all([
     getMessages(supabase, input.organizationId, input.conversationId),
     getContact(supabase, input.organizationId, input.contactId),
     input.leadId ? getLead(supabase, input.organizationId, input.leadId) : Promise.resolve(null),
     getAiSettings(supabase, input.organizationId),
     getBusinessProfile(supabase, input.organizationId),
     getAutomationConfig(supabase, input.organizationId, "inbound-customer-reply"),
+    resolveOrganizationVertical(supabase, input.organizationId),
   ]);
 
   // Automation Configuration V2.1: only changes how many recent messages are
@@ -178,6 +197,7 @@ export async function emitCustomerReplyFollowup(
         id: input.organizationId,
         name: businessProfile?.name ?? "",
         timezone: businessProfile?.timezone ?? "UTC",
+        vertical,
       },
       ai: {
         enabled: aiSettings.ai_enabled,

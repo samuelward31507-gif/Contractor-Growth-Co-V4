@@ -7,8 +7,22 @@ import { getContact } from "@/lib/contacts/queries";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 import type { LeadStatus, LeadTemperature } from "@/lib/leads/queries";
+import type { OrganizationVertical } from "@/lib/auth/organization";
 
 export const LEAD_CREATED_FOLLOWUP_WORKFLOW = "lead_created_followup";
+
+/**
+ * Gym Phase 2B.1: resolves organizations.vertical directly by id, rather
+ * than via lib/auth/organization.ts's getUserOrganization (which needs a
+ * user id emitLeadCreatedFollowupAsService's caller doesn't have - see that
+ * function's own comment on why it can't use a session-scoped lookup).
+ * Fails closed to "contractor" for a missing/unrecognized value, mirroring
+ * lib/auth/organization.ts's own resolveOrganization() convention exactly.
+ */
+export async function resolveOrganizationVertical(supabase: SupabaseClient, organizationId: string): Promise<OrganizationVertical> {
+  const { data } = await supabase.from("organizations").select("vertical").eq("id", organizationId).maybeSingle();
+  return data?.vertical === "gym" ? "gym" : "contractor";
+}
 
 export type LeadCreatedInput = {
   leadId: string;
@@ -104,10 +118,11 @@ export async function emitLeadCreatedFollowup(
   const attempt = executionResult.execution.attempt;
   const eventId = eventResult.event.id;
 
-  const [contact, aiSettings, businessProfile] = await Promise.all([
+  const [contact, aiSettings, businessProfile, vertical] = await Promise.all([
     getContact(supabase, input.organizationId, input.contactId),
     getAiSettings(supabase, input.organizationId),
     getBusinessProfile(supabase, input.organizationId),
+    resolveOrganizationVertical(supabase, input.organizationId),
   ]);
 
   const contract: N8nWorkflowContract = {
@@ -130,6 +145,7 @@ export async function emitLeadCreatedFollowup(
         id: input.organizationId,
         name: businessProfile?.name ?? "",
         timezone: businessProfile?.timezone ?? "UTC",
+        vertical,
       },
       ai: {
         enabled: aiSettings.ai_enabled,
@@ -237,10 +253,11 @@ export async function emitLeadCreatedFollowupAsService(
   const attempt = executionResult.execution.attempt;
   const eventId = eventResult.event.id;
 
-  const [contact, aiSettings, businessProfile] = await Promise.all([
+  const [contact, aiSettings, businessProfile, vertical] = await Promise.all([
     getContact(supabase, input.organizationId, input.contactId),
     getAiSettings(supabase, input.organizationId),
     getBusinessProfile(supabase, input.organizationId),
+    resolveOrganizationVertical(supabase, input.organizationId),
   ]);
 
   const contract: N8nWorkflowContract = {
@@ -263,6 +280,7 @@ export async function emitLeadCreatedFollowupAsService(
         id: input.organizationId,
         name: businessProfile?.name ?? "",
         timezone: businessProfile?.timezone ?? "UTC",
+        vertical,
       },
       ai: {
         enabled: aiSettings.ai_enabled,

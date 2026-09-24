@@ -1,3 +1,5 @@
+import type { OrganizationVertical } from "@/lib/auth/organization";
+
 const N8N_TIMEOUT_MS = 10_000;
 
 export type N8nWorkflowContract = {
@@ -20,6 +22,20 @@ export type N8nWorkflowContract = {
       id: string;
       name: string;
       timezone: string;
+      /**
+       * Gym Phase 2B.1: lets n8n branch its prompt/qualification behavior
+       * by vertical - "contractor" or "gym", never anything else (fails
+       * closed to "contractor" at every call site that populates it,
+       * matching lib/auth/organization.ts's own resolveOrganization()
+       * convention). Optional, not required: this phase only wires it into
+       * lead-followup.ts and customer-reply.ts (the lead-response/
+       * qualification dispatches this slice's scope covers) - every other
+       * N8nWorkflowContract construction site (appointments.ts, estimates.ts,
+       * jobs.ts, lead-nurture.ts, lead-reactivation.ts, n8n-retry.ts,
+       * post-job-followup.ts) is untouched and correctly omits it, since
+       * changing those files is outside this slice's authorized scope.
+       */
+      vertical?: OrganizationVertical;
     };
     ai: {
       enabled: boolean;
