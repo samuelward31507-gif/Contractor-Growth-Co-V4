@@ -1,5 +1,6 @@
 import { LogOut } from "lucide-react";
-import { NAV_GROUPS, AGENCY_NAV_ITEM } from "./nav-items";
+import type { OrganizationVertical } from "@/lib/auth/organization";
+import { getNavGroupsForVertical } from "./nav-items";
 import { NavLink } from "./nav-link";
 import { logout } from "../actions";
 
@@ -20,17 +21,19 @@ export function SidebarContent({
   organizationName,
   userEmail,
   role,
+  vertical,
   showAgencyLink,
   onNavigate,
 }: {
   organizationName: string;
   userEmail: string;
   role: string;
+  vertical: OrganizationVertical;
   /** Only ever true for a session-verified agency admin (see layout.tsx) - a hidden link is a UX convenience, never the actual authorization boundary, which /agency and its data reads enforce independently on every request. */
   showAgencyLink: boolean;
   onNavigate?: () => void;
 }) {
-  const groups = showAgencyLink ? [...NAV_GROUPS, { label: "Agency", items: [AGENCY_NAV_ITEM] }] : NAV_GROUPS;
+  const groups = getNavGroupsForVertical(vertical, showAgencyLink);
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0a120f]">

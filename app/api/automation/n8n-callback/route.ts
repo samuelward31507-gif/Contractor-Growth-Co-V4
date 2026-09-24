@@ -522,6 +522,23 @@ function serializeSlots(slots: BookingSlot[]): { start_at: string; end_at: strin
   return slots.map((slot) => ({ start_at: slot.start_at, end_at: slot.end_at }));
 }
 
+const CONTRACTOR_BOOKING_FALLBACK_TITLE = "Service Appointment";
+const GYM_BOOKING_FALLBACK_TITLE = "Gym Appointment";
+
+/**
+ * Gym Revenue Engine, Slice 1: the AI is always expected to supply its own
+ * booking_intent.title (the normal path, unchanged) - this only resolves a
+ * fallback for the rare case it doesn't, so paying the extra query here
+ * never affects the common path. Fails closed to the contractor title on any
+ * error or unrecognized value, matching lib/auth/organization.ts's own
+ * fail-closed "unrecognized -> contractor" convention - never silently
+ * assumes gym.
+ */
+async function resolveBookingFallbackTitle(service: SupabaseClient, organizationId: string): Promise<string> {
+  const { data } = await service.from("organizations").select("vertical").eq("id", organizationId).maybeSingle();
+  return data?.vertical === "gym" ? GYM_BOOKING_FALLBACK_TITLE : CONTRACTOR_BOOKING_FALLBACK_TITLE;
+}
+
 /**
  * Growth System Completion Pass 1 (Part 3): the entire AI appointment
  * booking branch, kept as its own self-contained function rather than woven
@@ -600,7 +617,7 @@ export async function handleBookingIntent(
     leadId,
     startAt: bookingIntent.start_at,
     endAt: bookingIntent.end_at,
-    title: bookingIntent.title ?? "Service Appointment",
+    title: bookingIntent.title ?? (await resolveBookingFallbackTitle(service, organizationId)),
     // Deterministic and derivable again from this exact execution id alone -
     // a retried/replayed callback for the same execution resolves to the
     // same idempotency key bookAppointment() itself already de-duplicates

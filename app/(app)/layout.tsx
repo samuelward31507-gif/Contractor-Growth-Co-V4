@@ -51,9 +51,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     // this produces is also what the Conversations route's own
     // internally-scrolling message thread relies on (see its layout.tsx).
     <div className="flex h-dvh overflow-hidden bg-white">
-      <Sidebar organizationName={organizationName} userEmail={user.email ?? ""} role={membership.role} showAgencyLink={showAgencyLink} />
+      <Sidebar
+        organizationName={organizationName}
+        userEmail={user.email ?? ""}
+        role={membership.role}
+        vertical={membership.vertical}
+        showAgencyLink={showAgencyLink}
+      />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <MobileNav organizationName={organizationName} userEmail={user.email ?? ""} role={membership.role} showAgencyLink={showAgencyLink} />
+        <MobileNav
+          organizationName={organizationName}
+          userEmail={user.email ?? ""}
+          role={membership.role}
+          vertical={membership.vertical}
+          showAgencyLink={showAgencyLink}
+        />
         <TopBar supabase={supabase} organizationId={membership.organizationId} />
         {/* The only scrolling region in the shell - sidebar, mobile header,
             and top bar all sit outside this element, so they stay in place

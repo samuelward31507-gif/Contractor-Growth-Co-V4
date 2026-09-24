@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { Zap, MessageSquareReply, ShieldCheck, CalendarClock, BellRing, FileText, Wrench, Star, HeartPulse, RotateCcw, PhoneMissed, Sparkles } from "lucide-react";
+import type { OrganizationVertical } from "@/lib/auth/organization";
 
 /**
  * Centralized, typed catalog of Trackpr's automation capabilities -
@@ -334,4 +335,20 @@ export function getAutomationForEventType(eventType: string): AutomationDefiniti
  */
 export function getAutomationForWorkflowName(workflowName: string): AutomationDefinition | null {
   return AUTOMATION_CATALOG.find((a) => a.workflowNames.includes(workflowName)) ?? null;
+}
+
+/**
+ * Gym Foundation Phase 1, Section 8: the catalog foundation for a future
+ * gym-specific automation set, kept in this file since it's the existing
+ * single source of truth for "automation catalog." Empty on purpose - no
+ * gym automation (lead-response, booking, reminders, membership conversion,
+ * retention, etc.) is built or activated in this phase; see Phase 1's own
+ * explicit scope boundary. AUTOMATION_CATALOG and every function above this
+ * comment are untouched - contractor automation behavior, event mapping,
+ * and workflow-name lookup are unaffected by this addition.
+ */
+export const GYM_AUTOMATION_CATALOG: AutomationDefinition[] = [];
+
+export function getAutomationCatalogForVertical(vertical: OrganizationVertical): AutomationDefinition[] {
+  return vertical === "gym" ? GYM_AUTOMATION_CATALOG : AUTOMATION_CATALOG;
 }

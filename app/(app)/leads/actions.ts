@@ -8,6 +8,7 @@ import { LEAD_STATUSES, LEAD_TEMPERATURES, type LeadStatus, type LeadTemperature
 import { emitLeadCreatedFollowup } from "@/lib/automation/lead-followup";
 import { emitLeadLost } from "@/lib/automation/lead-lost";
 import { emitLeadStageChanged } from "@/lib/automation/lead-stage-history";
+import { convertLeadToMembership as runLeadToMembershipConversion } from "@/lib/memberships/conversion";
 
 export type LeadFormState = {
   error?: string;
@@ -96,7 +97,7 @@ async function requireOrganization() {
     redirect("/onboarding");
   }
 
-  return { supabase, organizationId: membership.organizationId, userId: user.id };
+  return { supabase, organizationId: membership.organizationId, userId: user.id, vertical: membership.vertical };
 }
 
 /**
@@ -258,4 +259,39 @@ export async function deleteLead(_prevState: DeleteLeadState, formData: FormData
   revalidatePath("/leads");
   revalidatePath("/dashboard");
   redirect("/leads");
+}
+
+export type ConvertLeadState = {
+  error?: string;
+  success?: boolean;
+  /** Distinguishes "converted just now" from "this contact was already an active member" - both are a safe, non-error outcome, but the UI can word them differently. */
+  alreadyMember?: boolean;
+};
+
+/**
+ * Gym Revenue Engine, Slice 2: thin Server Action wrapper - resolves the
+ * caller's own organization/vertical/user the same way every other action
+ * in this file does, then delegates to the real conversion logic in
+ * lib/memberships/conversion.ts (a plain function taking `supabase`
+ * directly, not cookie-bound, so it can also be exercised by a live
+ * integration test - see that module's own comment for why this split
+ * exists).
+ */
+export async function convertLeadToMembership(_prevState: ConvertLeadState, formData: FormData): Promise<ConvertLeadState> {
+  const leadId = String(formData.get("leadId") ?? "").trim();
+  if (!leadId) {
+    return { error: "Missing lead." };
+  }
+
+  const { supabase, organizationId, userId, vertical } = await requireOrganization();
+
+  const result = await runLeadToMembershipConversion(supabase, { organizationId, vertical, leadId, userId });
+  if (!result.ok) {
+    return { error: result.error };
+  }
+
+  revalidatePath("/leads");
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/dashboard");
+  return { success: true, alreadyMember: result.alreadyMember };
 }

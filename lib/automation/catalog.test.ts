@@ -9,7 +9,13 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { getAutomationDefinition, getAutomationForEventType }: typeof import("./catalog") = require("./catalog.ts");
+const {
+  getAutomationDefinition,
+  getAutomationForEventType,
+  AUTOMATION_CATALOG,
+  GYM_AUTOMATION_CATALOG,
+  getAutomationCatalogForVertical,
+}: typeof import("./catalog") = require("./catalog.ts");
 
 test("F: an unknown automation id resolves to null (rejected by setAutomationEnabled)", () => {
   assert.equal(getAutomationDefinition("not-a-real-automation"), null);
@@ -41,4 +47,14 @@ test("getAutomationForEventType never maps anything to safe-ai-outbound", () => 
   for (const eventType of definitions) {
     assert.notEqual(getAutomationForEventType(eventType)?.id, "safe-ai-outbound");
   }
+});
+
+// Gym Foundation Phase 1, Section 8.
+test("getAutomationCatalogForVertical returns the real catalog for contractor orgs, unchanged", () => {
+  assert.equal(getAutomationCatalogForVertical("contractor"), AUTOMATION_CATALOG);
+});
+
+test("getAutomationCatalogForVertical returns the (empty) gym catalog for gym orgs", () => {
+  assert.equal(getAutomationCatalogForVertical("gym"), GYM_AUTOMATION_CATALOG);
+  assert.equal(GYM_AUTOMATION_CATALOG.length, 0, "no gym automation is built or activated in Phase 1");
 });

@@ -280,7 +280,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
             </Badge>
           </>
         }
-        action={<LeadActions lead={lead} contacts={contacts} />}
+        action={<LeadActions lead={lead} contacts={contacts} vertical={membership.vertical} />}
         meta={
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Estimated value</p>

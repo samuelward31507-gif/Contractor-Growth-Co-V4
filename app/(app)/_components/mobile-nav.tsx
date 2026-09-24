@@ -2,17 +2,20 @@
 
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import type { OrganizationVertical } from "@/lib/auth/organization";
 import { SidebarContent } from "./sidebar-content";
 
 export function MobileNav({
   organizationName,
   userEmail,
   role,
+  vertical,
   showAgencyLink,
 }: {
   organizationName: string;
   userEmail: string;
   role: string;
+  vertical: OrganizationVertical;
   showAgencyLink: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -75,6 +78,7 @@ export function MobileNav({
               organizationName={organizationName}
               userEmail={userEmail}
               role={role}
+              vertical={vertical}
               showAgencyLink={showAgencyLink}
               onNavigate={() => setOpen(false)}
             />
