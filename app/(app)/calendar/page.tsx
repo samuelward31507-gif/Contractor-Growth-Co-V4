@@ -17,6 +17,7 @@ import {
   getMonthGrid,
   navigateDate,
   addDays,
+  buildCalendarHref,
   type CalendarView,
   type DateParts,
 } from "./_lib/date-range";
@@ -29,10 +30,6 @@ const VALID_VIEWS = new Set<string>(["day", "week", "month"]);
 
 function normalizeView(value: string | undefined): CalendarView {
   return value && VALID_VIEWS.has(value) ? (value as CalendarView) : "week";
-}
-
-function buildHref(view: CalendarView, dateStr: string): string {
-  return `/calendar?view=${view}&date=${dateStr}`;
 }
 
 /** Renders a plain calendar date/range label - always via "UTC" against Y/M/D parts (never the org's real timeZone), since these are plain calendar dates being labeled, not instants being displayed; the actual instant-to-local-time conversions for appointment times happen elsewhere (lib/appointments/format.ts), always with the real organization timezone. */
@@ -138,10 +135,10 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
       <CalendarToolbar
         view={view}
         label={formatRangeLabel(view, activeParts)}
-        prevHref={buildHref(view, formatDateOnly(prevParts))}
-        nextHref={buildHref(view, formatDateOnly(nextParts))}
-        todayHref={buildHref(view, todayKey)}
-        dayHrefForView={(nextView) => buildHref(nextView, formatDateOnly(activeParts))}
+        prevHref={buildCalendarHref(view, formatDateOnly(prevParts))}
+        nextHref={buildCalendarHref(view, formatDateOnly(nextParts))}
+        todayHref={buildCalendarHref(view, todayKey)}
+        activeDateStr={formatDateOnly(activeParts)}
         contacts={contacts}
         leads={leads}
         timeZone={timeZone}
@@ -155,7 +152,6 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
           blockedTime={blockedTime}
           timeZone={timeZone}
           todayKey={todayKey}
-          dayHref={(date) => buildHref("day", formatDateOnly(date))}
         />
       ) : (
         <CalendarGrid

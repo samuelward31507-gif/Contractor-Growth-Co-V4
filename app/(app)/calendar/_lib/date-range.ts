@@ -111,3 +111,20 @@ export function navigateDate(parts: DateParts, view: CalendarView, direction: 1 
   if (month > 12) return { year: parts.year + 1, month: 1, day: parts.day };
   return { year: parts.year, month, day: parts.day };
 }
+
+/**
+ * The one, shared definition of a /calendar URL - originally a private
+ * helper inside page.tsx, promoted here (not duplicated) so both the
+ * server page and the client components that need to build their own
+ * hrefs (CalendarToolbar, MonthView) use the exact same format. This file
+ * has no "use client"/"use server" directive and no server-only imports of
+ * its own, so it's safe to import from either side of the RSC boundary -
+ * exactly why this fix moves href-building here instead of passing a
+ * closure across that boundary (see this pass's own incident: a Server
+ * Component cannot pass a function prop to a Client Component - the fix is
+ * to give the client component the plain data it needs and let it compute
+ * the href itself, via this same pure function).
+ */
+export function buildCalendarHref(view: CalendarView, dateStr: string): string {
+  return `/calendar?view=${view}&date=${dateStr}`;
+}

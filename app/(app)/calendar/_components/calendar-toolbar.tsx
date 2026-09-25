@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, Plus, CalendarOff } from "lucide-react";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
 import { primaryButtonAutoClass, secondaryButtonAutoClass, ghostButtonClass } from "@/lib/ui/form";
-import type { CalendarView } from "../_lib/date-range";
+import { buildCalendarHref, type CalendarView } from "../_lib/date-range";
 import { AppointmentDialog } from "../../appointments/_components/appointment-dialog";
 import { BlockedTimeDialog } from "./blocked-time-dialog";
 
@@ -20,11 +20,16 @@ const VIEWS: { value: CalendarView; label: string }[] = [
  * Pass 2 (Native Calendar System): the calendar's own nav + primary actions
  * - view switcher, prev/today/next navigation (plain Links, so the calendar
  * stays fast/server-navigable and works without JS for the base navigation
- * itself), and the Add Appointment / Block Time triggers. `viewHrefBuilder`
- * lets the toolbar build a correct href for any view without needing the
- * date-range math itself - the server page already computed today's date
- * and the prev/next targets for the CURRENT view, which is all a single
- * toolbar render needs.
+ * itself), and the Add Appointment / Block Time triggers.
+ *
+ * prevHref/nextHref/todayHref are computed server-side (they depend on
+ * navigateDate, already run in page.tsx). The view-switcher's own hrefs are
+ * computed here instead, from `activeDateStr` (a plain string) via the
+ * shared buildCalendarHref - a Server Component can't pass a function prop
+ * across to a Client Component (the exact bug this replaces: this
+ * component previously received a `dayHrefForView` closure directly from
+ * page.tsx, which threw at render time), so this reuses the same pure href
+ * builder page.tsx itself uses, rather than receiving one as a closure.
  */
 export function CalendarToolbar({
   view,
@@ -32,7 +37,7 @@ export function CalendarToolbar({
   prevHref,
   nextHref,
   todayHref,
-  dayHrefForView,
+  activeDateStr,
   contacts,
   leads,
   timeZone,
@@ -43,8 +48,8 @@ export function CalendarToolbar({
   prevHref: string;
   nextHref: string;
   todayHref: string;
-  /** Builds the href for switching to a different view while staying on the same displayed date. */
-  dayHrefForView: (view: CalendarView) => string;
+  /** The currently displayed date ("YYYY-MM-DD") - used to build each view-switcher link's href while staying on this same date. */
+  activeDateStr: string;
   contacts: Contact[];
   leads: Lead[];
   timeZone?: string;
@@ -74,7 +79,7 @@ export function CalendarToolbar({
           {VIEWS.map((item) => (
             <Link
               key={item.value}
-              href={dayHrefForView(item.value)}
+              href={buildCalendarHref(item.value, activeDateStr)}
               aria-pressed={view === item.value}
               className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
                 view === item.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"

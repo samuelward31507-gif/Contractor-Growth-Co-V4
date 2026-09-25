@@ -8,8 +8,7 @@ import { formatAppointmentTime } from "@/lib/appointments/format";
 import { contactDisplayName } from "@/lib/contacts/format";
 import { APPOINTMENT_STATUS_TONE } from "../../appointments/_components/status";
 import { RAIL_TONE_CLASS } from "@/lib/ui/badge";
-import type { DateParts } from "../_lib/date-range";
-import { formatDateOnly } from "../_lib/date-range";
+import { buildCalendarHref, formatDateOnly, type DateParts } from "../_lib/date-range";
 import { AppointmentDetailDialog } from "./appointment-detail-dialog";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -28,7 +27,6 @@ export function MonthView({
   blockedTime,
   timeZone,
   todayKey,
-  dayHref,
 }: {
   gridDays: DateParts[];
   currentMonth: number;
@@ -36,7 +34,6 @@ export function MonthView({
   blockedTime: BlockedTime[];
   timeZone?: string;
   todayKey: string;
-  dayHref: (date: DateParts) => string;
 }) {
   const [openAppointment, setOpenAppointment] = useState<Appointment | null>(null);
 
@@ -84,7 +81,7 @@ export function MonthView({
             <div key={key} className={`flex min-h-[104px] flex-col gap-1 border-b border-r border-slate-100 p-1.5 last:border-r-0 ${isCurrentMonth ? "bg-white" : "bg-slate-50/50"}`}>
               <div className="flex items-center justify-between">
                 <Link
-                  href={dayHref(date)}
+                  href={buildCalendarHref("day", formatDateOnly(date))}
                   className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors hover:bg-slate-100 ${
                     isToday ? "bg-accent text-accent-foreground hover:bg-accent-strong" : isCurrentMonth ? "text-slate-700" : "text-slate-400"
                   }`}
@@ -109,7 +106,7 @@ export function MonthView({
                   );
                 })}
                 {overflow > 0 ? (
-                  <Link href={dayHref(date)} className="px-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-900">
+                  <Link href={buildCalendarHref("day", formatDateOnly(date))} className="px-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-900">
                     +{overflow} more
                   </Link>
                 ) : null}
