@@ -8,6 +8,8 @@ import { getMessages, type Message } from "@/lib/conversations/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getLead } from "@/lib/leads/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
+import { notifyFounder } from "@/lib/notifications/founder";
+import { recordAutomationHealthSignal } from "../automation-health/service";
 import type { OrganizationVertical } from "@/lib/auth/organization";
 
 export const CUSTOMER_REPLY_FOLLOWUP_WORKFLOW = "customer_reply_followup";
@@ -231,6 +233,54 @@ export async function emitCustomerReplyFollowup(
           executionId,
           dispatchError: dispatch.error,
           recordError: failed.error,
+        });
+      }
+
+      // L2 (pre-launch lead-leak audit): failWorkflowExecutionAsService above
+      // already records an n8n_dispatch_failed incident (visible on
+      // /automations and via the org's automationSuccessRate), but unlike a
+      // real needs_human AI verdict, a plain dispatch failure never locked
+      // the conversation or told anyone - the customer's message could sit
+      // answered by neither the AI (which never ran) nor a human (who was
+      // never told). Retrying this automation is deliberately NOT safe (see
+      // lib/automation/retry-eligibility.ts's own SAFE_RETRY_AUTOMATION_IDS
+      // comment - customer_reply_followup's stored payload is not faithful
+      // enough to redispatch), so the correct, safe recovery here is the
+      // same one a genuine AI escalation already gets: lock the conversation
+      // out of further automated AI turns and tell a human, reusing the
+      // exact `ai_enabled` conditional-guard idempotency this codebase
+      // already relies on everywhere else for this lock.
+      const { data: lockedRow, error: lockError } = await supabase
+        .from("conversations")
+        .update({ ai_enabled: false })
+        .eq("id", input.conversationId)
+        .eq("organization_id", input.organizationId)
+        .eq("ai_enabled", true)
+        .select("id")
+        .maybeSingle();
+
+      if (lockError) {
+        console.error("[automation] failed to lock conversation after a customer-reply dispatch failure", { executionId, error: lockError.message });
+      } else if (lockedRow) {
+        // Same durable, dashboard-visible, resolvable escalation record
+        // HANDOFF-01 already gives a genuine AI needs_human verdict -
+        // "the AI never even ran" deserves the identical contractor-facing
+        // safety net as "the AI ran and asked for help."
+        await recordAutomationHealthSignal(supabase, {
+          organizationId: input.organizationId,
+          category: "human_escalation_requested",
+          severity: "warning",
+          fingerprintContext: input.conversationId,
+          title: "AI escalated a conversation to a human",
+          description: "The AI could not process a customer reply (dispatch failure) and needs a human to respond.",
+          workflowExecutionId: executionId,
+          metadata: { conversationId: input.conversationId, contactId: input.contactId, leadId: input.leadId },
+        });
+        await notifyFounder(supabase, {
+          organizationId: input.organizationId,
+          kind: "ai_escalation",
+          summary: "The AI could not process a customer reply and needs a human to respond.",
+          detailPath: `/conversations/${input.conversationId}`,
         });
       }
     }

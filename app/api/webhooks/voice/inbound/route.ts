@@ -79,10 +79,22 @@ export async function handleMissedCall(
   }
 
   // Same E.164-shape validation the outbound gate itself applies - an
-  // invalid/malformed caller id is handled the same way an unrecognized
-  // destination is: greet and hang up, create nothing.
+  // invalid/malformed caller id (blocked/restricted/unavailable caller ID
+  // most commonly) is handled the same way an unrecognized destination is:
+  // greet and hang up, create nothing. L3 (pre-launch lead-leak audit): this
+  // used to be entirely silent otherwise - a real prospect's call could
+  // vanish with zero trace anywhere in Trackpr. There is genuinely nothing
+  // to create a lead/contact/conversation FROM (no usable phone number), so
+  // the only safe recovery is telling a human a call came in that Trackpr
+  // could not follow up on automatically - reusing the existing
+  // "missed_call" founder-notification kind, never inventing a new one.
   if (!/^\+[1-9]\d{1,14}$/.test(from.trim())) {
     console.error("[voice][inbound] caller id is not a valid E.164 number", { organizationId: organization.id });
+    await notifyFounder(service, {
+      organizationId: organization.id,
+      kind: "missed_call",
+      summary: "A call came in with a blocked, restricted, or otherwise unusable caller ID and could not be followed up automatically.",
+    });
     return twiml(UNCONFIGURED_GREETING);
   }
 

@@ -17,8 +17,10 @@ import {
 import { recordPostJobFollowupOutcome } from "@/lib/reviews-referrals/tracking";
 import { recordAutomationHealthSignal } from "@/lib/automation-health/service";
 import { notifyFounder } from "@/lib/notifications/founder";
-import { getAvailableBookingSlots, bookAppointment, type BookingSlot } from "@/lib/scheduling/booking";
-import { formatAppointmentDate, formatAppointmentTimeRange } from "@/lib/appointments/format";
+import { getAvailableBookingSlots, bookAppointment, rescheduleAppointment, type BookingSlot } from "@/lib/scheduling/booking";
+import { cancelAppointmentAsService } from "@/lib/automation/appointments";
+import { getRecentBookingContext } from "@/lib/automation/booking-context";
+import { formatAppointmentDate, formatAppointmentTime, formatAppointmentTimeRange } from "@/lib/appointments/format";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -29,11 +31,19 @@ const MAX_MISSING_INFO_ITEMS = 10;
 
 const QUALIFICATION_STATUSES = new Set(["new", "qualifying", "qualified", "needs_human"]);
 const URGENCY_LEVELS = new Set(["low", "normal", "high", "emergency"]);
-const BOOKING_ACTIONS = new Set(["none", "check_availability", "book"]);
+// Pass 1 (product completion audit): reschedule/cancel are new, validated,
+// forward-compatible contract values - Trackpr's own deterministic reply
+// classifiers (lib/automation/booking-reply.ts) are the primary way these
+// paths are reached today (detected from the customer's own message before
+// the AI ever dispatches, never requiring an n8n prompt change), but the AI
+// contract itself now also accepts these two values directly should a
+// future n8n revision ever produce them - handleBookingIntent's own
+// reschedule/cancel branches are shared by both entry points.
+const BOOKING_ACTIONS = new Set(["none", "check_availability", "book", "reschedule", "cancel"]);
 
 type QualificationStatus = "new" | "qualifying" | "qualified" | "needs_human";
 type Urgency = "low" | "normal" | "high" | "emergency";
-type BookingAction = "none" | "check_availability" | "book";
+type BookingAction = "none" | "check_availability" | "book" | "reschedule" | "cancel";
 
 /**
  * Growth System Completion Pass 1 (Part 3): the minimal extension to the
@@ -60,6 +70,8 @@ export type BookingIntent = {
   start_at: string | null;
   end_at: string | null;
   title: string | null;
+  /** Pass 1: only meaningful for reschedule/cancel - which existing appointment this turn refers to. Optional for backward compatibility with every existing BookingIntent literal in this codebase; not populated by the current n8n contract (Trackpr's own deterministic booking-reply classifier is the primary way reschedule/cancel is reached today - see lib/automation/booking-reply.ts). */
+  appointment_id?: string | null;
 };
 
 /**
@@ -182,7 +194,7 @@ function validateBody(raw: unknown): ValidationResult {
       const rawIntent = raw2.booking_intent as Record<string, unknown>;
 
       if (typeof rawIntent.action !== "string" || !BOOKING_ACTIONS.has(rawIntent.action)) {
-        return { ok: false, error: "ai_result.booking_intent.action must be one of none, check_availability, book." };
+        return { ok: false, error: "ai_result.booking_intent.action must be one of none, check_availability, book, reschedule, cancel." };
       }
 
       const isIsoDateOrNull = (value: unknown): value is string | null => {
@@ -195,6 +207,9 @@ function validateBody(raw: unknown): ValidationResult {
       if (!isOptionalString(rawIntent.title, MAX_SHORT_FIELD_LENGTH)) {
         return { ok: false, error: "ai_result.booking_intent.title must be a short string or null." };
       }
+      if (rawIntent.appointment_id !== null && rawIntent.appointment_id !== undefined && !isUuid(rawIntent.appointment_id)) {
+        return { ok: false, error: "ai_result.booking_intent.appointment_id must be a UUID or null." };
+      }
 
       bookingIntent = {
         action: rawIntent.action as BookingAction,
@@ -203,6 +218,7 @@ function validateBody(raw: unknown): ValidationResult {
         start_at: (rawIntent.start_at as string | null) ?? null,
         end_at: (rawIntent.end_at as string | null) ?? null,
         title: (rawIntent.title as string | null) ?? null,
+        appointment_id: (rawIntent.appointment_id as string | null) ?? null,
       };
     }
 
@@ -292,7 +308,7 @@ function normalizeEvent(value: EmbeddedEvent | EmbeddedEvent[] | null): Embedded
  * genuinely race, the loser lands here: that's an expected, benign outcome
  * (someone else already recorded the result), not a server error.
  */
-function isAlreadyProcessedError(error: string): boolean {
+export function isAlreadyProcessedError(error: string): boolean {
   return error === "Execution is not running";
 }
 
@@ -514,11 +530,11 @@ async function automationEnabledFor(
 
 const BOOKING_ELIGIBLE_APPOINTMENT_STATUSES = ["scheduled", "confirmed"] as const;
 const BOOKING_DECLINE_MESSAGE = "Sorry, that time is no longer available. Let us know another time that works for you.";
-const BOOKING_FALLBACK_MESSAGE = "We're having trouble booking that automatically right now. Our team will reach out shortly to get you scheduled.";
+export const BOOKING_FALLBACK_MESSAGE = "We're having trouble booking that automatically right now. Our team will reach out shortly to get you scheduled.";
 /** Reasons that mean something is genuinely wrong (config, payment, an internal error, an untrustworthy contact) - these escalate to a human. slot_unavailable is a normal, non-escalating retry case: someone else took the slot, or the AI proposed a time that's no longer offered. */
 const BOOKING_ESCALATING_FAILURE_REASONS = new Set(["invalid_contact", "organization_not_active", "booking_disabled", "configuration_error", "internal_error"]);
 
-function serializeSlots(slots: BookingSlot[]): { start_at: string; end_at: string }[] {
+export function serializeSlots(slots: BookingSlot[]): { start_at: string; end_at: string }[] {
   return slots.map((slot) => ({ start_at: slot.start_at, end_at: slot.end_at }));
 }
 
@@ -534,9 +550,38 @@ const GYM_BOOKING_FALLBACK_TITLE = "Gym Appointment";
  * fail-closed "unrecognized -> contractor" convention - never silently
  * assumes gym.
  */
-async function resolveBookingFallbackTitle(service: SupabaseClient, organizationId: string): Promise<string> {
+export async function resolveBookingFallbackTitle(service: SupabaseClient, organizationId: string): Promise<string> {
   const { data } = await service.from("organizations").select("vertical").eq("id", organizationId).maybeSingle();
   return data?.vertical === "gym" ? GYM_BOOKING_FALLBACK_TITLE : CONTRACTOR_BOOKING_FALLBACK_TITLE;
+}
+
+/** A wide date range can produce far more real slots than fit in a readable SMS - this caps how many the offer message ever lists, never how many getAvailableBookingSlots() itself computes. */
+const MAX_OFFERED_SLOTS = 5;
+
+/**
+ * Phase 2D.2: pure fact-recitation from real, freshly-computed slots - no
+ * AI, no second round trip, no invented/rounded/reinterpreted time. Same
+ * "deterministic scheduling message" precedent as composeReminderBody
+ * (lib/automation/appointment-reminders.ts) and composeCancellationBody/
+ * composeRescheduledBody (lib/automation/appointments.ts). `slots` must
+ * already be non-empty and is only ever what getAvailableBookingSlots()
+ * itself returned for this exact request - callers never pass anything
+ * else in here.
+ */
+export function composeAvailabilityOfferMessage(slots: BookingSlot[], title: string, timezone: string): string {
+  const lines = slots
+    .slice(0, MAX_OFFERED_SLOTS)
+    .map((slot) => `${formatAppointmentDate(slot.start_at, timezone)} at ${formatAppointmentTime(slot.start_at, timezone)}`);
+  return `We have these openings for your ${title}:\n${lines.join("\n")}\n\nWhich works best for you?`;
+}
+
+/**
+ * Phase 2D.2: sent when the requested range genuinely has zero real
+ * openings - never invents a reason, never exposes availability.status or
+ * any other internal detail to the customer.
+ */
+function composeNoAvailabilityMessage(title: string, requestedRangeStartIso: string, timezone: string): string {
+  return `I don't see any openings for your ${title} on ${formatAppointmentDate(requestedRangeStartIso, timezone)}. Would you like to try another day?`;
 }
 
 /**
@@ -581,11 +626,113 @@ export async function handleBookingIntent(
 
     const availability = await getAvailableBookingSlots(service, organizationId, new Date(bookingIntent.date_range_start), new Date(bookingIntent.date_range_end));
 
+    // Phase 2D.2: tells the customer what's actually available - a
+    // deterministic, Trackpr-composed message built only from what
+    // getAvailableBookingSlots() itself just returned, sent through the
+    // exact same evaluateOutboundGate()/sendOutboundMessage() path every
+    // other automated message in this codebase uses. Never creates or
+    // modifies an appointment - this branch only ever reads availability.
+    const { data: organization } = await service.from("organizations").select("timezone").eq("id", organizationId).maybeSingle();
+    const timezone = organization?.timezone ?? "UTC";
+    const title = bookingIntent.title ?? (await resolveBookingFallbackTitle(service, organizationId));
+
+    let offerBody: string;
+    let offerNeedsHuman = false;
+    if (availability.status === "available") {
+      offerBody =
+        availability.slots.length > 0
+          ? composeAvailabilityOfferMessage(availability.slots, title, timezone)
+          : composeNoAvailabilityMessage(title, bookingIntent.date_range_start, timezone);
+    } else {
+      // booking_disabled / business_hours_not_configured / invalid_configuration /
+      // calendar_unavailable: something needs staff attention, not "try
+      // another day" - the same non-slot_unavailable treatment the "book"
+      // branch below already gives these exact statuses, never exposed to
+      // the customer as an internal status code.
+      offerBody = BOOKING_FALLBACK_MESSAGE;
+      offerNeedsHuman = true;
+    }
+
+    if (offerNeedsHuman && conversationId) {
+      const { data: lockedRow, error: lockError } = await service
+        .from("conversations")
+        .update({ ai_enabled: false })
+        .eq("id", conversationId)
+        .eq("organization_id", organizationId)
+        .eq("ai_enabled", true)
+        .select("id")
+        .maybeSingle();
+      if (lockError) {
+        console.error("[automation] failed to lock conversation after an availability check failure", { executionId, error: lockError.message });
+      } else if (lockedRow) {
+        // HANDOFF-01: see the identical comment at the main qualification
+        // path's needs_human lock above - same additive persistence, same
+        // "only on an actual first-time lock" idempotency guard.
+        await recordAutomationHealthSignal(service, {
+          organizationId,
+          category: "human_escalation_requested",
+          severity: "warning",
+          fingerprintContext: conversationId,
+          title: "AI escalated a conversation to a human",
+          description: "AI availability check could not complete safely and needs a human.",
+          workflowExecutionId: executionId,
+          metadata: { conversationId, contactId, leadId },
+        });
+        await notifyFounder(service, {
+          organizationId,
+          kind: "ai_escalation",
+          summary: "AI availability check could not complete safely and needs a human.",
+          detailPath: conversationId ? `/conversations/${conversationId}` : null,
+        });
+      }
+    }
+
+    const offerGateResult = await evaluateOutboundGate(service, {
+      organizationId,
+      executionId,
+      contactId,
+      conversationId,
+      leadId,
+      aiResult: { should_send: true, response_message: offerBody, needs_human: false },
+    });
+
+    let offerSent = false;
+    if (offerGateResult.allowed) {
+      const offerSendResult = await sendOutboundMessage(service, {
+        organizationId,
+        contactId: offerGateResult.contactId,
+        conversationId: offerGateResult.conversationId,
+        channel: "sms",
+        body: offerGateResult.body,
+        senderType: "ai",
+        workflowExecutionId: executionId,
+        sendSmsFn,
+      });
+      offerSent = offerSendResult.ok;
+    }
+
+    // Pass 1 (booking loop completion): if this conversation had an open
+    // reschedule request (the customer said "I need to reschedule" and
+    // named exactly one appointment, then named a day), carry that
+    // appointment id forward into this offer's own metadata - so when the
+    // customer's NEXT reply selects one of these slots,
+    // lib/automation/booking-reply.ts's resolver knows to reschedule that
+    // appointment rather than create a new one. A normal, non-reschedule
+    // check_availability turn simply finds no such context (null).
+    const priorContext = conversationId ? await getRecentBookingContext(service, organizationId, conversationId) : null;
+    const rescheduleAppointmentId = priorContext?.type === "reschedule_awaiting_time" ? priorContext.appointmentId : null;
+
     const result = await completeWorkflowExecutionAsService(service, executionId, {
-      should_send: false,
+      should_send: offerSent,
       booking_action: "check_availability",
       availability_status: availability.status,
       slot_count: availability.status === "available" ? availability.slots.length : 0,
+      // Only ever the real slots this exact response already returned to
+      // the customer - never re-derived or re-fetched, so what's stored
+      // here can never drift from what the customer actually saw.
+      offered_slots: availability.status === "available" ? serializeSlots(availability.slots) : [],
+      offered_title: title,
+      reschedule_appointment_id: rescheduleAppointmentId,
     });
     if (!result.ok) {
       if (isAlreadyProcessedError(result.error)) return NextResponse.json({ ok: true, alreadyProcessed: true });
@@ -600,6 +747,66 @@ export async function handleBookingIntent(
         slots: availability.status === "available" ? serializeSlots(availability.slots) : [],
       },
     });
+  }
+
+  // Pass 1: forward-compatible AI-contract branches for reschedule/cancel -
+  // not driven by the current n8n prompt (Trackpr's own deterministic
+  // booking-reply classifier, lib/automation/booking-reply.ts, is the
+  // primary way these are reached today), but validated and safely handled
+  // here so a future n8n revision that DOES populate these never crashes,
+  // never silently falls through to the "book" branch below, and never
+  // guesses which appointment is meant. Deliberately minimal: requires an
+  // explicit, already-ownership-checked appointment_id (see cancelAppointmentAsService/
+  // rescheduleAppointment's own org+contact scoping) rather than a
+  // "find the single upcoming appointment" fallback - that heuristic lookup
+  // is Trackpr's own booking-reply.ts's job, not this contract boundary's.
+  if (bookingIntent.action === "cancel") {
+    if (!bookingIntent.appointment_id || !contactId) {
+      const result = await completeWorkflowExecutionAsService(service, executionId, { should_send: false, booking_action: "cancel", error: "missing_appointment_id" });
+      if (!result.ok && !isAlreadyProcessedError(result.error)) {
+        console.error("[automation] failed to complete cancel execution", { executionId, error: result.error });
+      }
+      return NextResponse.json({ ok: true, booking: { status: "invalid_request" } });
+    }
+    const cancelResult = await cancelAppointmentAsService(service, organizationId, contactId, bookingIntent.appointment_id, sendSmsFn);
+    const result = await completeWorkflowExecutionAsService(service, executionId, { should_send: cancelResult.ok, booking_action: "cancel", appointment_id: bookingIntent.appointment_id, error: cancelResult.ok ? null : cancelResult.reason });
+    if (!result.ok && !isAlreadyProcessedError(result.error)) {
+      console.error("[automation] failed to complete cancel execution", { executionId, error: result.error });
+    }
+    return NextResponse.json({ ok: true, booking: { status: cancelResult.ok ? "cancelled" : "invalid_request" } });
+  }
+
+  if (bookingIntent.action === "reschedule") {
+    if (!bookingIntent.appointment_id || !bookingIntent.start_at || !bookingIntent.end_at || !contactId) {
+      const result = await completeWorkflowExecutionAsService(service, executionId, { should_send: false, booking_action: "reschedule", error: "missing_required_fields" });
+      if (!result.ok && !isAlreadyProcessedError(result.error)) {
+        console.error("[automation] failed to complete reschedule execution", { executionId, error: result.error });
+      }
+      return NextResponse.json({ ok: true, booking: { status: "invalid_request" } });
+    }
+    const rescheduleResult = await rescheduleAppointment(
+      service,
+      {
+        organizationId,
+        contactId,
+        appointmentId: bookingIntent.appointment_id,
+        startAt: bookingIntent.start_at,
+        endAt: bookingIntent.end_at,
+        idempotencyKey: `reschedule:${executionId}`,
+      },
+      undefined,
+      sendSmsFn,
+    );
+    const result = await completeWorkflowExecutionAsService(service, executionId, {
+      should_send: rescheduleResult.success,
+      booking_action: "reschedule",
+      appointment_id: bookingIntent.appointment_id,
+      error: rescheduleResult.success ? null : rescheduleResult.reason,
+    });
+    if (!result.ok && !isAlreadyProcessedError(result.error)) {
+      console.error("[automation] failed to complete reschedule execution", { executionId, error: result.error });
+    }
+    return NextResponse.json({ ok: true, booking: { status: rescheduleResult.success ? "rescheduled" : "invalid_request" } });
   }
 
   // action === "book"
@@ -673,6 +880,19 @@ export async function handleBookingIntent(
     if (lockError) {
       console.error("[automation] failed to lock conversation after a booking failure", { executionId, error: lockError.message });
     } else if (lockedRow) {
+      // HANDOFF-01: see the identical comment at the main qualification
+      // path's needs_human lock above - same additive persistence, same
+      // "only on an actual first-time lock" idempotency guard.
+      await recordAutomationHealthSignal(service, {
+        organizationId,
+        category: "human_escalation_requested",
+        severity: "warning",
+        fingerprintContext: conversationId,
+        title: "AI escalated a conversation to a human",
+        description: "AI appointment booking could not complete safely and needs a human.",
+        workflowExecutionId: executionId,
+        metadata: { conversationId, contactId, leadId },
+      });
       await notifyFounder(service, {
         organizationId,
         kind: "ai_escalation",
@@ -923,6 +1143,22 @@ export async function POST(request: NextRequest) {
       if (aiLockError) {
         console.error("[automation] failed to lock conversation ai_enabled after needs_human", { executionId: execution.id, error: aiLockError.message });
       } else if (lockedRow) {
+        // HANDOFF-01: persists a queryable, resolvable escalation record
+        // alongside the existing transient notification - additive only,
+        // gated on this same "did the UPDATE actually transition the
+        // conversation" guard so it shares that guard's exact idempotency
+        // (a replayed callback or a second needs_human result for an
+        // already-locked conversation records nothing new here either).
+        await recordAutomationHealthSignal(service, {
+          organizationId: event.organization_id,
+          category: "human_escalation_requested",
+          severity: "warning",
+          fingerprintContext: conversationId,
+          title: "AI escalated a conversation to a human",
+          description: aiResult.summary ?? null,
+          workflowExecutionId: execution.id,
+          metadata: { conversationId, contactId, leadId },
+        });
         await notifyFounder(service, {
           organizationId: event.organization_id,
           kind: "ai_escalation",

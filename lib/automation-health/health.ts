@@ -34,11 +34,20 @@ export async function getOrganizationHealth(supabase: SupabaseClient, organizati
     {} as Record<string, number>,
   );
 
+  // HANDOFF-01: a human escalation is the system correctly asking for a
+  // normal business judgment call, not a malfunction - unlike every other
+  // incident category, it must never count toward this organization's
+  // automation health status (activeTotal/critical/warning below feed
+  // organizationStatus() directly). It is still fully counted in
+  // activeByCategory above, and surfaced in its own dedicated
+  // humanEscalationCount field.
+  const healthRelevantIncidents = activeIncidents.filter((i) => i.category !== "human_escalation_requested");
+
   const incidentCounts = {
-    activeTotal: activeIncidents.length,
-    critical: activeIncidents.filter((i) => i.severity === "critical").length,
-    warning: activeIncidents.filter((i) => i.severity === "warning").length,
-    info: activeIncidents.filter((i) => i.severity === "info").length,
+    activeTotal: healthRelevantIncidents.length,
+    critical: healthRelevantIncidents.filter((i) => i.severity === "critical").length,
+    warning: healthRelevantIncidents.filter((i) => i.severity === "warning").length,
+    info: healthRelevantIncidents.filter((i) => i.severity === "info").length,
   };
 
   let lastSuccessfulActivityAt: string | null = null;
@@ -64,6 +73,7 @@ export async function getOrganizationHealth(supabase: SupabaseClient, organizati
     infoIncidentCount: incidentCounts.info,
     stuckExecutionCount: activeByCategory.workflow_stuck ?? 0,
     smsDeliveryFailureCount: activeByCategory.sms_delivery_failed ?? 0,
+    humanEscalationCount: activeByCategory.human_escalation_requested ?? 0,
     failedWorkflowExecutions: overview.failedWorkflows,
     automationSuccessRate: successRate,
     lastSuccessfulActivityAt,
@@ -136,6 +146,25 @@ export async function getAutomationHealthSummaries(supabase: SupabaseClient, org
       deliveryFailureCount,
     };
   });
+}
+
+/**
+ * SCHED-01 (pre-launch lead-leak audit): the health-check job itself is
+ * invoked by an external n8n Schedule Trigger every 15 minutes - if that
+ * scheduler stopped (deactivated, n8n outage), automation_health_check_runs
+ * simply stops growing, and nothing would otherwise ever say so. A pure,
+ * unit-testable predicate rather than inline page logic, so this specific
+ * behavior can be verified without a real Supabase round trip. 45 minutes
+ * (3x the 15-minute interval) mirrors STUCK_THRESHOLD_MINUTES's own
+ * "generous buffer" reasoning, tolerating a couple of missed ticks before
+ * alarming. No run at all is treated as stale too - "never ran" is at least
+ * as concerning as "ran, but a while ago".
+ */
+export const HEALTH_CHECK_STALE_THRESHOLD_MS = 45 * 60 * 1000;
+
+export function isHealthCheckStale(lastCheckedAtIso: string | null, nowMs: number = Date.now()): boolean {
+  if (!lastCheckedAtIso) return true;
+  return nowMs - new Date(lastCheckedAtIso).getTime() > HEALTH_CHECK_STALE_THRESHOLD_MS;
 }
 
 export async function getLatestHealthCheckRun(supabase: SupabaseClient): Promise<HealthCheckRun | null> {

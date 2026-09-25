@@ -226,6 +226,18 @@ test("10. invalid/missing caller id: an unparseable From number is handled grace
   assert.equal(contacts?.length ?? 0, 0);
 });
 
+test("10b. L3: an unusable caller ID still notifies the founder (never throws) even when notification_email/phone are configured", async () => {
+  await service.from("notification_settings").upsert({ organization_id: organizationId, notify_on_missed_call: true, notification_email: "owner@example.com", notification_phone: "+15555550001" }, { onConflict: "organization_id" });
+  try {
+    const response = await handleMissedCall(service, { callSid: nextCallSid(), from: "restricted", to: smsNumber }, fakeSendSms());
+    assert.equal(response.status, 200, "an unusable caller ID must still return valid TwiML, never throw, even with real notification channels configured");
+    const text = await response.text();
+    assert.match(text, /<Response>/);
+  } finally {
+    await service.from("notification_settings").delete().eq("organization_id", organizationId);
+  }
+});
+
 test("11. an unrecognized destination number is handled gracefully (no matching organization), never throwing", async () => {
   const response = await handleMissedCall(service, { callSid: nextCallSid(), from: "+15555551210", to: "+19995550000" }, fakeSendSms());
   assert.equal(response.status, 200);

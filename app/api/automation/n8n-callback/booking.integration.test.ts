@@ -205,10 +205,16 @@ test("3. a successful booking creates a real Trackpr appointment and sends a det
   assert.equal(appointment?.status, "scheduled");
   assert.equal(appointment?.contact_id, contactId);
 
+  // Phase 2D.2: check_availability (tests 1-2, above, sharing this same
+  // contact's single open conversation via makeExecution's
+  // findOrCreateOpenConversation) now also sends a real deterministic
+  // availability-offer message - so this conversation is no longer
+  // guaranteed to contain exactly one outbound message. Find the booking
+  // confirmation specifically rather than assuming it's the only one.
   const { data: messages } = await service.from("messages").select("body, status").eq("conversation_id", conversationId).eq("direction", "outbound");
-  assert.equal(messages?.length, 1);
-  assert.equal(messages?.[0].status, "sent");
-  assert.match(messages?.[0].body ?? "", /booked/i);
+  const confirmationMessage = messages?.find((message) => /booked/i.test(message.body ?? ""));
+  assert.ok(confirmationMessage, "expected a booking confirmation message to have been sent");
+  assert.equal(confirmationMessage.status, "sent");
 });
 
 test("4. AI SAFETY: booking a slot never actually returned by availability is rejected as slot_unavailable, and re-offers real fresh slots", async () => {
@@ -339,6 +345,144 @@ test("8. cross-org isolation: a booking callback for organization A can never bo
     }),
   );
   assert.equal(mismatchResponse.status, 403);
+});
+
+test("10. action=reschedule moves a real appointment to the new time and preserves its id (via handleBookingIntent, same pattern as test 3)", async () => {
+  const { data: appointment } = await service
+    .from("appointments")
+    .insert({ organization_id: organizationId, contact_id: contactId, title: "AC Repair", start_at: "2027-02-08T09:00:00.000Z", end_at: "2027-02-08T10:00:00.000Z", status: "scheduled" })
+    .select("id")
+    .single();
+  const { executionId, conversationId } = await makeExecution(organizationId, contactId);
+  const response = await handleBookingIntent(
+    service,
+    {
+      organizationId,
+      executionId,
+      contactId,
+      leadId: null,
+      conversationId,
+      bookingIntent: { action: "reschedule", date_range_start: null, date_range_end: null, start_at: "2027-02-08T11:00:00.000Z", end_at: "2027-02-08T12:00:00.000Z", title: null, appointment_id: appointment!.id },
+    },
+    fakeSendSms(),
+  );
+  const json = await response.json();
+  assert.equal(json.booking.status, "rescheduled");
+
+  const { data: row } = await service.from("appointments").select("id, start_at, status").eq("id", appointment!.id).single();
+  assert.equal(row?.id, appointment!.id, "reschedule must update the same row, never create a new one");
+  assert.equal(new Date(row!.start_at).getTime(), new Date("2027-02-08T11:00:00.000Z").getTime());
+  assert.equal(row?.status, "scheduled");
+});
+
+test("11. action=reschedule with a missing appointment_id is rejected as invalid_request - never crashes, never falls through to booking a new appointment", async () => {
+  const { executionId, conversationId } = await makeExecution(organizationId, contactId);
+  const response = await handleBookingIntent(
+    service,
+    {
+      organizationId,
+      executionId,
+      contactId,
+      leadId: null,
+      conversationId,
+      bookingIntent: { action: "reschedule", date_range_start: null, date_range_end: null, start_at: "2027-02-09T11:00:00.000Z", end_at: "2027-02-09T12:00:00.000Z", title: null, appointment_id: null },
+    },
+    fakeSendSms(),
+  );
+  const json = await response.json();
+  assert.equal(json.booking.status, "invalid_request");
+
+  const { data: appointments } = await service.from("appointments").select("id").eq("start_at", "2027-02-09T11:00:00.000Z");
+  assert.equal(appointments?.length, 0, "a reschedule with no target appointment must never create a brand-new appointment");
+});
+
+test("12. action=cancel with a real appointment_id cancels the real appointment", async () => {
+  const { data: appointment } = await service
+    .from("appointments")
+    .insert({ organization_id: organizationId, contact_id: contactId, title: "AC Repair", start_at: "2027-02-10T09:00:00.000Z", end_at: "2027-02-10T10:00:00.000Z", status: "scheduled" })
+    .select("id")
+    .single();
+  const { executionId, conversationId } = await makeExecution(organizationId, contactId);
+  const response = await handleBookingIntent(
+    service,
+    {
+      organizationId,
+      executionId,
+      contactId,
+      leadId: null,
+      conversationId,
+      bookingIntent: { action: "cancel", date_range_start: null, date_range_end: null, start_at: null, end_at: null, title: null, appointment_id: appointment!.id },
+    },
+    fakeSendSms(),
+  );
+  const json = await response.json();
+  assert.equal(json.booking.status, "cancelled");
+
+  const { data: row } = await service.from("appointments").select("status").eq("id", appointment!.id).single();
+  assert.equal(row?.status, "cancelled");
+});
+
+test("13. action=cancel with a missing appointment_id is rejected as invalid_request - never guesses which appointment", async () => {
+  const { executionId, conversationId } = await makeExecution(organizationId, contactId);
+  const response = await handleBookingIntent(
+    service,
+    { organizationId, executionId, contactId, leadId: null, conversationId, bookingIntent: { action: "cancel", date_range_start: null, date_range_end: null, start_at: null, end_at: null, title: null, appointment_id: null } },
+    fakeSendSms(),
+  );
+  const json = await response.json();
+  assert.equal(json.booking.status, "invalid_request");
+});
+
+test("14. MALFORMED AI OUTPUT: a non-UUID appointment_id is rejected by request validation before any booking logic runs", async () => {
+  const { executionId, eventId } = await makeExecution(organizationId, contactId);
+  const response = await POST(
+    callback({
+      execution_id: executionId,
+      event_id: eventId,
+      organization_id: organizationId,
+      ai_result: baseAiResult({ booking_intent: { action: "cancel", date_range_start: null, date_range_end: null, start_at: null, end_at: null, title: null, appointment_id: "not-a-real-uuid" } }),
+    }),
+  );
+  assert.equal(response.status, 400, "a malformed appointment_id must fail validation, never reach cancelAppointmentAsService");
+});
+
+test("15. MALFORMED AI OUTPUT: an unrecognized booking action string is rejected by request validation, never silently treated as a real action", async () => {
+  const { executionId, eventId } = await makeExecution(organizationId, contactId);
+  const response = await POST(
+    callback({
+      execution_id: executionId,
+      event_id: eventId,
+      organization_id: organizationId,
+      ai_result: baseAiResult({ booking_intent: { action: "delete_everything", date_range_start: null, date_range_end: null, start_at: null, end_at: null, title: null } }),
+    }),
+  );
+  assert.equal(response.status, 400);
+});
+
+test("16. IDEMPOTENCY: retrying the exact same reschedule callback never moves the appointment twice or double-sends a confirmation", async () => {
+  const { data: appointment } = await service
+    .from("appointments")
+    .insert({ organization_id: organizationId, contact_id: contactId, title: "AC Repair", start_at: "2027-02-11T09:00:00.000Z", end_at: "2027-02-11T10:00:00.000Z", status: "scheduled" })
+    .select("id")
+    .single();
+  const { executionId, eventId } = await makeExecution(organizationId, contactId);
+  const body = {
+    execution_id: executionId,
+    event_id: eventId,
+    organization_id: organizationId,
+    ai_result: baseAiResult({ booking_intent: { action: "reschedule", date_range_start: null, date_range_end: null, start_at: "2027-02-11T13:00:00.000Z", end_at: "2027-02-11T14:00:00.000Z", title: null, appointment_id: appointment!.id } }),
+  };
+
+  const first = await POST(callback(body));
+  const firstJson = await first.json();
+  assert.equal(firstJson.booking.status, "rescheduled");
+
+  const second = await POST(callback(body));
+  const secondJson = await second.json();
+  assert.equal(secondJson.alreadyProcessed, true);
+
+  const { data: row } = await service.from("appointments").select("id, start_at").eq("id", appointment!.id).single();
+  assert.equal(new Date(row!.start_at).getTime(), new Date("2027-02-11T13:00:00.000Z").getTime());
 });
 
 test("9. an unauthorized request (wrong/missing secret) is rejected before any booking logic runs", async () => {

@@ -108,7 +108,11 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
   }
 
   const contactName = lead.contact ? contactDisplayName(lead.contact) : "No contact";
-  const hasAiInsight = lead.ai_score != null || Boolean(lead.ai_summary);
+  // Q8 (pre-launch lead-leak audit): leads.ai_score is never written anywhere
+  // in this codebase (confirmed by a full-repo audit) - always null, so a
+  // "Score" row here would always be dead UI, never a real signal a
+  // contractor could act on. Only the summary is ever real.
+  const hasAiInsight = Boolean(lead.ai_summary);
 
   const appointments = allAppointments
     .filter((appointment) => appointment.lead_id === lead.id)
@@ -547,12 +551,6 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
             <SectionCard title="Lead score" description="AI scoring and summary for this opportunity." icon={Sparkles}>
               {hasAiInsight ? (
                 <div className="space-y-3">
-                  {lead.ai_score != null ? (
-                    <div>
-                      <dt className={detailLabelClass}>Score</dt>
-                      <dd className={detailValueClass}>{lead.ai_score} / 100</dd>
-                    </div>
-                  ) : null}
                   {lead.ai_summary ? (
                     <div>
                       <dt className={detailLabelClass}>Summary</dt>

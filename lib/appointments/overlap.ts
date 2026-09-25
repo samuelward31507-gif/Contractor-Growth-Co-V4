@@ -40,3 +40,33 @@ export async function checkAppointmentOverlap(
   const { data } = await query.maybeSingle();
   return Boolean(data);
 }
+
+/**
+ * Pass 2 (Native Calendar System): the same range-overlap predicate as
+ * checkAppointmentOverlap above, applied to blocked_time instead of
+ * appointments - the manual create/edit path's own pre-check that a new or
+ * rescheduled appointment does not land inside a blocked period. This is a
+ * fast, friendly UX pre-check only; blocked_time carries no database-level
+ * exclusion constraint of its own (see the blocked_time migration's own
+ * comment for why), so this - together with the AI/SMS path's identical
+ * enforcement inside lib/scheduling/availability.ts's getAvailableSlots -
+ * is the actual, sufficient safeguard for a schema that, by design, never
+ * lets blocked_time and appointments race against each other at the
+ * database level the way two appointments can.
+ */
+export async function checkBlockedTimeOverlap(
+  supabase: SupabaseClient,
+  organizationId: string,
+  input: { start_at: string; end_at: string },
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("blocked_time")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .lt("start_at", input.end_at)
+    .gt("end_at", input.start_at)
+    .limit(1)
+    .maybeSingle();
+
+  return Boolean(data);
+}

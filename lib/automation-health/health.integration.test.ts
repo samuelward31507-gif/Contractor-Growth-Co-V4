@@ -137,3 +137,65 @@ test("an automation with zero recorded executions reports a null failure rate, n
   assert.equal(target?.recentSuccesses, 0);
   assert.equal(target?.failureRate, null);
 });
+
+// HANDOFF-01: these two use their own dedicated, disposable organizations
+// (rather than the file's shared `organizationId`) because the tests above
+// already leave that shared org with an active critical incident - exactly
+// the "otherwise healthy" baseline these two tests need to isolate against.
+test("HANDOFF-01: an organization with ONLY an open human escalation reports the same healthy status it would otherwise have", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "Automation Health - Human Escalation Isolation Test Org" }).select("id").single();
+  const escalationOrgId = org!.id;
+  try {
+    const before = await getOrganizationHealth(service, escalationOrgId);
+    assert.equal(before.status, "healthy");
+    assert.equal(before.humanEscalationCount, 0);
+
+    await service.rpc("record_automation_incident_signal", {
+      p_organization_id: escalationOrgId,
+      p_category: "human_escalation_requested",
+      p_severity: "warning",
+      p_fingerprint: `human_escalation_requested:health-calc-escalation-${Date.now()}`,
+      p_title: "AI escalated a conversation to a human",
+    });
+
+    const after = await getOrganizationHealth(service, escalationOrgId);
+    assert.equal(after.status, "healthy", "a human escalation must never degrade automation health status");
+    assert.equal(after.activeIncidentCount, 0, "a human escalation must never count toward the generic active incident total");
+    assert.equal(after.criticalIncidentCount, 0);
+    assert.equal(after.warningIncidentCount, 0);
+    assert.equal(after.humanEscalationCount, 1, "the escalation must still be tracked in its own dedicated field");
+  } finally {
+    await service.from("automation_incidents").delete().eq("organization_id", escalationOrgId);
+    await service.from("organizations").delete().eq("id", escalationOrgId);
+  }
+});
+
+test("HANDOFF-01: a human escalation never masks a genuine critical incident's unhealthy status, and both counts remain correct together", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "Automation Health - Escalation Plus Critical Test Org" }).select("id").single();
+  const mixedOrgId = org!.id;
+  try {
+    await service.rpc("record_automation_incident_signal", {
+      p_organization_id: mixedOrgId,
+      p_category: "human_escalation_requested",
+      p_severity: "warning",
+      p_fingerprint: `human_escalation_requested:health-calc-mixed-${Date.now()}`,
+      p_title: "AI escalated a conversation to a human",
+    });
+    await service.rpc("record_automation_incident_signal", {
+      p_organization_id: mixedOrgId,
+      p_category: "n8n_callback_failed",
+      p_severity: "critical",
+      p_fingerprint: `n8n_callback_failed:health-calc-mixed-${Date.now()}`,
+      p_title: "Critical incident",
+    });
+
+    const health = await getOrganizationHealth(service, mixedOrgId);
+    assert.equal(health.status, "unhealthy");
+    assert.equal(health.criticalIncidentCount, 1);
+    assert.equal(health.activeIncidentCount, 1, "the human escalation must be excluded from this total, leaving only the real critical incident");
+    assert.equal(health.humanEscalationCount, 1);
+  } finally {
+    await service.from("automation_incidents").delete().eq("organization_id", mixedOrgId);
+    await service.from("organizations").delete().eq("id", mixedOrgId);
+  }
+});

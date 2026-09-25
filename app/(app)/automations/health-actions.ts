@@ -54,6 +54,10 @@ export async function acknowledgeIncident(incidentId: string): Promise<IncidentA
   }
 
   revalidatePath("/automations");
+  // HANDOFF-01: this action is now also reachable from the dashboard's own
+  // Needs Attention panel (a human_escalation_requested incident), which
+  // reads through a separate cached page render.
+  revalidatePath("/dashboard");
   return { ok: true, incident: mapIncidentRow(data as AutomationIncidentRow) };
 }
 
@@ -71,6 +75,8 @@ export async function resolveIncident(incidentId: string): Promise<IncidentActio
   }
 
   revalidatePath("/automations");
+  // HANDOFF-01: see the identical comment on acknowledgeIncident above.
+  revalidatePath("/dashboard");
   return { ok: true, incident: mapIncidentRow(data as AutomationIncidentRow) };
 }
 

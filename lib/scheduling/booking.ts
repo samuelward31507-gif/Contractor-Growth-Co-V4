@@ -3,8 +3,10 @@ import { getAvailableSlots, type AvailabilityResult } from "./availability";
 import { syncAppointmentCreatedToGoogle } from "@/lib/calendar/appointment-sync";
 import { createAutomationEventAsService } from "@/lib/automation/events";
 import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "@/lib/automation/executions";
+import { emitAppointmentLifecycleEventAsService } from "@/lib/automation/appointments";
 import { googleCalendarProvider } from "@/lib/calendar/google";
 import type { CalendarProvider } from "@/lib/calendar/provider";
+import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 
 /**
  * Phase 1 Scheduling Foundation, Stage 6: the AI-facing booking interface.
@@ -276,4 +278,182 @@ export async function bookAppointment(
   }
 
   return { success: true, appointmentId: appointment.id, startAt: input.startAt, endAt: input.endAt, timezone, calendarSyncStatus };
+}
+
+export type RescheduleAppointmentInput = {
+  organizationId: string;
+  contactId: string;
+  appointmentId: string;
+  /** ISO 8601 UTC - must exactly match one of getAvailableBookingSlots's own previously-returned slots; never trusted as freeform input. */
+  startAt: string;
+  endAt: string;
+  /** Same convention as bookAppointment's idempotencyKey - e.g. `reschedule:${conversationId}:${startAt}`. */
+  idempotencyKey: string;
+};
+
+export type RescheduleAppointmentFailureReason = "slot_unavailable" | "not_found" | "not_reschedulable" | "organization_not_active" | "configuration_error" | "internal_error";
+
+export type RescheduleAppointmentResult =
+  | { success: true; appointmentId: string; startAt: string; endAt: string; timezone: string }
+  | { success: false; reason: RescheduleAppointmentFailureReason };
+
+const RESCHEDULE_EVENT_TYPE = "appointment.reschedule_requested";
+const RESCHEDULE_WORKFLOW_NAME = "appointment_reschedule";
+
+type RescheduleOutcomeMetadata =
+  | { outcome: "success"; appointment_id: string; start_at: string; end_at: string }
+  | { outcome: "failure"; reason: RescheduleAppointmentFailureReason };
+
+function rescheduleResultFromMetadata(metadata: Record<string, unknown> | null, timezone: string): RescheduleAppointmentResult {
+  const outcome = metadata as RescheduleOutcomeMetadata | null;
+  if (outcome?.outcome === "success") {
+    return { success: true, appointmentId: outcome.appointment_id, startAt: outcome.start_at, endAt: outcome.end_at, timezone };
+  }
+  if (outcome?.outcome === "failure") {
+    return { success: false, reason: outcome.reason };
+  }
+  return { success: false, reason: "internal_error" };
+}
+
+/**
+ * Pass 1 (booking loop completion): reschedules an EXISTING appointment to a
+ * new, freshly-availability-checked time - the update-in-place counterpart
+ * to bookAppointment above, deliberately mirroring its exact order of
+ * operations (payment gate, idempotency, ownership re-verification, a fresh
+ * availability re-check, then the write) rather than inventing a divergent
+ * shape. Scoped by organization AND contact together (never appointment id
+ * alone), so one customer's message can never move another customer's
+ * appointment.
+ *
+ * KNOWN, ACCEPTED LIMITATION: the availability re-check does not exclude
+ * this appointment's own current (about-to-be-vacated) slot from conflict
+ * detection - lib/scheduling/availability.ts's own conflict logic is left
+ * completely unchanged rather than threading a new exclusion parameter
+ * through a sensitive, already-heavily-tested subsystem for this one
+ * caller. The only practical effect: a request to reschedule into a time
+ * that overlaps the appointment's own current slot is reported as
+ * unavailable even though it would actually be free once the reschedule
+ * completes - always the safe direction (never double-books, only
+ * occasionally over-cautious), and a genuinely rare case in practice, since
+ * a customer rescheduling is by definition asking to move away from their
+ * current time.
+ *
+ * The same Stage-1 appointments_no_overlap exclusion constraint that backs
+ * bookAppointment's own concurrency guarantee applies identically to this
+ * UPDATE (a real Postgres EXCLUDE constraint enforces itself on both INSERT
+ * and UPDATE) - no new database protection is introduced, the existing one
+ * is simply relied on again.
+ */
+export async function rescheduleAppointment(
+  supabase: SupabaseClient,
+  input: RescheduleAppointmentInput,
+  calendarProvider: CalendarProvider = googleCalendarProvider,
+  /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
+  sendSmsFn?: (smsInput: SendSmsInput) => Promise<SendSmsResult>,
+): Promise<RescheduleAppointmentResult> {
+  const { data: organization } = await supabase.from("organizations").select("payment_status, timezone").eq("id", input.organizationId).maybeSingle();
+  const timezone = organization?.timezone ?? "UTC";
+
+  if (organization?.payment_status !== "active") {
+    return { success: false, reason: "organization_not_active" };
+  }
+
+  const eventResult = await createAutomationEventAsService(supabase, input.organizationId, {
+    eventType: RESCHEDULE_EVENT_TYPE,
+    entityType: "appointment",
+    entityId: input.appointmentId,
+    payload: { appointment_id: input.appointmentId, contact_id: input.contactId, start_at: input.startAt, end_at: input.endAt },
+    idempotencyKey: input.idempotencyKey,
+  });
+
+  if (!eventResult.ok) {
+    return { success: false, reason: "internal_error" };
+  }
+  if (eventResult.skipped) {
+    return { success: false, reason: "not_reschedulable" };
+  }
+
+  if (eventResult.duplicate) {
+    const { data: existingExecution } = await supabase
+      .from("workflow_executions")
+      .select("status, metadata")
+      .eq("automation_event_id", eventResult.event.id)
+      .order("attempt", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!existingExecution || existingExecution.status === "running") {
+      return { success: false, reason: "internal_error" };
+    }
+    return rescheduleResultFromMetadata(existingExecution.metadata as Record<string, unknown> | null, timezone);
+  }
+
+  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, RESCHEDULE_WORKFLOW_NAME);
+  if (!executionResult.ok) {
+    return { success: false, reason: "internal_error" };
+  }
+  const executionId = executionResult.execution.id;
+
+  async function finishWithFailure(reason: RescheduleAppointmentFailureReason): Promise<RescheduleAppointmentResult> {
+    const metadata: RescheduleOutcomeMetadata = { outcome: "failure", reason };
+    const completed = await completeWorkflowExecutionAsService(supabase, executionId, metadata);
+    if (!completed.ok) {
+      await failWorkflowExecutionAsService(supabase, executionId, `reschedule failed: ${reason}`, "workflow_failed");
+    }
+    return { success: false, reason };
+  }
+
+  const { data: existingAppointment } = await supabase
+    .from("appointments")
+    .select("id, status")
+    .eq("id", input.appointmentId)
+    .eq("organization_id", input.organizationId)
+    .eq("contact_id", input.contactId)
+    .maybeSingle();
+
+  if (!existingAppointment) {
+    return finishWithFailure("not_found");
+  }
+  if (existingAppointment.status !== "scheduled" && existingAppointment.status !== "confirmed") {
+    return finishWithFailure("not_reschedulable");
+  }
+
+  const recheckEnd = new Date(new Date(input.endAt).getTime() + 60_000);
+  const availability = await getAvailableSlots(supabase, { organizationId: input.organizationId, dateRangeStart: new Date(input.startAt), dateRangeEnd: recheckEnd }, undefined, calendarProvider);
+
+  if (availability.status !== "available") {
+    return finishWithFailure(availability.status === "booking_disabled" ? "not_reschedulable" : "configuration_error");
+  }
+  const slotStillOffered = availability.slots.some((slot) => slot.start_at === input.startAt && slot.end_at === input.endAt);
+  if (!slotStillOffered) {
+    return finishWithFailure("slot_unavailable");
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("appointments")
+    .update({ start_at: input.startAt, end_at: input.endAt })
+    .eq("id", input.appointmentId)
+    .eq("organization_id", input.organizationId)
+    .eq("contact_id", input.contactId)
+    .in("status", ["scheduled", "confirmed"])
+    .select("id")
+    .maybeSingle();
+
+  if (updateError || !updated) {
+    // Same exclusion-constraint backstop bookAppointment's own insert
+    // relies on - a race that slips past the recheck above still cannot
+    // create an overlapping appointment.
+    const reason: RescheduleAppointmentFailureReason = updateError?.code === "23P01" ? "slot_unavailable" : updateError ? "internal_error" : "not_found";
+    return finishWithFailure(reason);
+  }
+
+  const metadata: RescheduleOutcomeMetadata = { outcome: "success", appointment_id: input.appointmentId, start_at: input.startAt, end_at: input.endAt };
+  const completed = await completeWorkflowExecutionAsService(supabase, executionId, metadata);
+  if (!completed.ok) {
+    await failWorkflowExecutionAsService(supabase, executionId, "failed to record reschedule completion metadata", "workflow_failed");
+  }
+
+  await emitAppointmentLifecycleEventAsService(supabase, input.organizationId, input.appointmentId, "appointment.rescheduled", input.startAt, sendSmsFn);
+
+  return { success: true, appointmentId: input.appointmentId, startAt: input.startAt, endAt: input.endAt, timezone };
 }

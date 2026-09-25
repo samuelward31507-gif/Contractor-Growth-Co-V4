@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { notifyFounder } from "@/lib/notifications/founder";
+import { recordAutomationHealthSignal } from "@/lib/automation-health/service";
 
 const MAX_FAILURE_REASON_LENGTH = 300;
 
@@ -300,6 +301,22 @@ export async function classifyAndEscalateReviewReply(
   }
 
   if (lockedRow) {
+    // AI-01 (product completion audit): brings this escalation into parity
+    // with HANDOFF-01 - every other lockout site in this codebase pairs its
+    // notifyFounder call with a durable, dashboard-visible, resolvable
+    // automation_incidents row; this one previously didn't. Same category,
+    // same fingerprint-per-conversation dedup (a second non-positive reply
+    // to an already-escalated conversation is a safe no-op here too, since
+    // the ai_enabled guard above already made lockedRow null on replay).
+    await recordAutomationHealthSignal(supabase, {
+      organizationId,
+      category: "human_escalation_requested",
+      severity: "warning",
+      fingerprintContext: conversationId,
+      title: "AI escalated a conversation to a human",
+      description: sentiment === "negative" ? "A customer replied negatively to a review request." : "A customer's reply to a review request needs a human look.",
+      metadata: { conversationId, contactId },
+    });
     await notifyFounder(supabase, {
       organizationId,
       kind: "ai_escalation",

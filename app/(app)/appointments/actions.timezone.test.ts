@@ -35,7 +35,13 @@ test("1. the old buggy pattern (assigning startAt/endAt directly from `new Date(
 test("2. the fix reuses the existing DST-safe zonedWallTimeToUtc helper from lib/scheduling/availability - not a new/duplicated timezone implementation", () => {
   assert.match(SOURCE, /import \{ zonedWallTimeToUtc \} from "@\/lib\/scheduling\/availability";/);
   const matches = SOURCE.match(/zonedWallTimeToUtc\(/g) ?? [];
-  assert.equal(matches.length, 2, "expected exactly two calls - one for startAt, one for endAt");
+  // Pass 2 (Native Calendar System) added rescheduleAppointmentTime, the
+  // calendar's own compact reschedule action - it converts its own
+  // start/end via this SAME helper (2 more calls) rather than
+  // reimplementing the conversion, so the total rose from 2 to 4. Still
+  // exactly one real implementation of the conversion, now with more
+  // legitimate call sites - never a second, divergent one.
+  assert.equal(matches.length, 4, "expected exactly four calls - two in parseAppointmentForm (startAt/endAt), two in rescheduleAppointmentTime (startAt/endAt)");
 });
 
 test("3. the organization's timezone is read via the existing getOrganizationTimezone accessor, not a new query or a hardcoded zone", () => {

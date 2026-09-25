@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { getWorkflowNameStats, buildAutomationSummaries, getRecentExecutionsForWorkflows } from "@/lib/automation/queries";
 import { getAutomationEnabledMap } from "@/lib/automation/settings";
-import { getOrganizationHealth, getAutomationHealthSummaries, getLatestHealthCheckRun } from "@/lib/automation-health/health";
+import { getOrganizationHealth, getAutomationHealthSummaries, getLatestHealthCheckRun, isHealthCheckStale } from "@/lib/automation-health/health";
 import { listIncidents } from "@/lib/automation-health/queries";
 import { metaClass, sectionLabelClass } from "@/lib/ui/typography";
 import { PageHeader } from "@/lib/ui/page-header";
@@ -64,6 +64,12 @@ export default async function AutomationsPage() {
   const healthByAutomationId = new Map(automationHealthSummaries.map((s) => [s.automationId, s]));
   const statusBadge = HEALTH_STATUS_BADGE[orgHealth.status];
 
+  // SCHED-01 (pre-launch lead-leak audit): a passive, read-time staleness
+  // check computed on page load - not a new cron or monitoring platform -
+  // using the same heartbeat table this page already reads. See
+  // isHealthCheckStale's own doc comment for the full reasoning.
+  const healthCheckIsStale = isHealthCheckStale(lastHealthCheck?.checkedAt ?? null);
+
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
@@ -85,6 +91,9 @@ export default async function AutomationsPage() {
             ? `Activity reflects the last 30 days. Last automated health check: ${new Date(lastHealthCheck.checkedAt).toLocaleString()} (${lastHealthCheck.stuckCount} stuck execution${lastHealthCheck.stuckCount === 1 ? "" : "s"} found).`
             : "Activity reflects the last 30 days. No automated health check has run yet."}
         </p>
+        {healthCheckIsStale ? (
+          <Badge tone="warning">Automated health checks appear to have stopped - the scheduler may be down</Badge>
+        ) : null}
       </div>
 
       <AiAgents summaries={summaries} />

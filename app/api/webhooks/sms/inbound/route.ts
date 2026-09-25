@@ -7,6 +7,8 @@ import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { buildHelpResponseMessage } from "@/lib/messaging/help-response";
 import { isValidTwilioSignature } from "@/lib/messaging/twilio-signature";
 import { recordRequestResponses, classifyAndEscalateReviewReply } from "@/lib/reviews-referrals/tracking";
+import { classifyAndProcessEstimateReply } from "@/lib/automation/estimate-reply";
+import { classifyAndProcessBookingReply } from "@/lib/automation/booking-reply";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
@@ -177,14 +179,34 @@ export async function POST(request: NextRequest) {
     // reads as clearly positive.
     await classifyAndEscalateReviewReply(service, organization.id, contact.id, conversation.id, body);
 
-    await emitCustomerReplyFollowup(service, {
-      organizationId: organization.id,
-      contactId: contact.id,
-      conversationId: conversation.id,
-      leadId: conversationLead?.lead_id ?? null,
-      messageBody: body,
-      providerMessageId: messageSid,
-    });
+    // E1 (pre-launch lead-leak audit): same placement and shape as the
+    // review-reply classification immediately above - runs BEFORE the
+    // customer-reply AI dispatch so a clear acceptance is acted on (or an
+    // unclear one locks the conversation) before the AI ever drafts a
+    // competing reply. A no-op when this contact has no estimate currently
+    // in 'sent' status.
+    await classifyAndProcessEstimateReply(service, organization.id, contact.id, conversationLead?.lead_id ?? null, conversation.id, body);
+
+    // Pass 1 (booking loop completion): unlike the two classifiers above
+    // (which only ever lock/no-op, never fully own a reply), this one CAN
+    // fully handle the message - a real slot selection, a reschedule
+    // request, or a cancellation. When it does, the AI must never also
+    // draft a competing reply to the same message, so emitCustomerReplyFollowup
+    // is skipped entirely for that turn. A no-op (false) for any message
+    // this module has no opinion about - normal AI qualification continues
+    // exactly as before.
+    const bookingReplyHandled = await classifyAndProcessBookingReply(service, organization.id, contact.id, conversationLead?.lead_id ?? null, conversation.id, body);
+
+    if (!bookingReplyHandled) {
+      await emitCustomerReplyFollowup(service, {
+        organizationId: organization.id,
+        contactId: contact.id,
+        conversationId: conversation.id,
+        leadId: conversationLead?.lead_id ?? null,
+        messageBody: body,
+        providerMessageId: messageSid,
+      });
+    }
 
     // Review & Referral Tracking V1: deterministic, non-AI bookkeeping only
     // - records that the contact replied at all, never what they said or

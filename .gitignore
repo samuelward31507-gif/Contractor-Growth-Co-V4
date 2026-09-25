@@ -43,3 +43,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local tooling artifacts (e.g. a downloaded cloudflared binary/archive for
+# local tunnel testing) - never part of this application's source or build
+/cloudflared
+/cloudflared.tgz

@@ -7,6 +7,7 @@ export type NavIconName =
   | "Users"
   | "Contact"
   | "MessageSquare"
+  | "Calendar"
   | "CalendarClock"
   | "FileText"
   | "Briefcase"
@@ -47,6 +48,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/leads", label: "Leads", icon: "Users" },
       { href: "/contacts", label: "Contacts", icon: "Contact" },
       { href: "/conversations", label: "Inbox", icon: "MessageSquare" },
+      { href: "/calendar", label: "Calendar", icon: "Calendar" },
       { href: "/appointments", label: "Appointments", icon: "CalendarClock" },
       { href: "/estimates", label: "Estimates", icon: "FileText", verticals: ["contractor"] },
       { href: "/jobs", label: "Jobs", icon: "Briefcase", verticals: ["contractor"] },

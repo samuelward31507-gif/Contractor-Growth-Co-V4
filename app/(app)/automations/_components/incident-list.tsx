@@ -33,6 +33,7 @@ const CATEGORY_LABEL: Record<AutomationIncident["category"], string> = {
   n8n_callback_failed: "n8n callback failed",
   sms_send_failed: "SMS send failed",
   sms_delivery_failed: "SMS delivery failed",
+  human_escalation_requested: "AI needs a human",
 };
 
 /**

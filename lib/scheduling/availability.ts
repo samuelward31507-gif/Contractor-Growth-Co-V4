@@ -340,15 +340,34 @@ export async function getAvailableSlots(
     return { status: "business_hours_not_configured" };
   }
 
-  const { data: appointmentRows } = await supabase
-    .from("appointments")
-    .select("start_at, end_at, status")
-    .eq("organization_id", query.organizationId)
-    .in("status", ["scheduled", "confirmed", "completed"])
-    .lt("start_at", query.dateRangeEnd.toISOString())
-    .gt("end_at", query.dateRangeStart.toISOString());
+  const [{ data: appointmentRows }, { data: blockedTimeRows }] = await Promise.all([
+    supabase
+      .from("appointments")
+      .select("start_at, end_at, status")
+      .eq("organization_id", query.organizationId)
+      .in("status", ["scheduled", "confirmed", "completed"])
+      .lt("start_at", query.dateRangeEnd.toISOString())
+      .gt("end_at", query.dateRangeStart.toISOString()),
+    // Pass 2 (Native Calendar System): native blocked time (lunch,
+    // personal time, vacation, internal meetings, travel, maintenance) is
+    // fed into the SAME externalBusyPeriods merge point Stage 4 already
+    // built for Google Calendar busy periods - computeAvailableSlots()
+    // treats every entry in that list identically regardless of source, so
+    // this requires zero changes to the pure algorithm itself. This is the
+    // single place blocked time affects availability; every caller of
+    // getAvailableSlots (manual booking, the AI/SMS booking flow, the
+    // calendar's own availability display) automatically respects it with
+    // no duplicated logic anywhere else.
+    supabase
+      .from("blocked_time")
+      .select("start_at, end_at")
+      .eq("organization_id", query.organizationId)
+      .lt("start_at", query.dateRangeEnd.toISOString())
+      .gt("end_at", query.dateRangeStart.toISOString()),
+  ]);
 
-  let externalBusyPeriods: ExternalBusyPeriod[] | undefined = query.externalBusyPeriods;
+  const nativeBlockedPeriods: ExternalBusyPeriod[] = (blockedTimeRows ?? []).map((row) => ({ start_at: row.start_at, end_at: row.end_at }));
+  let externalBusyPeriods: ExternalBusyPeriod[] = [...(query.externalBusyPeriods ?? []), ...nativeBlockedPeriods];
 
   if (connection) {
     if (!connection.calendarId) {
@@ -360,7 +379,9 @@ export async function getAvailableSlots(
       return { status: "calendar_unavailable", reason: busyResult.error };
     }
 
-    externalBusyPeriods = busyResult.value;
+    // Merged, never overwritten - native blocked time must still block
+    // slots even when a Google Calendar connection is also present.
+    externalBusyPeriods = [...busyResult.value, ...nativeBlockedPeriods];
   }
 
   return computeAvailableSlots(

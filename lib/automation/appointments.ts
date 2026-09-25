@@ -1,8 +1,8 @@
 import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase/service";
-import { createAutomationEvent } from "./events";
-import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution } from "./executions";
+import { createAutomationEvent, createAutomationEventAsService } from "./events";
+import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution, startWorkflowExecutionAsService, completeWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
 import { evaluateOutboundGate } from "./outbound-gate";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
@@ -420,4 +420,107 @@ export async function emitAppointmentLifecycleEvent(
   if (!completed.ok) {
     console.error(`[automation] failed to complete ${eventType} execution`, { appointmentId, error: completed.error });
   }
+}
+
+/**
+ * Pass 1 (booking loop completion): the *AsService twin of
+ * emitAppointmentLifecycleEvent above, for callers with no Supabase Auth
+ * session - lib/automation/booking-reply.ts's deterministic cancel/reschedule
+ * handling, itself triggered from the inbound SMS webhook (Twilio-
+ * authenticated, not a user JWT). Same lifecycle-only shape; the message
+ * dispatch for cancelled/rescheduled reuses sendAppointmentLifecycleMessage
+ * completely unchanged - that function already creates its own service-role
+ * client internally regardless of caller context, so it needs no AsService
+ * variant of its own.
+ */
+export async function emitAppointmentLifecycleEventAsService(
+  supabase: SupabaseClient,
+  organizationId: string,
+  appointmentId: string,
+  eventType: AppointmentLifecycleEventType,
+  idempotencySuffix?: string,
+  /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+): Promise<void> {
+  const idempotencyKey = idempotencySuffix
+    ? `${eventType}:${appointmentId}:${idempotencySuffix}`
+    : `${eventType}:${appointmentId}`;
+
+  const eventResult = await createAutomationEventAsService(supabase, organizationId, {
+    eventType,
+    entityType: "appointment",
+    entityId: appointmentId,
+    payload: { appointment_id: appointmentId },
+    idempotencyKey,
+  });
+
+  if (!eventResult.ok) {
+    console.error(`[automation] failed to create ${eventType} event`, { appointmentId, error: eventResult.error });
+    return;
+  }
+  if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
+
+  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, `${eventType.replace(".", "_")}_lifecycle`);
+  if (!executionResult.ok) {
+    console.error(`[automation] failed to start ${eventType} execution`, { appointmentId, error: executionResult.error });
+    return;
+  }
+
+  if (eventType === "appointment.cancelled" || eventType === "appointment.rescheduled") {
+    await sendAppointmentLifecycleMessage(eventResult.event.organization_id, appointmentId, eventType, executionResult.execution.id, sendSmsFn);
+  }
+
+  const completed = await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, {
+    lifecycle_only: true,
+    appointment_id: appointmentId,
+  });
+  if (!completed.ok) {
+    console.error(`[automation] failed to complete ${eventType} execution`, { appointmentId, error: completed.error });
+  }
+}
+
+export type CancelAppointmentAsServiceResult =
+  | { ok: true }
+  | { ok: false; reason: "not_found" | "not_cancellable" };
+
+/**
+ * Pass 1: the deterministic, service-role-safe appointment cancellation used
+ * by lib/automation/booking-reply.ts's customer-initiated cancel flow.
+ * Deliberately narrow: only cancels an appointment already in
+ * scheduled/confirmed status, scoped by organization AND contact together
+ * (never appointment id alone) so one customer's message can never affect
+ * another customer's appointment. The conditional UPDATE itself is the
+ * idempotency guard - a duplicate/replayed cancel request for an
+ * already-cancelled appointment matches zero rows and is a safe no-op,
+ * exactly like every other conditional-guard lock in this codebase.
+ */
+export async function cancelAppointmentAsService(
+  supabase: SupabaseClient,
+  organizationId: string,
+  contactId: string,
+  appointmentId: string,
+  /** Test seam only - production callers must never pass this. */
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+): Promise<CancelAppointmentAsServiceResult> {
+  const { data: cancelledRow, error } = await supabase
+    .from("appointments")
+    .update({ status: "cancelled" })
+    .eq("id", appointmentId)
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .in("status", ["scheduled", "confirmed"])
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[automation] failed to cancel appointment", { appointmentId, organizationId, error: error.message });
+    return { ok: false, reason: "not_cancellable" };
+  }
+  if (!cancelledRow) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  await emitAppointmentLifecycleEventAsService(supabase, organizationId, appointmentId, "appointment.cancelled", undefined, sendSmsFn);
+  return { ok: true };
 }

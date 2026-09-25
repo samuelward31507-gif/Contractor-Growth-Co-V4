@@ -105,6 +105,38 @@ export async function getAppointment(
   return normalizeAppointment(data as RawAppointmentRow);
 }
 
+/**
+ * Pass 2 (Native Calendar System): a date-range-scoped fetch for the
+ * calendar's day/week/month views, which navigate freely across time and
+ * must never silently miss an appointment outside getAppointments()'s own
+ * 1000-row cap. Uses the exact overlap predicate every other range read in
+ * this codebase already uses (start_at < rangeEnd AND end_at > rangeStart -
+ * see lib/scheduling/availability.ts's getAvailableSlots and
+ * lib/appointments/overlap.ts's checkAppointmentOverlap), so an appointment
+ * that merely spans into the requested range (rather than starting inside
+ * it) is still returned. Cancelled/no-show appointments are intentionally
+ * NOT filtered out here - the calendar surfaces every status (Phase 6 needs
+ * to display and act on all of them); only the availability engine filters
+ * by occupying status.
+ */
+export async function getAppointmentsInRange(
+  supabase: SupabaseClient,
+  organizationId: string,
+  rangeStart: Date,
+  rangeEnd: Date,
+): Promise<Appointment[]> {
+  const { data } = await supabase
+    .from("appointments")
+    .select(APPOINTMENT_COLUMNS)
+    .eq("organization_id", organizationId)
+    .lt("start_at", rangeEnd.toISOString())
+    .gt("end_at", rangeStart.toISOString())
+    .order("start_at", { ascending: true })
+    .limit(1000);
+
+  return ((data ?? []) as RawAppointmentRow[]).map(normalizeAppointment);
+}
+
 export type AppointmentView = "upcoming" | "today" | "past";
 
 /**

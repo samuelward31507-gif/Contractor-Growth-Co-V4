@@ -29,6 +29,12 @@ import type { IncidentCategory } from "./types";
  *    undelivered delivery is a distinct, individual provider failure with
  *    its own terminal outcome (never auto-resolved by a later, different
  *    message succeeding - see lib/automation-health/service.ts).
+ *  - human_escalation_requested (HANDOFF-01): context is the conversation id
+ *    - one open escalation incident per conversation, matching the existing
+ *    conversations.ai_enabled lockout's own per-conversation granularity. A
+ *    second, different escalation reason on an already-escalated
+ *    conversation increments occurrence_count on the same incident rather
+ *    than creating a duplicate.
  */
 export function buildIncidentFingerprint(category: IncidentCategory, context: string): string {
   const trimmed = context.trim();

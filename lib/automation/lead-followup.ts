@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEvent, createAutomationEventAsService } from "./events";
 import { startWorkflowExecution, failWorkflowExecution, startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
+import { getAutomationForWorkflowName } from "./catalog";
+import { recordAutomationHealthSignal } from "../automation-health/service";
 import { getContact } from "@/lib/contacts/queries";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
@@ -10,6 +12,51 @@ import type { LeadStatus, LeadTemperature } from "@/lib/leads/queries";
 import type { OrganizationVertical } from "@/lib/auth/organization";
 
 export const LEAD_CREATED_FOLLOWUP_WORKFLOW = "lead_created_followup";
+
+/** L4 (pre-launch lead-leak audit): resolved once, reused by both failure-signal call sites in both functions below. */
+const LEAD_CREATED_AUTOMATION = getAutomationForWorkflowName(LEAD_CREATED_FOLLOWUP_WORKFLOW);
+
+/**
+ * L4: the lead itself is already durably committed by the time either
+ * emitLeadCreatedFollowup or emitLeadCreatedFollowupAsService can fail (see
+ * each function's own header comment) - if the automation_event RPC or the
+ * subsequent workflow-execution-start RPC then fails, nothing durable ever
+ * recorded that fact anywhere else: the existing stuck-execution health scan
+ * (app/api/automation/health/route.ts) only ever looks at workflow_executions
+ * rows already in status='running', which don't exist for either failure
+ * boundary here. Reuses the existing n8n_dispatch_failed category (this IS a
+ * failure to get the lead's automation dispatched, just at an earlier step
+ * than the n8n network call itself) rather than adding a new one.
+ * Fingerprinted on the lead id alone (not the failure stage) so a lead that
+ * fails repeatedly - at either boundary, across retries - collapses into one
+ * incident whose occurrence_count increments and whose metadata reflects the
+ * most recent failure, exactly like every other category's own dedup
+ * behavior, never a flood. Best-effort and non-throwing throughout -
+ * recordAutomationHealthSignal itself already never throws, and this
+ * function never awaits it in a way that could let a signal-recording
+ * failure change lead-creation's own success/failure outcome.
+ */
+async function emitLeadDispatchFailureSignal(
+  supabase: SupabaseClient,
+  input: { organizationId: string; leadId: string; eventId?: string; failureStage: "event_creation" | "workflow_execution_start"; error: string },
+): Promise<void> {
+  await recordAutomationHealthSignal(supabase, {
+    organizationId: input.organizationId,
+    category: "n8n_dispatch_failed",
+    severity: "warning",
+    fingerprintContext: input.leadId,
+    title: `${LEAD_CREATED_AUTOMATION?.name ?? LEAD_CREATED_FOLLOWUP_WORKFLOW} dispatch failed`,
+    description: input.error,
+    automationId: LEAD_CREATED_AUTOMATION?.id ?? null,
+    metadata: {
+      leadId: input.leadId,
+      organizationId: input.organizationId,
+      eventId: input.eventId ?? null,
+      failureStage: input.failureStage,
+      error: input.error,
+    },
+  });
+}
 
 /**
  * Gym Phase 2B.1: resolves organizations.vertical directly by id, rather
@@ -89,6 +136,7 @@ export async function emitLeadCreatedFollowup(
 
   if (!eventResult.ok) {
     console.error("[automation] failed to create lead.created event", { leadId: input.leadId, error: eventResult.error });
+    await emitLeadDispatchFailureSignal(supabase, { organizationId: input.organizationId, leadId: input.leadId, failureStage: "event_creation", error: eventResult.error });
     return;
   }
 
@@ -111,6 +159,7 @@ export async function emitLeadCreatedFollowup(
       eventId: eventResult.event.id,
       error: executionResult.error,
     });
+    await emitLeadDispatchFailureSignal(supabase, { organizationId: input.organizationId, leadId: input.leadId, eventId: eventResult.event.id, failureStage: "workflow_execution_start", error: executionResult.error });
     return;
   }
 
@@ -229,6 +278,7 @@ export async function emitLeadCreatedFollowupAsService(
 
   if (!eventResult.ok) {
     console.error("[automation] failed to create lead.created event", { leadId: input.leadId, error: eventResult.error });
+    await emitLeadDispatchFailureSignal(supabase, { organizationId: input.organizationId, leadId: input.leadId, failureStage: "event_creation", error: eventResult.error });
     return;
   }
 
@@ -246,6 +296,7 @@ export async function emitLeadCreatedFollowupAsService(
       eventId: eventResult.event.id,
       error: executionResult.error,
     });
+    await emitLeadDispatchFailureSignal(supabase, { organizationId: input.organizationId, leadId: input.leadId, eventId: eventResult.event.id, failureStage: "workflow_execution_start", error: executionResult.error });
     return;
   }
 

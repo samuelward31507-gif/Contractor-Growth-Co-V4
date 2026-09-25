@@ -33,12 +33,19 @@ export function AppointmentDialog({
   leads,
   appointment,
   onClose,
+  defaultDate,
+  defaultStartTime,
+  defaultEndTime,
 }: {
   mode: "create" | "edit";
   contacts: Contact[];
   leads: Lead[];
   appointment?: Appointment;
   onClose: () => void;
+  /** Pass 2 (Native Calendar System): prefill for "create" mode only, when opened from a clicked calendar slot ("YYYY-MM-DD"/"HH:MM", the organization's own local wall-clock time - never converted here, the same plain HTML date/time input shape parseAppointmentForm already expects). Ignored in "edit" mode, which always prefills from the real appointment. */
+  defaultDate?: string;
+  defaultStartTime?: string;
+  defaultEndTime?: string;
 }) {
   const action = mode === "create" ? createAppointment : updateAppointment;
   const [state, formAction, isPending] = useActionState(action, initialState);
@@ -116,7 +123,7 @@ export function AppointmentDialog({
               id="date"
               name="date"
               type="date"
-              defaultValue={appointment ? toDateInputValue(appointment.start_at) : ""}
+              defaultValue={appointment ? toDateInputValue(appointment.start_at) : (defaultDate ?? "")}
               className={inputClass}
             />
           </div>
@@ -130,7 +137,7 @@ export function AppointmentDialog({
                 id="startTime"
                 name="startTime"
                 type="time"
-                defaultValue={appointment ? toTimeInputValue(appointment.start_at) : ""}
+                defaultValue={appointment ? toTimeInputValue(appointment.start_at) : (defaultStartTime ?? "")}
                 className={inputClass}
               />
             </div>
@@ -142,7 +149,7 @@ export function AppointmentDialog({
                 id="endTime"
                 name="endTime"
                 type="time"
-                defaultValue={appointment ? toTimeInputValue(appointment.end_at) : ""}
+                defaultValue={appointment ? toTimeInputValue(appointment.end_at) : (defaultEndTime ?? "")}
                 className={inputClass}
               />
             </div>

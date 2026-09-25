@@ -14,7 +14,8 @@ export type IncidentCategory =
   | "n8n_dispatch_failed"
   | "n8n_callback_failed"
   | "sms_send_failed"
-  | "sms_delivery_failed";
+  | "sms_delivery_failed"
+  | "human_escalation_requested";
 
 /** The subset of categories a caller of recordAutomationHealthSignal may request directly. */
 export type RecordableIncidentCategory = Exclude<IncidentCategory, "repeated_workflow_failure">;
@@ -105,6 +106,8 @@ export type OrganizationHealthSummary = {
   infoIncidentCount: number;
   stuckExecutionCount: number;
   smsDeliveryFailureCount: number;
+  /** HANDOFF-01: a human escalation is not an automation malfunction, so it is deliberately excluded from activeIncidentCount/criticalIncidentCount/warningIncidentCount and the derived `status` above - tracked only in this dedicated field, mirroring smsDeliveryFailureCount's own shape. */
+  humanEscalationCount: number;
   /** From lib/bi's own AutomationMetrics (last 30 days) - never recomputed here. */
   failedWorkflowExecutions: number;
   /** null when there is no completed-or-failed execution in the window to compute a rate from - never a fabricated 0%/100%. */

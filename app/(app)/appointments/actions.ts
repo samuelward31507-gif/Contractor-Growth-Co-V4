@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { APPOINTMENT_STATUSES, type AppointmentStatus } from "@/lib/appointments/queries";
-import { checkAppointmentOverlap } from "@/lib/appointments/overlap";
+import { checkAppointmentOverlap, checkBlockedTimeOverlap } from "@/lib/appointments/overlap";
 import { emitAppointmentCreated, emitAppointmentNoShow, emitAppointmentLifecycleEvent } from "@/lib/automation/appointments";
 import { syncAppointmentCreatedToGoogle, syncAppointmentUpdatedToGoogle, syncAppointmentRemovedFromGoogle } from "@/lib/calendar/appointment-sync";
 import { zonedWallTimeToUtc } from "@/lib/scheduling/availability";
@@ -24,6 +24,9 @@ export type DeleteAppointmentState = {
 
 /** The conflict message Stage 1's application-level pre-check already uses - reused verbatim so a race that only the database's own exclusion constraint catches (23P01) is indistinguishable to the user from the ordinary pre-check catching it first. */
 const APPOINTMENT_CONFLICT_ERROR = "This time conflicts with another appointment. Choose a different time.";
+
+/** Pass 2 (Native Calendar System): distinct wording from APPOINTMENT_CONFLICT_ERROR - a blocked period is a deliberate hold, not a double-booking, so the message tells the contractor what actually happened. */
+const BLOCKED_TIME_CONFLICT_ERROR = "This time is blocked off. Choose a different time or remove the block first.";
 
 type AppointmentInput = {
   contact_id: string;
@@ -202,6 +205,11 @@ async function validateRelationships(
     return APPOINTMENT_CONFLICT_ERROR;
   }
 
+  const hasBlockedTimeOverlap = await checkBlockedTimeOverlap(supabase, organizationId, input);
+  if (hasBlockedTimeOverlap) {
+    return BLOCKED_TIME_CONFLICT_ERROR;
+  }
+
   return null;
 }
 
@@ -259,6 +267,7 @@ export async function createAppointment(
 
   revalidatePath("/appointments");
   revalidatePath("/dashboard");
+  revalidatePath("/calendar");
   return { success: true, warning };
 }
 
@@ -282,57 +291,16 @@ export async function updateAppointment(
     return { error: relationshipError };
   }
 
-  // Read before write: appointment lifecycle automation (Phase 4.4) is
-  // driven by comparing the prior state to the new one - this single,
-  // generic update is the only place status/time transitions happen, so
-  // detecting "what actually changed" here is the only way to know which
-  // automation event(s), if any, a given save represents. external_event_id/
-  // external_calendar_id (Stage 5) are read in this same query for the
-  // identical reason - whether and how to sync this save to Google depends
-  // on whether the appointment already had a synced event before this write.
-  const { data: previous } = await supabase
-    .from("appointments")
-    .select("status, start_at, end_at, external_event_id, external_calendar_id")
-    .eq("id", id)
-    .eq("organization_id", organizationId)
-    .maybeSingle();
-
-  const { data, error: updateError } = await supabase
-    .from("appointments")
-    .update(input)
-    .eq("id", id)
-    .eq("organization_id", organizationId)
-    .select("id, updated_at")
-    .maybeSingle();
-
-  if (updateError) {
-    if (updateError.code === "23514") {
-      return { error: "End time must be after the start time." };
-    }
-    // See createAppointment's identical handling above - the same race
-    // Stage 1's exclusion constraint guards against on insert can also
-    // occur here (e.g. two concurrent reschedules landing on the same
-    // slot).
-    if (updateError.code === "23P01") {
-      return { error: APPOINTMENT_CONFLICT_ERROR };
-    }
-    return { error: "We couldn't save these changes. Please try again." };
-  }
-
-  if (!data) {
-    return { error: "This appointment could not be found." };
-  }
-
-  let warning: string | undefined;
-  if (previous) {
-    await emitAppointmentTransitions(supabase, id, previous, { status: input.status, start_at: input.start_at, end_at: input.end_at, updated_at: data.updated_at });
-    warning = await syncAppointmentEditToGoogle(supabase, organizationId, id, previous, input.status);
+  const result = await applyAppointmentUpdate(supabase, organizationId, id, input);
+  if (!result.ok) {
+    return { error: result.error };
   }
 
   revalidatePath("/appointments");
   revalidatePath(`/appointments/${id}`);
   revalidatePath("/dashboard");
-  return { success: true, warning };
+  revalidatePath("/calendar");
+  return { success: true, warning: result.warning };
 }
 
 /**
@@ -404,6 +372,172 @@ async function emitAppointmentTransitions(
   }
 }
 
+type AppointmentUpdateFields = Partial<AppointmentInput>;
+
+type ApplyAppointmentUpdateResult = { ok: true; warning?: string } | { ok: false; error: string };
+
+/**
+ * Pass 2 (Native Calendar System): the shared "read previous state, apply a
+ * partial update, dispatch whichever lifecycle automation/Google sync the
+ * transition implies" sequence updateAppointment's full-form save already
+ * established - extracted so the calendar's one-click status actions and
+ * drag-free reschedule action reuse the exact same automation dispatch
+ * (emitAppointmentTransitions) and Google Calendar sync
+ * (syncAppointmentEditToGoogle) rather than duplicating either, per this
+ * pass's own "do not duplicate confirmation/reminder logic in the calendar
+ * UI" instruction. Every caller is still responsible for its own
+ * field-specific validation (conflict checks, form parsing) before calling
+ * this - it only performs the write and the resulting dispatch.
+ */
+async function applyAppointmentUpdate(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  organizationId: string,
+  id: string,
+  fields: AppointmentUpdateFields,
+): Promise<ApplyAppointmentUpdateResult> {
+  // Read before write - see updateAppointment's original comment for why:
+  // lifecycle automation and Google sync both depend on comparing prior
+  // state to the new one, not just the new one in isolation.
+  const { data: previous } = await supabase
+    .from("appointments")
+    .select("status, start_at, end_at, external_event_id, external_calendar_id")
+    .eq("id", id)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (!previous) {
+    return { ok: false, error: "This appointment could not be found." };
+  }
+
+  const { data, error: updateError } = await supabase
+    .from("appointments")
+    .update(fields)
+    .eq("id", id)
+    .eq("organization_id", organizationId)
+    .select("id, updated_at")
+    .maybeSingle();
+
+  if (updateError) {
+    if (updateError.code === "23514") {
+      return { ok: false, error: "End time must be after the start time." };
+    }
+    if (updateError.code === "23P01") {
+      return { ok: false, error: APPOINTMENT_CONFLICT_ERROR };
+    }
+    return { ok: false, error: "We couldn't save these changes. Please try again." };
+  }
+
+  if (!data) {
+    return { ok: false, error: "This appointment could not be found." };
+  }
+
+  const next = {
+    status: fields.status ?? previous.status,
+    start_at: fields.start_at ?? previous.start_at,
+    end_at: fields.end_at ?? previous.end_at,
+    updated_at: data.updated_at,
+  };
+
+  await emitAppointmentTransitions(supabase, id, previous, next);
+  const warning = await syncAppointmentEditToGoogle(supabase, organizationId, id, previous, next.status);
+
+  return { ok: true, warning };
+}
+
+export type AppointmentActionState = { error?: string };
+
+const CONFIRMABLE_STATUSES: AppointmentStatus[] = ["scheduled", "confirmed", "completed", "cancelled", "no_show"];
+
+/**
+ * Pass 2 (Native Calendar System): the one-click Confirm/Cancel/Complete/
+ * No-show actions from the calendar (and the appointment detail page) -
+ * a status-only transition, never touching contact/lead/title/time/notes,
+ * so it never needs the full edit form's relationship/overlap
+ * re-validation (those relationships don't change when only status does).
+ * Reuses applyAppointmentUpdate for the actual write and automation
+ * dispatch - never a second, parallel implementation of that dispatch.
+ */
+export async function updateAppointmentStatus(id: string, status: AppointmentStatus): Promise<AppointmentActionState> {
+  if (!id) return { error: "Missing appointment." };
+  if (!CONFIRMABLE_STATUSES.includes(status)) return { error: "Invalid status." };
+
+  const { supabase, organizationId } = await requireOrganization();
+  const result = await applyAppointmentUpdate(supabase, organizationId, id, { status });
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath("/appointments");
+  revalidatePath(`/appointments/${id}`);
+  revalidatePath("/dashboard");
+  revalidatePath("/calendar");
+  return {};
+}
+
+/**
+ * Pass 2 (Native Calendar System): reschedules an existing appointment to a
+ * new start/end time only - the calendar's own reschedule action (a
+ * compact time picker, not the full edit form). Takes plain wall-clock
+ * date/startTime/endTime strings ("YYYY-MM-DD"/"HH:MM", exactly like
+ * parseAppointmentForm's own inputs) and converts them via the SAME
+ * zonedWallTimeToUtc call, server-side, in the organization's own
+ * configured timezone - never a client-side conversion, and never a second,
+ * divergent implementation of that conversion. Re-validates the new time
+ * against both real appointment conflicts and blocked time server-side,
+ * exactly like the full edit form does, before ever touching the row - a
+ * client-side "this slot looked free" can never be trusted on its own.
+ * Reuses the SAME authoritative pre-check functions
+ * (checkAppointmentOverlap/checkBlockedTimeOverlap) and the same
+ * database-level exclusion-constraint backstop (23P01, inside
+ * applyAppointmentUpdate) the full edit form and the AI/SMS reschedule path
+ * both already rely on - never a second, competing conflict algorithm.
+ */
+export async function rescheduleAppointmentTime(id: string, date: string, startTime: string, endTime: string): Promise<AppointmentActionState> {
+  if (!id) return { error: "Missing appointment." };
+
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const startMatch = /^(\d{1,2}):(\d{2})$/.exec(startTime);
+  const endMatch = /^(\d{1,2}):(\d{2})$/.exec(endTime);
+  if (!dateMatch || !startMatch || !endMatch) {
+    return { error: "Enter a valid date and time." };
+  }
+
+  const { supabase, organizationId } = await requireOrganization();
+  const timeZone = (await getOrganizationTimezone(supabase, organizationId)) ?? "UTC";
+
+  const [, yearStr, monthStr, dayStr] = dateMatch;
+  const [, startHourStr, startMinuteStr] = startMatch;
+  const [, endHourStr, endMinuteStr] = endMatch;
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  const startAtDate = zonedWallTimeToUtc(year, month, day, Number(startHourStr) * 60 + Number(startMinuteStr), timeZone);
+  const endAtDate = zonedWallTimeToUtc(year, month, day, Number(endHourStr) * 60 + Number(endMinuteStr), timeZone);
+
+  if (Number.isNaN(startAtDate.getTime()) || Number.isNaN(endAtDate.getTime())) {
+    return { error: "Enter a valid date and time." };
+  }
+  if (endAtDate.getTime() <= startAtDate.getTime()) {
+    return { error: "End time must be after the start time." };
+  }
+
+  const startAt = startAtDate.toISOString();
+  const endAt = endAtDate.toISOString();
+
+  const hasOverlap = await checkAppointmentOverlap(supabase, organizationId, { start_at: startAt, end_at: endAt }, id);
+  if (hasOverlap) return { error: APPOINTMENT_CONFLICT_ERROR };
+
+  const hasBlockedTimeOverlap = await checkBlockedTimeOverlap(supabase, organizationId, { start_at: startAt, end_at: endAt });
+  if (hasBlockedTimeOverlap) return { error: BLOCKED_TIME_CONFLICT_ERROR };
+
+  const result = await applyAppointmentUpdate(supabase, organizationId, id, { start_at: startAt, end_at: endAt });
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath("/appointments");
+  revalidatePath(`/appointments/${id}`);
+  revalidatePath("/dashboard");
+  revalidatePath("/calendar");
+  return {};
+}
+
 export async function deleteAppointment(
   _prevState: DeleteAppointmentState,
   formData: FormData,
@@ -453,5 +587,6 @@ export async function deleteAppointment(
 
   revalidatePath("/appointments");
   revalidatePath("/dashboard");
+  revalidatePath("/calendar");
   redirect("/appointments");
 }

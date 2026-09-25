@@ -75,9 +75,23 @@ test("7. updateAppointment: a non-cancelling save to an already-synced appointme
 });
 
 test("8. updateAppointment: a 23P01 on the UPDATE itself (a concurrent reschedule race) returns the same conflict message as insert's own handling", () => {
-  const updateErrorBlock = SOURCE.slice(SOURCE.indexOf("if (updateError) {"), SOURCE.indexOf("if (!data) {"));
+  // Pass 2 (Native Calendar System): this handling now lives inside the
+  // shared applyAppointmentUpdate helper (reused by updateAppointment AND
+  // the calendar's own quick-action Server Actions - see
+  // actions.calendar-quick-actions.test.ts #3/#4) rather than inline in
+  // updateAppointment itself - same behavior, factored so the calendar
+  // never duplicates this error handling.
+  const helperMatch = SOURCE.match(/async function applyAppointmentUpdate\([\s\S]*?\n\}/);
+  assert.ok(helperMatch, "expected to find applyAppointmentUpdate");
+  const updateErrorBlock = helperMatch![0].slice(helperMatch![0].indexOf("if (updateError) {"), helperMatch![0].indexOf("if (!data) {"));
   assert.match(updateErrorBlock, /if \(updateError\.code === "23P01"\)/);
-  assert.match(updateErrorBlock, /return \{ error: APPOINTMENT_CONFLICT_ERROR \};/);
+  assert.match(updateErrorBlock, /error: APPOINTMENT_CONFLICT_ERROR/);
+
+  // updateAppointment itself must still propagate that same error string to
+  // its own caller (the AppointmentDialog form) unchanged.
+  const updateAppointmentMatch = SOURCE.match(/export async function updateAppointment\([\s\S]*?\n\}/);
+  assert.ok(updateAppointmentMatch, "expected to find updateAppointment");
+  assert.match(updateAppointmentMatch![0], /if \(!result\.ok\) \{\s*return \{ error: result\.error \};/);
 });
 
 test("9. deleteAppointment: external_event_id/external_calendar_id are captured via the DELETE's own RETURNING clause - the only chance to read them, since the row is gone immediately after", () => {

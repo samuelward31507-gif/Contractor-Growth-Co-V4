@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAutomationEvent } from "./events";
-import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution } from "./executions";
+import { createAutomationEvent, createAutomationEventAsService } from "./events";
+import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution, startWorkflowExecutionAsService, completeWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getEstimate } from "@/lib/estimates/queries";
@@ -179,6 +179,55 @@ export async function emitEstimateLifecycleEvent(
   }
 
   const completed = await completeWorkflowExecution(supabase, executionResult.execution.id, {
+    lifecycle_only: true,
+    estimate_id: estimateId,
+  });
+  if (!completed.ok) {
+    console.error(`[automation] failed to complete ${eventType} execution`, { estimateId, error: completed.error });
+  }
+}
+
+/**
+ * E1 (pre-launch lead-leak audit): the *AsService twin of
+ * emitEstimateLifecycleEvent above, for the one caller with no Supabase Auth
+ * session - lib/automation/estimate-reply.ts's classifyAndProcessEstimateReply,
+ * itself called from the inbound SMS webhook (Twilio-authenticated, not a
+ * user JWT). Same lifecycle-only shape (create, start, immediately complete,
+ * no AI generation, no outbound message here) as the session variant -
+ * kept as its own function rather than a shared internal helper, matching
+ * this codebase's established *AsService-sibling convention throughout
+ * lib/automation/*.
+ */
+export async function emitEstimateLifecycleEventAsService(
+  supabase: SupabaseClient,
+  organizationId: string,
+  estimateId: string,
+  eventType: EstimateLifecycleEventType,
+): Promise<void> {
+  const idempotencyKey = `${eventType}:${estimateId}`;
+
+  const eventResult = await createAutomationEventAsService(supabase, organizationId, {
+    eventType,
+    entityType: "estimate",
+    entityId: estimateId,
+    payload: { estimate_id: estimateId },
+    idempotencyKey,
+  });
+
+  if (!eventResult.ok) {
+    console.error(`[automation] failed to create ${eventType} event`, { estimateId, error: eventResult.error });
+    return;
+  }
+  if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
+
+  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, `${eventType.replace(".", "_")}_lifecycle`);
+  if (!executionResult.ok) {
+    console.error(`[automation] failed to start ${eventType} execution`, { estimateId, error: executionResult.error });
+    return;
+  }
+
+  const completed = await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, {
     lifecycle_only: true,
     estimate_id: estimateId,
   });
