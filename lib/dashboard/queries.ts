@@ -60,7 +60,11 @@ export type AttentionItem = {
     // lifecycle - it's recomputed fresh from live appointment state on every
     // load, the same shape overdue_appointment/calendar_disconnected below
     // already use for their own directly-computed items.
-    | "awaiting_confirmation";
+    | "awaiting_confirmation"
+    // Pass 5C, Batch 1: the mirror-image of awaiting_reply - see
+    // abandonedConversations' own comment below for the full reasoning.
+    // Also directly computed, never opportunity-backed, never persisted.
+    | "abandoned_conversation";
   title: string;
   detail: string;
   value: string | null;
@@ -304,6 +308,49 @@ export async function getDashboardData(
       href: `/conversations/${conversation.id}`,
     }));
 
+  // Pass 5C, Batch 1: the mirror-image case awaitingReply above doesn't
+  // cover - Trackpr/the business sent the LAST message, the conversation is
+  // still open, and nothing has happened since. Deliberately NOT an
+  // Opportunity (see lib/opportunities/detect.ts's own header comment on
+  // why): this population is already the exact target of the existing
+  // lead-reactivation/lost-lead-nurture automations, so this is a
+  // visibility gap, not a detection gap, and there is no honest dollar
+  // figure to attach to "a conversation stalled." Recomputed fresh on every
+  // load from data already fetched above (conversationsWithLastMessage
+  // already embeds each conversation's own lead via getConversations' own
+  // join) - no new query, no persisted lifecycle state.
+  //
+  // 48 hours: long enough that a customer replying the next business day is
+  // never flagged as abandoned, short enough to still be a timely signal -
+  // deliberately distinct from (not copied from) the 72-hour grace period
+  // lib/opportunities/detect.ts's cancelled-appointment detector uses,
+  // since these are two different real-world waiting periods, not the same
+  // number reused by coincidence.
+  const ABANDONED_CONVERSATION_THRESHOLD_MS = 48 * 60 * 60 * 1000;
+  // Mirrors lib/automation/lead-reactivation.ts's own ELIGIBLE_LEAD_STATUSES
+  // exactly (that constant is private to its own module, so this is the
+  // same definition restated here, not a second, divergent one) - a lead
+  // that has already progressed to appointment/estimate/won, or is marked
+  // lost, makes a quiet conversation expected/healthy, not abandoned.
+  const CONVERSATION_STILL_ACTIONABLE_LEAD_STATUSES = new Set(["new", "contacted", "qualified"]);
+  const abandonedConversations: AttentionItem[] = conversationsWithLastMessage
+    .filter(
+      (conversation) =>
+        conversation.status === "open" &&
+        conversation.lastMessage?.direction === "outbound" &&
+        now - new Date(conversation.lastActivityAt).getTime() >= ABANDONED_CONVERSATION_THRESHOLD_MS &&
+        (conversation.lead == null || CONVERSATION_STILL_ACTIONABLE_LEAD_STATUSES.has(conversation.lead.status)),
+    )
+    .slice(0, 5)
+    .map((conversation) => ({
+      id: `abandoned-${conversation.id}`,
+      kind: "abandoned_conversation",
+      title: contactName(conversation.contact) ?? "Customer",
+      detail: `No reply since we last reached out, ${formatRelativeTime(conversation.lastActivityAt)}`,
+      value: null,
+      href: `/conversations/${conversation.id}`,
+    }));
+
   // Pass 3: three new, genuinely distinct attention kinds backed by the
   // opportunities table - deliberately NOT surfacing qualified_lead_unbooked
   // or completed_appointment_no_estimate here, since those would duplicate
@@ -374,6 +421,7 @@ export async function getDashboardData(
   const attentionItems = [
     ...humanEscalations,
     ...awaitingReply,
+    ...abandonedConversations,
     ...calendarAttention,
     ...overdueAppointments,
     ...awaitingConfirmation,

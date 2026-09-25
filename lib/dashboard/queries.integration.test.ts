@@ -387,3 +387,112 @@ test("20. dormant_customer: organization isolation - a dormant customer in organ
     await service.from("organizations").delete().eq("id", otherOrg!.id);
   }
 });
+
+// ==================== Pass 5C Batch 1: abandoned_conversation ====================
+//
+// Directly computed, non-opportunity-backed, non-persisted - recomputed
+// fresh on every load from getConversations + attachLastMessages, exactly
+// like awaiting_reply. conversations.updated_at is only ever settable at
+// INSERT time in these fixtures (never via a follow-up UPDATE): this table
+// carries the same set_updated_at BEFORE UPDATE trigger pattern already
+// discovered on appointments, which unconditionally overwrites updated_at
+// to now() on any UPDATE, so a raw insert (not findOrCreateOpenConversation,
+// which would default updated_at to now()) is used wherever a backdated
+// lastActivityAt is required.
+
+function hoursAgoIso(hours: number): string {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
+async function insertConversation(opts: { contactId: string; leadId?: string | null; status?: string; updatedAt: string }) {
+  const { data } = await service
+    .from("conversations")
+    .insert({ organization_id: organizationId, contact_id: opts.contactId, lead_id: opts.leadId ?? null, channel: "sms", status: opts.status ?? "open", updated_at: opts.updatedAt })
+    .select("id")
+    .single();
+  return data!.id as string;
+}
+
+async function insertMessage(conversationId: string, direction: string, createdAt: string) {
+  await service.from("messages").insert({ organization_id: organizationId, conversation_id: conversationId, direction, sender_type: direction === "outbound" ? "ai" : "customer", body: "test", status: direction === "outbound" ? "sent" : "received", created_at: createdAt });
+}
+
+test("21. abandoned_conversation: an open conversation, last message outbound, past the 48h threshold, appears as an attention item", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "Abandoned", phone: `+1555571${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const conversationId = await insertConversation({ contactId: contact!.id, updatedAt: hoursAgoIso(60) });
+  await insertMessage(conversationId, "outbound", hoursAgoIso(60));
+
+  const data = await getDashboardData(service, organizationId);
+  const item = data.attentionItems.find((i) => i.kind === "abandoned_conversation" && i.href === `/conversations/${conversationId}`);
+  assert.ok(item, "expected an abandoned_conversation attention item");
+});
+
+test("22. abandoned_conversation: an outbound-last conversation still within the 48h threshold never appears", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "NotYetAbandoned", phone: `+1555572${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const conversationId = await insertConversation({ contactId: contact!.id, updatedAt: hoursAgoIso(1) });
+  await insertMessage(conversationId, "outbound", hoursAgoIso(1));
+
+  const data = await getDashboardData(service, organizationId);
+  assert.equal(data.attentionItems.some((i) => i.kind === "abandoned_conversation" && i.href === `/conversations/${conversationId}`), false);
+});
+
+test("23. abandoned_conversation: a customer reply after our outbound message means no attention item, regardless of age", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "Replied", phone: `+1555573${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const conversationId = await insertConversation({ contactId: contact!.id, updatedAt: hoursAgoIso(60) });
+  await insertMessage(conversationId, "outbound", hoursAgoIso(70));
+  await insertMessage(conversationId, "inbound", hoursAgoIso(60));
+
+  const data = await getDashboardData(service, organizationId);
+  assert.equal(data.attentionItems.some((i) => i.kind === "abandoned_conversation" && i.href === `/conversations/${conversationId}`), false);
+});
+
+test("24. abandoned_conversation: a closed conversation never appears, even with a stale outbound-last message", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "Closed", phone: `+1555574${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const conversationId = await insertConversation({ contactId: contact!.id, status: "closed", updatedAt: hoursAgoIso(60) });
+  await insertMessage(conversationId, "outbound", hoursAgoIso(60));
+
+  const data = await getDashboardData(service, organizationId);
+  assert.equal(data.attentionItems.some((i) => i.kind === "abandoned_conversation" && i.href === `/conversations/${conversationId}`), false);
+});
+
+test("25. abandoned_conversation: a conversation with no messages at all never appears", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "NoMessages", phone: `+1555575${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const conversationId = await insertConversation({ contactId: contact!.id, updatedAt: hoursAgoIso(60) });
+
+  const data = await getDashboardData(service, organizationId);
+  assert.equal(data.attentionItems.some((i) => i.kind === "abandoned_conversation" && i.href === `/conversations/${conversationId}`), false);
+});
+
+test("26. abandoned_conversation: organization isolation - a stale conversation in organization A never appears for organization B", async () => {
+  const { data: otherOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Other, Abandoned)" }).select("id").single();
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "AbandonedIso", phone: `+1555576${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+    const conversationId = await insertConversation({ contactId: contact!.id, updatedAt: hoursAgoIso(60) });
+    await insertMessage(conversationId, "outbound", hoursAgoIso(60));
+
+    const dataOther = await getDashboardData(service, otherOrg!.id);
+    assert.equal(dataOther.attentionItems.some((i) => i.kind === "abandoned_conversation"), false);
+  } finally {
+    await service.from("organizations").delete().eq("id", otherOrg!.id);
+  }
+});
+
+test("27. abandoned_conversation: a lead that already progressed to 'appointment' excludes the conversation, even past the threshold", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "AlreadyBooked", phone: `+1555577${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const { data: lead } = await service.from("leads").insert({ organization_id: organizationId, contact_id: contact!.id, status: "appointment", temperature: "warm", source: "website" }).select("id").single();
+  const conversationId = await insertConversation({ contactId: contact!.id, leadId: lead!.id, updatedAt: hoursAgoIso(60) });
+  await insertMessage(conversationId, "outbound", hoursAgoIso(60));
+
+  const data = await getDashboardData(service, organizationId);
+  assert.equal(data.attentionItems.some((i) => i.kind === "abandoned_conversation" && i.href === `/conversations/${conversationId}`), false, "a lead already past the pre-booking pipeline must never be flagged as an abandoned-conversation miss");
+});
+
+test("28. abandoned_conversation: a lead still in an actionable pre-booking status ('qualified') is still flagged past the threshold", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "StillActionable", phone: `+1555578${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const { data: lead } = await service.from("leads").insert({ organization_id: organizationId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+  const conversationId = await insertConversation({ contactId: contact!.id, leadId: lead!.id, updatedAt: hoursAgoIso(60) });
+  await insertMessage(conversationId, "outbound", hoursAgoIso(60));
+
+  const data = await getDashboardData(service, organizationId);
+  assert.ok(data.attentionItems.some((i) => i.kind === "abandoned_conversation" && i.href === `/conversations/${conversationId}`), "a lead still in an actionable pre-booking status must still be flagged");
+});

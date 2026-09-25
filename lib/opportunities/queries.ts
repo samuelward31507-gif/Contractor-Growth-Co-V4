@@ -10,7 +10,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * app/(app)/dashboard/actions.ts, this file only ever reads.
  */
 
-export type OpportunityType = "qualified_lead_unbooked" | "stale_estimate" | "completed_appointment_no_estimate" | "dormant_customer" | "no_show" | "completed_job_no_referral_request";
+export type OpportunityType =
+  | "qualified_lead_unbooked"
+  | "stale_estimate"
+  | "completed_appointment_no_estimate"
+  | "dormant_customer"
+  | "no_show"
+  | "completed_job_no_referral_request"
+  | "completed_job_no_review_request"
+  | "cancelled_appointment_no_rebooking";
 
 export type OpportunityStatus = "open" | "resolved" | "dismissed";
 
@@ -100,6 +108,8 @@ const EMPTY_BY_TYPE: Record<OpportunityType, number> = {
   dormant_customer: 0,
   no_show: 0,
   completed_job_no_referral_request: 0,
+  completed_job_no_review_request: 0,
+  cancelled_appointment_no_rebooking: 0,
 };
 
 /** Summarizes an already-fetched open-opportunity list - kept as a pure function (no I/O) so it's directly unit-testable with controlled input, matching this codebase's established pure/impure split. */

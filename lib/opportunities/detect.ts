@@ -54,6 +54,37 @@ import type { OpportunityType, OpportunityStatus } from "./queries";
  *                                        review_requests is), so a missing
  *                                        row is only ever an ordinary timing
  *                                        gap, not a structural ambiguity.
+ *   completed_job_no_review_request   - Pass 5C Batch 1. The same shape as
+ *                                        completed_job_no_referral_request,
+ *                                        now promoted from Pass 3/4's own
+ *                                        deferred list: that deferral was
+ *                                        about review_requests' real
+ *                                        structural ambiguity (a missing row
+ *                                        could mean "not sent yet" OR "this
+ *                                        org has no review_url configured"),
+ *                                        not about the detection shape
+ *                                        itself. Resolved here by an
+ *                                        explicit organizations.review_url
+ *                                        IS NOT NULL guard before any job is
+ *                                        even considered - an org with no
+ *                                        review functionality configured
+ *                                        produces zero candidates, never a
+ *                                        false opportunity.
+ *   cancelled_appointment_no_rebooking - Pass 5C Batch 1. An explicit,
+ *                                        documented absence-based heuristic:
+ *                                        appointments.status='cancelled',
+ *                                        past a conservative grace period,
+ *                                        with no later scheduled/confirmed
+ *                                        appointment for the SAME contact.
+ *                                        This schema has no
+ *                                        original_appointment_id/
+ *                                        rebooked_from_id column - this is
+ *                                        never a true rebooking
+ *                                        relationship, only the best signal
+ *                                        the existing data can safely
+ *                                        support. See detectCancelled
+ *                                        AppointmentsWithoutRebooking's own
+ *                                        comment for the full reasoning.
  *
  * Deliberately NOT implemented (each would need either new structured data
  * this schema doesn't have, or a data path too ambiguous to safely
@@ -71,16 +102,6 @@ import type { OpportunityType, OpportunityStatus } from "./queries";
  *                                      same underlying lead as two
  *                                      opportunities or an unreliable dedup
  *                                      key.
- *   completed_job_no_review_request - review_requests is only created when
- *                                      the organization has a real
- *                                      review_url configured (see
- *                                      lib/reviews-referrals/tracking.ts's
- *                                      recordPostJobFollowupOutcome) - a
- *                                      missing row is ambiguous between "the
- *                                      automation hasn't run yet", "it
- *                                      failed", and "this org simply has no
- *                                      review_url configured", which is not
- *                                      itself an actionable opportunity.
  *   repeat_service / maintenance    - no service-type or service-interval
  *                                      data exists anywhere in this schema;
  *                                      any "due for maintenance" claim would
@@ -370,17 +391,188 @@ async function detectCompletedJobsWithoutReferralRequest(supabase: SupabaseClien
     }));
 }
 
+// ---------------------------------------------------------------------------
+// G. completed_job_no_review_request
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors REFERRAL_REQUEST_OPEN_STATUSES's own exact reasoning:
+ * review_requests.status can only ever be moved to 'requested' or 'failed'
+ * by the automation itself (see that table's own migration comment -
+ * 'responded'/'completed'/'declined' are set later, by the inbound webhook
+ * or an explicit contractor action, never by the automation's own send
+ * attempt) - 'failed' is the one genuinely retriable state; no row at all
+ * means the automation never successfully sent yet.
+ */
+const REVIEW_REQUEST_OPEN_STATUSES = new Set<string | undefined>([undefined, "failed"]);
+
+async function detectCompletedJobsWithoutReviewRequest(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
+  // Pass 5C: the guard that resolves this type's Pass 3/4 deferral - see
+  // this file's own header comment. review_requests is only ever created by
+  // the post-job-followup automation when organizations.review_url is
+  // actually configured (lib/reviews-referrals/tracking.ts), so without this
+  // check a missing row would be ambiguous between "never configured" (not
+  // an opportunity - there is nothing to ask with) and "a genuine gap".
+  // Checked once per organization, before any job is even fetched - an org
+  // with no review_url produces zero candidates, full stop.
+  const { data: organizationRow } = await supabase.from("organizations").select("review_url").eq("id", organizationId).maybeSingle();
+  if (!organizationRow?.review_url) return [];
+
+  const { data: jobRows } = await supabase
+    .from("jobs")
+    .select("id, contact_id, title, amount, completed_at, contacts(id, first_name, last_name, company_name)")
+    .eq("organization_id", organizationId)
+    .eq("status", "completed")
+    .limit(MAX_ROWS);
+
+  const jobs = (jobRows ?? []) as { id: string; contact_id: string | null; title: string; amount: number | null; completed_at: string | null; contacts: ContactRef }[];
+  if (jobs.length === 0) return [];
+
+  const jobIds = jobs.map((job) => job.id);
+  const { data: reviewRows } = await supabase.from("review_requests").select("job_id, status").eq("organization_id", organizationId).in("job_id", jobIds).limit(MAX_ROWS);
+  const reviewStatusByJob = new Map(((reviewRows ?? []) as { job_id: string; status: string }[]).map((row) => [row.job_id, row.status]));
+
+  return jobs
+    .filter((job) => REVIEW_REQUEST_OPEN_STATUSES.has(reviewStatusByJob.get(job.id)))
+    .map((job) => ({
+      type: "completed_job_no_review_request" as const,
+      sourceEntityType: "job" as const,
+      sourceEntityId: job.id,
+      contactId: job.contact_id,
+      title: displayNameOrFallback(job.contacts, job.title),
+      description: `Completed job "${job.title}" has no review request yet.`,
+      // Pass 5C, per explicit product decision: unlike the referral
+      // opportunity above (deliberately never a value - a referral ask has
+      // no dollar figure of its own), this one DOES surface the completed
+      // job's own known value when stored, as honest context for the size
+      // of the job a review is being asked about - null/null when unknown,
+      // never coerced to $0. A deliberate divergence from the referral
+      // detector's own choice, not an inconsistency.
+      estimatedValue: job.amount,
+      valueBasis: job.amount != null ? "jobs.amount" : null,
+      metadata: { job_completed_at: job.completed_at },
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// H. cancelled_appointment_no_rebooking
+// ---------------------------------------------------------------------------
+
+/**
+ * Pass 5C: no existing precedent in this codebase for "how long before a
+ * cancellation without a follow-up booking is worth surfacing" - the
+ * nearest real anchor is lib/automation/estimate-followups.ts's own
+ * second-touch default (72 hours / 3 days), reused here rather than
+ * inventing an unrelated number. Centralized so it can be tuned later
+ * without touching the detector's own logic.
+ */
+const CANCELLED_APPOINTMENT_REBOOKING_GRACE_PERIOD_MS = 72 * 60 * 60 * 1000;
+
+const REBOOKING_ELIGIBLE_STATUSES = ["scheduled", "confirmed"];
+
+/**
+ * Explicit, documented absence-based heuristic - NOT a true rebooking
+ * relationship. This schema has no original_appointment_id/
+ * rebooked_from_id column linking a cancelled appointment to whatever
+ * replaced it (confirmed absent by direct inspection before writing this
+ * detector). "No later scheduled/confirmed appointment exists for the same
+ * contact" is the best signal the existing data can safely support -
+ * source_entity_id anchors to the cancelled appointment's own id (stable,
+ * unique), never an inferred pairing. A contact who rebooks through a
+ * different, newly-created contact/lead record (e.g. treated as a fresh
+ * inquiry) will not be recognized as "rebooked" by this heuristic - a real,
+ * accepted false-negative risk, not silently glossed over.
+ *
+ * Two bounded, org-scoped queries regardless of candidate count (the same
+ * "one fetch + in-memory aggregation" shape detectQualifiedLeadsUnbooked
+ * above already uses) - never N+1 per cancelled appointment.
+ */
+async function detectCancelledAppointmentsWithoutRebooking(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
+  const { data: cancelledRows } = await supabase
+    .from("appointments")
+    .select("id, contact_id, title, start_at, updated_at, contacts(id, first_name, last_name, company_name)")
+    .eq("organization_id", organizationId)
+    .eq("status", "cancelled")
+    .not("contact_id", "is", null)
+    .limit(MAX_ROWS);
+
+  const cancelled = (cancelledRows ?? []) as { id: string; contact_id: string; title: string; start_at: string; updated_at: string; contacts: ContactRef }[];
+  if (cancelled.length === 0) return [];
+
+  const pastGracePeriod = cancelled.filter((appointment) => now.getTime() - new Date(appointment.updated_at).getTime() >= CANCELLED_APPOINTMENT_REBOOKING_GRACE_PERIOD_MS);
+  if (pastGracePeriod.length === 0) return [];
+
+  const { data: activeRows } = await supabase
+    .from("appointments")
+    .select("contact_id, start_at")
+    .eq("organization_id", organizationId)
+    .in("status", REBOOKING_ELIGIBLE_STATUSES)
+    .not("contact_id", "is", null)
+    .limit(MAX_ROWS);
+
+  const activeStartsByContact = new Map<string, string[]>();
+  for (const row of (activeRows ?? []) as { contact_id: string; start_at: string }[]) {
+    const list = activeStartsByContact.get(row.contact_id) ?? [];
+    list.push(row.start_at);
+    activeStartsByContact.set(row.contact_id, list);
+  }
+
+  return pastGracePeriod
+    .filter((appointment) => {
+      const laterStarts = activeStartsByContact.get(appointment.contact_id) ?? [];
+      // The cancelled appointment can never count as its own rebooking -
+      // moot in practice (it is excluded by the 'cancelled' status filter
+      // above, never present in activeStartsByContact at all), kept as an
+      // explicit, defensive comparison rather than relying on that
+      // exclusion alone.
+      return !laterStarts.some((startAt) => startAt !== appointment.start_at && new Date(startAt).getTime() > new Date(appointment.updated_at).getTime());
+    })
+    .map((appointment) => ({
+      type: "cancelled_appointment_no_rebooking" as const,
+      sourceEntityType: "appointment" as const,
+      sourceEntityId: appointment.id,
+      contactId: appointment.contact_id,
+      title: displayNameOrFallback(appointment.contacts, appointment.title),
+      description: `Cancelled "${appointment.title}" with no later appointment booked since.`,
+      // No dollar amount exists on an appointment itself - the same
+      // reasoning the no_show detector above already applies.
+      estimatedValue: null,
+      valueBasis: null,
+      metadata: { cancelled_at: appointment.updated_at, original_start_at: appointment.start_at },
+    }));
+}
+
 export async function detectAllOpportunityCandidates(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<OpportunityCandidate[]> {
-  const [qualifiedLeads, staleEstimates, completedAppointmentsNoEstimate, dormantCustomers, noShows, completedJobsNoReferralRequest] = await Promise.all([
+  const [
+    qualifiedLeads,
+    staleEstimates,
+    completedAppointmentsNoEstimate,
+    dormantCustomers,
+    noShows,
+    completedJobsNoReferralRequest,
+    completedJobsNoReviewRequest,
+    cancelledAppointmentsNoRebooking,
+  ] = await Promise.all([
     detectQualifiedLeadsUnbooked(supabase, organizationId),
     detectStaleEstimates(supabase, organizationId),
     detectCompletedAppointmentsWithoutEstimate(supabase, organizationId),
     detectDormantCustomers(supabase, organizationId, now),
     detectNoShows(supabase, organizationId),
     detectCompletedJobsWithoutReferralRequest(supabase, organizationId),
+    detectCompletedJobsWithoutReviewRequest(supabase, organizationId),
+    detectCancelledAppointmentsWithoutRebooking(supabase, organizationId, now),
   ]);
 
-  return [...qualifiedLeads, ...staleEstimates, ...completedAppointmentsNoEstimate, ...dormantCustomers, ...noShows, ...completedJobsNoReferralRequest];
+  return [
+    ...qualifiedLeads,
+    ...staleEstimates,
+    ...completedAppointmentsNoEstimate,
+    ...dormantCustomers,
+    ...noShows,
+    ...completedJobsNoReferralRequest,
+    ...completedJobsNoReviewRequest,
+    ...cancelledAppointmentsNoRebooking,
+  ];
 }
 
 // ---------------------------------------------------------------------------

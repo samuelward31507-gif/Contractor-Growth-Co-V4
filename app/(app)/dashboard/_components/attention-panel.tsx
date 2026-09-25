@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clock, Flame, FileText, CalendarOff, MessageSquareWarning, DollarSign, MessageCircle, ChevronRight, FileClock, UserX, CalendarX, CalendarCheck, type LucideIcon } from "lucide-react";
+import { Clock, Flame, FileText, CalendarOff, MessageSquareWarning, DollarSign, MessageCircle, MessageCircleOff, ChevronRight, FileClock, UserX, CalendarX, CalendarCheck, type LucideIcon } from "lucide-react";
 import { surfaceClass } from "@/lib/ui/surface";
 import { primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
 import { IncidentActions } from "@/app/(app)/automations/_components/incident-actions";
@@ -18,6 +18,7 @@ const KIND_ICON: Record<AttentionItem["kind"], LucideIcon> = {
   dormant_customer: UserX,
   no_show: CalendarX,
   awaiting_confirmation: CalendarCheck,
+  abandoned_conversation: MessageCircleOff,
 };
 
 const KIND_STYLE: Record<AttentionItem["kind"], string> = {
@@ -32,6 +33,7 @@ const KIND_STYLE: Record<AttentionItem["kind"], string> = {
   dormant_customer: "bg-slate-100 text-slate-600",
   no_show: "bg-amber-50 text-amber-600",
   awaiting_confirmation: "bg-blue-50 text-blue-600",
+  abandoned_conversation: "bg-slate-100 text-slate-600",
 };
 
 /**
