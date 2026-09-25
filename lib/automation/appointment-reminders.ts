@@ -59,11 +59,19 @@ export type ReminderRunResult = {
  * latency, cost, and a hallucination surface for zero benefit. This keeps
  * "Trackpr is the source of truth" as strict as possible for this message
  * type - see the Phase 4.4 report for the full architectural rationale.
+ *
+ * Pass 5B, Part A2: extends this SAME existing reminder to also ask for
+ * confirmation, rather than building a second, competing reminder/
+ * confirmation-request system - per that pass's own explicit instruction.
+ * Only asks when the appointment isn't already 'confirmed' (a manual
+ * contractor confirm, or an earlier customer YES) - a customer who already
+ * confirmed should just get a plain factual reminder, never asked again.
  */
 function composeReminderBody(appointment: CandidateAppointment, timezone: string): string {
   const dateLabel = formatAppointmentDate(appointment.start_at, timezone);
   const timeLabel = formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timezone);
-  return `Reminder: your appointment "${appointment.title}" is scheduled for ${dateLabel} at ${timeLabel}. Reply STOP to opt out of texts.`;
+  const confirmationAsk = appointment.status === "confirmed" ? "" : " Reply YES to confirm, or let us know if you need to reschedule.";
+  return `Reminder: your appointment "${appointment.title}" is scheduled for ${dateLabel} at ${timeLabel}.${confirmationAsk} Reply STOP to opt out of texts.`;
 }
 
 /**
@@ -265,6 +273,23 @@ async function processOneReminder(
   if (!sendResult.ok) {
     await failWorkflowExecutionAsService(supabase, executionId, sendResult.error, "sms_send_failed");
     return { appointmentId: appointment.id, outcome: "failed", error: sendResult.error };
+  }
+
+  // Pass 5B, Part A1/A2: materializes "a confirmation request genuinely
+  // reached this customer" onto the row itself, only when the reminder
+  // actually included the confirmation ask (i.e. wasn't already confirmed) -
+  // see composeReminderBody's own comment. Best-effort: a failure to record
+  // this must never be treated as the send itself failing, since the
+  // message has already been genuinely sent by this point.
+  if (appointment.status !== "confirmed") {
+    const { error: requestedAtError } = await supabase
+      .from("appointments")
+      .update({ confirmation_requested_at: new Date().toISOString() })
+      .eq("id", appointment.id)
+      .eq("organization_id", appointment.organization_id);
+    if (requestedAtError) {
+      console.error("[automation] failed to record confirmation_requested_at", { appointmentId: appointment.id, error: requestedAtError.message });
+    }
   }
 
   await completeWorkflowExecutionAsService(supabase, executionId, {

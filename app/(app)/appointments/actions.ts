@@ -10,6 +10,7 @@ import { emitAppointmentCreated, emitAppointmentNoShow, emitAppointmentLifecycle
 import { syncAppointmentCreatedToGoogle, syncAppointmentUpdatedToGoogle, syncAppointmentRemovedFromGoogle } from "@/lib/calendar/appointment-sync";
 import { zonedWallTimeToUtc } from "@/lib/scheduling/availability";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
+import { computeConfirmationInvalidationOnTimeChange } from "@/lib/appointments/confirmation";
 
 export type AppointmentFormState = {
   error?: string;
@@ -409,9 +410,20 @@ async function applyAppointmentUpdate(
     return { ok: false, error: "This appointment could not be found." };
   }
 
+  // Pass 5B, Part A5: a time change invalidates any prior confirmation - see
+  // computeConfirmationInvalidationOnTimeChange's own comment. Applies to
+  // both the full edit form (fields.status is always resubmitted from the
+  // form, but a stale-time-with-confirmed-status combination must never be
+  // honored) and the calendar's compact reschedule action (fields has no
+  // status at all). Merged into `fields` before the write below so this is
+  // still a single, atomic UPDATE - never a second round trip.
+  const timeChanged = (fields.start_at !== undefined && fields.start_at !== previous.start_at) || (fields.end_at !== undefined && fields.end_at !== previous.end_at);
+  const invalidation = computeConfirmationInvalidationOnTimeChange(previous.status, timeChanged);
+  const fieldsWithInvalidation: AppointmentUpdateFields = { ...fields, ...invalidation };
+
   const { data, error: updateError } = await supabase
     .from("appointments")
-    .update(fields)
+    .update(fieldsWithInvalidation)
     .eq("id", id)
     .eq("organization_id", organizationId)
     .select("id, updated_at")
@@ -432,7 +444,11 @@ async function applyAppointmentUpdate(
   }
 
   const next = {
-    status: fields.status ?? previous.status,
+    // Reads from fieldsWithInvalidation, not the original `fields` - a
+    // confirmed->scheduled reversion from the invalidation rule above must
+    // be reflected here too, or the lifecycle/calendar-sync dispatch below
+    // would act on the stale pre-invalidation status.
+    status: fieldsWithInvalidation.status ?? previous.status,
     start_at: fields.start_at ?? previous.start_at,
     end_at: fields.end_at ?? previous.end_at,
     updated_at: data.updated_at,

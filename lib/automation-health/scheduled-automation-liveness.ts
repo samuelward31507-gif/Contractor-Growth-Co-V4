@@ -34,6 +34,8 @@ export const SCHEDULED_AUTOMATION_IDS = [
   "lost-lead-nurture",
   "lead-reactivation",
   "customer-reactivation",
+  // Pass 5B: app/api/automation/no-show-detection/route.ts.
+  "no-show-detection",
 ] as const;
 
 export type ScheduledAutomationId = (typeof SCHEDULED_AUTOMATION_IDS)[number];

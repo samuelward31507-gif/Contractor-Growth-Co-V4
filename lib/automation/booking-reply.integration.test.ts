@@ -351,3 +351,156 @@ test("M. concurrent booking race: two different customers selecting the exact sa
     .neq("status", "cancelled");
   assert.equal(appointments?.length, 1, "exactly one of the two concurrent selections must win the real slot - never both, never zero");
 });
+
+// ---------------------------------------------------------------------------
+// Pass 5B, Part A3/A4: appointment confirmation
+// ---------------------------------------------------------------------------
+
+async function insertScheduledAppointment(contactId: string, leadId: string, startAt: string, endAt: string) {
+  const { data } = await service
+    .from("appointments")
+    .insert({ organization_id: organizationId, contact_id: contactId, lead_id: leadId, title: "Consult", start_at: startAt, end_at: endAt, status: "scheduled" })
+    .select("id")
+    .single();
+  return data!.id as string;
+}
+
+test("N. explicit 'CONFIRM' confirms the appointment, records confirmed_at, and sends a real acknowledgment", async () => {
+  const { contactId, leadId, conversationId } = await makeContactLeadConversation(organizationId, "016");
+  const appointmentId = await insertScheduledAppointment(contactId, leadId, "2027-03-18T10:00:00.000Z", "2027-03-18T11:00:00.000Z");
+
+  const handled = await classifyAndProcessBookingReply(service, organizationId, contactId, leadId, conversationId, "CONFIRM", fakeSendSms());
+  assert.equal(handled, true);
+
+  const { data: appointment } = await service.from("appointments").select("status, confirmed_at").eq("id", appointmentId).single();
+  assert.equal(appointment?.status, "confirmed");
+  assert.ok(appointment?.confirmed_at, "expected a real confirmed_at timestamp");
+
+  const { data: messages } = await service.from("messages").select("body").eq("conversation_id", conversationId).eq("direction", "outbound");
+  assert.ok(messages!.some((m) => /confirmed/i.test(m.body)), "expected a real confirmation acknowledgment message");
+});
+
+test("O. duplicate YES is idempotent: the second reply is still classified as confirmation-handled (true) but sends no second acknowledgment and confirmed_at does not change", async () => {
+  const { contactId, leadId, conversationId } = await makeContactLeadConversation(organizationId, "017");
+  await insertScheduledAppointment(contactId, leadId, "2027-03-19T10:00:00.000Z", "2027-03-19T11:00:00.000Z");
+
+  const first = await classifyAndProcessBookingReply(service, organizationId, contactId, leadId, conversationId, "Yes", fakeSendSms());
+  assert.equal(first, true);
+  const countAfterFirst = await service.from("messages").select("id", { count: "exact", head: true }).eq("conversation_id", conversationId).eq("direction", "outbound");
+  const { data: appointmentAfterFirst } = await service.from("appointments").select("confirmed_at").eq("organization_id", organizationId).eq("contact_id", contactId).single();
+
+  const second = await classifyAndProcessBookingReply(service, organizationId, contactId, leadId, conversationId, "Yes", fakeSendSms());
+  assert.equal(second, true, "a duplicate YES is still a correctly-classified confirmation message, just a no-op");
+
+  const countAfterSecond = await service.from("messages").select("id", { count: "exact", head: true }).eq("conversation_id", conversationId).eq("direction", "outbound");
+  assert.equal(countAfterSecond.count, countAfterFirst.count, "a duplicate YES must never send a second acknowledgment");
+
+  const { data: appointmentAfterSecond } = await service.from("appointments").select("confirmed_at").eq("organization_id", organizationId).eq("contact_id", contactId).single();
+  assert.equal(appointmentAfterSecond?.confirmed_at, appointmentAfterFirst?.confirmed_at, "confirmed_at must never be overwritten by a duplicate confirmation");
+});
+
+test("P. confirmation intent with ZERO upcoming appointments is not handled here - falls through to normal AI/human handling rather than guessing", async () => {
+  const { contactId, leadId, conversationId } = await makeContactLeadConversation(organizationId, "018");
+  const handled = await classifyAndProcessBookingReply(service, organizationId, contactId, leadId, conversationId, "Yes", fakeSendSms());
+  assert.equal(handled, false);
+});
+
+test("Q. confirmation intent with MULTIPLE upcoming appointments is not handled here - falls through rather than guessing which one", async () => {
+  const { contactId, leadId, conversationId } = await makeContactLeadConversation(organizationId, "019");
+  await insertScheduledAppointment(contactId, leadId, "2027-03-20T10:00:00.000Z", "2027-03-20T11:00:00.000Z");
+  await insertScheduledAppointment(contactId, leadId, "2027-03-21T10:00:00.000Z", "2027-03-21T11:00:00.000Z");
+
+  const handled = await classifyAndProcessBookingReply(service, organizationId, contactId, leadId, conversationId, "Yes", fakeSendSms());
+  assert.equal(handled, false);
+
+  const { data: appointments } = await service.from("appointments").select("status").eq("organization_id", organizationId).eq("contact_id", contactId);
+  assert.ok(appointments!.every((a) => a.status === "scheduled"), "neither ambiguous appointment must be confirmed");
+});
+
+test("R. an informational question never confirms - no status change, falls through to normal handling", async () => {
+  const { contactId, leadId, conversationId } = await makeContactLeadConversation(organizationId, "020");
+  const appointmentId = await insertScheduledAppointment(contactId, leadId, "2027-03-22T10:00:00.000Z", "2027-03-22T11:00:00.000Z");
+
+  const handled = await classifyAndProcessBookingReply(service, organizationId, contactId, leadId, conversationId, "What time is my appointment?", fakeSendSms());
+  assert.equal(handled, false);
+
+  const { data: appointment } = await service.from("appointments").select("status, confirmed_at").eq("id", appointmentId).single();
+  assert.equal(appointment?.status, "scheduled");
+  assert.equal(appointment?.confirmed_at, null);
+});
+
+test("S. organization isolation: a YES scoped to organization B never confirms organization A's appointment", async () => {
+  const { contactId, leadId, conversationId } = await makeContactLeadConversation(organizationId, "021");
+  const appointmentId = await insertScheduledAppointment(contactId, leadId, "2027-03-23T10:00:00.000Z", "2027-03-23T11:00:00.000Z");
+
+  const handled = await classifyAndProcessBookingReply(service, otherOrgId, contactId, leadId, conversationId, "Yes", fakeSendSms());
+  assert.equal(handled, false, "the contact has no appointment under otherOrgId, so this must fall through, never touch organization A's appointment");
+
+  const { data: appointment } = await service.from("appointments").select("status").eq("id", appointmentId).single();
+  assert.equal(appointment?.status, "scheduled", "organization A's real appointment must be completely untouched");
+});
+
+test("T. Part F: payment gate preserved - a payment-inactive organization still records the confirmation, but the acknowledgment SMS is blocked by the existing outbound gate", async () => {
+  const { data: unpaidOrg } = await service.from("organizations").insert({ name: "Booking Reply Test Org (Unpaid)", payment_status: "suspended", automation_mode: "live" }).select("id").single();
+  const unpaidOrgId = unpaidOrg!.id as string;
+  try {
+    const { contactId, leadId, conversationId } = await makeContactLeadConversation(unpaidOrgId, "022");
+    // insertScheduledAppointment closes over the shared organizationId - not
+    // reusable here, so this appointment is inserted directly under unpaidOrgId.
+    const { data: appt } = await service
+      .from("appointments")
+      .insert({ organization_id: unpaidOrgId, contact_id: contactId, lead_id: leadId, title: "Consult", start_at: "2027-03-24T10:00:00.000Z", end_at: "2027-03-24T11:00:00.000Z", status: "scheduled" })
+      .select("id")
+      .single();
+    const appointmentId = appt!.id as string;
+
+    const handled = await classifyAndProcessBookingReply(service, unpaidOrgId, contactId, leadId, conversationId, "Yes", fakeSendSms());
+    assert.equal(handled, true, "the confirmation intent was still correctly recognized and processed");
+
+    const { data: appointment } = await service.from("appointments").select("status").eq("id", appointmentId).single();
+    assert.equal(appointment?.status, "confirmed", "the state transition itself is a CRM action, not a payment-gated automated send - matches cancelAppointmentAsService's own established, unchanged precedent");
+
+    const { data: messages } = await service.from("messages").select("id").eq("conversation_id", conversationId).eq("direction", "outbound");
+    assert.equal(messages?.length ?? 0, 0, "the acknowledgment SMS must be blocked by the existing outbound gate's payment check");
+  } finally {
+    await service.from("messages").delete().eq("organization_id", unpaidOrgId);
+    await service.from("workflow_executions").delete().eq("organization_id", unpaidOrgId);
+    await service.from("automation_events").delete().eq("organization_id", unpaidOrgId);
+    await service.from("appointments").delete().eq("organization_id", unpaidOrgId);
+    await service.from("conversations").delete().eq("organization_id", unpaidOrgId);
+    await service.from("leads").delete().eq("organization_id", unpaidOrgId);
+    await service.from("contacts").delete().eq("organization_id", unpaidOrgId);
+    await service.from("organizations").delete().eq("id", unpaidOrgId);
+  }
+});
+
+test("U. Part F: automation pause preserved - a paused organization still records the confirmation, but the acknowledgment SMS is blocked", async () => {
+  const { data: pausedOrg } = await service.from("organizations").insert({ name: "Booking Reply Test Org (Paused)", payment_status: "active", automation_mode: "live", automation_paused: true }).select("id").single();
+  const pausedOrgId = pausedOrg!.id as string;
+  try {
+    const { contactId, leadId, conversationId } = await makeContactLeadConversation(pausedOrgId, "023");
+    const { data: appt } = await service
+      .from("appointments")
+      .insert({ organization_id: pausedOrgId, contact_id: contactId, lead_id: leadId, title: "Consult", start_at: "2027-03-25T10:00:00.000Z", end_at: "2027-03-25T11:00:00.000Z", status: "scheduled" })
+      .select("id")
+      .single();
+
+    const handled = await classifyAndProcessBookingReply(service, pausedOrgId, contactId, leadId, conversationId, "Yes", fakeSendSms());
+    assert.equal(handled, true);
+
+    const { data: appointment } = await service.from("appointments").select("status").eq("id", appt!.id).single();
+    assert.equal(appointment?.status, "confirmed");
+
+    const { data: messages } = await service.from("messages").select("id").eq("conversation_id", conversationId).eq("direction", "outbound");
+    assert.equal(messages?.length ?? 0, 0, "the acknowledgment SMS must be blocked by the existing outbound gate's automation_paused check");
+  } finally {
+    await service.from("messages").delete().eq("organization_id", pausedOrgId);
+    await service.from("workflow_executions").delete().eq("organization_id", pausedOrgId);
+    await service.from("automation_events").delete().eq("organization_id", pausedOrgId);
+    await service.from("appointments").delete().eq("organization_id", pausedOrgId);
+    await service.from("conversations").delete().eq("organization_id", pausedOrgId);
+    await service.from("leads").delete().eq("organization_id", pausedOrgId);
+    await service.from("contacts").delete().eq("organization_id", pausedOrgId);
+    await service.from("organizations").delete().eq("id", pausedOrgId);
+  }
+});

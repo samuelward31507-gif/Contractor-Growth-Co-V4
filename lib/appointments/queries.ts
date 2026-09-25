@@ -38,6 +38,10 @@ export type Appointment = {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** Pass 5B: authoritative confirmation timestamp - see the migration's own comment for why status='confirmed' alone isn't enough. Null whenever the appointment has never been confirmed, or a reschedule since invalidated a prior confirmation. */
+  confirmed_at: string | null;
+  /** Pass 5B: set only when a confirmation-asking reminder actually reached the customer (lib/automation/appointment-reminders.ts) - null means no request has gone out yet, or a reschedule since invalidated it. */
+  confirmation_requested_at: string | null;
   contact: AppointmentContact | null;
   lead: AppointmentLead | null;
 };
@@ -46,7 +50,7 @@ export type Appointment = {
 // select parser needs the literal type to infer typed columns; concatenated
 // strings widen to `string` and fall back to an untyped result.
 const APPOINTMENT_COLUMNS =
-  "id, contact_id, lead_id, title, start_at, end_at, status, notes, created_at, updated_at, contact:contacts(id, first_name, last_name, company_name, phone, email), lead:leads(id, service, source, status, temperature, estimated_value)";
+  "id, contact_id, lead_id, title, start_at, end_at, status, notes, created_at, updated_at, confirmed_at, confirmation_requested_at, contact:contacts(id, first_name, last_name, company_name, phone, email), lead:leads(id, service, source, status, temperature, estimated_value)";
 
 type Embedded<T> = T | T[] | null;
 

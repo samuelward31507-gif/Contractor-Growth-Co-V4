@@ -34,7 +34,7 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-const { getAvailableBookingSlots, bookAppointment }: typeof import("./booking") = require(path.join(REPO_ROOT, "lib/scheduling/booking.ts"));
+const { getAvailableBookingSlots, bookAppointment, rescheduleAppointment }: typeof import("./booking") = require(path.join(REPO_ROOT, "lib/scheduling/booking.ts"));
 const { storeGoogleConnection, selectCalendar }: typeof import("@/lib/calendar/connection") = require(path.join(REPO_ROOT, "lib/calendar/connection.ts"));
 type CalendarProvider = import("@/lib/calendar/provider").CalendarProvider;
 
@@ -410,4 +410,59 @@ test("19. AI SAFETY: the success payload contains only the documented fields - n
   assert.equal(result.success, true);
   if (!result.success) return;
   assert.deepEqual(Object.keys(result).sort(), ["appointmentId", "calendarSyncStatus", "endAt", "startAt", "success", "timezone"]);
+});
+
+// ===========================================================================
+// Pass 5B, Part A5: rescheduleAppointment confirmation invalidation
+// ===========================================================================
+
+async function insertAppointment(orgId: string, contactIdForOrg: string, status: "scheduled" | "confirmed", startAt: string, endAt: string, extra: Record<string, unknown> = {}) {
+  const { data } = await service
+    .from("appointments")
+    .insert({ organization_id: orgId, contact_id: contactIdForOrg, title: "AC Repair", start_at: startAt, end_at: endAt, status, ...extra })
+    .select("id")
+    .single();
+  return data!.id as string;
+}
+
+test("20. Part A5: rescheduling a CONFIRMED appointment reverts it to 'scheduled' and clears confirmed_at/confirmation_requested_at - the exact Part A5 example (confirmed Tuesday -> rescheduled Thursday -> requires confirmation again)", async () => {
+  const appointmentId = await insertAppointment(organizationId, contactId, "confirmed", "2026-10-06T14:00:00.000Z", "2026-10-06T15:00:00.000Z", {
+    confirmed_at: new Date().toISOString(),
+    confirmation_requested_at: new Date().toISOString(),
+  });
+
+  const result = await rescheduleAppointment(service, {
+    organizationId,
+    contactId,
+    appointmentId,
+    startAt: "2026-10-08T14:00:00.000Z",
+    endAt: "2026-10-08T15:00:00.000Z",
+    idempotencyKey: "reschedule:test-20",
+  });
+  assert.equal(result.success, true);
+
+  const { data: appointment } = await service.from("appointments").select("status, confirmed_at, confirmation_requested_at").eq("id", appointmentId).single();
+  assert.equal(appointment?.status, "scheduled", "a rescheduled appointment must never silently remain 'confirmed' for a time the customer never saw");
+  assert.equal(appointment?.confirmed_at, null);
+  assert.equal(appointment?.confirmation_requested_at, null);
+});
+
+test("21. Part A5: rescheduling a plain 'scheduled' (never confirmed) appointment leaves status alone but still clears any stray confirmation_requested_at", async () => {
+  const appointmentId = await insertAppointment(organizationId, contactId, "scheduled", "2026-10-06T16:00:00.000Z", "2026-10-06T17:00:00.000Z", {
+    confirmation_requested_at: new Date().toISOString(),
+  });
+
+  const result = await rescheduleAppointment(service, {
+    organizationId,
+    contactId,
+    appointmentId,
+    startAt: "2026-10-08T16:00:00.000Z",
+    endAt: "2026-10-08T17:00:00.000Z",
+    idempotencyKey: "reschedule:test-21",
+  });
+  assert.equal(result.success, true);
+
+  const { data: appointment } = await service.from("appointments").select("status, confirmed_at, confirmation_requested_at").eq("id", appointmentId).single();
+  assert.equal(appointment?.status, "scheduled");
+  assert.equal(appointment?.confirmation_requested_at, null, "a reschedule must clear a stale confirmation request too, so a fresh one goes out for the new time");
 });

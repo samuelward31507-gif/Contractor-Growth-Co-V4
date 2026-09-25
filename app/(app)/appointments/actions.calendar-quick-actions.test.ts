@@ -82,3 +82,18 @@ test("8. updateAppointmentStatus and rescheduleAppointmentTime both revalidate /
   assert.match(status, /revalidatePath\("\/calendar"\)/);
   assert.match(reschedule, /revalidatePath\("\/calendar"\)/);
 });
+
+test("9. Pass 5B, Part A5: applyAppointmentUpdate computes confirmation invalidation via computeConfirmationInvalidationOnTimeChange and merges it into the SAME write both the one-click reschedule action and the full edit form share - never a second, parallel invalidation implementation", () => {
+  const helperMatch = SOURCE.match(/async function applyAppointmentUpdate\([\s\S]*?\n\}/);
+  assert.ok(helperMatch, "expected to find applyAppointmentUpdate");
+  const body = helperMatch![0];
+  assert.match(body, /computeConfirmationInvalidationOnTimeChange\(/);
+  assert.match(body, /fieldsWithInvalidation/, "the invalidation result must actually be merged into the write payload, not just computed and discarded");
+});
+
+test("10. Pass 5B, Part A5: the lifecycle-dispatch/Google-sync decision (`next.status`) reads from the POST-invalidation fields, never the raw pre-invalidation ones - otherwise a confirmed->scheduled reversion would be silently ignored by the rest of the same save", () => {
+  const helperMatch = SOURCE.match(/async function applyAppointmentUpdate\([\s\S]*?\n\}/);
+  assert.ok(helperMatch);
+  const body = helperMatch![0];
+  assert.match(body, /status:\s*fieldsWithInvalidation\.status\s*\?\?\s*previous\.status/);
+});

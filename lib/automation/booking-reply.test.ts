@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { classifyBookingReplyIntent, resolveSlotSelection }: typeof import("./booking-reply") = require("./booking-reply.ts");
+const { classifyBookingReplyIntent, resolveSlotSelection, classifyConfirmationIntent }: typeof import("./booking-reply") = require("./booking-reply.ts");
 
 // 3 slots at 09:00 / 10:30 / 13:00 UTC on a fixed day - matches the org
 // timezone "UTC" used throughout these pure tests (no DST ambiguity).
@@ -137,4 +137,53 @@ test("resolveSlotSelection: resolves against the organization's configured timez
   // parameter is genuinely load-bearing, not a no-op.
   const utcMisread = resolveSlotSelection("10:30", nySlots, "UTC");
   assert.equal(utcMisread.outcome, "no_match");
+});
+
+// ---------------------------------------------------------------------------
+// Pass 5B, Part A3: classifyConfirmationIntent
+// ---------------------------------------------------------------------------
+
+test("classifyConfirmationIntent: explicit affirmative/confirmation phrases all classify as confirmation", () => {
+  for (const body of ["yes", "Yes", "YES", "y", "confirm", "confirmed", "yes confirm", "that works", "sounds good", "i'll be there", "ill be there", "see you then", "see you there"]) {
+    assert.equal(classifyConfirmationIntent(body), true, `expected "${body}" to classify as confirmation`);
+  }
+});
+
+test("classifyConfirmationIntent: trailing punctuation/whitespace variants still match", () => {
+  for (const body of ["Yes!", "yes.", "  yes  ", "Confirmed!", "Y."]) {
+    assert.equal(classifyConfirmationIntent(body), true, `expected "${body}" to classify as confirmation`);
+  }
+});
+
+test("classifyConfirmationIntent: an informational question never confirms", () => {
+  for (const body of ["What time is my appointment?", "Where are you located?", "How much will this cost?"]) {
+    assert.equal(classifyConfirmationIntent(body), false, `expected "${body}" to NOT classify as confirmation`);
+  }
+});
+
+test("classifyConfirmationIntent: an ambiguous/unrelated reply never confirms - anchored to the whole message, never a substring match", () => {
+  for (const body of ["yes but what time again?", "maybe", "I think so", "not sure yet", "yes I have a question", "sure, but can you call me first?"]) {
+    assert.equal(classifyConfirmationIntent(body), false, `expected "${body}" to NOT classify as confirmation`);
+  }
+});
+
+test("classifyConfirmationIntent: empty/whitespace-only body never confirms", () => {
+  assert.equal(classifyConfirmationIntent(""), false);
+  assert.equal(classifyConfirmationIntent("   "), false);
+});
+
+test("precedence: reschedule/cancel intent always wins over confirmation intent, since classifyBookingReplyIntent is checked first by the caller - 'Yes, can I move it to Friday?' classifies as reschedule, not confirmation", () => {
+  const body = "Yes, can I move it to Friday?";
+  assert.equal(classifyBookingReplyIntent(body), "reschedule");
+  // classifyConfirmationIntent itself has no opinion about precedence (that
+  // is classifyAndProcessBookingReply's job, checking the reschedule/cancel
+  // classifier first) - this message correctly does NOT match the strict,
+  // anchored confirmation pattern at all, since it has extra words.
+  assert.equal(classifyConfirmationIntent(body), false);
+});
+
+test("precedence: 'I can't make it' classifies as cancel, never confirmation", () => {
+  const body = "I can't make it.";
+  assert.equal(classifyBookingReplyIntent(body), "cancel");
+  assert.equal(classifyConfirmationIntent(body), false);
 });

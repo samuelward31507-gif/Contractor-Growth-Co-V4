@@ -189,6 +189,23 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
           <Panel>
             <h2 className={subsectionTitleClass}>Details</h2>
             <dl className="mt-3 space-y-3">
+              {/* Pass 5B: only shown when there's something true to say -
+                  matching this panel's own established "Last updated" rule
+                  of never rendering a redundant/empty row. A confirmed
+                  appointment shows when; an appointment still awaiting a
+                  reply shows that instead; a plain scheduled appointment
+                  with no request sent yet shows neither row. */}
+              {appointment.confirmed_at ? (
+                <div>
+                  <dt className={detailLabelClass}>Confirmation</dt>
+                  <dd className={detailValueClass}>Confirmed {formatContactDate(appointment.confirmed_at)}</dd>
+                </div>
+              ) : appointment.confirmation_requested_at && appointment.status === "scheduled" ? (
+                <div>
+                  <dt className={detailLabelClass}>Confirmation</dt>
+                  <dd className={detailValueClass}>Requested {formatContactDate(appointment.confirmation_requested_at)} - no response yet</dd>
+                </div>
+              ) : null}
               <div>
                 <dt className={detailLabelClass}>Added</dt>
                 <dd className={detailValueClass}>{formatContactDate(appointment.created_at)}</dd>

@@ -6,7 +6,7 @@ import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { recordAutomationHealthSignal } from "../automation-health/service";
 import { notifyFounder } from "@/lib/notifications/founder";
 import { getAvailableBookingSlots, bookAppointment, rescheduleAppointment, type BookingSlot } from "@/lib/scheduling/booking";
-import { cancelAppointmentAsService } from "./appointments";
+import { cancelAppointmentAsService, confirmAppointmentAsService } from "./appointments";
 import { getRecentBookingContext, openRescheduleContext, recordFreshAvailabilityOffer } from "./booking-context";
 import { composeAvailabilityOfferMessage, resolveBookingFallbackTitle, BOOKING_FALLBACK_MESSAGE, serializeSlots } from "@/app/api/automation/n8n-callback/route";
 import { formatAppointmentDate, formatAppointmentTimeRange } from "@/lib/appointments/format";
@@ -50,6 +50,10 @@ const RESCHEDULE_PATTERNS: RegExp[] = [
   /\breschedule\b/i,
   /\bmove (my|the) appointment\b/i,
   /\bmove me to\b/i,
+  // Pass 5B, Part A3: "can I move it to Friday?" - the task's own explicit
+  // example of reschedule-beats-confirmation precedence - was not matched by
+  // the pre-existing "we/you" phrasing alone.
+  /\bcan (we|you|i) move it\b/i,
   /\bcan (we|you) do .+ instead\b/i,
   /\bcan (we|you) move\b/i,
   /\bchange my appointment\b/i,
@@ -79,6 +83,37 @@ export function classifyBookingReplyIntent(body: string): BookingReplyIntent {
   if (CANCEL_PATTERNS.some((pattern) => pattern.test(text))) return "cancel";
   if (RESCHEDULE_PATTERNS.some((pattern) => pattern.test(text))) return "reschedule";
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Pass 5B, Part A3: appointment-confirmation intent - deterministic, no LLM.
+// Checked by the caller (classifyAndProcessBookingReply below) only AFTER
+// classifyBookingReplyIntent's cancel/reschedule checks above have already
+// returned null, so "Yes, can I move it to Friday?" resolves to reschedule,
+// never confirmation - the more concrete, actionable request wins, exactly
+// like the cancel-before-reschedule precedence immediately above.
+//
+// A strict, anchored match against the ENTIRE trimmed message (not a
+// substring test) - the same shape AFFIRMATIVE_PATTERN below already uses
+// for slot-selection "yes", extended with the words this pass's own spec
+// calls out (confirm/confirmed/y/i'll be there) that a slot-selection "yes"
+// has no use for. This is why it is a sibling pattern in this same file
+// rather than a literal reuse of AFFIRMATIVE_PATTERN: the two patterns cover
+// genuinely different domains (which slot vs. whether I'll show up) and
+// AFFIRMATIVE_PATTERN's own existing, already-tested behavior must not
+// change as a side effect of this pass. A free-text question ("What time is
+// my appointment?") or any message with additional words never matches -
+// anchoring is what keeps this conservative, per Part A3's own explicit
+// "if confidence is insufficient, do not silently confirm" rule.
+// ---------------------------------------------------------------------------
+
+const CONFIRMATION_PATTERN =
+  /^\s*(yes|yep|yeah|yup|y|confirm|confirmed|yes confirm|sure|ok|okay|perfect|great|sounds good|that works|works( for me)?|i'?ll be there|see you then|see you there)[.!\s]*$/i;
+
+export function classifyConfirmationIntent(body: string): boolean {
+  const text = body.trim();
+  if (!text) return false;
+  return CONFIRMATION_PATTERN.test(text);
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +365,56 @@ async function handleCancelIntent(
 }
 
 // ---------------------------------------------------------------------------
+// Pass 5B, Part A3/A4: appointment confirmation
+// ---------------------------------------------------------------------------
+
+function composeConfirmationAckBody(title: string, timezone: string, startAt: string, endAt: string): string {
+  return `Great, you're confirmed for "${title}" on ${formatAppointmentDate(startAt, timezone)} at ${formatAppointmentTimeRange(startAt, endAt, timezone)}. See you then!`;
+}
+
+async function handleConfirmationIntent(
+  supabase: SupabaseClient,
+  organizationId: string,
+  contactId: string,
+  leadId: string | null,
+  conversationId: string,
+  sendSmsFn?: SendSmsFn,
+): Promise<boolean> {
+  const upcoming = await findUpcomingAppointments(supabase, organizationId, contactId);
+
+  // Zero or multiple upcoming appointments: not safe to guess which one is
+  // being confirmed. Unlike cancel/reschedule above, this is deliberately
+  // NOT escalated to a human - Part A3's own rule is "if confidence is
+  // insufficient, do not silently confirm," not "treat every ambiguous yes
+  // as an incident." A bare "yes" with no clear appointment to confirm is
+  // plausibly just an ordinary reply to something else entirely; falling
+  // through to the normal AI/human flow (the caller's `return false`) is
+  // the safer default than manufacturing an escalation for it.
+  if (upcoming.length !== 1) return false;
+
+  const result = await confirmAppointmentAsService(supabase, organizationId, contactId, upcoming[0].id);
+  if (!result.ok) return false;
+  // Part A4: a duplicate YES resolves to "already_confirmed" - handled
+  // (true, so the AI never also replies to it) but silently, with no second
+  // acknowledgment message sent.
+  if (result.outcome === "already_confirmed") return true;
+
+  const timezone = await getOrganizationTimezone(supabase, organizationId);
+  await sendDeterministicMessage(
+    supabase,
+    organizationId,
+    contactId,
+    leadId,
+    conversationId,
+    composeConfirmationAckBody(result.title, timezone, result.startAt, result.endAt),
+    "appointment.confirmation_acknowledged",
+    "appointment_confirmation_ack",
+    sendSmsFn,
+  );
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Reschedule
 // ---------------------------------------------------------------------------
 
@@ -537,18 +622,33 @@ export async function classifyAndProcessBookingReply(
   }
 
   const context = await getRecentBookingContext(supabase, organizationId, conversationId);
-  if (!context || context.type !== "offer") return false;
 
-  const timezone = await getOrganizationTimezone(supabase, organizationId);
-  const resolution = resolveSlotSelection(messageBody, context.slots, timezone);
+  if (context && context.type === "offer") {
+    const timezone = await getOrganizationTimezone(supabase, organizationId);
+    const resolution = resolveSlotSelection(messageBody, context.slots, timezone);
 
-  if (resolution.outcome === "no_match") return false;
-
-  if (resolution.outcome === "ambiguous") {
-    await sendClarification(supabase, organizationId, contactId, leadId, conversationId, context.slots, context.title, timezone, sendSmsFn);
-    return true;
+    if (resolution.outcome === "ambiguous") {
+      await sendClarification(supabase, organizationId, contactId, leadId, conversationId, context.slots, context.title, timezone, sendSmsFn);
+      return true;
+    }
+    if (resolution.outcome === "matched") {
+      await finalizeSlotSelection(supabase, organizationId, contactId, leadId, conversationId, resolution.slot, context.title, timezone, context.rescheduleAppointmentId, sendSmsFn);
+      return true;
+    }
+    // outcome === "no_match": falls through to confirmation-intent checking
+    // below, same as when there was no active offer context at all - a
+    // customer replying "yes" to a stale/unrelated offer context should
+    // still be able to confirm an upcoming appointment.
   }
 
-  await finalizeSlotSelection(supabase, organizationId, contactId, leadId, conversationId, resolution.slot, context.title, timezone, context.rescheduleAppointmentId, sendSmsFn);
-  return true;
+  // Pass 5B, Part A3: appointment-confirmation intent, checked only once no
+  // active booking-offer context claimed this reply - an in-progress slot
+  // selection (handled above) always takes priority for an affirmative
+  // reply, since "yes" during booking means "yes, that slot," not "yes, I'll
+  // show up to an appointment that doesn't exist yet."
+  if (classifyConfirmationIntent(messageBody)) {
+    return handleConfirmationIntent(supabase, organizationId, contactId, leadId, conversationId, sendSmsFn);
+  }
+
+  return false;
 }

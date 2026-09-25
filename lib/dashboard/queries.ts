@@ -50,7 +50,17 @@ export type AttentionItem = {
     // pending_estimate, which already surface that same underlying lead).
     | "stale_estimate"
     | "dormant_customer"
-    | "no_show";
+    | "no_show"
+    // Pass 5B: directly computed from appointments (confirmation_requested_at
+    // set, confirmed_at still null, still status='scheduled') - deliberately
+    // NOT opportunity-backed. Unlike stale_estimate/dormant_customer, this
+    // condition is inherently short-lived: within roughly a day it resolves
+    // itself one way or another (confirmed, rescheduled, cancelled, or an
+    // automatic no-show), so it doesn't need a persisted dismiss/resolve
+    // lifecycle - it's recomputed fresh from live appointment state on every
+    // load, the same shape overdue_appointment/calendar_disconnected below
+    // already use for their own directly-computed items.
+    | "awaiting_confirmation";
   title: string;
   detail: string;
   value: string | null;
@@ -110,7 +120,7 @@ export async function getDashboardData(
       .limit(500),
     supabase
       .from("appointments")
-      .select("id, title, status, start_at, created_at, contacts(first_name, last_name)")
+      .select("id, title, status, start_at, created_at, confirmed_at, confirmation_requested_at, contacts(first_name, last_name)")
       .eq("organization_id", organizationId)
       .order("start_at", { ascending: false })
       .limit(200),
@@ -194,6 +204,29 @@ export async function getDashboardData(
       // not a search - the actual gap here was friction, not visibility:
       // this item itself already existed and already catches every
       // past-due, still-`scheduled` appointment.
+      href: `/appointments/${appointment.id}`,
+    }));
+
+  // Pass 5B, Part D: a confirmation request genuinely went out
+  // (confirmation_requested_at set - lib/automation/appointment-reminders.ts)
+  // and the customer hasn't said yes yet (confirmed_at still null), for an
+  // appointment that's still upcoming and still 'scheduled' - never surfaced
+  // once it's already confirmed, cancelled, completed, or auto-no-showed.
+  const awaitingConfirmation: AttentionItem[] = appointments
+    .filter(
+      (appointment) =>
+        appointment.status === "scheduled" &&
+        appointment.confirmation_requested_at != null &&
+        appointment.confirmed_at == null &&
+        new Date(appointment.start_at).getTime() >= now,
+    )
+    .slice(0, 5)
+    .map((appointment) => ({
+      id: `apt-confirm-${appointment.id}`,
+      kind: "awaiting_confirmation",
+      title: contactName(appointment.contacts) ?? appointment.title,
+      detail: `Confirmation requested ${formatRelativeTime(appointment.confirmation_requested_at!)} - no response yet`,
+      value: null,
       href: `/appointments/${appointment.id}`,
     }));
 
@@ -343,6 +376,7 @@ export async function getDashboardData(
     ...awaitingReply,
     ...calendarAttention,
     ...overdueAppointments,
+    ...awaitingConfirmation,
     ...noShowOpportunities,
     ...hotLeads,
     ...highValueLeads,

@@ -42,7 +42,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
-const { emitAppointmentLifecycleEvent }: typeof import("./appointments") = require(path.join(REPO_ROOT, "lib/automation/appointments.ts"));
+const { emitAppointmentLifecycleEvent, confirmAppointmentAsService }: typeof import("./appointments") = require(path.join(REPO_ROOT, "lib/automation/appointments.ts"));
 
 const service = createServiceRoleClient();
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -201,4 +201,57 @@ test("6. cross-org isolation: a cancellation event for organization A never touc
 
   const { data: otherOrgMessages } = await service.from("messages").select("id").eq("organization_id", otherOrgId);
   assert.equal(otherOrgMessages?.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Pass 5B, Part A4: confirmAppointmentAsService (direct edge cases not
+// already exercised end-to-end via lib/automation/booking-reply.integration.test.ts)
+// ---------------------------------------------------------------------------
+
+test("7. confirmAppointmentAsService: a 'scheduled' appointment confirms, with a real confirmed_at timestamp", async () => {
+  const appointmentId = await insertAppointment("scheduled");
+  const result = await confirmAppointmentAsService(service, organizationId, contactId, appointmentId);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.outcome, "confirmed");
+
+  const { data: appointment } = await service.from("appointments").select("status, confirmed_at").eq("id", appointmentId).single();
+  assert.equal(appointment?.status, "confirmed");
+  assert.ok(appointment?.confirmed_at);
+});
+
+test("8. confirmAppointmentAsService: an already-'confirmed' appointment returns 'already_confirmed', ok:true, and does not overwrite confirmed_at", async () => {
+  const appointmentId = await insertAppointment("confirmed");
+  await service.from("appointments").update({ confirmed_at: "2027-01-01T00:00:00.000Z" }).eq("id", appointmentId);
+
+  const result = await confirmAppointmentAsService(service, organizationId, contactId, appointmentId);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.outcome, "already_confirmed");
+
+  const { data: appointment } = await service.from("appointments").select("confirmed_at").eq("id", appointmentId).single();
+  assert.equal(new Date(appointment!.confirmed_at).getTime(), new Date("2027-01-01T00:00:00.000Z").getTime());
+});
+
+test("9. confirmAppointmentAsService: a cancelled appointment cannot be confirmed - 'not_confirmable'", async () => {
+  const appointmentId = await insertAppointment("cancelled");
+  const result = await confirmAppointmentAsService(service, organizationId, contactId, appointmentId);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "not_confirmable");
+});
+
+test("10. confirmAppointmentAsService: a nonexistent appointment id returns 'not_found', never throws", async () => {
+  const result = await confirmAppointmentAsService(service, organizationId, contactId, "00000000-0000-0000-0000-000000000000");
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "not_found");
+});
+
+test("11. confirmAppointmentAsService: org/contact scoping protects against confirming a DIFFERENT contact's real appointment", async () => {
+  const { data: otherContact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "Other", last_name: "Customer", phone: "+15555550192" }).select("id").single();
+  const appointmentId = await insertAppointment("scheduled");
+
+  const result = await confirmAppointmentAsService(service, organizationId, otherContact!.id, appointmentId);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "not_found", "a contact_id mismatch must never confirm someone else's real appointment");
+
+  const { data: appointment } = await service.from("appointments").select("status").eq("id", appointmentId).single();
+  assert.equal(appointment?.status, "scheduled", "the real appointment itself must remain completely untouched");
 });

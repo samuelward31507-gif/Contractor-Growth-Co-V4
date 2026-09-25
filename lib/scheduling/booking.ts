@@ -7,6 +7,7 @@ import { emitAppointmentLifecycleEventAsService } from "@/lib/automation/appoint
 import { googleCalendarProvider } from "@/lib/calendar/google";
 import type { CalendarProvider } from "@/lib/calendar/provider";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
+import { computeConfirmationInvalidationOnTimeChange } from "@/lib/appointments/confirmation";
 
 /**
  * Phase 1 Scheduling Foundation, Stage 6: the AI-facing booking interface.
@@ -429,9 +430,15 @@ export async function rescheduleAppointment(
     return finishWithFailure("slot_unavailable");
   }
 
+  // Pass 5B, Part A5: a reschedule always changes the time by definition
+  // here (that's the whole point of this function), so any prior
+  // confirmation for the old time must never silently carry over onto the
+  // new one - see computeConfirmationInvalidationOnTimeChange's own comment.
+  const invalidation = computeConfirmationInvalidationOnTimeChange(existingAppointment.status, true);
+
   const { data: updated, error: updateError } = await supabase
     .from("appointments")
-    .update({ start_at: input.startAt, end_at: input.endAt })
+    .update({ start_at: input.startAt, end_at: input.endAt, ...invalidation })
     .eq("id", input.appointmentId)
     .eq("organization_id", input.organizationId)
     .eq("contact_id", input.contactId)

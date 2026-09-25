@@ -2,7 +2,13 @@ import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { createAutomationEvent, createAutomationEventAsService } from "./events";
-import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution, startWorkflowExecutionAsService, completeWorkflowExecutionAsService } from "./executions";
+import {
+  startWorkflowExecution,
+  completeWorkflowExecution,
+  failWorkflowExecution,
+  startWorkflowExecutionAsService,
+  completeWorkflowExecutionAsService,
+} from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
 import { evaluateOutboundGate } from "./outbound-gate";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
@@ -164,6 +170,56 @@ export async function emitAppointmentNoShow(supabase: SupabaseClient, appointmen
     workflowName: APPOINTMENT_NO_SHOW_WORKFLOW,
     appointment,
     asService: false,
+  });
+}
+
+/**
+ * Pass 5B: the *AsService twin of emitAppointmentNoShow above, for the
+ * automated no-show scan (lib/automation/no-show-detection.ts), which has no
+ * Supabase Auth session - matching emitAppointmentLifecycleEventAsService's
+ * own established precedent exactly. Reuses the exact same event type
+ * (appointment.no_show), idempotency key, workflow name, and dispatch path
+ * as the manual path above - a scheduler-detected no-show and a
+ * contractor-clicked one are indistinguishable from here on, by design, so
+ * there is exactly one no-show follow-up mechanism, never two.
+ */
+export async function emitAppointmentNoShowAsService(supabase: SupabaseClient, organizationId: string, appointmentId: string): Promise<void> {
+  const eventResult = await createAutomationEventAsService(supabase, organizationId, {
+    eventType: "appointment.no_show",
+    entityType: "appointment",
+    entityId: appointmentId,
+    payload: { appointment_id: appointmentId },
+    idempotencyKey: `appointment.no_show:${appointmentId}`,
+  });
+
+  if (!eventResult.ok) {
+    console.error("[automation] failed to create appointment.no_show event", { appointmentId, error: eventResult.error });
+    return;
+  }
+  if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
+
+  const appointment = await getAppointment(supabase, organizationId, appointmentId);
+  if (!appointment) {
+    console.error("[automation] appointment.no_show event created but appointment not found", { appointmentId });
+    return;
+  }
+
+  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, APPOINTMENT_NO_SHOW_WORKFLOW);
+  if (!executionResult.ok) {
+    console.error("[automation] failed to start appointment.no_show execution", { appointmentId, error: executionResult.error });
+    return;
+  }
+
+  await dispatchAppointmentWorkflow(supabase, {
+    organizationId,
+    eventId: eventResult.event.id,
+    eventType: "appointment.no_show",
+    executionId: executionResult.execution.id,
+    attempt: executionResult.execution.attempt,
+    workflowName: APPOINTMENT_NO_SHOW_WORKFLOW,
+    appointment,
+    asService: true,
   });
 }
 
@@ -523,4 +579,66 @@ export async function cancelAppointmentAsService(
 
   await emitAppointmentLifecycleEventAsService(supabase, organizationId, appointmentId, "appointment.cancelled", undefined, sendSmsFn);
   return { ok: true };
+}
+
+export type ConfirmAppointmentAsServiceResult =
+  | { ok: true; outcome: "confirmed"; startAt: string; endAt: string; title: string }
+  | { ok: true; outcome: "already_confirmed" }
+  | { ok: false; reason: "not_found" | "not_confirmable" };
+
+/**
+ * Pass 5B, Part A4: the deterministic, service-role-safe appointment
+ * confirmation used by lib/automation/booking-reply.ts's customer-initiated
+ * "YES" handling - mirrors cancelAppointmentAsService's exact shape
+ * (org+contact-scoped, never appointment id alone, so one customer's
+ * message can never confirm another customer's appointment).
+ *
+ * Two-step: a preliminary read distinguishes "already confirmed" (a genuine
+ * duplicate YES - the caller must send no second acknowledgment) from
+ * "not found"/"not confirmable" (nothing useful to confirm) for the caller's
+ * own messaging decision; the actual state change is the second, conditional
+ * UPDATE (`.eq("status", "scheduled")`), which is the real idempotency/race
+ * guarantee - a duplicate or concurrent confirm attempt that slips past the
+ * preliminary read still matches zero rows on the write and is a safe no-op,
+ * exactly like cancelAppointmentAsService's own established pattern.
+ */
+export async function confirmAppointmentAsService(
+  supabase: SupabaseClient,
+  organizationId: string,
+  contactId: string,
+  appointmentId: string,
+): Promise<ConfirmAppointmentAsServiceResult> {
+  const { data: current } = await supabase
+    .from("appointments")
+    .select("id, status")
+    .eq("id", appointmentId)
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .maybeSingle();
+
+  if (!current) return { ok: false, reason: "not_found" };
+  if (current.status === "confirmed") return { ok: true, outcome: "already_confirmed" };
+  if (current.status !== "scheduled") return { ok: false, reason: "not_confirmable" };
+
+  const { data: confirmedRow, error } = await supabase
+    .from("appointments")
+    .update({ status: "confirmed", confirmed_at: new Date().toISOString() })
+    .eq("id", appointmentId)
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .eq("status", "scheduled")
+    .select("id, start_at, end_at, title")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[automation] failed to confirm appointment", { appointmentId, organizationId, error: error.message });
+    return { ok: false, reason: "not_confirmable" };
+  }
+  if (!confirmedRow) {
+    // Raced with a concurrent cancel/reschedule/no-show between the read
+    // above and this write - never a reason to fabricate success.
+    return { ok: false, reason: "not_confirmable" };
+  }
+
+  return { ok: true, outcome: "confirmed", startAt: confirmedRow.start_at, endAt: confirmedRow.end_at, title: confirmedRow.title };
 }

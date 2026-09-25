@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Zap, MessageSquareReply, ShieldCheck, CalendarClock, BellRing, FileText, Wrench, Star, HeartPulse, RotateCcw, PhoneMissed, Sparkles } from "lucide-react";
+import { Zap, MessageSquareReply, ShieldCheck, CalendarClock, BellRing, FileText, Wrench, Star, HeartPulse, RotateCcw, PhoneMissed, Sparkles, UserX } from "lucide-react";
 import type { OrganizationVertical } from "@/lib/auth/organization";
 
 /**
@@ -301,6 +301,31 @@ export const AUTOMATION_CATALOG: AutomationDefinition[] = [
       "Excludes any contact with an open lead, an active appointment/estimate/job, or an already-open conversation",
       "Safe AI Outbound gate re-verifies the job is still completed, opt-out status, and duplicate-send protection before sending",
       "Message sent",
+      "Execution recorded as completed",
+    ],
+  },
+  {
+    id: "no-show-detection",
+    name: "Automatic No-Show Detection",
+    description: "Automatically marks a past appointment no-show once its scheduled end time plus a grace period has passed with no other outcome recorded - no more manually discovering a missed appointment.",
+    category: "Appointments",
+    icon: UserX,
+    kind: "scheduled",
+    trigger: "Scheduled - runs on a recurring schedule, checking for scheduled/confirmed appointments whose end time plus a grace period has passed",
+    // Deliberately empty: this automation's own job is strictly the
+    // deterministic status transition. The resulting appointment.no_show
+    // event/workflow (and its n8n-dispatched follow-up) is already fully
+    // owned and attributed to "appointment-lifecycle" above, whether a
+    // human clicked no-show or this scan did - claiming that event type
+    // here too would create a second, ambiguous owner for the exact same
+    // event_type -> automation mapping getAutomationForEventType relies on.
+    eventTypes: [],
+    workflowNames: [],
+    dispatch: "trackpr",
+    steps: [
+      "Scheduled run finds appointments still 'scheduled' or 'confirmed' whose scheduled end time plus a conservative grace period has already passed",
+      "Each eligible appointment is transitioned to 'no_show' with an atomic, conditional update - a concurrent contractor action (completed, cancelled) always wins the race, never both",
+      "The existing appointment.no_show automation event fires exactly as it would from a manual click - the same reschedule-invitation dispatch, the same Safe AI Outbound gate, the same no_show opportunity detector",
       "Execution recorded as completed",
     ],
   },
