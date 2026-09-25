@@ -36,9 +36,51 @@ import type { ResolvedDateRange, LeadStageTransitionMetrics, LeadStageTimingMetr
  * bounded, org-scoped queries and reduces in memory - the same discipline
  * lib/bi/queries.ts and lib/opportunities/detect.ts already established.
  * No query here is issued inside a loop; no per-lead query exists.
+ *
+ * Pass 5C, Batch 3B: getLeadStageTimingMetrics and getLeadResponseTimeMetrics
+ * both independently re-fetched the exact same range-scoped `leads` rows
+ * (with slightly different column subsets) as each other, and as
+ * lib/bi/queries.ts's own getLeadAndPipelineMetrics - three separate reads
+ * of the same population. getLeadsForRange below is the one shared fetch;
+ * getLeadStageTimingMetrics/getLeadResponseTimeMetrics now accept its
+ * result directly instead of querying `leads` themselves. This changes
+ * nothing about WHAT either function reads or how it reduces it - same
+ * columns needed, same date-range semantics, same in-memory logic - only
+ * WHERE the query is issued moves, from inside each function to their
+ * shared caller (lib/bi/metrics.ts). lib/bi/queries.ts's own
+ * getLeadAndPipelineMetrics (Phase 5.1, frozen) is deliberately NOT
+ * touched or merged into this shared fetch - out of this pass's scope.
+ * getLeadStageTransitionMetrics and hasAnyLeadStageHistory never read
+ * `leads` at all (both query only automation_events) and are unaffected.
  */
 
 const MAX_ROWS = 10_000;
+
+/** The exact union of lead columns getLeadStageTimingMetrics and getLeadResponseTimeMetrics each need - no more. */
+export type SharedLeadRow = {
+  id: string;
+  contact_id: string | null;
+  created_at: string;
+};
+
+/**
+ * The one shared, range-scoped `leads` fetch reused by
+ * getLeadStageTimingMetrics and getLeadResponseTimeMetrics - see this
+ * file's own Batch 3B header comment. Identical org-scoping and
+ * [from, to) date-range semantics to what each function's own internal
+ * fetch previously used - narrowed to exactly the columns either function
+ * actually reads (id, contact_id, created_at), never leads.status (this
+ * remains true for both callers: neither infers a historical stage from
+ * current status).
+ */
+export async function getLeadsForRange(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<SharedLeadRow[]> {
+  let query = supabase.from("leads").select("id, contact_id, created_at").eq("organization_id", organizationId).limit(MAX_ROWS);
+  if (range.from) query = query.gte("created_at", range.from);
+  if (range.to) query = query.lt("created_at", range.to);
+
+  const { data } = await query;
+  return (data ?? []) as SharedLeadRow[];
+}
 
 // ---------------------------------------------------------------------------
 // Part C: historical lead-stage funnel
@@ -111,8 +153,9 @@ function average(values: number[]): number | null {
 }
 
 /**
- * Definition: leads created within `range`, cross-referenced against their
- * OWN real lead.stage_changed events (fetched without a date bound on the
+ * Definition: leads created within the range `leads` was fetched for
+ * (see getLeadsForRange), cross-referenced against their OWN real
+ * lead.stage_changed events (fetched without a date bound on the
  * transition side - a transition happening any time after a lead's creation
  * is a valid, real duration regardless of which reporting window it lands
  * in) to find, per lead, the first recorded transition into 'qualified' and
@@ -121,17 +164,13 @@ function average(values: number[]): number | null {
  * timing averages (see leadsWithRecordedHistory) rather than assigned a
  * fabricated duration.
  *
- * Two bounded, org-scoped queries (leads, then their events by entity_id)
- * regardless of population size - never N+1 per lead.
+ * Pass 5C, Batch 3B: `leads` is now the caller's own shared, pre-fetched
+ * range-scoped dataset (getLeadsForRange) rather than a query this function
+ * issues itself - see this file's own header comment. One bounded,
+ * org-scoped query of its own remains (the events, by entity_id) - never
+ * N+1 per lead.
  */
-export async function getLeadStageTimingMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<LeadStageTimingMetrics> {
-  let leadQuery = supabase.from("leads").select("id, created_at").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) leadQuery = leadQuery.gte("created_at", range.from);
-  if (range.to) leadQuery = leadQuery.lt("created_at", range.to);
-
-  const { data: leadRows } = await leadQuery;
-  const leads = (leadRows ?? []) as { id: string; created_at: string }[];
-
+export async function getLeadStageTimingMetrics(supabase: SupabaseClient, organizationId: string, leads: SharedLeadRow[]): Promise<LeadStageTimingMetrics> {
   if (leads.length === 0) {
     return { leadsInRange: 0, leadsWithRecordedHistory: 0, leadsWithQualifiedTiming: 0, averageTimeToQualifiedMs: null, medianTimeToQualifiedMs: null, leadsWithWonTiming: 0, averageTimeToWonMs: null, medianTimeToWonMs: null };
   }
@@ -237,20 +276,14 @@ function percentageRate(numerator: number, denominator: number): number | null {
 /**
  * See LeadResponseTimeMetrics's own full documentation in lib/bi/types.ts
  * for the exact evidence hierarchy, population, and known delivery-timing
- * limitation. Three bounded, org-scoped queries (leads, then their
- * contacts' conversations, then those conversations' messages) regardless
- * of population size - never N+1, never a per-lead query. Reuses the real
- * idx_messages_conversation index (conversation_id, created_at) already
- * present on the messages table.
+ * limitation. `leads` is the caller's own shared, pre-fetched range-scoped
+ * dataset (getLeadsForRange) - see this file's own Batch 3B header comment.
+ * Two bounded, org-scoped queries of its own remain (conversations, then
+ * messages) regardless of population size - never N+1, never a per-lead
+ * query. Reuses the real idx_messages_conversation index (conversation_id,
+ * created_at) already present on the messages table.
  */
-export async function getLeadResponseTimeMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<LeadResponseTimeMetrics> {
-  let leadQuery = supabase.from("leads").select("id, contact_id, created_at").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) leadQuery = leadQuery.gte("created_at", range.from);
-  if (range.to) leadQuery = leadQuery.lt("created_at", range.to);
-
-  const { data: leadRows } = await leadQuery;
-  const leads = (leadRows ?? []) as { id: string; contact_id: string | null; created_at: string }[];
-
+export async function getLeadResponseTimeMetrics(supabase: SupabaseClient, organizationId: string, leads: SharedLeadRow[]): Promise<LeadResponseTimeMetrics> {
   const totalLeadsInPopulation = leads.length;
   if (totalLeadsInPopulation === 0) {
     return { totalLeadsInPopulation: 0, leadsContacted: 0, leadsNeverContacted: 0, contactRate: null, averageResponseTimeMs: null, medianResponseTimeMs: null, bucketCounts: emptyBucketCounts() };

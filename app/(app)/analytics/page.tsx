@@ -22,11 +22,13 @@ import {
   JobsSection,
   AppointmentsSection,
   ConversionSection,
+  HistoricalFunnelSection,
   RevenueOpportunitySection,
   ReviewReferralSection,
   RepeatCustomerSection,
   FollowUpSection,
   CommunicationSection,
+  ResponseTimeSection,
   AiActivitySection,
   AutomationSection,
   DataQualitySection,
@@ -140,6 +142,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
             <p className={`mt-1 ${metaClass}`}>How well each stage above converts to the next.</p>
             <div className="divide-y divide-slate-200">
               <ConversionSection snapshot={snapshot} />
+              <HistoricalFunnelSection snapshot={snapshot} />
               <RevenueOpportunitySection snapshot={snapshot} />
             </div>
           </div>
@@ -150,6 +153,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
             <div className="divide-y divide-slate-200">
               <FollowUpSection snapshot={snapshot} />
               <CommunicationSection snapshot={snapshot} />
+              <ResponseTimeSection snapshot={snapshot} />
               <ReviewReferralSection snapshot={snapshot} />
             </div>
           </div>

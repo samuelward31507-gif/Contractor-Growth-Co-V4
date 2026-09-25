@@ -16,6 +16,26 @@ export function formatRate(rate: number | null): string {
   return `${Math.round(rate)}%`;
 }
 
+/**
+ * Pass 5C, Batch 3B: formats a millisecond duration (leadStageFunnel.timing/
+ * responseTime figures) as a short, human string - "under a minute" / "4m" /
+ * "6h" / "3d". Null-safe like formatRate, using the identical "Not enough
+ * data yet" wording for the same reason (no fabricated 0 for an unmeasured
+ * duration). Rounds to the coarsest single unit rather than a compound
+ * "1d 4h 12m" - this page's own stat strips are single short values, not a
+ * duration-breakdown widget.
+ */
+export function formatDuration(ms: number | null): string {
+  if (ms === null) return "Not enough data yet";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) return "under a minute";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  return `${days}d`;
+}
+
 export function formatComparisonBadge(comparison: PeriodComparison): string | null {
   if (comparison.previous === null) return null;
 

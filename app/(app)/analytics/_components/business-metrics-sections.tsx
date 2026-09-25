@@ -4,7 +4,7 @@ import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { formatCurrency } from "@/lib/dashboard/format";
 import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
 import type { RepeatCustomerSummary } from "@/lib/customers/lifecycle";
-import { formatRate, formatComparisonBadge } from "./bi-format";
+import { formatRate, formatComparisonBadge, formatDuration } from "./bi-format";
 import { BarList } from "./bar-list";
 
 /**
@@ -118,6 +118,51 @@ export function ConversionSection({ snapshot }: { snapshot: BusinessMetricsSnaps
           { key: "estimate-acceptance", label: "Estimate acceptance", value: formatRate(estimateMetrics.estimateAcceptanceRate), detail: "Accepted vs. accepted + declined" },
           { key: "estimate-job", label: "Estimate → job", value: formatRate(estimateMetrics.estimateToJobRate), detail: "Jobs per accepted estimate" },
           { key: "job-completion", label: "Job completion", value: formatRate(jobMetrics.jobCompletionRate), detail: "Completed vs. completed + cancelled" },
+        ]}
+      />
+    </Section>
+  );
+}
+
+/**
+ * Pass 5C, Batch 3B: the historical counterpart to ConversionSection above -
+ * deliberately a separate, clearly-labeled section rather than merged into
+ * it, since every stat here is fundamentally different in kind: real,
+ * timestamped lead.stage_changed events (snapshot.leadStageFunnel), not a
+ * current-state cross-reference. Transition counts are the same
+ * comparison-count convention as BusinessAtAGlance's own leadCount
+ * (formatComparisonBadge). Timing averages are NEVER shown bare - each is
+ * always paired with its own real coverage detail ("Based on N of M leads
+ * with recorded history"), so a reader can never mistake a partial-coverage
+ * average for a complete historical record. Raw transitionCounts (e.g.
+ * "new->contacted": 4) are deliberately never rendered - the Batch 3B audit
+ * classified that raw pair breakdown as low business value.
+ */
+export function HistoricalFunnelSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { leadStageFunnel, comparisons } = snapshot;
+  const { transitions, timing } = leadStageFunnel;
+
+  return (
+    <Section
+      label="Historical funnel"
+      note="Based on real, timestamped stage-change events - not a current-state snapshot like Conversion above. Timing averages only ever cover leads with a recorded transition; see each stat's own coverage detail."
+    >
+      <StatRow
+        stats={[
+          { key: "to-qualified", label: "Leads → Qualified", value: String(transitions.leadsTransitionedToQualified), detail: formatComparisonBadge(comparisons.leadsTransitionedToQualified) },
+          { key: "to-won", label: "Leads → Won", value: String(transitions.leadsTransitionedToWon), detail: formatComparisonBadge(comparisons.leadsTransitionedToWon) },
+          {
+            key: "time-to-qualified",
+            label: "Avg. time to qualified",
+            value: formatDuration(timing.averageTimeToQualifiedMs),
+            detail: `Based on ${timing.leadsWithQualifiedTiming} of ${timing.leadsInRange} lead(s) with recorded history`,
+          },
+          {
+            key: "time-to-won",
+            label: "Avg. time to won",
+            value: formatDuration(timing.averageTimeToWonMs),
+            detail: `Based on ${timing.leadsWithWonTiming} of ${timing.leadsInRange} lead(s) with recorded history`,
+          },
         ]}
       />
     </Section>
@@ -426,6 +471,60 @@ export function CommunicationSection({ snapshot }: { snapshot: BusinessMetricsSn
           </div>
         </dl>
       </div>
+    </Section>
+  );
+}
+
+/**
+ * Pass 5C, Batch 3B: snapshot.responseTime (lib/bi/funnel.ts's
+ * getLeadResponseTimeMetrics) - deliberately labeled "time to first
+ * recorded response," never "delivery time"/"Twilio delivery time"/"exact
+ * response time"/"instant response": the underlying timestamp is when
+ * Trackpr recorded the outbound message (messages.created_at), not a
+ * guaranteed provider delivery moment - see LeadResponseTimeMetrics's own
+ * doc comment in lib/bi/types.ts. "Never contacted" is placed right after
+ * the population count so it reads as the single most actionable number in
+ * the section, per the Batch 3B audit's own instruction. When no lead in
+ * range has been contacted at all, the average/median cells read "No
+ * recorded response yet" rather than a fabricated "0 minutes" or "0m".
+ */
+export function ResponseTimeSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { responseTime, comparisons } = snapshot;
+  const hasAnyResponse = responseTime.leadsContacted > 0;
+
+  return (
+    <Section
+      label="Time to first recorded response"
+      note="Time from lead creation to the first outbound message Trackpr recorded as sent or delivered - not a guaranteed delivery timestamp, and never a claim about how quickly the customer actually saw it."
+    >
+      <StatRow
+        stats={[
+          { key: "population", label: "Leads", value: String(responseTime.totalLeadsInPopulation) },
+          { key: "never-contacted", label: "Never contacted", value: String(responseTime.leadsNeverContacted) },
+          { key: "contacted", label: "Contacted", value: String(responseTime.leadsContacted), detail: formatComparisonBadge(comparisons.leadsContacted) },
+          { key: "contact-rate", label: "Contact rate", value: formatRate(responseTime.contactRate) },
+          { key: "avg-response", label: "Avg. time to first response", value: hasAnyResponse ? formatDuration(responseTime.averageResponseTimeMs) : "No recorded response yet" },
+          { key: "median-response", label: "Median time to first response", value: hasAnyResponse ? formatDuration(responseTime.medianResponseTimeMs) : "No recorded response yet" },
+        ]}
+      />
+
+      {hasAnyResponse ? (
+        <div className="mt-6 max-w-md">
+          <p className="text-xs font-medium text-slate-700">Response time</p>
+          <div className="mt-3">
+            <BarList
+              items={[
+                { key: "under_1_min", label: "Under 1 min", value: responseTime.bucketCounts.under_1_min },
+                { key: "1_to_5_min", label: "1-5 min", value: responseTime.bucketCounts["1_to_5_min"] },
+                { key: "5_to_15_min", label: "5-15 min", value: responseTime.bucketCounts["5_to_15_min"] },
+                { key: "15_to_60_min", label: "15-60 min", value: responseTime.bucketCounts["15_to_60_min"] },
+                { key: "1_to_24_hours", label: "1-24 hours", value: responseTime.bucketCounts["1_to_24_hours"] },
+                { key: "over_24_hours", label: "Over 24 hours", value: responseTime.bucketCounts.over_24_hours },
+              ]}
+            />
+          </div>
+        </div>
+      ) : null}
     </Section>
   );
 }

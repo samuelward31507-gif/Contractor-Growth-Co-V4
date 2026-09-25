@@ -10,7 +10,7 @@ import {
   getAiMetrics,
   getReviewReferralMetrics,
 } from "./queries";
-import { hasAnyLeadStageHistory } from "./funnel";
+import { hasAnyLeadStageHistory, getLeadsForRange, getLeadStageTransitionMetrics, getLeadStageTimingMetrics, getLeadResponseTimeMetrics } from "./funnel";
 import type {
   DateRangeInput,
   ResolvedDateRange,
@@ -28,6 +28,7 @@ import type {
   BiRevenueOpportunity,
   BiDataQuality,
   BusinessMetricsSnapshot,
+  LeadStageTimingMetrics,
 } from "./types";
 
 /**
@@ -500,7 +501,20 @@ async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, 
   };
 }
 
-function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean): BiDataQuality {
+/**
+ * Pass 5C, Batch 3B: the stageHistoryUnavailable note now also states the
+ * exact coverage fraction (leadsWithRecordedHistory of leadsInRange) rather
+ * than only a binary existence fact - this is the "smallest safe change"
+ * the Batch 3B audit recommended for the known existence-vs-coverage
+ * ambiguity: stageHistoryUnavailable's own type/name/computation are
+ * deliberately untouched (still a plain boolean, still fed by
+ * hasAnyLeadStageHistory), only the human-readable text a contractor
+ * actually reads is made precise. Never claims complete coverage - a
+ * partial-coverage period (some leads have recorded history, most don't)
+ * states that explicitly, using the real counts already computed by
+ * getLeadStageTimingMetrics for this same snapshot.
+ */
+function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics): BiDataQuality {
   const aiTokenUsageUnavailable = aiUsage.interactionsWithUsageData === 0;
   const notes = [
     "No payment/invoicing infrastructure exists - pipelineValue, estimateValue, and contractedJobValue are quoted/contracted figures, never collected revenue.",
@@ -508,8 +522,8 @@ function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean
   ];
   notes.push(
     stageHistoryUnavailable
-      ? "No lead.stage_changed event exists for this organization in this period - lib/bi/funnel.ts's historical funnel/timing functions have nothing to compute from yet."
-      : "Real, recorded lead stage-transition history exists for this period (lib/automation/lead-stage-history.ts) - see lib/bi/funnel.ts's getLeadStageTransitionMetrics/getLeadStageTimingMetrics for the historical funnel, not yet surfaced in this snapshot's own shape.",
+      ? "No lead.stage_changed event exists for this organization in this period - the historical funnel section below has nothing to compute from yet."
+      : `Historical stage timing (time to qualified/won) is available only for leads with a recorded lead.stage_changed event - in this period, that is ${timing.leadsWithRecordedHistory} of ${timing.leadsInRange} lead(s). This is not a complete historical record for every lead; see the funnel section below for the exact current counts before treating any average as representative of the full period.`,
   );
   notes.push(
     aiTokenUsageUnavailable
@@ -547,7 +561,7 @@ export async function getBusinessMetricsSnapshot(
   const range = resolveDateRange(dateRangeInput);
   const previousRange = previousPeriodOf(range);
 
-  const [{ lead, pipeline }, estimateMetrics, jobMetrics, appointmentMetrics, communicationMetrics, { automation, followUp }, aiMetrics, reviewReferralMetrics, stageHistoryExists, previousTotals] =
+  const [{ lead, pipeline }, estimateMetrics, jobMetrics, appointmentMetrics, communicationMetrics, { automation, followUp }, aiMetrics, reviewReferralMetrics, stageHistoryExists, sharedLeads, transitionMetrics, previousTotals] =
     await Promise.all([
       buildLeadMetrics(supabase, organizationId, range),
       buildEstimateMetrics(supabase, organizationId, range),
@@ -559,16 +573,24 @@ export async function getBusinessMetricsSnapshot(
       getReviewReferralMetrics(supabase, organizationId, range),
       // Pass 5C, Batch 3A: a cheap count:exact/head:true existence check -
       // see BiDataQuality.stageHistoryUnavailable's own comment in
-      // lib/bi/types.ts. Never fetches or attaches the full historical
-      // funnel dataset itself; that remains a separate, standalone call
-      // (lib/bi/funnel.ts's getLeadStageTransitionMetrics/
-      // getLeadStageTimingMetrics) not wired into this snapshot's shape.
+      // lib/bi/types.ts. Left exactly as-is per the Batch 3B audit's own
+      // instruction not to change this flag's computation mechanism, even
+      // though transitionMetrics/timingMetrics below are now also computed
+      // in this same function.
       hasAnyLeadStageHistory(supabase, organizationId, range),
+      // Pass 5C, Batch 3B: the one shared, range-scoped `leads` fetch reused
+      // below by getLeadStageTimingMetrics and getLeadResponseTimeMetrics -
+      // see lib/bi/funnel.ts's own header comment for why this replaces two
+      // separate, redundant `leads` reads with one.
+      getLeadsForRange(supabase, organizationId, range),
+      getLeadStageTransitionMetrics(supabase, organizationId, range),
       previousRange
         ? Promise.all([
             getLeadAndPipelineMetrics(supabase, organizationId, previousRange),
             getEstimateMetrics(supabase, organizationId, previousRange),
             getJobMetrics(supabase, organizationId, previousRange),
+            getLeadStageTransitionMetrics(supabase, organizationId, previousRange),
+            getLeadsForRange(supabase, organizationId, previousRange),
           ])
         : Promise.resolve(null),
     ]);
@@ -577,16 +599,32 @@ export async function getBusinessMetricsSnapshot(
 
   const revenueOpportunity = await buildRevenueOpportunity(supabase, organizationId);
 
+  // Second stage: getLeadStageTimingMetrics/getLeadResponseTimeMetrics both
+  // need `sharedLeads` (and, for the previous period, previousTotals[4])
+  // before they can run - the one unavoidable sequential dependency in this
+  // function, never expanded beyond what's genuinely required.
+  const [timingMetrics, responseTimeMetrics, previousResponseTimeMetrics] = await Promise.all([
+    getLeadStageTimingMetrics(supabase, organizationId, sharedLeads),
+    getLeadResponseTimeMetrics(supabase, organizationId, sharedLeads),
+    previousTotals ? getLeadResponseTimeMetrics(supabase, organizationId, previousTotals[4]) : Promise.resolve(null),
+  ]);
+
   const comparisons: BusinessMetricsComparisons = previousTotals
     ? {
         leadCount: computeComparison(lead.totalLeads, previousTotals[0].leads.totalLeads),
         estimateCount: computeComparison(estimateMetrics.totalEstimates, previousTotals[1].totalEstimates),
         jobCount: computeComparison(jobMetrics.totalJobs, previousTotals[2].totalJobs),
+        leadsTransitionedToQualified: computeComparison(transitionMetrics.leadsTransitionedToQualified, previousTotals[3].leadsTransitionedToQualified),
+        leadsTransitionedToWon: computeComparison(transitionMetrics.leadsTransitionedToWon, previousTotals[3].leadsTransitionedToWon),
+        leadsContacted: computeComparison(responseTimeMetrics.leadsContacted, previousResponseTimeMetrics!.leadsContacted),
       }
     : {
         leadCount: computeComparison(lead.totalLeads, null),
         estimateCount: computeComparison(estimateMetrics.totalEstimates, null),
         jobCount: computeComparison(jobMetrics.totalJobs, null),
+        leadsTransitionedToQualified: computeComparison(transitionMetrics.leadsTransitionedToQualified, null),
+        leadsTransitionedToWon: computeComparison(transitionMetrics.leadsTransitionedToWon, null),
+        leadsContacted: computeComparison(responseTimeMetrics.leadsContacted, null),
       };
 
   return {
@@ -604,7 +642,9 @@ export async function getBusinessMetricsSnapshot(
     followUpMetrics: followUp,
     revenueOpportunity,
     reviewReferralMetrics,
-    dataQuality: buildDataQuality(aiMetrics, !stageHistoryExists),
+    leadStageFunnel: { transitions: transitionMetrics, timing: timingMetrics },
+    responseTime: responseTimeMetrics,
+    dataQuality: buildDataQuality(aiMetrics, !stageHistoryExists, timingMetrics),
     generatedAt: new Date().toISOString(),
   };
 }

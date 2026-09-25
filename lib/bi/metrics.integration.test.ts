@@ -36,6 +36,7 @@ if (fs.existsSync(envPath)) {
 
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
 const { getBusinessMetricsSnapshot }: typeof import("./metrics") = require(path.join(REPO_ROOT, "lib/bi/metrics.ts"));
+const { emitLeadStageChangedAsService }: typeof import("@/lib/automation/lead-stage-history") = require(path.join(REPO_ROOT, "lib/automation/lead-stage-history.ts"));
 
 const service = createServiceRoleClient();
 
@@ -357,5 +358,268 @@ test("15. organization isolation: organization A's token totals never include or
     await service.from("ai_interactions").delete().eq("organization_id", orgB!.id);
     await service.from("organizations").delete().eq("id", orgA!.id);
     await service.from("organizations").delete().eq("id", orgB!.id);
+  }
+});
+
+// ==================== Pass 5C Batch 3B: leadStageFunnel/responseTime wiring ====================
+//
+// getBusinessMetricsSnapshot now also computes leadStageFunnel (transitions
+// + timing, lib/bi/funnel.ts) and responseTime (same file) - these tests
+// prove the wiring itself (the snapshot exposes real, correctly-scoped
+// values matching what the underlying, already-independently-tested
+// funnel.ts functions produce), not the underlying logic a second time
+// (see lib/bi/funnel.integration.test.ts's own 19 tests for that). Each
+// test uses its own dedicated, disposable organization - these are
+// aggregate, snapshot-wide counts, and the file's own shared
+// organizationId/otherOrgId would contaminate an exact-count assertion
+// (the same lesson already applied in this pass's dashboard/funnel test
+// files).
+
+function minutesAgoIso(minutes: number): string {
+  return new Date(Date.now() - minutes * 60 * 1000).toISOString();
+}
+
+async function makeConversation(orgId: string, contactId: string) {
+  const { data } = await service.from("conversations").insert({ organization_id: orgId, contact_id: contactId, channel: "sms", status: "open" }).select("id").single();
+  return data!.id as string;
+}
+
+async function makeMessage(orgId: string, conversationId: string, direction: "inbound" | "outbound", status: string, createdAt?: string) {
+  const payload: Record<string, unknown> = { organization_id: orgId, conversation_id: conversationId, direction, sender_type: direction === "outbound" ? "ai" : "customer", body: "test", status };
+  if (createdAt) payload.created_at = createdAt;
+  await service.from("messages").insert(payload);
+}
+
+async function cleanupSnapshotOrg(orgId: string) {
+  await service.from("messages").delete().eq("organization_id", orgId);
+  await service.from("conversations").delete().eq("organization_id", orgId);
+  await service.from("workflow_executions").delete().eq("organization_id", orgId);
+  await service.from("automation_events").delete().eq("organization_id", orgId);
+  await service.from("estimates").delete().eq("organization_id", orgId);
+  await service.from("appointments").delete().eq("organization_id", orgId);
+  await service.from("leads").delete().eq("organization_id", orgId);
+  await service.from("contacts").delete().eq("organization_id", orgId);
+  await service.from("organizations").delete().eq("id", orgId);
+}
+
+test("16 (A/B/C). the snapshot exposes leadStageFunnel and responseTime, with real values matching the underlying funnel.ts functions", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Batch 3B - 16)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const contactId = await makeContact(orgId, "+15555710001");
+    const leadCreatedAt = minutesAgoIso(120);
+    const leadId = await makeLead(orgId, contactId, "new", { created_at: leadCreatedAt });
+    await emitLeadStageChangedAsService(service, orgId, { leadId, previousStatus: null, newStatus: "new", source: "automation" });
+    await emitLeadStageChangedAsService(service, orgId, { leadId, previousStatus: "new", newStatus: "qualified", source: "automation" });
+    const conversationId = await makeConversation(orgId, contactId);
+    await makeMessage(orgId, conversationId, "outbound", "sent", minutesAgoIso(100));
+
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "allTime");
+
+    assert.ok(snapshot.leadStageFunnel, "expected leadStageFunnel on the snapshot");
+    assert.equal(snapshot.leadStageFunnel.transitions.leadsTransitionedToQualified, 1);
+    assert.equal(snapshot.leadStageFunnel.transitions.totalTransitions, 2);
+    assert.equal(snapshot.leadStageFunnel.timing.leadsWithRecordedHistory, 1);
+    assert.equal(snapshot.leadStageFunnel.timing.leadsWithQualifiedTiming, 1);
+    assert.ok(snapshot.leadStageFunnel.timing.averageTimeToQualifiedMs! > 0);
+
+    assert.ok(snapshot.responseTime, "expected responseTime on the snapshot");
+    assert.equal(snapshot.responseTime.totalLeadsInPopulation, 1);
+    assert.equal(snapshot.responseTime.leadsContacted, 1);
+    assert.equal(snapshot.responseTime.leadsNeverContacted, 0);
+  } finally {
+    await cleanupSnapshotOrg(orgId);
+  }
+});
+
+test("17 (D). organization isolation: organization A's real transitions/messages never appear in organization B's snapshot", async () => {
+  const { data: orgA } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Batch 3B - 17A)" }).select("id").single();
+  const { data: orgB } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Batch 3B - 17B)" }).select("id").single();
+  try {
+    const contactId = await makeContact(orgA!.id, "+15555710002");
+    const leadId = await makeLead(orgA!.id, contactId, "new");
+    await emitLeadStageChangedAsService(service, orgA!.id, { leadId, previousStatus: "new", newStatus: "qualified", source: "automation" });
+    const conversationId = await makeConversation(orgA!.id, contactId);
+    await makeMessage(orgA!.id, conversationId, "outbound", "sent");
+
+    const snapshotB = await getBusinessMetricsSnapshot(service, orgB!.id, "allTime");
+    assert.equal(snapshotB.leadStageFunnel.transitions.totalTransitions, 0);
+    assert.equal(snapshotB.leadStageFunnel.transitions.leadsTransitionedToQualified, 0);
+    assert.equal(snapshotB.responseTime.totalLeadsInPopulation, 0);
+    assert.equal(snapshotB.responseTime.leadsContacted, 0);
+  } finally {
+    await cleanupSnapshotOrg(orgA!.id);
+    await cleanupSnapshotOrg(orgB!.id);
+  }
+});
+
+test("18 (E/F). empty population: zero leads never crashes, every average/rate is null, never fabricated", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Batch 3B - 18)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "allTime");
+
+    assert.equal(snapshot.leadStageFunnel.timing.leadsInRange, 0);
+    assert.equal(snapshot.leadStageFunnel.timing.averageTimeToQualifiedMs, null);
+    assert.equal(snapshot.leadStageFunnel.timing.medianTimeToQualifiedMs, null);
+    assert.equal(snapshot.leadStageFunnel.timing.averageTimeToWonMs, null);
+
+    assert.equal(snapshot.responseTime.totalLeadsInPopulation, 0);
+    assert.equal(snapshot.responseTime.contactRate, null, "a zero-denominator rate must be null, never a fabricated 0%");
+    assert.equal(snapshot.responseTime.averageResponseTimeMs, null);
+    assert.equal(snapshot.responseTime.medianResponseTimeMs, null);
+  } finally {
+    await cleanupSnapshotOrg(orgId);
+  }
+});
+
+test("18b (F). NULL-safe timing: leads exist but none have a recorded transition - timing averages stay null, never fabricated from the current 'qualified' status", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Batch 3B - 18b)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const contactId = await makeContact(orgId, "+15555710003");
+    // Inserted directly at 'qualified' status with no emitLeadStageChangedAsService
+    // call at all - no automation_events row exists for this lead.
+    await makeLead(orgId, contactId, "qualified");
+
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "allTime");
+    assert.equal(snapshot.leadStageFunnel.timing.leadsInRange, 1);
+    assert.equal(snapshot.leadStageFunnel.timing.leadsWithRecordedHistory, 0);
+    assert.equal(snapshot.leadStageFunnel.timing.leadsWithQualifiedTiming, 0);
+    assert.equal(snapshot.leadStageFunnel.timing.averageTimeToQualifiedMs, null);
+  } finally {
+    await cleanupSnapshotOrg(orgId);
+  }
+});
+
+test("19 (G/H/I). leadsTransitionedToQualified/leadsTransitionedToWon/leadsContacted comparisons reflect current vs. previous equivalent period", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Batch 3B - 19)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    // Previous period: a lead created ~45 days ago, transitioned to
+    // qualified at that time, and successfully contacted then.
+    const previousContact = await makeContact(orgId, "+15555710004");
+    const previousLeadCreatedAt = minutesAgoIso(45 * 24 * 60);
+    const previousLeadId = await makeLead(orgId, previousContact, "new", { created_at: previousLeadCreatedAt });
+    await emitLeadStageChangedAsService(service, orgId, { leadId: previousLeadId, previousStatus: "new", newStatus: "qualified", source: "automation" });
+    // emitLeadStageChangedAsService always timestamps the real transition
+    // event at "now" (a genuine, real-time recording - there is no
+    // backdating parameter on the real function, by design). To simulate a
+    // transition that genuinely happened 45 days ago for this test, the
+    // resulting automation_events row's own created_at is backdated
+    // directly afterward - automation_events carries no BEFORE UPDATE
+    // trigger protecting created_at (unlike appointments.updated_at), so
+    // this update is not silently overwritten.
+    await service.from("automation_events").update({ created_at: minutesAgoIso(45 * 24 * 60) }).eq("organization_id", orgId).eq("entity_id", previousLeadId).eq("event_type", "lead.stage_changed");
+    const previousConversationId = await makeConversation(orgId, previousContact);
+    await makeMessage(orgId, previousConversationId, "outbound", "sent", minutesAgoIso(45 * 24 * 60 - 10));
+
+    // Current period: two leads, both created within the last day and
+    // transitioned to qualified, one also transitioned to won, both
+    // successfully contacted.
+    const currentContactA = await makeContact(orgId, "+15555710005");
+    const currentLeadA = await makeLead(orgId, currentContactA, "new", { created_at: minutesAgoIso(60) });
+    await emitLeadStageChangedAsService(service, orgId, { leadId: currentLeadA, previousStatus: "new", newStatus: "qualified", source: "automation" });
+    await emitLeadStageChangedAsService(service, orgId, { leadId: currentLeadA, previousStatus: "qualified", newStatus: "won", source: "automation", idempotencySuffix: "est-1" });
+    const conversationA = await makeConversation(orgId, currentContactA);
+    await makeMessage(orgId, conversationA, "outbound", "sent", minutesAgoIso(50));
+
+    const currentContactB = await makeContact(orgId, "+15555710006");
+    const currentLeadB = await makeLead(orgId, currentContactB, "new", { created_at: minutesAgoIso(30) });
+    await emitLeadStageChangedAsService(service, orgId, { leadId: currentLeadB, previousStatus: "new", newStatus: "qualified", source: "automation" });
+    const conversationB = await makeConversation(orgId, currentContactB);
+    await makeMessage(orgId, conversationB, "outbound", "sent", minutesAgoIso(20));
+
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "last7Days");
+
+    assert.equal(snapshot.comparisons.leadsTransitionedToQualified.current, 2, "2 leads qualified in the current (last 7 days) period");
+    assert.equal(snapshot.comparisons.leadsTransitionedToWon.current, 1);
+    assert.equal(snapshot.comparisons.leadsContacted.current, 2);
+    // The previous-period lead/transition/message all sit ~45 days ago -
+    // well outside last7Days' own previous-equivalent-period window (the
+    // 7 days immediately before the current 7-day window) - so the
+    // previous counts for this specific comparison are correctly 0, not
+    // the ~45-day-old activity above. This proves the comparison is
+    // genuinely period-scoped, not merely "any earlier activity."
+    assert.equal(snapshot.comparisons.leadsTransitionedToQualified.previous, 0);
+    assert.equal(snapshot.comparisons.leadsTransitionedToWon.previous, 0);
+    assert.equal(snapshot.comparisons.leadsContacted.previous, 0);
+  } finally {
+    await cleanupSnapshotOrg(orgId);
+  }
+});
+
+test("20 (J). open-ended range (allTime): all three new comparisons have previous:null, matching the existing leadCount/estimateCount/jobCount behavior", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Batch 3B - 20)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const contactId = await makeContact(orgId, "+15555710007");
+    const leadId = await makeLead(orgId, contactId, "new");
+    await emitLeadStageChangedAsService(service, orgId, { leadId, previousStatus: "new", newStatus: "qualified", source: "automation" });
+
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "allTime");
+
+    assert.equal(snapshot.comparisons.leadCount.previous, null, "existing behavior: allTime has no previous period");
+    assert.equal(snapshot.comparisons.leadsTransitionedToQualified.previous, null);
+    assert.equal(snapshot.comparisons.leadsTransitionedToWon.previous, null);
+    assert.equal(snapshot.comparisons.leadsContacted.previous, null);
+    assert.equal(snapshot.comparisons.leadsTransitionedToQualified.percentageChange, null);
+  } finally {
+    await cleanupSnapshotOrg(orgId);
+  }
+});
+
+test("21 (K). the data-quality note contains the precise partial-history coverage warning, with the real counts", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Batch 3B - 21)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const contactA = await makeContact(orgId, "+15555710008");
+    const leadA = await makeLead(orgId, contactA, "new");
+    await emitLeadStageChangedAsService(service, orgId, { leadId: leadA, previousStatus: "new", newStatus: "qualified", source: "automation" });
+    // A second lead with NO recorded transition - partial coverage.
+    const contactB = await makeContact(orgId, "+15555710009");
+    await makeLead(orgId, contactB, "new");
+
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "allTime");
+
+    assert.equal(snapshot.dataQuality.stageHistoryUnavailable, false, "at least one real transition exists, so the flag itself is correctly false");
+    const coverageNote = snapshot.dataQuality.notes.find((note) => note.includes("Historical stage timing"));
+    assert.ok(coverageNote, "expected a data-quality note describing historical stage timing coverage");
+    assert.ok(coverageNote!.includes("1 of 2"), `expected the note to state the real coverage fraction (1 of 2), got: ${coverageNote}`);
+    // The note is allowed to contain the word "complete" as part of an
+    // explicit NEGATION ("not a complete historical record") - what must
+    // never appear is an affirmative claim of completeness.
+    assert.ok(!/\bis a complete\b|\bfully complete\b|\bcomplete coverage\b/i.test(coverageNote!), `must never affirmatively claim complete coverage, got: ${coverageNote}`);
+    assert.ok(coverageNote!.toLowerCase().includes("not a complete"), "must explicitly state coverage is not complete");
+  } finally {
+    await cleanupSnapshotOrg(orgId);
+  }
+});
+
+test("22 (L). the consolidated shared-leads fetch produces identical results to calling the underlying funnel.ts functions directly", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Batch 3B - 22)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const contactId = await makeContact(orgId, "+15555710010");
+    const leadId = await makeLead(orgId, contactId, "new", { created_at: minutesAgoIso(90) });
+    await emitLeadStageChangedAsService(service, orgId, { leadId, previousStatus: "new", newStatus: "qualified", source: "automation" });
+    const conversationId = await makeConversation(orgId, contactId);
+    await makeMessage(orgId, conversationId, "outbound", "sent", minutesAgoIso(80));
+
+    const require2 = createRequire(path.join(REPO_ROOT, "package.json"));
+    const { getLeadsForRange, getLeadStageTimingMetrics, getLeadResponseTimeMetrics }: typeof import("./funnel") = require2(path.join(REPO_ROOT, "lib/bi/funnel.ts"));
+    const { resolveDateRange }: typeof import("./queries") = require2(path.join(REPO_ROOT, "lib/bi/queries.ts"));
+
+    const range = resolveDateRange("allTime");
+    const sharedLeads = await getLeadsForRange(service, orgId, range);
+    const directTiming = await getLeadStageTimingMetrics(service, orgId, sharedLeads);
+    const directResponseTime = await getLeadResponseTimeMetrics(service, orgId, sharedLeads);
+
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "allTime");
+
+    assert.deepEqual(snapshot.leadStageFunnel.timing, directTiming, "the snapshot's own timing metrics must exactly match calling the underlying function directly with the same shared leads");
+    assert.deepEqual(snapshot.responseTime, directResponseTime, "the snapshot's own response-time metrics must exactly match calling the underlying function directly");
+  } finally {
+    await cleanupSnapshotOrg(orgId);
   }
 });

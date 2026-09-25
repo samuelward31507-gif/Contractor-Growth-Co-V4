@@ -332,6 +332,28 @@ export type BusinessMetricsComparisons = {
   leadCount: PeriodComparison;
   estimateCount: PeriodComparison;
   jobCount: PeriodComparison;
+  /**
+   * Pass 5C, Batch 3B: distinct leads with at least one recorded
+   * lead.stage_changed transition into 'qualified' in the current vs.
+   * previous period - a pure activity count over automation_events.created_at,
+   * the same comparison semantics as leadCount/estimateCount/jobCount above
+   * (null `previous`/`percentageChange` under the identical open-ended-range
+   * and zero-previous rules). Never a rate, never a claim about coverage -
+   * see LeadStageTimingMetrics for the (deliberately not compared) timing
+   * figures this count is distinct from.
+   */
+  leadsTransitionedToQualified: PeriodComparison;
+  /** Same shape as leadsTransitionedToQualified, for the 'won' transition. */
+  leadsTransitionedToWon: PeriodComparison;
+  /**
+   * Distinct leads (created in the current vs. previous period) with at
+   * least one real successful outbound message recorded at or after their
+   * own creation - the same population LeadResponseTimeMetrics.leadsContacted
+   * counts for a single period. A pure count comparison, never the
+   * contactRate percentage itself (no existing precedent in this file
+   * compares a rate across periods - see this field's own Batch 3B audit).
+   */
+  leadsContacted: PeriodComparison;
 };
 
 export type BiLeadMetrics = {
@@ -638,6 +660,29 @@ export type BusinessMetricsSnapshot = {
    * were created in this window" is a genuine date-range question.
    */
   reviewReferralMetrics: ReviewReferralMetrics;
+  /**
+   * Pass 5C, Batch 3B: the historical lead-stage funnel (lib/bi/funnel.ts's
+   * getLeadStageTransitionMetrics/getLeadStageTimingMetrics), wired into the
+   * snapshot for the first time - unlike revenueOpportunity/
+   * RepeatCustomerSummary, both `transitions` (scoped by the transition's own
+   * created_at) and `timing` (scoped by leads.created_at) are genuinely
+   * period-scoped, computed for the same `period` as every other group here.
+   * `timing`'s own averages are only ever computed over leads with a real
+   * recorded transition (leadsWithQualifiedTiming/leadsWithWonTiming) -
+   * never fabricated for the full leadsInRange population. See
+   * LeadStageTimingMetrics's own doc comment above for the exact coverage
+   * semantics a caller must respect before displaying any of its averages.
+   */
+  leadStageFunnel: { transitions: LeadStageTransitionMetrics; timing: LeadStageTimingMetrics };
+  /**
+   * Pass 5C, Batch 3B: lib/bi/funnel.ts's getLeadResponseTimeMetrics, scoped
+   * to the same `period` as every other group here. See
+   * LeadResponseTimeMetrics's own doc comment above for the full evidence
+   * hierarchy, population definition, and the explicit created_at-vs-
+   * delivery-time limitation - never rendered with wording that implies a
+   * guaranteed Twilio delivery timestamp.
+   */
+  responseTime: LeadResponseTimeMetrics;
   dataQuality: BiDataQuality;
   /** Wall-clock time this snapshot was computed - not a business timestamp. */
   generatedAt: string;

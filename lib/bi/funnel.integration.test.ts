@@ -41,7 +41,7 @@ if (fs.existsSync(envPath)) {
 
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
 const { emitLeadStageChangedAsService }: typeof import("@/lib/automation/lead-stage-history") = require(path.join(REPO_ROOT, "lib/automation/lead-stage-history.ts"));
-const { getLeadStageTransitionMetrics, getLeadStageTimingMetrics, hasAnyLeadStageHistory, getLeadResponseTimeMetrics }: typeof import("./funnel") = require(path.join(REPO_ROOT, "lib/bi/funnel.ts"));
+const { getLeadStageTransitionMetrics, getLeadStageTimingMetrics, hasAnyLeadStageHistory, getLeadResponseTimeMetrics, getLeadsForRange }: typeof import("./funnel") = require(path.join(REPO_ROOT, "lib/bi/funnel.ts"));
 
 const service = createServiceRoleClient();
 
@@ -105,7 +105,7 @@ test("C1. a real recorded transition is counted in transitionCounts and contribu
     assert.equal(transitions.leadsTransitionedToQualified, 1);
     assert.equal(transitions.transitionCounts["new->qualified"], 1);
 
-    const timing = await getLeadStageTimingMetrics(service, orgId, ALL_TIME);
+    const timing = await getLeadStageTimingMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(timing.leadsInRange, 1);
     assert.equal(timing.leadsWithRecordedHistory, 1);
     assert.equal(timing.leadsWithQualifiedTiming, 1);
@@ -123,7 +123,7 @@ test("C2. the transition's own recorded timestamp is preserved and used for timi
     await emitLeadStageChangedAsService(service, orgId, { leadId, previousStatus: null, newStatus: "new", source: "automation" });
     await emitLeadStageChangedAsService(service, orgId, { leadId, previousStatus: "new", newStatus: "qualified", source: "automation" });
 
-    const timing = await getLeadStageTimingMetrics(service, orgId, ALL_TIME);
+    const timing = await getLeadStageTimingMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     // Real elapsed time is roughly 60 minutes (the lead's own backdated
     // created_at to "now", when the transition was actually recorded) -
     // bounded loosely to allow for real test execution time, never exactly
@@ -169,7 +169,7 @@ test("C4. a lead with NO recorded transition contributes to the population but N
     // automation_events row is ever created for this lead.
     await makeLead(orgId, contactId, "qualified", minutesAgoIso(500));
 
-    const timing = await getLeadStageTimingMetrics(service, orgId, ALL_TIME);
+    const timing = await getLeadStageTimingMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(timing.leadsInRange, 1);
     assert.equal(timing.leadsWithRecordedHistory, 0, "no automation_events row exists for this lead, so it must never be counted as having history");
     assert.equal(timing.leadsWithQualifiedTiming, 0, "must never infer a qualified timestamp from the lead's current status");
@@ -213,7 +213,7 @@ test("D1. an immediate (under 1 minute) response is bucketed correctly", async (
     const conversationId = await makeConversation(orgId, contactId);
     await makeMessage(orgId, conversationId, "outbound", "sent", minutesAgoIso(9.75));
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.leadsContacted, 1);
     assert.equal(metrics.bucketCounts.under_1_min, 1);
   } finally {
@@ -230,7 +230,7 @@ test("D2. a several-minute response lands in the 1-5 minute bucket", async () =>
     const conversationId = await makeConversation(orgId, contactId);
     await makeMessage(orgId, conversationId, "outbound", "sent", minutesAgoIso(27));
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.bucketCounts["1_to_5_min"], 1);
   } finally {
     await cleanupOrg(orgId);
@@ -246,7 +246,7 @@ test("D3. an hour-level response lands in the 15-60 minute bucket", async () => 
     const conversationId = await makeConversation(orgId, contactId);
     await makeMessage(orgId, conversationId, "outbound", "sent", minutesAgoIso(90));
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.bucketCounts["15_to_60_min"], 1);
   } finally {
     await cleanupOrg(orgId);
@@ -264,7 +264,7 @@ test("D4. a response after more than 24 hours lands in the over_24_hours bucket"
     const conversationId = await makeConversation(orgId, contactId);
     await makeMessage(orgId, conversationId, "outbound", "sent", minutesAgoIso(60 * 5));
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.bucketCounts.over_24_hours, 1);
   } finally {
     await cleanupOrg(orgId);
@@ -277,7 +277,7 @@ test("D5. a lead with no outbound message at all is never contacted", async () =
     const contactId = await makeContact(orgId, "+15555700105");
     await makeLead(orgId, contactId, "new");
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.leadsContacted, 0);
     assert.equal(metrics.leadsNeverContacted, 1);
   } finally {
@@ -293,7 +293,7 @@ test("D6. a QUEUED-only outbound message never counts as contact", async () => {
     const conversationId = await makeConversation(orgId, contactId);
     await makeMessage(orgId, conversationId, "outbound", "queued");
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.leadsContacted, 0);
     assert.equal(metrics.leadsNeverContacted, 1);
   } finally {
@@ -309,7 +309,7 @@ test("D7. a FAILED-only outbound message never counts as contact - an attempt is
     const conversationId = await makeConversation(orgId, contactId);
     await makeMessage(orgId, conversationId, "outbound", "failed");
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.leadsContacted, 0);
     assert.equal(metrics.leadsNeverContacted, 1);
   } finally {
@@ -326,7 +326,7 @@ test("D8. a DELIVERED outbound message counts as successful contact", async () =
     const conversationId = await makeConversation(orgId, contactId);
     await makeMessage(orgId, conversationId, "outbound", "delivered", minutesAgoIso(18));
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.leadsContacted, 1);
   } finally {
     await cleanupOrg(orgId);
@@ -344,7 +344,7 @@ test("D9. multiple outbound messages use the FIRST successful one, not a later o
     await makeMessage(orgId, conversationId, "outbound", "sent", minutesAgoIso(50));
     await makeMessage(orgId, conversationId, "outbound", "sent", minutesAgoIso(10));
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.leadsContacted, 1);
     // ~10 minutes from creation (60) to the first SUCCESSFUL send (50) - not
     // the failed attempt at 55, and not the second successful send at 10.
@@ -362,7 +362,7 @@ test("D10. an inbound message alone never counts as outbound contact", async () 
     const conversationId = await makeConversation(orgId, contactId);
     await makeMessage(orgId, conversationId, "inbound", "received");
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.leadsContacted, 0);
     assert.equal(metrics.leadsNeverContacted, 1);
   } finally {
@@ -382,7 +382,7 @@ test("D11. organization isolation: organization A's real successful outbound mes
     const contactB = await makeContact(orgB, "+15555700112");
     await makeLead(orgB, contactB, "new");
 
-    const metricsB = await getLeadResponseTimeMetrics(service, orgB, ALL_TIME);
+    const metricsB = await getLeadResponseTimeMetrics(service, orgB, await getLeadsForRange(service, orgB, ALL_TIME));
     assert.equal(metricsB.totalLeadsInPopulation, 1);
     assert.equal(metricsB.leadsContacted, 0, "organization A's message must never count toward organization B's population");
   } finally {
@@ -401,7 +401,7 @@ test("D12. date boundary: leads.created_at is scoped [from, to) - a lead exactly
     await makeLead(orgId, contact1, "new", fromIso);
     await makeLead(orgId, contact2, "new", toIso);
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, { label: "custom", from: fromIso, to: toIso });
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, { label: "custom", from: fromIso, to: toIso }));
     assert.equal(metrics.totalLeadsInPopulation, 1, "the lead created exactly at `from` must be included, and the one exactly at `to` must be excluded");
   } finally {
     await cleanupOrg(orgId);
@@ -411,7 +411,7 @@ test("D12. date boundary: leads.created_at is scoped [from, to) - a lead exactly
 test("D13. empty population: zero leads in range never crashes and returns real zeroed/null values", async () => {
   const orgId = await makeOrg("BI Funnel Test Org (D13)");
   try {
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.totalLeadsInPopulation, 0);
     assert.equal(metrics.leadsContacted, 0);
     assert.equal(metrics.leadsNeverContacted, 0);
@@ -429,7 +429,7 @@ test("D14. NULL-safe metrics: averageResponseTimeMs/medianResponseTimeMs stay nu
     const contactId = await makeContact(orgId, "+15555700115");
     await makeLead(orgId, contactId, "new");
 
-    const metrics = await getLeadResponseTimeMetrics(service, orgId, ALL_TIME);
+    const metrics = await getLeadResponseTimeMetrics(service, orgId, await getLeadsForRange(service, orgId, ALL_TIME));
     assert.equal(metrics.totalLeadsInPopulation, 1);
     assert.equal(metrics.leadsContacted, 0);
     assert.equal(metrics.averageResponseTimeMs, null);
