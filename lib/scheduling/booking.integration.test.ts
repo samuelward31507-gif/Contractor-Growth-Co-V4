@@ -413,6 +413,175 @@ test("19. AI SAFETY: the success payload contains only the documented fields - n
 });
 
 // ===========================================================================
+// Pass 5C Batch 5, Phase 1: appointment automation attribution
+// (appointments.source_workflow_execution_id)
+// ===========================================================================
+
+test("22. ATTRIBUTION: a successful automated booking sets source_workflow_execution_id to the exact appointment_booking execution bookAppointment() created", async () => {
+  const slot = { start_at: "2026-10-06T09:00:00.000Z", end_at: "2026-10-06T10:00:00.000Z" };
+  const result = await bookAppointment(service, { organizationId, contactId, startAt: slot.start_at, endAt: slot.end_at, title: "AC Repair", idempotencyKey: "booking:test-22" });
+  assert.equal(result.success, true);
+  if (!result.success) return;
+
+  const { data: appointment } = await service.from("appointments").select("source_workflow_execution_id").eq("id", result.appointmentId).single();
+  assert.ok(appointment?.source_workflow_execution_id, "a booking created through bookAppointment() must record its own attribution");
+
+  const { data: execution } = await service.from("workflow_executions").select("organization_id, workflow_name, status, metadata").eq("id", appointment!.source_workflow_execution_id).single();
+  assert.equal(execution?.organization_id, organizationId);
+  assert.equal(execution?.workflow_name, "appointment_booking");
+  assert.equal(execution?.status, "completed");
+  // The reverse link (execution -> appointment, via metadata) already
+  // existed before this pass - confirms both directions agree rather than
+  // this migration inventing a second, possibly-drifting source of truth.
+  assert.equal((execution?.metadata as Record<string, unknown> | undefined)?.appointment_id, result.appointmentId);
+});
+
+test("23. ATTRIBUTION: a manually-created appointment (the shape app/(app)/appointments/actions.ts's createAppointment inserts - no source_workflow_execution_id in the payload) leaves attribution NULL", async () => {
+  // Mirrors createAppointment's own insert payload exactly (organization_id,
+  // contact_id, title, start_at, end_at, status) with no
+  // source_workflow_execution_id field at all - proving the column defaults
+  // to NULL rather than requiring an explicit null, which is what that
+  // server action's own insert() call actually does (verified by direct
+  // code inspection, not exercised here through a session-authenticated
+  // server action - this codebase has no existing harness for driving
+  // requireOrganization()-gated server actions from an integration test,
+  // and building one is out of this pass's scope).
+  const { data: appointment } = await service
+    .from("appointments")
+    .insert({ organization_id: organizationId, contact_id: contactId, title: "Manually booked", start_at: "2026-10-06T11:00:00.000Z", end_at: "2026-10-06T12:00:00.000Z", status: "scheduled" })
+    .select("source_workflow_execution_id")
+    .single();
+  assert.equal(appointment?.source_workflow_execution_id, null);
+});
+
+test("24. ATTRIBUTION: retrying the same idempotencyKey never switches or duplicates attribution", async () => {
+  const slot = { start_at: "2026-10-06T13:00:00.000Z", end_at: "2026-10-06T14:00:00.000Z" };
+  const key = "booking:test-24";
+
+  const first = await bookAppointment(service, { organizationId, contactId, startAt: slot.start_at, endAt: slot.end_at, title: "AC Repair", idempotencyKey: key });
+  assert.equal(first.success, true);
+  if (!first.success) return;
+  const { data: firstAppointment } = await service.from("appointments").select("source_workflow_execution_id").eq("id", first.appointmentId).single();
+
+  const second = await bookAppointment(service, { organizationId, contactId, startAt: slot.start_at, endAt: slot.end_at, title: "AC Repair (retry)", idempotencyKey: key });
+  assert.equal(second.success, true);
+  if (!second.success) return;
+  assert.equal(second.appointmentId, first.appointmentId, "a retry must resolve to the same appointment, not a new one");
+
+  const { data: secondAppointment } = await service.from("appointments").select("source_workflow_execution_id").eq("id", second.appointmentId).single();
+  assert.equal(secondAppointment?.source_workflow_execution_id, firstAppointment?.source_workflow_execution_id, "a retry must never change the original attribution");
+
+  const { data: appointmentsForSlot } = await service.from("appointments").select("id").eq("organization_id", organizationId).eq("start_at", slot.start_at);
+  assert.equal(appointmentsForSlot?.length, 1, "a retry must never create a second appointment row");
+});
+
+test("25. ATTRIBUTION: rescheduling an appointment preserves its original attribution unchanged", async () => {
+  const slot = { start_at: "2026-10-06T15:00:00.000Z", end_at: "2026-10-06T16:00:00.000Z" };
+  const booked = await bookAppointment(service, { organizationId, contactId, startAt: slot.start_at, endAt: slot.end_at, title: "AC Repair", idempotencyKey: "booking:test-25" });
+  assert.equal(booked.success, true);
+  if (!booked.success) return;
+
+  const { data: before } = await service.from("appointments").select("source_workflow_execution_id").eq("id", booked.appointmentId).single();
+  assert.ok(before?.source_workflow_execution_id);
+
+  const rescheduled = await rescheduleAppointment(service, {
+    organizationId,
+    contactId,
+    appointmentId: booked.appointmentId,
+    // Within the fixture's 09:00-17:00 business hours (17:00-18:00 is not -
+    // business hours close AT 17:00, so 17:00 can never be a valid slot
+    // start). 10:00-11:00 is the one hour on 2026-10-06 that no other test
+    // in this file ever occupies for organizationId (09-10: test 22,
+    // 11-12: test 23, 13-14: test 24, 14-15: test 20 below, 15-16: this
+    // test's own original booking, 16-17: test 21 below).
+    startAt: "2026-10-06T10:00:00.000Z",
+    endAt: "2026-10-06T11:00:00.000Z",
+    idempotencyKey: "reschedule:test-25",
+  });
+  assert.equal(rescheduled.success, true);
+
+  const { data: after } = await service.from("appointments").select("source_workflow_execution_id").eq("id", booked.appointmentId).single();
+  assert.equal(after?.source_workflow_execution_id, before?.source_workflow_execution_id, "rescheduleAppointment() UPDATEs the existing row and must never clear or replace its original attribution");
+});
+
+test("26. ATTRIBUTION: the foreign key rejects a nonexistent workflow_execution id", async () => {
+  const { error } = await service
+    .from("appointments")
+    .insert({
+      organization_id: organizationId,
+      contact_id: contactId,
+      title: "Should be rejected",
+      start_at: "2026-10-06T19:00:00.000Z",
+      end_at: "2026-10-06T20:00:00.000Z",
+      status: "scheduled",
+      source_workflow_execution_id: "00000000-0000-0000-0000-000000000000",
+    })
+    .select("id")
+    .single();
+  assert.ok(error, "inserting a nonexistent execution id must fail");
+  assert.equal(error?.code, "23503", "must fail as a foreign key violation");
+});
+
+test("27. ATTRIBUTION: cross-org safety - organization A's and organization B's automated bookings each attribute only to their own organization's execution", async () => {
+  // Within business hours (09:00-17:00). For organizationId, the only
+  // remaining unused hour on 2026-10-06 is 12:00-13:00 (09-10: test 22,
+  // 10-11: test 25's reschedule target above, 11-12: test 23, 13-14: test
+  // 24, 14-15: test 20 below, 15-16: test 25's own original booking, 16-17:
+  // test 21 below). otherOrganizationId has no other appointment anywhere
+  // in this file on 2026-10-06 (its only other booking, test 14, is on
+  // 2026-10-05) - its own exclusion-constraint scope is independent of
+  // organizationId's, so reusing the same clock time for organization B
+  // here is safe and mirrors this file's own established "identical time,
+  // different org" pattern (see test 14).
+  const slotA = { start_at: "2026-10-06T12:00:00.000Z", end_at: "2026-10-06T13:00:00.000Z" };
+  const slotB = { start_at: "2026-10-06T12:00:00.000Z", end_at: "2026-10-06T13:00:00.000Z" };
+
+  const resultA = await bookAppointment(service, { organizationId, contactId, startAt: slotA.start_at, endAt: slotA.end_at, title: "Org A booking", idempotencyKey: "booking:test-27-a" });
+  const resultB = await bookAppointment(service, { organizationId: otherOrganizationId, contactId: otherOrgContactId, startAt: slotB.start_at, endAt: slotB.end_at, title: "Org B booking", idempotencyKey: "booking:test-27-b" });
+  assert.equal(resultA.success, true);
+  assert.equal(resultB.success, true);
+  if (!resultA.success || !resultB.success) return;
+
+  const { data: appointmentA } = await service.from("appointments").select("source_workflow_execution_id").eq("id", resultA.appointmentId).single();
+  const { data: appointmentB } = await service.from("appointments").select("source_workflow_execution_id").eq("id", resultB.appointmentId).single();
+  assert.notEqual(appointmentA?.source_workflow_execution_id, appointmentB?.source_workflow_execution_id);
+
+  const { data: executionA } = await service.from("workflow_executions").select("organization_id").eq("id", appointmentA!.source_workflow_execution_id).single();
+  const { data: executionB } = await service.from("workflow_executions").select("organization_id").eq("id", appointmentB!.source_workflow_execution_id).single();
+  assert.equal(executionA?.organization_id, organizationId, "organization A's appointment must attribute only to an execution owned by organization A");
+  assert.equal(executionB?.organization_id, otherOrganizationId, "organization B's appointment must attribute only to an execution owned by organization B");
+});
+
+test("28. ATTRIBUTION: pre-existing (historical) appointment rows are never backfilled and remain NULL", async () => {
+  // Simulates a row that existed before this migration - a plain insert
+  // with no source_workflow_execution_id, exactly like every appointment
+  // ever created before this pass. The column's own default (no DEFAULT
+  // clause, nullable) is what guarantees this, not any application code -
+  // this test exists to keep that guarantee under regression coverage.
+  const { data: historical } = await service
+    .from("appointments")
+    .insert({ organization_id: organizationId, contact_id: contactId, title: "Pre-existing appointment", start_at: "2026-10-06T22:00:00.000Z", end_at: "2026-10-06T23:00:00.000Z", status: "scheduled" })
+    .select("source_workflow_execution_id")
+    .single();
+  assert.equal(historical?.source_workflow_execution_id, null);
+});
+
+test("29. ATTRIBUTION: opportunity sync (detection/resolution) never writes to appointment attribution", async () => {
+  const slot = { start_at: "2026-10-07T09:00:00.000Z", end_at: "2026-10-07T10:00:00.000Z" };
+  const booked = await bookAppointment(service, { organizationId, contactId, startAt: slot.start_at, endAt: slot.end_at, title: "AC Repair", idempotencyKey: "booking:test-29" });
+  assert.equal(booked.success, true);
+  if (!booked.success) return;
+
+  const { data: before } = await service.from("appointments").select("source_workflow_execution_id").eq("id", booked.appointmentId).single();
+
+  const { syncOpportunities }: typeof import("@/lib/opportunities/detect") = require(path.join(REPO_ROOT, "lib/opportunities/detect.ts"));
+  await syncOpportunities(service, organizationId);
+
+  const { data: after } = await service.from("appointments").select("source_workflow_execution_id").eq("id", booked.appointmentId).single();
+  assert.equal(after?.source_workflow_execution_id, before?.source_workflow_execution_id, "opportunity sync must never touch appointment attribution - detection and attribution are separate concerns");
+});
+
+// ===========================================================================
 // Pass 5B, Part A5: rescheduleAppointment confirmation invalidation
 // ===========================================================================
 

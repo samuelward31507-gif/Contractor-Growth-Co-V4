@@ -252,6 +252,12 @@ export async function bookAppointment(
       end_at: input.endAt,
       status: "scheduled",
       notes: input.notes ?? null,
+      // Pass 5C Batch 5, Phase 1: executionId is this exact call's own
+      // freshly-created workflow_execution (started above) - never a
+      // caller-supplied value, so attribution can never point at another
+      // organization's execution or be spoofed. See the migration's own
+      // comment for the full attribution design.
+      source_workflow_execution_id: executionId,
     })
     .select("id")
     .single();

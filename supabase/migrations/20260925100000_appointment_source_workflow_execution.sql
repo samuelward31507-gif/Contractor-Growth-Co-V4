@@ -1,0 +1,53 @@
+-- Pass 5C Batch 5, Phase 1: appointment automation attribution.
+--
+-- Makes the already-existing causal relationship between a Trackpr booking
+-- action and the appointment it creates a real, forward-queryable foreign
+-- key, instead of relying only on workflow_executions.metadata->>'appointment_id'
+-- (lib/scheduling/booking.ts's bookAppointment() already writes that reverse
+-- link today, in BookingOutcomeMetadata - this migration adds nothing new
+-- to what is knowable, only makes it queryable from the appointments side).
+--
+-- Anchor is workflow_executions.id, not automation_events.id - see the Pass
+-- 5C Batch 5 read-only design audit's own Attribution Anchor Analysis: an
+-- execution is the more precise causal unit (the specific attempt that
+-- actually completed and produced the outcome, not just the general
+-- triggering fact), and it is already a local variable (`executionId`) in
+-- scope at the exact appointment INSERT inside bookAppointment() - no new
+-- query, no new event/execution creation needed to populate it.
+--
+-- Nullable, no backfill, no NOT NULL constraint:
+--   - NULL for every appointment created via the manual staff booking path
+--     (app/(app)/appointments/actions.ts's createAppointment - a real
+--     session-authenticated server action with no automation_event/
+--     workflow_execution of its own to attribute to).
+--   - NULL for every appointment that already existed before this
+--     migration - deliberately never fabricated from created_at,
+--     conversation/message proximity, or automation_events/
+--     workflow_executions metadata for historical rows. Temporal inference
+--     is explicitly out of scope for this pass.
+--   - Populated only by bookAppointment()'s own appointment INSERT, using
+--     the execution it just created for that exact booking action -
+--     bookAppointment() never accepts a caller-supplied execution id, so
+--     cross-org attachment is structurally impossible, not merely
+--     RLS-blocked.
+--
+-- ON DELETE SET NULL (not RESTRICT/CASCADE): losing the audit trail to a
+-- (hypothetical, not currently performed anywhere) workflow_executions
+-- deletion must never block or cascade-delete the appointment itself - the
+-- appointment is the real, durable business record; the attribution is
+-- enrichment on top of it, matching this schema's existing convention for
+-- non-revenue-table references (leads.contact_id, review_requests.job_id,
+-- etc.).
+--
+-- No RLS policy change: appointments' existing select/insert/update/delete
+-- policies (is_org_member(organization_id)) already cover every column,
+-- since none of them enumerate specific columns - this is a plain additive
+-- column on an already-protected table.
+--
+-- No index: the Pass 5C Batch 5 audit explicitly deferred an index on this
+-- column until a concrete production query shape requires it (e.g. an
+-- "automated vs. manual" analytics breakdown, not built in this phase).
+-- Adding one speculatively now is out of this pass's scope.
+
+alter table public.appointments
+  add column if not exists source_workflow_execution_id uuid references public.workflow_executions(id) on delete set null;
