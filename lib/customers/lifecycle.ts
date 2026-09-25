@@ -93,6 +93,15 @@ export type RepeatCustomerSummary = {
   /** SUM(jobs.amount) over ALL completed jobs org-wide with a non-null amount, all-time. */
   knownCompletedJobValue: number;
   averageKnownCompletedJobValue: number | null;
+  /**
+   * Pass 4 P1-C: count of completed jobs BEYOND each repeat customer's
+   * first (max(jobCount - 1, 0) per repeat customer, summed) - "how much
+   * repeat work actually happened," never counting a customer's first job
+   * as itself a sign of repeat business.
+   */
+  additionalCompletedJobCount: number;
+  /** SUM(jobs.amount) over only the "additional" jobs above, non-null amounts only - never the customer's first job's value, never a null coerced to 0. */
+  additionalCompletedJobKnownValue: number;
 };
 
 /**
@@ -119,8 +128,20 @@ export async function getRepeatCustomerSummary(supabase: SupabaseClient, organiz
   let repeatCustomerCount = 0;
   let knownCompletedJobValue = 0;
   let knownCompletedJobValueCount = 0;
+  let additionalCompletedJobCount = 0;
+  let additionalCompletedJobKnownValue = 0;
   for (const list of byContact.values()) {
-    if (list.length >= 2) repeatCustomerCount += 1;
+    if (list.length >= 2) {
+      repeatCustomerCount += 1;
+      // Earliest job first (unknown completed_at sorts last - a job with no
+      // recorded completion date is never treated as definitively "first").
+      const ordered = [...list].sort((a, b) => (a.completed_at ?? "9999") < (b.completed_at ?? "9999") ? -1 : 1);
+      const additionalJobs = ordered.slice(1);
+      additionalCompletedJobCount += additionalJobs.length;
+      for (const job of additionalJobs) {
+        if (job.amount != null) additionalCompletedJobKnownValue += job.amount;
+      }
+    }
     for (const job of list) {
       if (job.amount != null) {
         knownCompletedJobValue += job.amount;
@@ -136,5 +157,43 @@ export async function getRepeatCustomerSummary(supabase: SupabaseClient, organiz
     completedJobCount: jobs.length,
     knownCompletedJobValue,
     averageKnownCompletedJobValue: knownCompletedJobValueCount === 0 ? null : knownCompletedJobValue / knownCompletedJobValueCount,
+    additionalCompletedJobCount,
+    additionalCompletedJobKnownValue,
   };
+}
+
+export type DormantCustomersValueSummary = {
+  /** SUM(jobs.amount) across all completed jobs for the given dormant contacts, non-null amounts only. */
+  knownValue: number;
+  /** Count of the given dormant contacts whose completed-job history has NO known amount at all (every job's amount is null) - shown distinctly by the UI, never folded into knownValue as $0. */
+  unknownValueCount: number;
+};
+
+/**
+ * Pass 4 P1-B/E: the "known historical value represented by dormant
+ * customers" figure for the dashboard's customer-opportunities section.
+ * Takes an already-known set of dormant contact ids (the dashboard already
+ * has these from its own getOpenOpportunities read, filtered to
+ * type: "dormant_customer" - never re-detected here) and does one bounded
+ * jobs fetch scoped to exactly those contacts, matching this file's own
+ * "one fetch + in-memory aggregation, never a query per customer" principle
+ * and avoiding any join fanout (a single, ungrouped select against jobs
+ * alone, exactly like every other function in this file).
+ */
+export async function getDormantCustomersValueSummary(supabase: SupabaseClient, organizationId: string, dormantContactIds: string[]): Promise<DormantCustomersValueSummary> {
+  if (dormantContactIds.length === 0) return { knownValue: 0, unknownValueCount: 0 };
+
+  const { data } = await supabase.from("jobs").select("contact_id, amount").eq("organization_id", organizationId).eq("status", "completed").in("contact_id", dormantContactIds).limit(MAX_ROWS);
+
+  const jobs = (data ?? []) as { contact_id: string | null; amount: number | null }[];
+  const hasKnownValueByContact = new Map<string, boolean>(dormantContactIds.map((id) => [id, false]));
+  let knownValue = 0;
+  for (const job of jobs) {
+    if (job.contact_id == null || job.amount == null) continue;
+    knownValue += job.amount;
+    hasKnownValueByContact.set(job.contact_id, true);
+  }
+
+  const unknownValueCount = [...hasKnownValueByContact.values()].filter((hasKnown) => !hasKnown).length;
+  return { knownValue, unknownValueCount };
 }

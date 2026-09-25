@@ -13,6 +13,7 @@ import { getContacts } from "@/lib/contacts/queries";
 import { isSameCalendarDay } from "@/lib/appointments/format";
 import { syncOpportunities } from "@/lib/opportunities/detect";
 import { getOpenOpportunities, summarizeOpportunities } from "@/lib/opportunities/queries";
+import { getRepeatCustomerSummary, getDormantCustomersValueSummary } from "@/lib/customers/lifecycle";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { Panel } from "@/lib/ui/section-card";
@@ -101,6 +102,18 @@ export default async function DashboardPage() {
     getOpenOpportunities(supabase, membership.organizationId),
   ]);
   const opportunitySummary = summarizeOpportunities(openOpportunities);
+
+  // Pass 4 P1-B: dormant contact ids come from the page's own already-fetched
+  // openOpportunities - never a second detection pass. Both reads below are
+  // single, ungrouped jobs fetches (no join fanout), matching lib/customers/
+  // lifecycle.ts's own established "one fetch + in-memory aggregation"
+  // shape.
+  const dormantContactIds = [...new Set(openOpportunities.filter((o) => o.type === "dormant_customer" && o.contactId != null).map((o) => o.contactId as string))];
+  const [repeatCustomerSummary, dormantCustomersValue] = await Promise.all([
+    getRepeatCustomerSummary(supabase, membership.organizationId),
+    getDormantCustomersValueSummary(supabase, membership.organizationId, dormantContactIds),
+  ]);
+
   const businessName = membership.organizationName ?? "there";
   const leadSummary = summarizeLeads(leads);
   const appointmentSummary = summarizeAppointments(appointments);
@@ -186,7 +199,14 @@ export default async function DashboardPage() {
           </div>
           <div className="lg:sticky lg:top-6 lg:self-start">
             <Panel>
-              <BusinessGlance overview={data.overview} snapshot={businessMetrics} opportunitySummary={opportunitySummary} />
+              <BusinessGlance
+                overview={data.overview}
+                snapshot={businessMetrics}
+                opportunitySummary={opportunitySummary}
+                repeatCustomerSummary={repeatCustomerSummary}
+                dormantCustomerCount={dormantContactIds.length}
+                dormantCustomersValue={dormantCustomersValue}
+              />
             </Panel>
           </div>
         </div>

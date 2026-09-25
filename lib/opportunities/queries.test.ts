@@ -42,6 +42,7 @@ test("empty list: a real zeroed summary, never null and never a fabricated non-z
     completed_appointment_no_estimate: 0,
     dormant_customer: 0,
     no_show: 0,
+    completed_job_no_referral_request: 0,
   });
 });
 
@@ -78,4 +79,11 @@ test("byType counts every opportunity exactly once, under its own real type - ne
   assert.equal(summary.byType.completed_appointment_no_estimate, 1);
   assert.equal(summary.byType.stale_estimate, 0);
   assert.equal(summary.byType.dormant_customer, 0);
+});
+
+test("Pass 4 P1-D: completed_job_no_referral_request counts correctly and supports a 'job' source entity type", () => {
+  const opportunity = makeOpportunity({ id: "1", type: "completed_job_no_referral_request", sourceEntityType: "job", sourceEntityId: "job-1", estimatedValue: null });
+  const summary = summarizeOpportunities([opportunity]);
+  assert.equal(summary.byType.completed_job_no_referral_request, 1);
+  assert.equal(summary.unknownValueCount, 1, "referral opportunities never carry a fabricated value");
 });

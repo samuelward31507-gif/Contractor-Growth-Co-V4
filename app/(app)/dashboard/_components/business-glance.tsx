@@ -3,6 +3,7 @@ import { formatCurrency } from "@/lib/dashboard/format";
 import type { OverviewMetrics } from "@/lib/dashboard/queries";
 import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
 import type { OpportunitySummary } from "@/lib/opportunities/queries";
+import type { RepeatCustomerSummary, DormantCustomersValueSummary } from "@/lib/customers/lifecycle";
 import { formatComparisonBadge, formatRate } from "./period-comparison-format";
 
 /**
@@ -39,11 +40,19 @@ export function BusinessGlance({
   overview,
   snapshot,
   opportunitySummary,
+  repeatCustomerSummary,
+  dormantCustomerCount,
+  dormantCustomersValue,
 }: {
   overview: OverviewMetrics;
   snapshot: BusinessMetricsSnapshot;
   /** Pass 3 (Revenue Intelligence Foundation): the unified, all-5-type opportunity count from the opportunities table - distinct from snapshot.revenueOpportunity below, which only reflects 2 of those 5 types (a byproduct of the pre-existing Growth System Completion Pass 2 calculation, kept as-is rather than merged). */
   opportunitySummary: OpportunitySummary;
+  /** Pass 4 P1-B: org-wide repeat-customer + "additional job" figures - all-time, not scoped to "Last 30 days" above (see lib/customers/lifecycle.ts's own header for why). */
+  repeatCustomerSummary: RepeatCustomerSummary;
+  /** Count of contacts with a currently-open dormant_customer opportunity - read directly from the page's own already-fetched opportunities, never re-detected here. */
+  dormantCustomerCount: number;
+  dormantCustomersValue: DormantCustomersValueSummary;
 }) {
   return (
     <div>
@@ -86,6 +95,25 @@ export function BusinessGlance({
         <Row label="Completed visits, no estimate" value={String(snapshot.revenueOpportunity.completedAppointmentsWithoutEstimate)} />
       </div>
       <p className={`mt-3 ${metaClass}`}>Real opportunity, not guaranteed revenue or a close probability.</p>
+
+      <p className={`mt-5 ${sectionLabelClass}`}>Customers</p>
+      <div className="mt-1.5 divide-y divide-slate-100">
+        <Row
+          label="Dormant customers"
+          value={String(dormantCustomerCount)}
+          description={dormantCustomersValue.knownValue > 0 ? `${formatCurrency(dormantCustomersValue.knownValue)} known value` : undefined}
+        />
+        {dormantCustomersValue.unknownValueCount > 0 ? (
+          <Row label="...with unknown value" value={String(dormantCustomersValue.unknownValueCount)} description="Not guessed, not shown as $0" />
+        ) : null}
+        <Row label="Repeat customers" value={String(repeatCustomerSummary.repeatCustomerCount)} description={`${formatRate(repeatCustomerSummary.repeatCustomerRate)} of customers with a completed job`} />
+        <Row
+          label="Additional jobs from repeat customers"
+          value={String(repeatCustomerSummary.additionalCompletedJobCount)}
+          description={repeatCustomerSummary.additionalCompletedJobKnownValue > 0 ? `${formatCurrency(repeatCustomerSummary.additionalCompletedJobKnownValue)} known value` : undefined}
+        />
+      </div>
+      <p className={`mt-3 ${metaClass}`}>All-time - who keeps coming back, and who may be worth reaching out to.</p>
     </div>
   );
 }

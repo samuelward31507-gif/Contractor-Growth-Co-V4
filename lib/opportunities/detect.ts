@@ -11,12 +11,12 @@ import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
 import type { OpportunityType, OpportunityStatus } from "./queries";
 
 /**
- * Pass 3 (Revenue Intelligence Foundation): real-data opportunity detection
- * and lifecycle sync. Every detector here is a pure read over
- * already-existing tables/columns - no new source of truth, no invented
- * dollar figures, no AI. Five types are implemented, matching exactly the
- * candidates the accompanying audit judged safe (real trigger, real data,
- * safe dedup, honest value semantics):
+ * Pass 3 (Revenue Intelligence Foundation) + Pass 4 P1-D: real-data
+ * opportunity detection and lifecycle sync. Every detector here is a pure
+ * read over already-existing tables/columns - no new source of truth, no
+ * invented dollar figures, no AI. Six types are implemented, matching
+ * exactly the candidates the accompanying audits judged safe (real trigger,
+ * real data, safe dedup, honest value semantics):
  *
  *   qualified_lead_unbooked           - leads.status
  *   stale_estimate                    - estimates.status (reuses the
@@ -36,52 +36,62 @@ import type { OpportunityType, OpportunityStatus } from "./queries";
  *                                        possibly-drifting dormancy
  *                                        definition
  *   no_show                           - appointments.status
- *
- * Deliberately NOT implemented this pass (each would need either new
- * structured data this schema doesn't have, or a data path too ambiguous
- * to safely dedupe/value - documented, not silently skipped):
- *
- *   missed_call                 - no stable, dedicated marker distinguishes
- *                                  a missed-call-originated lead from any
- *                                  other lead today (leads.source is
- *                                  free-text/unstandardized), and it would
- *                                  substantially overlap qualified_lead_unbooked
- *                                  once such a lead qualifies - implementing
- *                                  it now risks either double-counting the
- *                                  same underlying lead as two opportunities
- *                                  or an unreliable dedup key.
- *   completed_job_no_review_request   - review_requests is only created
- *                                        when the organization has a real
- *                                        review_url configured (see
+ *   completed_job_no_referral_request - Pass 4 P1-D. jobs.status='completed'
+ *                                        cross-referenced against
+ *                                        referral_requests.status - open
+ *                                        only while no row exists or the
+ *                                        existing row is 'failed' (the one
+ *                                        genuinely retriable state per
  *                                        lib/reviews-referrals/tracking.ts's
- *                                        recordPostJobFollowupOutcome) - a
- *                                        missing row is ambiguous between
- *                                        "the automation hasn't run yet",
- *                                        "it failed", and "this org simply
- *                                        has no review_url configured",
- *                                        which is not itself an actionable
- *                                        opportunity.
- *   completed_job_no_referral_request - referral_requests IS written
- *                                        unconditionally by the same
- *                                        automation, making this a more
- *                                        promising future candidate than
- *                                        the review one above, but was not
- *                                        independently re-verified against
- *                                        live data in this pass and is
- *                                        deferred rather than implemented
- *                                        on an unverified assumption.
- *   repeat_service / maintenance      - no service-type or service-interval
- *                                        data exists anywhere in this
- *                                        schema; any "due for maintenance"
- *                                        claim would be fabricated, not
- *                                        derived.
+ *                                        own upsertRequestOutcome), resolved
+ *                                        once a row reaches 'requested' or
+ *                                        beyond. Promoted from Pass 3's own
+ *                                        deferred list after verifying
+ *                                        referral_requests really is written
+ *                                        unconditionally by the post-job-
+ *                                        followup automation (never gated on
+ *                                        an org-level review_url the way
+ *                                        review_requests is), so a missing
+ *                                        row is only ever an ordinary timing
+ *                                        gap, not a structural ambiguity.
+ *
+ * Deliberately NOT implemented (each would need either new structured data
+ * this schema doesn't have, or a data path too ambiguous to safely
+ * dedupe/value - documented, not silently skipped):
+ *
+ *   missed_call                     - no stable, dedicated marker
+ *                                      distinguishes a missed-call-
+ *                                      originated lead from any other lead
+ *                                      today (leads.source is free-text/
+ *                                      unstandardized), and it would
+ *                                      substantially overlap
+ *                                      qualified_lead_unbooked once such a
+ *                                      lead qualifies - implementing it now
+ *                                      risks either double-counting the
+ *                                      same underlying lead as two
+ *                                      opportunities or an unreliable dedup
+ *                                      key.
+ *   completed_job_no_review_request - review_requests is only created when
+ *                                      the organization has a real
+ *                                      review_url configured (see
+ *                                      lib/reviews-referrals/tracking.ts's
+ *                                      recordPostJobFollowupOutcome) - a
+ *                                      missing row is ambiguous between "the
+ *                                      automation hasn't run yet", "it
+ *                                      failed", and "this org simply has no
+ *                                      review_url configured", which is not
+ *                                      itself an actionable opportunity.
+ *   repeat_service / maintenance    - no service-type or service-interval
+ *                                      data exists anywhere in this schema;
+ *                                      any "due for maintenance" claim would
+ *                                      be fabricated, not derived.
  */
 
 const MAX_ROWS = 5000;
 
 export type OpportunityCandidate = {
   type: OpportunityType;
-  sourceEntityType: "lead" | "estimate" | "appointment" | "contact";
+  sourceEntityType: "lead" | "estimate" | "appointment" | "contact" | "job";
   sourceEntityId: string;
   contactId: string | null;
   title: string;
@@ -315,16 +325,62 @@ async function detectNoShows(supabase: SupabaseClient, organizationId: string): 
   }));
 }
 
+// ---------------------------------------------------------------------------
+// F. completed_job_no_referral_request (Pass 4 P1-D) - a completed job whose
+// referral_requests row either doesn't exist yet, or exists but is still
+// 'failed' (the one genuinely retriable state - see
+// lib/reviews-referrals/tracking.ts's own upsertRequestOutcome). Any other
+// status ('requested'/'responded'/'converted'/'declined') means the
+// referral ask has already genuinely happened, so the job is excluded.
+// ---------------------------------------------------------------------------
+
+const REFERRAL_REQUEST_OPEN_STATUSES = new Set<string | undefined>([undefined, "failed"]);
+
+async function detectCompletedJobsWithoutReferralRequest(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
+  const { data: jobRows } = await supabase
+    .from("jobs")
+    .select("id, contact_id, title, completed_at, contacts(id, first_name, last_name, company_name)")
+    .eq("organization_id", organizationId)
+    .eq("status", "completed")
+    .limit(MAX_ROWS);
+
+  const jobs = (jobRows ?? []) as { id: string; contact_id: string | null; title: string; completed_at: string | null; contacts: ContactRef }[];
+  if (jobs.length === 0) return [];
+
+  const jobIds = jobs.map((job) => job.id);
+  const { data: referralRows } = await supabase.from("referral_requests").select("job_id, status").eq("organization_id", organizationId).in("job_id", jobIds).limit(MAX_ROWS);
+  const referralStatusByJob = new Map(((referralRows ?? []) as { job_id: string; status: string }[]).map((row) => [row.job_id, row.status]));
+
+  return jobs
+    .filter((job) => REFERRAL_REQUEST_OPEN_STATUSES.has(referralStatusByJob.get(job.id)))
+    .map((job) => ({
+      type: "completed_job_no_referral_request" as const,
+      sourceEntityType: "job" as const,
+      sourceEntityId: job.id,
+      contactId: job.contact_id,
+      title: displayNameOrFallback(job.contacts, job.title),
+      description: `Completed job "${job.title}" has no referral request yet.`,
+      // Prefer no value basis: this pass's own rule is explicit - job.amount
+      // is the contracted value of the completed work already done, not a
+      // dollar figure for the REFERRAL opportunity itself, which has no
+      // reliable value of its own.
+      estimatedValue: null,
+      valueBasis: null,
+      metadata: { job_completed_at: job.completed_at },
+    }));
+}
+
 export async function detectAllOpportunityCandidates(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<OpportunityCandidate[]> {
-  const [qualifiedLeads, staleEstimates, completedAppointmentsNoEstimate, dormantCustomers, noShows] = await Promise.all([
+  const [qualifiedLeads, staleEstimates, completedAppointmentsNoEstimate, dormantCustomers, noShows, completedJobsNoReferralRequest] = await Promise.all([
     detectQualifiedLeadsUnbooked(supabase, organizationId),
     detectStaleEstimates(supabase, organizationId),
     detectCompletedAppointmentsWithoutEstimate(supabase, organizationId),
     detectDormantCustomers(supabase, organizationId, now),
     detectNoShows(supabase, organizationId),
+    detectCompletedJobsWithoutReferralRequest(supabase, organizationId),
   ]);
 
-  return [...qualifiedLeads, ...staleEstimates, ...completedAppointmentsNoEstimate, ...dormantCustomers, ...noShows];
+  return [...qualifiedLeads, ...staleEstimates, ...completedAppointmentsNoEstimate, ...dormantCustomers, ...noShows, ...completedJobsNoReferralRequest];
 }
 
 // ---------------------------------------------------------------------------

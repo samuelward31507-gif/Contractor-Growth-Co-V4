@@ -82,6 +82,7 @@ before(async () => {
 after(async () => {
   for (const orgId of [organizationId, otherOrgId]) {
     await service.from("audit_log").delete().eq("organization_id", orgId);
+    await service.from("opportunities").delete().eq("organization_id", orgId);
     await service.from("leads").delete().eq("organization_id", orgId);
     await service.from("conversations").delete().eq("organization_id", orgId);
     await service.from("appointments").delete().eq("organization_id", orgId);
@@ -240,4 +241,109 @@ test("conversations: if both source and target have an open conversation on the 
   assert.equal(sourceConvo?.contact_id, targetId, "still reassigned to the target, just closed first");
   assert.equal(sourceConvo?.status, "closed");
   assert.equal(targetConvo?.status, "open", "the target's own open conversation is untouched");
+});
+
+// ==================== Pass 4 P0: opportunities reassignment ====================
+
+test("opportunities: a merged-away contact's open opportunities are reassigned to the surviving contact, with type/status/source_entity_id/estimated_value all preserved", async () => {
+  const sourceId = await makeContact(organizationId, { first_name: "OppSource" });
+  const targetId = await makeContact(organizationId, { first_name: "OppTarget" });
+
+  const { data: opp } = await service
+    .from("opportunities")
+    .insert({
+      organization_id: organizationId,
+      type: "qualified_lead_unbooked",
+      status: "open",
+      source_entity_type: "lead",
+      source_entity_id: "00000000-0000-0000-0000-0000000000aa",
+      contact_id: sourceId,
+      title: "OppSource - qualified",
+      estimated_value: 750,
+      value_basis: "leads.estimated_value",
+    })
+    .select("id")
+    .single();
+
+  const client = await signInAs(ownerUser.email, ownerUser.password);
+  const { data: result, error } = await client.rpc("merge_contacts", { p_organization_id: organizationId, p_source_contact_id: sourceId, p_target_contact_id: targetId });
+  assert.equal(error, null, error?.message);
+  assert.equal(result.reassigned_counts.opportunities, 1);
+
+  const { data: row } = await service.from("opportunities").select("contact_id, type, status, source_entity_id, estimated_value, value_basis").eq("id", opp!.id).single();
+  assert.equal(row?.contact_id, targetId, "contact_id must now point at the surviving contact");
+  assert.equal(row?.type, "qualified_lead_unbooked", "type must be untouched by the merge");
+  assert.equal(row?.status, "open", "status must be untouched by the merge");
+  assert.equal(row?.source_entity_id, "00000000-0000-0000-0000-0000000000aa", "source_entity_id must be untouched - the merge only ever moves contact_id");
+  assert.equal(row?.estimated_value, 750, "estimated_value must be untouched by the merge");
+  assert.equal(row?.value_basis, "leads.estimated_value");
+});
+
+test("opportunities: reassigning contact_id across a merge can never violate the (organization_id, type, source_entity_id) WHERE status='open' dedup index, since contact_id is not part of it", async () => {
+  const sourceId = await makeContact(organizationId, { first_name: "OppDedupSource" });
+  const targetId = await makeContact(organizationId, { first_name: "OppDedupTarget" });
+
+  // Two DIFFERENT open opportunities (different source_entity_id), one on
+  // each contact - both must survive the merge as two distinct rows, now
+  // both pointing at the target, since neither's (type, source_entity_id)
+  // key collides with the other.
+  await service.from("opportunities").insert({
+    organization_id: organizationId,
+    type: "stale_estimate",
+    status: "open",
+    source_entity_type: "estimate",
+    source_entity_id: "00000000-0000-0000-0000-0000000000bb",
+    contact_id: sourceId,
+    title: "Source's stale estimate",
+  });
+  await service.from("opportunities").insert({
+    organization_id: organizationId,
+    type: "stale_estimate",
+    status: "open",
+    source_entity_type: "estimate",
+    source_entity_id: "00000000-0000-0000-0000-0000000000cc",
+    contact_id: targetId,
+    title: "Target's stale estimate",
+  });
+
+  const client = await signInAs(ownerUser.email, ownerUser.password);
+  const { data: result, error } = await client.rpc("merge_contacts", { p_organization_id: organizationId, p_source_contact_id: sourceId, p_target_contact_id: targetId });
+  assert.equal(error, null, error?.message);
+  assert.equal(result.reassigned_counts.opportunities, 1, "only the source's own opportunity is reassigned by this merge");
+
+  const { data: rows } = await service
+    .from("opportunities")
+    .select("contact_id, source_entity_id, status")
+    .eq("organization_id", organizationId)
+    .in("source_entity_id", ["00000000-0000-0000-0000-0000000000bb", "00000000-0000-0000-0000-0000000000cc"])
+    .order("source_entity_id");
+  assert.equal(rows?.length, 2, "both opportunities must still exist as two distinct open rows - no dedup collision");
+  assert.ok(rows!.every((row) => row.contact_id === targetId && row.status === "open"));
+});
+
+test("organization isolation: merging contacts in organization A never touches organization B's opportunities", async () => {
+  const sourceId = await makeContact(organizationId, { first_name: "IsoSource" });
+  const targetId = await makeContact(organizationId, { first_name: "IsoTarget" });
+  const otherContactId = await makeContact(otherOrgId, { first_name: "OtherOrg Contact" });
+
+  const { data: otherOpp } = await service
+    .from("opportunities")
+    .insert({
+      organization_id: otherOrgId,
+      type: "no_show",
+      status: "open",
+      source_entity_type: "appointment",
+      source_entity_id: "00000000-0000-0000-0000-0000000000dd",
+      contact_id: otherContactId,
+      title: "Other org opportunity",
+    })
+    .select("id")
+    .single();
+
+  const client = await signInAs(ownerUser.email, ownerUser.password);
+  const { error } = await client.rpc("merge_contacts", { p_organization_id: organizationId, p_source_contact_id: sourceId, p_target_contact_id: targetId });
+  assert.equal(error, null, error?.message);
+
+  const { data: row } = await service.from("opportunities").select("contact_id").eq("id", otherOpp!.id).single();
+  assert.equal(row?.contact_id, otherContactId, "organization B's opportunity must be completely untouched by organization A's merge");
 });

@@ -10,7 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * app/(app)/dashboard/actions.ts, this file only ever reads.
  */
 
-export type OpportunityType = "qualified_lead_unbooked" | "stale_estimate" | "completed_appointment_no_estimate" | "dormant_customer" | "no_show";
+export type OpportunityType = "qualified_lead_unbooked" | "stale_estimate" | "completed_appointment_no_estimate" | "dormant_customer" | "no_show" | "completed_job_no_referral_request";
 
 export type OpportunityStatus = "open" | "resolved" | "dismissed";
 
@@ -18,7 +18,7 @@ export type Opportunity = {
   id: string;
   type: OpportunityType;
   status: OpportunityStatus;
-  sourceEntityType: "lead" | "estimate" | "appointment" | "contact";
+  sourceEntityType: "lead" | "estimate" | "appointment" | "contact" | "job";
   sourceEntityId: string;
   contactId: string | null;
   title: string;
@@ -37,7 +37,7 @@ type OpportunityRow = {
   id: string;
   type: OpportunityType;
   status: OpportunityStatus;
-  source_entity_type: "lead" | "estimate" | "appointment" | "contact";
+  source_entity_type: "lead" | "estimate" | "appointment" | "contact" | "job";
   source_entity_id: string;
   contact_id: string | null;
   title: string;
@@ -99,6 +99,7 @@ const EMPTY_BY_TYPE: Record<OpportunityType, number> = {
   completed_appointment_no_estimate: 0,
   dormant_customer: 0,
   no_show: 0,
+  completed_job_no_referral_request: 0,
 };
 
 /** Summarizes an already-fetched open-opportunity list - kept as a pure function (no I/O) so it's directly unit-testable with controlled input, matching this codebase's established pure/impure split. */

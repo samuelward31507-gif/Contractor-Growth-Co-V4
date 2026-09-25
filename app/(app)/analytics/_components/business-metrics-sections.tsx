@@ -195,6 +195,12 @@ export function RepeatCustomerSection({ summary }: { summary: RepeatCustomerSumm
           { key: "repeat-rate", label: "Repeat customer rate", value: formatRate(summary.repeatCustomerRate) },
           { key: "completed-jobs", label: "Completed jobs", value: String(summary.completedJobCount) },
           { key: "known-value", label: "Known completed job value", value: formatCurrency(summary.knownCompletedJobValue), detail: summary.averageKnownCompletedJobValue != null ? `${formatCurrency(summary.averageKnownCompletedJobValue)} average` : undefined },
+          {
+            key: "additional-jobs",
+            label: "Additional jobs from repeat customers",
+            value: String(summary.additionalCompletedJobCount),
+            detail: summary.additionalCompletedJobKnownValue > 0 ? `${formatCurrency(summary.additionalCompletedJobKnownValue)} known value` : "Never counts a customer's first job",
+          },
         ]}
       />
     </Section>

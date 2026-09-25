@@ -35,6 +35,7 @@ if (fs.existsSync(envPath)) {
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
 const { getDashboardData }: typeof import("./queries") = require(path.join(REPO_ROOT, "lib/dashboard/queries.ts"));
 const { findOrCreateOpenConversation }: typeof import("@/lib/conversations/queries") = require(path.join(REPO_ROOT, "lib/conversations/queries.ts"));
+const { syncOpportunities }: typeof import("@/lib/opportunities/detect") = require(path.join(REPO_ROOT, "lib/opportunities/detect.ts"));
 
 const service = createServiceRoleClient();
 
@@ -50,6 +51,9 @@ after(async () => {
   await service.from("automation_incidents").delete().eq("organization_id", organizationId);
   await service.from("messages").delete().eq("organization_id", organizationId);
   await service.from("conversations").delete().eq("organization_id", organizationId);
+  await service.from("opportunities").delete().eq("organization_id", organizationId);
+  await service.from("estimates").delete().eq("organization_id", organizationId);
+  await service.from("jobs").delete().eq("organization_id", organizationId);
   await service.from("appointments").delete().eq("organization_id", organizationId);
   await service.from("leads").delete().eq("organization_id", organizationId);
   await service.from("contacts").delete().eq("organization_id", organizationId);
@@ -245,4 +249,141 @@ test("13. ATTN-01: a conversation whose last message is outbound (already answer
 
   const data = await getDashboardData(service, organizationId);
   assert.equal(data.attentionItems.some((i) => i.id === `reply-${conversation!.id}`), false);
+});
+
+// ==================== Pass 4 P0: the 3 opportunity-backed attention kinds ====================
+//
+// Pass 3 added stale_estimate/dormant_customer/no_show to getDashboardData,
+// backed by the real opportunities table, but shipped with zero regression
+// coverage for them - only verified manually during the production release.
+// Each test below goes through the real path: create the underlying data,
+// run syncOpportunities (exactly what app/(app)/dashboard/page.tsx does on
+// every load) so the opportunity actually persists, then call
+// getDashboardData itself - never a bare unit test of a helper.
+
+test("14. stale_estimate: an expired estimate, once synced into an opportunity, appears in getDashboardData's attentionItems", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "StaleEstimate", phone: `+1555564${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const { data: estimate } = await service.from("estimates").insert({ organization_id: organizationId, contact_id: contact!.id, title: "Kitchen remodel quote", status: "expired", amount: 4200 }).select("id").single();
+
+  const sync = await syncOpportunities(service, organizationId);
+  assert.ok(sync.created >= 1, "the expired estimate must produce at least one new opportunity");
+
+  const data = await getDashboardData(service, organizationId);
+  const item = data.attentionItems.find((i) => i.kind === "stale_estimate");
+  assert.ok(item, "expected a stale_estimate attention item");
+  assert.equal(item!.value, "$4,200");
+  assert.equal(item!.href, "/estimates");
+  assert.ok(item!.opportunityId, "must carry an opportunityId so the dismiss action can act on it");
+
+  const { data: oppRow } = await service.from("opportunities").select("source_entity_id, type").eq("id", item!.opportunityId!).single();
+  assert.equal(oppRow?.type, "stale_estimate");
+  assert.equal(oppRow?.source_entity_id, estimate!.id, "the opportunity's source_entity_id must be the real estimate that expired");
+});
+
+test("15. stale_estimate: organization isolation - an expired estimate in organization A never appears as an attention item for organization B", async () => {
+  const { data: otherOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Other, Stale Estimate)" }).select("id").single();
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "StaleEstimateIso", phone: `+1555565${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+    await service.from("estimates").insert({ organization_id: organizationId, contact_id: contact!.id, title: "Bathroom quote", status: "expired", amount: 1000 });
+    await syncOpportunities(service, organizationId);
+
+    const dataOther = await getDashboardData(service, otherOrg!.id);
+    assert.equal(dataOther.attentionItems.some((i) => i.kind === "stale_estimate"), false);
+  } finally {
+    await service.from("organizations").delete().eq("id", otherOrg!.id);
+  }
+});
+
+test("16. no_show: a missed appointment, once synced into an opportunity, appears in getDashboardData's attentionItems", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "NoShow", phone: `+1555566${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const { data: appointment } = await service
+    .from("appointments")
+    .insert({ organization_id: organizationId, contact_id: contact!.id, title: "Missed visit", status: "no_show", start_at: "2027-05-01T09:00:00.000Z", end_at: "2027-05-01T10:00:00.000Z" })
+    .select("id")
+    .single();
+
+  const sync = await syncOpportunities(service, organizationId);
+  assert.ok(sync.created >= 1);
+
+  const data = await getDashboardData(service, organizationId);
+  const item = data.attentionItems.find((i) => i.kind === "no_show");
+  assert.ok(item, "expected a no_show attention item");
+  assert.equal(item!.href, "/appointments");
+  assert.ok(item!.opportunityId);
+
+  const { data: oppRow } = await service.from("opportunities").select("source_entity_id, type").eq("id", item!.opportunityId!).single();
+  assert.equal(oppRow?.type, "no_show");
+  assert.equal(oppRow?.source_entity_id, appointment!.id);
+});
+
+test("17. no_show: organization isolation - a no-show appointment in organization A never appears for organization B", async () => {
+  const { data: otherOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Other, No Show)" }).select("id").single();
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "NoShowIso", phone: `+1555567${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+    await service.from("appointments").insert({ organization_id: organizationId, contact_id: contact!.id, title: "Missed visit 2", status: "no_show", start_at: "2027-05-02T09:00:00.000Z", end_at: "2027-05-02T10:00:00.000Z" });
+    await syncOpportunities(service, organizationId);
+
+    const dataOther = await getDashboardData(service, otherOrg!.id);
+    assert.equal(dataOther.attentionItems.some((i) => i.kind === "no_show"), false);
+  } finally {
+    await service.from("organizations").delete().eq("id", otherOrg!.id);
+  }
+});
+
+test("18. dormant_customer: an old completed job with no active engagement, once synced, appears in getDashboardData's attentionItems, deep-linking to the real contact", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "Dormant", phone: `+1555568${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const oldCompletedAt = new Date(Date.now() - 250 * 24 * 60 * 60 * 1000).toISOString(); // well past the 180-day default threshold
+  await service.from("jobs").insert({ organization_id: organizationId, contact_id: contact!.id, title: "Old roof repair", status: "completed", completed_at: oldCompletedAt });
+
+  const sync = await syncOpportunities(service, organizationId);
+  assert.ok(sync.created >= 1);
+
+  const data = await getDashboardData(service, organizationId);
+  const item = data.attentionItems.find((i) => i.kind === "dormant_customer");
+  assert.ok(item, "expected a dormant_customer attention item");
+  assert.equal(item!.value, null, "dormant/repeat-customer opportunities must never carry a fabricated future-service value");
+  assert.equal(item!.href, `/contacts/${contact!.id}`, "must deep-link to the real contact");
+  assert.ok(item!.opportunityId);
+
+  const { data: oppRow } = await service.from("opportunities").select("source_entity_id, contact_id, type").eq("id", item!.opportunityId!).single();
+  assert.equal(oppRow?.type, "dormant_customer");
+  assert.equal(oppRow?.source_entity_id, contact!.id);
+  assert.equal(oppRow?.contact_id, contact!.id);
+});
+
+test("19. dormant_customer: a customer with an active open lead is excluded, even with an old completed job - reuses customer-reactivation's own active-engagement exclusion, not a second definition", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "NotDormant", phone: `+1555569${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const oldCompletedAt = new Date(Date.now() - 250 * 24 * 60 * 60 * 1000).toISOString();
+  await service.from("jobs").insert({ organization_id: organizationId, contact_id: contact!.id, title: "Old fence repair", status: "completed", completed_at: oldCompletedAt });
+  // A real open lead for the SAME contact - the exact exclusion
+  // lib/automation/customer-reactivation.ts's OPEN_LEAD_STATUSES already
+  // enforces for the real automation, reused verbatim by the detector.
+  await service.from("leads").insert({ organization_id: organizationId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" });
+
+  await syncOpportunities(service, organizationId);
+
+  const data = await getDashboardData(service, organizationId);
+  assert.equal(
+    data.attentionItems.some((i) => i.kind === "dormant_customer" && i.href === `/contacts/${contact!.id}`),
+    false,
+    "a customer with an active open lead must never be flagged dormant, regardless of how old their last completed job is",
+  );
+
+  const { data: openOpp } = await service.from("opportunities").select("id").eq("organization_id", organizationId).eq("type", "dormant_customer").eq("source_entity_id", contact!.id).eq("status", "open");
+  assert.equal(openOpp?.length ?? 0, 0, "no open dormant_customer opportunity should have been created for this contact at all");
+});
+
+test("20. dormant_customer: organization isolation - a dormant customer in organization A never appears for organization B", async () => {
+  const { data: otherOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Other, Dormant)" }).select("id").single();
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "DormantIso", phone: `+1555570${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+    const oldCompletedAt = new Date(Date.now() - 250 * 24 * 60 * 60 * 1000).toISOString();
+    await service.from("jobs").insert({ organization_id: organizationId, contact_id: contact!.id, title: "Old gutter cleaning", status: "completed", completed_at: oldCompletedAt });
+    await syncOpportunities(service, organizationId);
+
+    const dataOther = await getDashboardData(service, otherOrg!.id);
+    assert.equal(dataOther.attentionItems.some((i) => i.kind === "dormant_customer"), false);
+  } finally {
+    await service.from("organizations").delete().eq("id", otherOrg!.id);
+  }
 });
