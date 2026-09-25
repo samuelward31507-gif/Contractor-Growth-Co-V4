@@ -217,6 +217,7 @@ export default async function DashboardPage() {
             lastLeadCapturedAt={lastLeadCapturedAt}
             automationActivityToday={todaySnapshot.automationMetrics.automationEvents}
             issuesRequiringAttention={health.activeIncidentCount}
+            staleScheduledAutomationCount={health.staleScheduledAutomationCount}
           />
         </div>
 

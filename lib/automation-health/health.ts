@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAutomationOverview, getWorkflowNameStats } from "@/lib/automation/queries";
 import { AUTOMATION_CATALOG } from "@/lib/automation/catalog";
 import { listIncidents } from "./queries";
+import { getScheduledAutomationLiveness } from "./scheduled-automation-liveness";
+import type { OrganizationPaymentStatus } from "@/lib/auth/organization";
 import type { AutomationHealthStatus, AutomationHealthSummary, HealthCheckRun, OrganizationHealthStatus, OrganizationHealthSummary } from "./types";
 
 /**
@@ -13,17 +15,47 @@ import type { AutomationHealthStatus, AutomationHealthSummary, HealthCheckRun, O
  * automation_incidents on top of that existing data, not to duplicate it.
  */
 
-function organizationStatus(criticalCount: number, activeCount: number): OrganizationHealthStatus {
-  if (criticalCount > 0) return "unhealthy";
-  if (activeCount > 0) return "degraded";
+/**
+ * Pass 5A precedence, most-truthful-first: a payment block always wins over
+ * a pause (the org can't be meaningfully "paused" vs "not paused" while
+ * automation is blocked for a more fundamental reason), which always wins
+ * over incident-derived status, which always wins over a stale scheduled
+ * automation, which always wins over "healthy". This is the fix for the
+ * Pass 5 audit's own finding: SystemStatus previously derived health only
+ * from incidents/workflow success, so a payment-blocked or
+ * intentionally-paused organization with zero incidents could read as
+ * "Running normally" - it never can now. A stale scheduled automation can
+ * only ever reach "degraded", never "unhealthy": it is a real but unproven
+ * signal (see scheduled-automation-liveness.ts's own documented uncertainty
+ * about the true expected cadence), not confirmed critical failure.
+ */
+export function organizationStatus(params: {
+  paymentStatus: OrganizationPaymentStatus;
+  automationPaused: boolean;
+  criticalCount: number;
+  activeCount: number;
+  staleScheduledAutomationCount: number;
+}): OrganizationHealthStatus {
+  if (params.paymentStatus !== "active") return "payment_blocked";
+  if (params.automationPaused) return "paused";
+  if (params.criticalCount > 0) return "unhealthy";
+  if (params.activeCount > 0 || params.staleScheduledAutomationCount > 0) return "degraded";
   return "healthy";
 }
 
 export async function getOrganizationHealth(supabase: SupabaseClient, organizationId: string): Promise<OrganizationHealthSummary> {
-  const [overview, statsByName, activeIncidents] = await Promise.all([
+  const [overview, statsByName, activeIncidents, organizationRow, scheduledLiveness] = await Promise.all([
     getAutomationOverview(supabase, organizationId),
     getWorkflowNameStats(supabase, organizationId),
     listIncidents(supabase, organizationId, { status: ["open", "acknowledged"] }),
+    // Kept as its own read here (not folded into a wider select) so a
+    // failure to read this specific pair can only ever fail closed toward
+    // "payment_blocked" below, never silently take any other part of this
+    // function down with it - the same independent-query discipline
+    // lib/automation/outbound-gate.ts already applies to these same two
+    // columns for the identical reason.
+    supabase.from("organizations").select("payment_status, automation_paused").eq("id", organizationId).maybeSingle(),
+    getScheduledAutomationLiveness(supabase),
   ]);
 
   const activeByCategory = activeIncidents.reduce(
@@ -64,15 +96,34 @@ export async function getOrganizationHealth(supabase: SupabaseClient, organizati
   const successRate =
     overview.completedWorkflows + overview.failedWorkflows === 0 ? null : (overview.completedWorkflows / (overview.completedWorkflows + overview.failedWorkflows)) * 100;
 
+  // Fails closed exactly like lib/auth/organization.ts's own
+  // resolveOrganization(): a query error or missing row is never treated as
+  // "payment is fine" - it resolves to the same gated default that column's
+  // own NOT NULL default already uses for a brand-new organization.
+  const rawPaymentStatus = organizationRow.data?.payment_status;
+  const paymentStatus: OrganizationPaymentStatus =
+    rawPaymentStatus === "active" || rawPaymentStatus === "suspended" || rawPaymentStatus === "cancelled" ? rawPaymentStatus : "payment_required";
+  const automationPaused = organizationRow.data?.automation_paused === true;
+  const staleScheduledAutomationCount = scheduledLiveness.filter((liveness) => liveness.state === "stale").length;
+
   return {
     organizationId,
-    status: organizationStatus(incidentCounts.critical, incidentCounts.activeTotal),
+    status: organizationStatus({
+      paymentStatus,
+      automationPaused,
+      criticalCount: incidentCounts.critical,
+      activeCount: incidentCounts.activeTotal,
+      staleScheduledAutomationCount,
+    }),
     activeIncidentCount: incidentCounts.activeTotal,
     criticalIncidentCount: incidentCounts.critical,
     warningIncidentCount: incidentCounts.warning,
     infoIncidentCount: incidentCounts.info,
     stuckExecutionCount: activeByCategory.workflow_stuck ?? 0,
     smsDeliveryFailureCount: activeByCategory.sms_delivery_failed ?? 0,
+    paymentStatus,
+    automationPaused,
+    staleScheduledAutomationCount,
     humanEscalationCount: activeByCategory.human_escalation_requested ?? 0,
     failedWorkflowExecutions: overview.failedWorkflows,
     automationSuccessRate: successRate,

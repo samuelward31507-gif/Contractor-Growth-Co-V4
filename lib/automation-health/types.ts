@@ -6,6 +6,8 @@
  * - it introduces no new automation engine and dispatches nothing itself.
  */
 
+import type { OrganizationPaymentStatus } from "@/lib/auth/organization";
+
 /** 'repeated_workflow_failure' is never requested directly by a caller - it is only ever produced by record_automation_incident_signal's own escalation logic (occurrence_count >= 3 on an active 'workflow_failed' incident). See that RPC's own comment for the exact, documented threshold. */
 export type IncidentCategory =
   | "workflow_failed"
@@ -95,7 +97,16 @@ export function mapIncidentRow(row: AutomationIncidentRow): AutomationIncident {
   };
 }
 
-export type OrganizationHealthStatus = "healthy" | "degraded" | "unhealthy";
+/**
+ * Pass 5A: widened from the original 3 (healthy/degraded/unhealthy) so
+ * "intentionally paused" and "payment blocked" can never be misreported as
+ * a random infrastructure failure, or silently read as healthy. Ordered by
+ * precedence in organizationStatus() below (health.ts): a payment block
+ * always wins over a pause, which always wins over an incident-derived
+ * status, which always wins over "healthy" - see that function's own
+ * comment for the exact rule.
+ */
+export type OrganizationHealthStatus = "healthy" | "degraded" | "unhealthy" | "paused" | "payment_blocked";
 
 export type OrganizationHealthSummary = {
   organizationId: string;
@@ -114,6 +125,12 @@ export type OrganizationHealthSummary = {
   automationSuccessRate: number | null;
   lastSuccessfulActivityAt: string | null;
   lastFailureAt: string | null;
+  /** Pass 5A: the organization's raw payment_status (lib/auth/organization.ts), fetched alongside everything else here so a "payment_blocked" status can be labeled precisely (payment_required vs suspended vs cancelled) without a second query. */
+  paymentStatus: OrganizationPaymentStatus;
+  /** Pass 5A: the organization's raw automation_paused flag - kept alongside `status` (which already folds this in) so a caller can distinguish "paused" from a simultaneously-active incident without re-deriving it. */
+  automationPaused: boolean;
+  /** Pass 5A: how many of the 5 scheduled (cron-dependent) automations are currently "stale" (were observed running before, have gone quiet past their grace window) - never counts "unverified" (never observed) automations, which must never be treated as a fault. See lib/automation-health/scheduled-automation-liveness.ts. */
+  staleScheduledAutomationCount: number;
   generatedAt: string;
 };
 

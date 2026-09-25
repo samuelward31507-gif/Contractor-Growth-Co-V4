@@ -38,7 +38,12 @@ const service = createServiceRoleClient();
 let organizationId: string;
 
 before(async () => {
-  const { data: org } = await service.from("organizations").insert({ name: "Automation Health Calc Integration Test Org" }).select("id").single();
+  // Pass 5A: payment_status now genuinely affects getOrganizationHealth's
+  // computed status (defaults to 'payment_required', which fails closed to
+  // "payment_blocked") - explicitly active here so every pre-existing test
+  // below keeps testing what it always tested (incident-derived status),
+  // independent of the new payment/pause layer covered by its own tests.
+  const { data: org } = await service.from("organizations").insert({ name: "Automation Health Calc Integration Test Org", payment_status: "active" }).select("id").single();
   organizationId = org!.id;
 });
 
@@ -143,7 +148,7 @@ test("an automation with zero recorded executions reports a null failure rate, n
 // already leave that shared org with an active critical incident - exactly
 // the "otherwise healthy" baseline these two tests need to isolate against.
 test("HANDOFF-01: an organization with ONLY an open human escalation reports the same healthy status it would otherwise have", async () => {
-  const { data: org } = await service.from("organizations").insert({ name: "Automation Health - Human Escalation Isolation Test Org" }).select("id").single();
+  const { data: org } = await service.from("organizations").insert({ name: "Automation Health - Human Escalation Isolation Test Org", payment_status: "active" }).select("id").single();
   const escalationOrgId = org!.id;
   try {
     const before = await getOrganizationHealth(service, escalationOrgId);
@@ -171,7 +176,7 @@ test("HANDOFF-01: an organization with ONLY an open human escalation reports the
 });
 
 test("HANDOFF-01: a human escalation never masks a genuine critical incident's unhealthy status, and both counts remain correct together", async () => {
-  const { data: org } = await service.from("organizations").insert({ name: "Automation Health - Escalation Plus Critical Test Org" }).select("id").single();
+  const { data: org } = await service.from("organizations").insert({ name: "Automation Health - Escalation Plus Critical Test Org", payment_status: "active" }).select("id").single();
   const mixedOrgId = org!.id;
   try {
     await service.rpc("record_automation_incident_signal", {
@@ -197,5 +202,117 @@ test("HANDOFF-01: a human escalation never masks a genuine critical incident's u
   } finally {
     await service.from("automation_incidents").delete().eq("organization_id", mixedOrgId);
     await service.from("organizations").delete().eq("id", mixedOrgId);
+  }
+});
+
+// ==================== Pass 5A: payment / pause / scheduler-liveness truth ====================
+
+test("Pass 5A: a payment-blocked organization reports 'payment_blocked', never 'healthy', even with zero incidents", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "Automation Health - Payment Blocked Test Org", payment_status: "suspended" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const health = await getOrganizationHealth(service, orgId);
+    assert.equal(health.status, "payment_blocked");
+    assert.equal(health.paymentStatus, "suspended");
+  } finally {
+    await service.from("organizations").delete().eq("id", orgId);
+  }
+});
+
+test("Pass 5A: a brand-new organization (payment_status defaults to 'payment_required') is 'payment_blocked', never 'healthy' by omission", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "Automation Health - Default Payment Status Test Org" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const health = await getOrganizationHealth(service, orgId);
+    assert.equal(health.status, "payment_blocked");
+    assert.equal(health.paymentStatus, "payment_required");
+  } finally {
+    await service.from("organizations").delete().eq("id", orgId);
+  }
+});
+
+test("Pass 5A: a paused (but paid) organization reports 'paused', never 'healthy', even with zero incidents", async () => {
+  const { data: org } = await service
+    .from("organizations")
+    .insert({ name: "Automation Health - Paused Test Org", payment_status: "active", automation_paused: true })
+    .select("id")
+    .single();
+  const orgId = org!.id;
+  try {
+    const health = await getOrganizationHealth(service, orgId);
+    assert.equal(health.status, "paused");
+    assert.equal(health.automationPaused, true);
+  } finally {
+    await service.from("organizations").delete().eq("id", orgId);
+  }
+});
+
+test("Pass 5A: payment_blocked takes precedence over paused when both are true", async () => {
+  const { data: org } = await service
+    .from("organizations")
+    .insert({ name: "Automation Health - Payment Blocked Plus Paused Test Org", payment_status: "cancelled", automation_paused: true })
+    .select("id")
+    .single();
+  const orgId = org!.id;
+  try {
+    const health = await getOrganizationHealth(service, orgId);
+    assert.equal(health.status, "payment_blocked", "a payment block is the more fundamental restriction and must win over pause in the displayed status");
+  } finally {
+    await service.from("organizations").delete().eq("id", orgId);
+  }
+});
+
+test("Pass 5A: payment_blocked and paused both take precedence over a critical incident - the status must never be 'unhealthy' while genuinely payment-blocked or paused", async () => {
+  const { data: org } = await service
+    .from("organizations")
+    .insert({ name: "Automation Health - Payment Blocked Plus Critical Test Org", payment_status: "suspended" })
+    .select("id")
+    .single();
+  const orgId = org!.id;
+  try {
+    await service.rpc("record_automation_incident_signal", {
+      p_organization_id: orgId,
+      p_category: "n8n_callback_failed",
+      p_severity: "critical",
+      p_fingerprint: `n8n_callback_failed:payment-precedence-${Date.now()}`,
+      p_title: "Critical incident under a payment block",
+    });
+    const health = await getOrganizationHealth(service, orgId);
+    assert.equal(health.status, "payment_blocked");
+    assert.equal(health.criticalIncidentCount, 1, "the underlying critical incident count must still be reported accurately, even though it does not drive the top-line status here");
+  } finally {
+    await service.from("automation_incidents").delete().eq("organization_id", orgId);
+    await service.from("organizations").delete().eq("id", orgId);
+  }
+});
+
+// Deliberately NOT a "insert an old row for a real automation id, expect
+// stale" test: automation_schedule_runs is written by real, live production
+// cron routes (and by scheduled-automation-liveness.integration.test.ts's
+// own tests) for the 5 real automation ids, so an artificially old row can
+// always be masked by a genuinely newer real one landing concurrently -
+// get_scheduled_automation_liveness's own DISTINCT ON always returns the
+// latest row per automation_id, by design. organizationStatus()'s own
+// precedence (staleScheduledAutomationCount > 0 => "degraded") is instead
+// proven with plain, deterministic inputs in organization-status.test.ts.
+// This test only proves the WIRING is correct: whatever the real, current
+// liveness data says, getOrganizationHealth's staleScheduledAutomationCount
+// must exactly match an independently-fetched stale count - never drift,
+// never recompute differently.
+test("Pass 5A: staleScheduledAutomationCount on getOrganizationHealth's result always matches an independent getScheduledAutomationLiveness read", async () => {
+  const { getScheduledAutomationLiveness }: typeof import("./scheduled-automation-liveness") = require(path.join(REPO_ROOT, "lib/automation-health/scheduled-automation-liveness.ts"));
+  const [health, liveness] = await Promise.all([getOrganizationHealth(service, organizationId), getScheduledAutomationLiveness(service)]);
+  const independentStaleCount = liveness.filter((l) => l.state === "stale").length;
+  assert.equal(health.staleScheduledAutomationCount, independentStaleCount);
+});
+
+test("Pass 5A: an automation with NO recorded run at all ('unverified') must never count toward staleScheduledAutomationCount or read as 'stale'", async () => {
+  const { getScheduledAutomationLiveness }: typeof import("./scheduled-automation-liveness") = require(path.join(REPO_ROOT, "lib/automation-health/scheduled-automation-liveness.ts"));
+  const liveness = await getScheduledAutomationLiveness(service);
+  for (const item of liveness) {
+    if (item.lastRanAt === null) {
+      assert.equal(item.state, "unverified");
+      assert.notEqual(item.state, "stale");
+    }
   }
 });

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { processLeadNurture } from "@/lib/automation/lead-nurture";
 import { isAuthorizedCronRequest } from "@/lib/automation/cron-auth";
+import { recordScheduledAutomationRun } from "@/lib/automation-health/scheduled-automation-liveness";
 
 /**
  * Scheduled-automation target invoked by an n8n Schedule Trigger - same
@@ -16,6 +17,10 @@ async function handle(request: NextRequest) {
 
   const service = createServiceRoleClient();
   const result = await processLeadNurture(service);
+  // Pass 5A: records that this route actually ran, independent of candidate
+  // count - see scheduled-automation-liveness.ts's own header comment. Uses
+  // the "lost-lead-nurture" catalog id (this route's own automation name).
+  await recordScheduledAutomationRun(service, "lost-lead-nurture", result.candidates);
 
   return NextResponse.json({ ok: true, candidates: result.candidates, outcomes: result.outcomes });
 }

@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { recordAutomationHealthSignal } from "@/lib/automation-health/service";
 import { getAutomationForWorkflowName } from "@/lib/automation/catalog";
+import { getScheduledAutomationLiveness } from "@/lib/automation-health/scheduled-automation-liveness";
 
 /**
  * Read-only operational check for workflow_executions rows stuck in
@@ -93,6 +94,17 @@ export async function GET(request: NextRequest) {
   const { data: resolvedCount } = await service.rpc("resolve_stale_stuck_incidents");
   const incidentsResolved = typeof resolvedCount === "number" ? resolvedCount : 0;
 
+  // Pass 5A: evaluates each of the 5 scheduled (cron-dependent) automations'
+  // liveness on every tick - a pure, computed-live read (never a persisted
+  // incident), so "avoid duplicate incidents" and "resolve when execution
+  // resumes" are both trivially true by construction: there is nothing to
+  // duplicate, and fresh evidence from any route's next invocation is
+  // reflected on the very next read with no separate resolution step. See
+  // lib/automation-health/scheduled-automation-liveness.ts's own header
+  // comment for the full reasoning.
+  const scheduledLiveness = await getScheduledAutomationLiveness(service);
+  const staleScheduledAutomations = scheduledLiveness.filter((liveness) => liveness.state === "stale");
+
   const [{ count: failedExecutionCount }, { count: criticalIncidentCount }, { count: warningIncidentCount }] = await Promise.all([
     service.from("workflow_executions").select("id", { count: "exact", head: true }).eq("status", "failed").gte("started_at", failedSinceIso),
     service.from("automation_incidents").select("id", { count: "exact", head: true }).eq("severity", "critical").in("status", ["open", "acknowledged"]),
@@ -105,7 +117,8 @@ export async function GET(request: NextRequest) {
     incidents_resolved: incidentsResolved,
   });
 
-  const overall = (criticalIncidentCount ?? 0) > 0 ? "unhealthy" : (warningIncidentCount ?? 0) > 0 || stuck.length > 0 ? "degraded" : "healthy";
+  const overall =
+    (criticalIncidentCount ?? 0) > 0 ? "unhealthy" : (warningIncidentCount ?? 0) > 0 || stuck.length > 0 || staleScheduledAutomations.length > 0 ? "degraded" : "healthy";
 
   return NextResponse.json({
     ok: true,
@@ -120,6 +133,8 @@ export async function GET(request: NextRequest) {
     activeWarningIncidents: warningIncidentCount ?? 0,
     incidentsOpened,
     incidentsResolved,
+    scheduledAutomationLiveness: scheduledLiveness,
+    staleScheduledAutomationCount: staleScheduledAutomations.length,
     // Configuration-derived only, never a live probe - see this route's own
     // header comment on why n8n/Twilio are never pinged from here. A real
     // outage of either is what the dispatch/send-failure incident detectors

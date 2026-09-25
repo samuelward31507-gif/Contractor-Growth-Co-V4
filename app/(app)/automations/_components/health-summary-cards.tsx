@@ -1,4 +1,4 @@
-import { CheckCircle2, AlertTriangle, AlertOctagon, type LucideIcon } from "lucide-react";
+import { CheckCircle2, AlertTriangle, AlertOctagon, PauseCircle, CreditCard, type LucideIcon } from "lucide-react";
 import type { OrganizationHealthSummary } from "@/lib/automation-health/types";
 import type { BadgeTone } from "@/lib/ui/badge";
 
@@ -7,17 +7,26 @@ import type { BadgeTone } from "@/lib/ui/badge";
  * maps onto the shared Badge primitive - reused by the page header (the
  * "is my system working?" headline answer) and by AutomationHealthTable's
  * per-automation rows.
+ *
+ * Pass 5A: "paused" and "payment_blocked" joined the original 3 states
+ * (see lib/automation-health/types.ts) so an intentionally paused or
+ * payment-blocked organization is never labeled with the same "Healthy"
+ * badge this page previously had no way to distinguish it from.
  */
 export const HEALTH_STATUS_BADGE: Record<OrganizationHealthSummary["status"], { label: string; tone: BadgeTone; icon: LucideIcon }> = {
   healthy: { label: "Healthy", tone: "success", icon: CheckCircle2 },
   degraded: { label: "Degraded", tone: "warning", icon: AlertTriangle },
   unhealthy: { label: "Unhealthy", tone: "danger", icon: AlertOctagon },
+  paused: { label: "Automation paused", tone: "neutral", icon: PauseCircle },
+  payment_blocked: { label: "Payment action needed", tone: "danger", icon: CreditCard },
 };
 
 const STATUS_STYLE: Record<OrganizationHealthSummary["status"], { ring: string; iconBg: string; iconText: string }> = {
   healthy: { ring: "ring-emerald-100", iconBg: "bg-emerald-50", iconText: "text-emerald-600" },
   degraded: { ring: "ring-amber-100", iconBg: "bg-amber-50", iconText: "text-amber-600" },
   unhealthy: { ring: "ring-red-100", iconBg: "bg-red-50", iconText: "text-red-600" },
+  paused: { ring: "ring-slate-200", iconBg: "bg-slate-100", iconText: "text-slate-600" },
+  payment_blocked: { ring: "ring-red-100", iconBg: "bg-red-50", iconText: "text-red-600" },
 };
 
 function formatCount(value: number): string {

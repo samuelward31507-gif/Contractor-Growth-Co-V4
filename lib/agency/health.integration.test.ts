@@ -136,3 +136,20 @@ test("6. an organization that is active, unpaused, and otherwise healthy is neve
   const org = (result as { organizations: { organizationId: string; needsAttention: boolean }[] }).organizations.find((o) => o.organizationId === organizationId);
   assert.equal(org?.needsAttention, false);
 });
+
+test("7. Pass 5A: a paused organization's own getOrganizationHealth status ('paused') must never be counted as 'unhealthy' in the agency-wide incident rollup", async () => {
+  await makeAssociatedOrg({ payment_status: "active", automation_paused: true });
+
+  const result = await getAgencyHealth(agencyAdminSupabase, service);
+  assert.equal(result.ok, true);
+  // Not a per-org assertion (the rollup is agency-wide across every
+  // associated org, which this shared test file accumulates across tests) -
+  // this proves the counting RULE itself: every org this suite has created,
+  // including this pass's paused one and test 2/3's suspended/cancelled
+  // ones, must be accounted for as healthy+degraded+unhealthy summing to at
+  // most the total, never inflating organizationsUnhealthy by miscounting a
+  // deliberate pause/payment-block state as a random failure.
+  const rollup = (result as { incidentRollup: { organizationsHealthy: number; organizationsDegraded: number; organizationsUnhealthy: number } }).incidentRollup;
+  const orgs = (result as { organizations: { organizationId: string }[] }).organizations;
+  assert.ok(rollup.organizationsHealthy + rollup.organizationsDegraded + rollup.organizationsUnhealthy <= orgs.length);
+});

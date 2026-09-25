@@ -5,12 +5,14 @@ import { getWorkflowNameStats, buildAutomationSummaries, getRecentExecutionsForW
 import { getAutomationEnabledMap } from "@/lib/automation/settings";
 import { getOrganizationHealth, getAutomationHealthSummaries, getLatestHealthCheckRun, isHealthCheckStale } from "@/lib/automation-health/health";
 import { listIncidents } from "@/lib/automation-health/queries";
+import { getScheduledAutomationLiveness } from "@/lib/automation-health/scheduled-automation-liveness";
 import { metaClass, sectionLabelClass } from "@/lib/ui/typography";
 import { PageHeader } from "@/lib/ui/page-header";
 import { Badge } from "@/lib/ui/badge";
 import { HealthSummaryCards, HEALTH_STATUS_BADGE } from "./_components/health-summary-cards";
 import { IncidentList } from "./_components/incident-list";
 import { AutomationList } from "./_components/automation-list";
+import { ScheduledLivenessList } from "./_components/scheduled-liveness-list";
 import { AiAgents, getAiAgentWorkflowNames } from "./_components/ai-agents";
 import { AiActivityFeed } from "./_components/ai-activity-feed";
 
@@ -48,13 +50,18 @@ export default async function AutomationsPage() {
     redirect("/onboarding");
   }
 
-  const [statsByName, enabledByAutomationId, orgHealth, automationHealthSummaries, incidents, lastHealthCheck] = await Promise.all([
+  const [statsByName, enabledByAutomationId, orgHealth, automationHealthSummaries, incidents, lastHealthCheck, scheduledLiveness] = await Promise.all([
     getWorkflowNameStats(supabase, membership.organizationId),
     getAutomationEnabledMap(supabase, membership.organizationId),
     getOrganizationHealth(supabase, membership.organizationId),
     getAutomationHealthSummaries(supabase, membership.organizationId),
     listIncidents(supabase, membership.organizationId, { status: ["open", "acknowledged"] }),
     getLatestHealthCheckRun(supabase),
+    // Pass 5A: global, not organization-scoped - every organization's
+    // /automations page shows the exact same 5 rows, since "did the n8n
+    // Schedule Trigger call this route" is a platform-wide fact, not a
+    // per-organization one (see the migration's own comment).
+    getScheduledAutomationLiveness(supabase),
   ]);
 
   const summaries = buildAutomationSummaries(statsByName, enabledByAutomationId);
@@ -97,6 +104,11 @@ export default async function AutomationsPage() {
       </div>
 
       <AiAgents summaries={summaries} />
+
+      <div className="flex flex-col gap-2">
+        <p className={sectionLabelClass}>Scheduled automation liveness</p>
+        <ScheduledLivenessList liveness={scheduledLiveness} />
+      </div>
 
       <IncidentList incidents={incidents} />
 

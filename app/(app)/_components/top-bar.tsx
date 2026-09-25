@@ -1,12 +1,22 @@
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrganizationHealth } from "@/lib/automation-health/health";
+import type { OrganizationHealthStatus } from "@/lib/automation-health/types";
 import { Breadcrumb } from "./breadcrumb";
 
-const STATUS_CONFIG: Record<"healthy" | "degraded" | "unhealthy", { dot: string; label: string; ring: string; text: string }> = {
+/**
+ * Pass 5A: widened to the full OrganizationHealthStatus union (paused and
+ * payment_blocked joined the original 3) so this indicator can never
+ * misreport an intentional pause or a payment block as a random
+ * infrastructure issue - see lib/automation-health/health.ts's own
+ * organizationStatus() for the precedence rule this mirrors.
+ */
+const STATUS_CONFIG: Record<OrganizationHealthStatus, { dot: string; label: string; ring: string; text: string }> = {
   healthy: { dot: "bg-emerald-500", label: "All systems healthy", ring: "ring-accent-border hover:bg-accent-muted", text: "text-accent-text" },
   degraded: { dot: "bg-amber-500", label: "Needs attention", ring: "ring-amber-200 hover:bg-amber-50", text: "text-amber-700" },
   unhealthy: { dot: "bg-red-500", label: "Critical issue", ring: "ring-red-200 hover:bg-red-50", text: "text-red-700" },
+  paused: { dot: "bg-slate-400", label: "Automation paused", ring: "ring-slate-200 hover:bg-slate-50", text: "text-slate-600" },
+  payment_blocked: { dot: "bg-red-500", label: "Payment action needed", ring: "ring-red-200 hover:bg-red-50", text: "text-red-700" },
 };
 
 /**

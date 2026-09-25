@@ -111,9 +111,17 @@ async function loadIncidentRollup(
   const perOrganization = new Map<string, PerOrganizationIncidents>();
 
   for (const health of results) {
+    // Pass 5A: getOrganizationHealth's status now also reports "paused" and
+    // "payment_blocked" (intentional states, not automation malfunctions -
+    // this agency page already surfaces both, precisely, via its own
+    // separate paymentAndPauseByOrg read above). Deliberately excluded from
+    // all three infrastructure-health buckets here, the same way HANDOFF-01
+    // already excludes a human escalation from this rollup - counting a
+    // paused or payment-blocked client as "unhealthy" would misreport a
+    // deliberate state as a random infrastructure failure.
     if (health.status === "healthy") organizationsHealthy += 1;
     else if (health.status === "degraded") organizationsDegraded += 1;
-    else organizationsUnhealthy += 1;
+    else if (health.status === "unhealthy") organizationsUnhealthy += 1;
     criticalIncidents += health.criticalIncidentCount;
     warningIncidents += health.warningIncidentCount;
     perOrganization.set(health.organizationId, { activeIncidentCount: health.activeIncidentCount, criticalIncidentCount: health.criticalIncidentCount });
