@@ -21,6 +21,83 @@ export const PIPELINE_STAGES: { stage: PipelineStage; label: string }[] = [
 
 const ACTIVE_LEAD_STATUSES = new Set<string>(["new", "contacted", "qualified", "appointment", "estimate"]);
 
+/**
+ * Pass 5C, Batch 3A: the exact real-data replacement for every place this
+ * file used to read `leads.status === "appointment"` / `"estimate"` as a
+ * proxy for "this lead has a real appointment/estimate." The Pass 5C Batch 3
+ * audit traced every write site for `leads.status` in this codebase and
+ * confirmed there are exactly two: the generic manual lead-edit Server
+ * Action (app/(app)/leads/actions.ts's updateLead), and the one automated
+ * transition to 'won' when a job is created from an accepted estimate
+ * (lib/automation/jobs.ts). Nothing automatically advances a lead's status
+ * to 'appointment' when a real appointment is booked, or to 'estimate' when
+ * a real estimate is created - so `leads.status` alone silently undercounts
+ * both stages whenever a lead's status field was never manually touched,
+ * which is the common case. These two functions replace that proxy with the
+ * real underlying relationship, exactly mirroring the same
+ * "leads -> real appointments/estimates by lead_id" cross-reference pattern
+ * lib/bi/metrics.ts's own getLeadBookingCrossReference already established
+ * and proved correct.
+ *
+ * Semantics (documented once, here, since three call sites below all need
+ * the identical definition to avoid the dashboard showing self-contradicting
+ * numbers for the same underlying population):
+ *
+ *   "booked" (pipeline.appointment) - a lead with at least one real
+ *   appointment (appointments.lead_id) whose status has not fallen through -
+ *   i.e. NOT 'cancelled' and NOT 'no_show'. 'scheduled'/'confirmed'/
+ *   'completed' all count: the lead genuinely got a real appointment, and a
+ *   completed visit is still "this lead had an appointment," not a reason to
+ *   un-count it. This deliberately does NOT try to model "currently only
+ *   upcoming" - that's a distinct, narrower question the existing
+ *   `upcomingAppointments` overview field (real appointments.start_at in the
+ *   future, unchanged by this pass) already answers on its own terms.
+ *
+ *   "quoted" / "pending estimate" (pipeline.estimate, overview.pendingEstimates,
+ *   the pending_estimate attention item) - a lead with at least one real
+ *   estimate (estimates.lead_id) whose status is 'sent' - genuinely awaiting
+ *   a customer decision right now. This reuses the exact same "sent = still
+ *   pending" convention already established and proven elsewhere in this
+ *   codebase (lib/briefing/queries.ts's estimatesAwaitingAction,
+ *   lib/bi/queries.ts's sentEstimates/sentEstimateValue) rather than
+ *   inventing a third, divergent definition of "pending." 'draft' is
+ *   deliberately excluded - a draft estimate hasn't been sent to the
+ *   customer yet, so there is nothing yet for them to be "pending" on.
+ *   'accepted'/'declined'/'cancelled'/'expired' are all real, decided
+ *   outcomes, not pending ones.
+ *
+ * A lead can now legitimately appear in more than one pipeline bucket at
+ * once (e.g. still `leads.status = 'qualified'` while also having a real,
+ * active appointment) - this is more accurate to reality than the previous
+ * behavior, not a regression: PipelineRail (app/(app)/dashboard/_components/
+ * pipeline-rail.tsx) already renders each stage as its own independent
+ * "does this stage currently hold anyone" indicator, never a percentage-of-
+ * total or a strict partition, so overlapping counts were always a safe,
+ * intended shape for this component.
+ */
+const BOOKED_APPOINTMENT_STATUSES = new Set(["scheduled", "confirmed", "completed"]);
+const PENDING_ESTIMATE_STATUS = "sent";
+
+function distinctLeadIdsWithBookedAppointment(appointments: { lead_id: string | null; status: string }[]): Set<string> {
+  const ids = new Set<string>();
+  for (const appointment of appointments) {
+    if (appointment.lead_id && BOOKED_APPOINTMENT_STATUSES.has(appointment.status)) {
+      ids.add(appointment.lead_id);
+    }
+  }
+  return ids;
+}
+
+function distinctLeadIdsWithPendingEstimate(estimates: { lead_id: string | null; status: string }[]): Set<string> {
+  const ids = new Set<string>();
+  for (const estimate of estimates) {
+    if (estimate.lead_id && estimate.status === PENDING_ESTIMATE_STATUS) {
+      ids.add(estimate.lead_id);
+    }
+  }
+  return ids;
+}
+
 export type OverviewMetrics = {
   newLeads: number;
   upcomingAppointments: number;
@@ -115,7 +192,7 @@ export async function getDashboardData(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<DashboardData> {
-  const [leadsResult, appointmentsResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities] = await Promise.all([
+  const [leadsResult, appointmentsResult, estimatesResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities] = await Promise.all([
     supabase
       .from("leads")
       .select("id, status, temperature, estimated_value, service, created_at, contacts(first_name, last_name)")
@@ -124,10 +201,22 @@ export async function getDashboardData(
       .limit(500),
     supabase
       .from("appointments")
-      .select("id, title, status, start_at, created_at, confirmed_at, confirmation_requested_at, contacts(first_name, last_name)")
+      .select("id, lead_id, title, status, start_at, created_at, confirmed_at, confirmation_requested_at, contacts(first_name, last_name)")
       .eq("organization_id", organizationId)
       .order("start_at", { ascending: false })
       .limit(200),
+    // Pass 5C, Batch 3A: real estimates by lead_id, replacing the
+    // leads.status === 'estimate' proxy - see distinctLeadIdsWithPendingEstimate's
+    // own comment above for the exact semantics. Bounded and org-scoped like
+    // every other read in this function; narrow-column, no embedded contact
+    // (this query is only ever used to derive lead ids, never displayed
+    // directly - the lead's own already-fetched contact is reused for
+    // display).
+    supabase
+      .from("estimates")
+      .select("lead_id, status")
+      .eq("organization_id", organizationId)
+      .limit(500),
     supabase
       .from("audit_log")
       .select("id, action, entity_type, created_at")
@@ -174,10 +263,18 @@ export async function getDashboardData(
 
   const leads = leadsResult.data ?? [];
   const appointments = appointmentsResult.data ?? [];
+  const estimates = estimatesResult.data ?? [];
   const auditLog = auditResult.data ?? [];
   const escalationIncidents = escalationIncidentsResult.data ?? [];
 
   const now = Date.now();
+
+  // Pass 5C, Batch 3A: the real cross-references replacing the
+  // leads.status === 'appointment'/'estimate' proxy - see
+  // distinctLeadIdsWithBookedAppointment/distinctLeadIdsWithPendingEstimate's
+  // own comments above for the exact, documented semantics chosen.
+  const leadIdsWithBookedAppointment = distinctLeadIdsWithBookedAppointment(appointments);
+  const leadIdsWithPendingEstimate = distinctLeadIdsWithPendingEstimate(estimates);
 
   const overview: OverviewMetrics = {
     newLeads: leads.filter((lead) => lead.status === "new").length,
@@ -186,12 +283,16 @@ export async function getDashboardData(
         (appointment.status === "scheduled" || appointment.status === "confirmed") &&
         new Date(appointment.start_at).getTime() >= now,
     ).length,
-    pendingEstimates: leads.filter((lead) => lead.status === "estimate").length,
+    pendingEstimates: leads.filter((lead) => leadIdsWithPendingEstimate.has(lead.id)).length,
     openOpportunities: leads.filter((lead) => ACTIVE_LEAD_STATUSES.has(lead.status)).length,
   };
 
   const pipeline = Object.fromEntries(
-    PIPELINE_STAGES.map(({ stage }) => [stage, leads.filter((lead) => lead.status === stage).length]),
+    PIPELINE_STAGES.map(({ stage }) => {
+      if (stage === "appointment") return [stage, leads.filter((lead) => leadIdsWithBookedAppointment.has(lead.id)).length];
+      if (stage === "estimate") return [stage, leads.filter((lead) => leadIdsWithPendingEstimate.has(lead.id)).length];
+      return [stage, leads.filter((lead) => lead.status === stage).length];
+    }),
   ) as PipelineCounts;
 
   const overdueAppointments: AttentionItem[] = appointments
@@ -263,7 +364,7 @@ export async function getDashboardData(
     }));
 
   const pendingEstimateLeads: AttentionItem[] = leads
-    .filter((lead) => lead.status === "estimate")
+    .filter((lead) => leadIdsWithPendingEstimate.has(lead.id))
     .slice(0, 5)
     .map((lead) => ({
       id: `est-${lead.id}`,

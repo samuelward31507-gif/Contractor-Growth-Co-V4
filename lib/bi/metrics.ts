@@ -10,6 +10,7 @@ import {
   getAiMetrics,
   getReviewReferralMetrics,
 } from "./queries";
+import { hasAnyLeadStageHistory } from "./funnel";
 import type {
   DateRangeInput,
   ResolvedDateRange,
@@ -499,13 +500,17 @@ async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, 
   };
 }
 
-function buildDataQuality(aiUsage: BiAiMetrics): BiDataQuality {
+function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean): BiDataQuality {
   const aiTokenUsageUnavailable = aiUsage.interactionsWithUsageData === 0;
   const notes = [
     "No payment/invoicing infrastructure exists - pipelineValue, estimateValue, and contractedJobValue are quoted/contracted figures, never collected revenue.",
     "leads.source is nullable and not standardized - sourceCounts is exposed for transparency only, never as a performance ranking.",
-    "No lead stage-transition history is used for timing/duration claims by this layer - lead_stage_history exists at the infrastructure level (see lib/automation/lead-stage-history.ts) but is not yet wired into a historical conversion-rate calculation here.",
   ];
+  notes.push(
+    stageHistoryUnavailable
+      ? "No lead.stage_changed event exists for this organization in this period - lib/bi/funnel.ts's historical funnel/timing functions have nothing to compute from yet."
+      : "Real, recorded lead stage-transition history exists for this period (lib/automation/lead-stage-history.ts) - see lib/bi/funnel.ts's getLeadStageTransitionMetrics/getLeadStageTimingMetrics for the historical funnel, not yet surfaced in this snapshot's own shape.",
+  );
   notes.push(
     aiTokenUsageUnavailable
       ? "No ai_interactions row in this period has provider-reported token usage - n8n's own AI call did not report it for any interaction in range."
@@ -515,7 +520,7 @@ function buildDataQuality(aiUsage: BiAiMetrics): BiDataQuality {
   return {
     collectedRevenueUnavailable: true,
     sourceAttributionLimited: true,
-    stageHistoryUnavailable: true,
+    stageHistoryUnavailable,
     aiTokenUsageUnavailable,
     notes,
   };
@@ -542,7 +547,7 @@ export async function getBusinessMetricsSnapshot(
   const range = resolveDateRange(dateRangeInput);
   const previousRange = previousPeriodOf(range);
 
-  const [{ lead, pipeline }, estimateMetrics, jobMetrics, appointmentMetrics, communicationMetrics, { automation, followUp }, aiMetrics, reviewReferralMetrics, previousTotals] =
+  const [{ lead, pipeline }, estimateMetrics, jobMetrics, appointmentMetrics, communicationMetrics, { automation, followUp }, aiMetrics, reviewReferralMetrics, stageHistoryExists, previousTotals] =
     await Promise.all([
       buildLeadMetrics(supabase, organizationId, range),
       buildEstimateMetrics(supabase, organizationId, range),
@@ -552,6 +557,13 @@ export async function getBusinessMetricsSnapshot(
       buildAutomationMetrics(supabase, organizationId, range),
       buildAiMetrics(supabase, organizationId, range),
       getReviewReferralMetrics(supabase, organizationId, range),
+      // Pass 5C, Batch 3A: a cheap count:exact/head:true existence check -
+      // see BiDataQuality.stageHistoryUnavailable's own comment in
+      // lib/bi/types.ts. Never fetches or attaches the full historical
+      // funnel dataset itself; that remains a separate, standalone call
+      // (lib/bi/funnel.ts's getLeadStageTransitionMetrics/
+      // getLeadStageTimingMetrics) not wired into this snapshot's shape.
+      hasAnyLeadStageHistory(supabase, organizationId, range),
       previousRange
         ? Promise.all([
             getLeadAndPipelineMetrics(supabase, organizationId, previousRange),
@@ -592,7 +604,7 @@ export async function getBusinessMetricsSnapshot(
     followUpMetrics: followUp,
     revenueOpportunity,
     reviewReferralMetrics,
-    dataQuality: buildDataQuality(aiMetrics),
+    dataQuality: buildDataQuality(aiMetrics, !stageHistoryExists),
     generatedAt: new Date().toISOString(),
   };
 }

@@ -496,3 +496,217 @@ test("28. abandoned_conversation: a lead still in an actionable pre-booking stat
   const data = await getDashboardData(service, organizationId);
   assert.ok(data.attentionItems.some((i) => i.kind === "abandoned_conversation" && i.href === `/conversations/${conversationId}`), "a lead still in an actionable pre-booking status must still be flagged");
 });
+
+// ==================== Pass 5C Batch 3A: dashboard funnel truth (pipeline.appointment/estimate, overview.pendingEstimates) ====================
+//
+// Every test below proves the pipeline/overview numbers now come from real
+// appointments/estimates by lead_id, never from leads.status - the exact P0
+// fix the Pass 5C Batch 3 read-only audit identified. Each test creates a
+// lead whose OWN status field is deliberately left at 'qualified' (never
+// manually advanced to 'appointment'/'estimate') to prove the fix does not
+// depend on that field at all.
+//
+// Unlike every test above, these use a DEDICATED, disposable organization
+// per test rather than the shared `organizationId` - pipeline.appointment/
+// pipeline.estimate/overview.pendingEstimates are org-wide aggregate counts,
+// and the shared org accumulates real appointments/estimates across every
+// other test in this file, so an exact-count assertion against it would be
+// measuring cross-test contamination, not this fix. This mirrors the exact
+// per-test-org convention already established in
+// lib/opportunities/detect.review-rebooking.integration.test.ts and
+// lib/opportunities/detect.uncontacted-lead.integration.test.ts for the
+// identical reason.
+
+async function makeFunnelTruthOrg(name: string) {
+  const { data } = await service.from("organizations").insert({ name }).select("id").single();
+  return data!.id as string;
+}
+
+async function cleanupFunnelTruthOrg(orgId: string) {
+  await service.from("appointments").delete().eq("organization_id", orgId);
+  await service.from("estimates").delete().eq("organization_id", orgId);
+  await service.from("leads").delete().eq("organization_id", orgId);
+  await service.from("contacts").delete().eq("organization_id", orgId);
+  await service.from("organizations").delete().eq("id", orgId);
+}
+
+test("29. a real, active appointment (status='scheduled') is counted as booked in pipeline.appointment, even though leads.status is still 'qualified'", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (29)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800001" }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("appointments").insert({ organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Consult", status: "scheduled", start_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), end_at: new Date(Date.now() + 25 * 3600 * 1000).toISOString() });
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.appointment, 1, "a lead with a real scheduled appointment must count as booked, regardless of leads.status");
+    assert.equal(data.pipeline.qualified, 1, "the same lead is still correctly counted under its own real leads.status - buckets are allowed to overlap");
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("30. a new/qualified lead with NO appointment at all is never counted as booked", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (30)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800002" }).select("id").single();
+    await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" });
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.appointment, 0);
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("31. a CANCELLED appointment does not count as booked pipeline - the booking fell through", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (31)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800003" }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("appointments").insert({ organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Consult", status: "cancelled", start_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), end_at: new Date(Date.now() + 25 * 3600 * 1000).toISOString() });
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.appointment, 0, "a cancelled appointment must never count as booked pipeline");
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("32. a NO-SHOW appointment does not count as booked pipeline - the booking fell through", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (32)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800004" }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("appointments").insert({ organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Consult", status: "no_show", start_at: "2027-01-01T09:00:00.000Z", end_at: "2027-01-01T10:00:00.000Z" });
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.appointment, 0, "a no-show appointment must never count as booked pipeline");
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("33. a COMPLETED appointment still counts as booked - a completed visit is still a real appointment the lead had", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (33)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800005" }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("appointments").insert({ organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Consult", status: "completed", start_at: "2027-01-01T09:00:00.000Z", end_at: "2027-01-01T10:00:00.000Z" });
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.appointment, 1);
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("34. a lead with a real, SENT estimate is counted as quoted/pending in pipeline.estimate and overview.pendingEstimates, even though leads.status is still 'qualified'", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (34)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800006" }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website", estimated_value: 900 }).select("id").single();
+    await service.from("estimates").insert({ organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Quote", status: "sent", amount: 900 });
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.estimate, 1, "a lead with a real sent estimate must count, regardless of leads.status");
+    assert.equal(data.overview.pendingEstimates, 1);
+    assert.equal(data.pipeline.qualified, 1, "the lead is still correctly counted under its own real leads.status too");
+    const item = data.attentionItems.find((i) => i.kind === "pending_estimate");
+    assert.ok(item, "expected a pending_estimate attention item backed by the real estimate");
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("35. a DRAFT estimate (never sent) is never counted as pending - there is nothing yet for the customer to decide on", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (35)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800007" }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("estimates").insert({ organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Draft quote", status: "draft", amount: 500 });
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.estimate, 0);
+    assert.equal(data.overview.pendingEstimates, 0);
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("36. an ACCEPTED estimate is a decided outcome, not a pending one - never counted", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (36)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800008" }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("estimates").insert({ organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Accepted quote", status: "accepted", amount: 500 });
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.estimate, 0);
+    assert.equal(data.overview.pendingEstimates, 0);
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("37. multiple appointments for the same lead never double-count it in pipeline.appointment", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (37)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800009" }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("appointments").insert([
+      { organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "First", status: "cancelled", start_at: "2027-02-01T09:00:00.000Z", end_at: "2027-02-01T10:00:00.000Z" },
+      { organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Rebooked", status: "scheduled", start_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), end_at: new Date(Date.now() + 25 * 3600 * 1000).toISOString() },
+    ]);
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.appointment, 1, "the same lead must count exactly once even with two real appointment rows");
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("38. multiple estimates for the same lead never double-count it in pipeline.estimate/overview.pendingEstimates", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (38)");
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800010" }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: orgId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("estimates").insert([
+      { organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Quote A", status: "sent", amount: 100 },
+      { organization_id: orgId, contact_id: contact!.id, lead_id: lead!.id, title: "Quote B", status: "sent", amount: 200 },
+    ]);
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.pipeline.estimate, 1, "the same lead must count exactly once even with two real sent-estimate rows");
+    assert.equal(data.overview.pendingEstimates, 1);
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("39. a pending-estimate lead with a NULL estimated_value never renders a fabricated $0 attention value", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, phone: `+1555590${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  const { data: lead } = await service.from("leads").insert({ organization_id: organizationId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website", estimated_value: null }).select("id").single();
+  await service.from("estimates").insert({ organization_id: organizationId, contact_id: contact!.id, lead_id: lead!.id, title: "Quote", status: "sent", amount: null });
+
+  const data = await getDashboardData(service, organizationId);
+  const item = data.attentionItems.find((i) => i.kind === "pending_estimate" && i.href === "/estimates");
+  assert.ok(item, "expected the pending_estimate item to still appear even with an unknown value");
+  assert.equal(item!.value, null, "a NULL leads.estimated_value must render as null, never a fabricated $0");
+});
+
+test("40. organization isolation: organization A's real appointment/estimate never inflates organization B's pipeline/overview counts", async () => {
+  const { data: otherOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Other, Funnel Truth)" }).select("id").single();
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, phone: `+1555591${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+    const { data: lead } = await service.from("leads").insert({ organization_id: organizationId, contact_id: contact!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("appointments").insert({ organization_id: organizationId, contact_id: contact!.id, lead_id: lead!.id, title: "Consult", status: "scheduled", start_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), end_at: new Date(Date.now() + 25 * 3600 * 1000).toISOString() });
+    await service.from("estimates").insert({ organization_id: organizationId, contact_id: contact!.id, lead_id: lead!.id, title: "Quote", status: "sent", amount: 400 });
+
+    const dataOther = await getDashboardData(service, otherOrg!.id);
+    assert.equal(dataOther.pipeline.appointment, 0);
+    assert.equal(dataOther.pipeline.estimate, 0);
+    assert.equal(dataOther.overview.pendingEstimates, 0);
+  } finally {
+    await service.from("organizations").delete().eq("id", otherOrg!.id);
+  }
+});

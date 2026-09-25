@@ -569,8 +569,25 @@ export type BiDataQuality = {
   collectedRevenueUnavailable: true;
   /** leads.source is nullable, free-text, and not standardized - source counts are exposed but never ranked or labeled as "best"/"worst"/"highest converting". */
   sourceAttributionLimited: true;
-  /** No table or trigger records lead status-transition history - every rate/count here is a current-state or activity-count metric, never a true historical conversion rate. */
-  stageHistoryUnavailable: true;
+  /**
+   * Pass 5C, Batch 3A: previously a hardcoded `true` - the Pass 5C Batch 3
+   * audit found that real, timestamped lead stage-transition history has
+   * existed since Growth System Completion Pass 2, Part 1
+   * (lib/automation/lead-stage-history.ts's lead.stage_changed events), it
+   * was simply never wired into this layer's own dataQuality computation.
+   * Now computed dynamically, exactly like aiTokenUsageUnavailable below:
+   * `true` only when zero lead.stage_changed events exist for this
+   * organization within the requested range, `false` once at least one real,
+   * recorded transition exists. This does NOT mean every lead in range has
+   * complete historical timing - a lead created before this feature shipped,
+   * or one that has simply never had a tracked transition recorded, still
+   * has no historical timing available for it individually (see
+   * LeadStageTimingMetrics.leadsWithRecordedHistory in this file, and
+   * lib/bi/funnel.ts's own header comment, for exactly how that partial-
+   * coverage case is represented - never fabricated from updated_at or
+   * inferred from current status).
+   */
+  stageHistoryUnavailable: boolean;
   /**
    * Growth System Completion Pass 2, Part 4: ai_interactions.tokens_used CAN
    * now be populated (when n8n's own AI call reports usage - see
@@ -624,4 +641,124 @@ export type BusinessMetricsSnapshot = {
   dataQuality: BiDataQuality;
   /** Wall-clock time this snapshot was computed - not a business timestamp. */
   generatedAt: string;
+};
+
+// =============================================================================
+// Pass 5C, Batch 3A - Funnel Truth + Response Intelligence. Two genuinely new
+// capabilities, implemented in lib/bi/funnel.ts (a new, separate file - not
+// merged into the "frozen"/"additive-only" Phase 5.1/5.2 files above), each
+// independently callable and NOT wired into BusinessMetricsSnapshot's own
+// shape - the only Batch 3A change to the existing snapshot is
+// BiDataQuality.stageHistoryUnavailable becoming a real, computed boolean
+// (see that field's own comment above). Wiring either capability into the
+// analytics page UI is explicitly out of this pass's authorized scope.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Historical lead-stage funnel (Part C)
+// ---------------------------------------------------------------------------
+
+/**
+ * Real, timestamped lead.stage_changed events
+ * (lib/automation/lead-stage-history.ts), counted by (previousStatus ->
+ * newStatus) pair and scoped by the TRANSITION's own created_at (when the
+ * transition itself happened) - not by when the lead was created. This is
+ * activity-count data: "N transitions of this shape happened in this
+ * window," never a claim about how many leads currently sit in a stage
+ * (that remains BiLeadMetrics' own current-state job).
+ */
+export type LeadStageTransitionMetrics = {
+  /** Every recorded lead.stage_changed event in range, regardless of shape. */
+  totalTransitions: number;
+  /** Distinct leads with at least one recorded transition INTO 'qualified' within range. */
+  leadsTransitionedToQualified: number;
+  /** Distinct leads with at least one recorded transition INTO 'won' within range. */
+  leadsTransitionedToWon: number;
+  /**
+   * Keyed as `${previousStatus ?? "null"}->${newStatus}` (e.g.
+   * "new->contacted", "null->new" for a lead's very first recorded entry at
+   * creation). Free-form, not a fixed enum of keys - only pairs that
+   * genuinely occurred in range appear.
+   */
+  transitionCounts: Record<string, number>;
+};
+
+/**
+ * Real elapsed time from a lead's own `leads.created_at` to the first
+ * RECORDED transition into a given stage - never derived from
+ * `leads.updated_at`, never inferred from the lead's current status, and
+ * never inferred merely because a related appointment/estimate exists (an
+ * appointment or estimate being created does NOT itself write a
+ * lead.stage_changed event - see lib/dashboard/queries.ts's Batch 3A fix for
+ * the real, separate cross-reference that handles that question). A lead
+ * created before lead-stage history existed, or one that simply never had a
+ * transition recorded, contributes to `leadsInRange` but NOT to the timing
+ * averages - its timing is unavailable, never fabricated as 0 or omitted
+ * silently from the denominator in a way that would misrepresent coverage.
+ */
+export type LeadStageTimingMetrics = {
+  /** Leads created within range - the population these timing figures are computed over. */
+  leadsInRange: number;
+  /** Leads in range with ANY recorded stage-history entry at all (including just the creation entry) - lets a caller honestly show "historical timing available for N of M leads," never assume full coverage. */
+  leadsWithRecordedHistory: number;
+  /** Leads in range with a genuine recorded transition into 'qualified' - real timing available for exactly these leads, no more. */
+  leadsWithQualifiedTiming: number;
+  /** Average ms from leads.created_at to the first recorded 'qualified' transition, across only leadsWithQualifiedTiming. Null when that count is 0. */
+  averageTimeToQualifiedMs: number | null;
+  /** Median ms, same population as averageTimeToQualifiedMs. Null under the same condition. */
+  medianTimeToQualifiedMs: number | null;
+  /** Same shape as the three qualified-timing fields above, for the 'won' transition. */
+  leadsWithWonTiming: number;
+  averageTimeToWonMs: number | null;
+  medianTimeToWonMs: number | null;
+};
+
+// ---------------------------------------------------------------------------
+// Lead response-time intelligence (Part D)
+// ---------------------------------------------------------------------------
+
+export type ResponseTimeBucket = "under_1_min" | "1_to_5_min" | "5_to_15_min" | "15_to_60_min" | "1_to_24_hours" | "over_24_hours";
+
+/**
+ * Time from `leads.created_at` to the first real, successful outbound
+ * message (`messages.direction = 'outbound' AND status IN ('sent',
+ * 'delivered')`) recorded for that lead's own contact, joined via
+ * `leads.contact_id -> conversations.contact_id -> messages.conversation_id`
+ * - the exact evidence hierarchy established in Pass 5C Batch 2's
+ * `uncontacted_lead` opportunity detector. `queued`/`failed`/`undelivered`
+ * outbound messages, any `workflow_executions`/`automation_events`/
+ * `ai_interactions` row, and any AI `should_send` decision are NEVER treated
+ * as contact - only a real, carrier-accepted-or-delivered message counts.
+ *
+ * KNOWN LIMITATION (deliberately not fixed in this pass - see Part E of the
+ * Batch 3A task): `messages` has only `created_at`, no dedicated `sent_at`/
+ * `delivered_at`. The response timestamp used here is therefore the
+ * message ROW's created_at (when Trackpr recorded the outbound attempt),
+ * not a guaranteed Twilio delivery timestamp. A `status = 'delivered'`
+ * message proves the message eventually reached the carrier successfully,
+ * but its exact delivery moment is not separately recorded - only when the
+ * row was created is known precisely.
+ *
+ * POPULATION: every lead created within the requested range, regardless of
+ * status, source, or whether it was ever eligible for automated outbound -
+ * the broadest defensible population, never silently narrowed. A lead with
+ * no `contact_id` at all can structurally never be contacted and correctly
+ * falls under `leadsNeverContacted`. For a contact with more than one lead
+ * over time, a message only counts toward a given lead if its own
+ * `created_at` is at or after that specific lead's `created_at` - an outbound
+ * message that predates this lead (e.g. it answered an earlier, separate
+ * inquiry from the same contact) is never counted as this lead's response.
+ */
+export type LeadResponseTimeMetrics = {
+  totalLeadsInPopulation: number;
+  leadsContacted: number;
+  leadsNeverContacted: number;
+  /** leadsContacted / totalLeadsInPopulation, as a 0-100 percentage (matching lib/bi/metrics.ts's own Rate convention, NOT lib/bi/queries.ts's 0-1 fraction). Null when totalLeadsInPopulation is 0. */
+  contactRate: number | null;
+  /** Average ms from leads.created_at to first successful outbound, across only leadsContacted. Null when leadsContacted is 0. */
+  averageResponseTimeMs: number | null;
+  /** Median ms, same population. Null under the same condition. */
+  medianResponseTimeMs: number | null;
+  /** Mutually exclusive bucket counts over leadsContacted only - sums to leadsContacted, never includes leadsNeverContacted. */
+  bucketCounts: Record<ResponseTimeBucket, number>;
 };
