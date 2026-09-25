@@ -2,6 +2,7 @@ import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { formatCurrency } from "@/lib/dashboard/format";
 import type { OverviewMetrics } from "@/lib/dashboard/queries";
 import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
+import type { OpportunitySummary } from "@/lib/opportunities/queries";
 import { formatComparisonBadge, formatRate } from "./period-comparison-format";
 
 /**
@@ -34,7 +35,16 @@ function Row({ label, value, description }: { label: string; value: string; desc
   );
 }
 
-export function BusinessGlance({ overview, snapshot }: { overview: OverviewMetrics; snapshot: BusinessMetricsSnapshot }) {
+export function BusinessGlance({
+  overview,
+  snapshot,
+  opportunitySummary,
+}: {
+  overview: OverviewMetrics;
+  snapshot: BusinessMetricsSnapshot;
+  /** Pass 3 (Revenue Intelligence Foundation): the unified, all-5-type opportunity count from the opportunities table - distinct from snapshot.revenueOpportunity below, which only reflects 2 of those 5 types (a byproduct of the pre-existing Growth System Completion Pass 2 calculation, kept as-is rather than merged). */
+  opportunitySummary: OpportunitySummary;
+}) {
   return (
     <div>
       <p className={sectionLabelClass}>Right now</p>
@@ -56,11 +66,21 @@ export function BusinessGlance({ overview, snapshot }: { overview: OverviewMetri
         <Row label="Jobs" value={String(snapshot.comparisons.jobCount.current)} description={formatComparisonBadge(snapshot.comparisons.jobCount) ?? undefined} />
         <Row label="Contracted job value" value={formatCurrency(snapshot.jobMetrics.contractedJobValue)} />
         <Row label="Lead → booking rate" value={formatRate(snapshot.leadMetrics.leadToBookingRate)} description="Leads that got an appointment" />
+        <Row label="Review rate" value={formatRate(snapshot.reviewReferralMetrics.reviewResponseRate)} description={`${snapshot.reviewReferralMetrics.reviewsRequested} requested`} />
+        <Row label="Referral rate" value={formatRate(snapshot.reviewReferralMetrics.referralResponseRate)} description={`${snapshot.reviewReferralMetrics.referralsRequested} requested`} />
       </div>
       <p className={`mt-3 ${metaClass}`}>Quoted amounts, not collected payments.</p>
 
-      <p className={`mt-5 ${sectionLabelClass}`}>Revenue opportunity</p>
+      <p className={`mt-5 ${sectionLabelClass}`}>Opportunities</p>
       <div className="mt-1.5 divide-y divide-slate-100">
+        <Row
+          label="Open opportunities"
+          value={String(opportunitySummary.count)}
+          description={opportunitySummary.knownEstimatedValue > 0 ? `${formatCurrency(opportunitySummary.knownEstimatedValue)} known value` : undefined}
+        />
+        {opportunitySummary.unknownValueCount > 0 ? (
+          <Row label="With unknown value" value={String(opportunitySummary.unknownValueCount)} description="Not guessed, not shown as $0" />
+        ) : null}
         <Row label="Recoverable estimate value" value={formatCurrency(snapshot.revenueOpportunity.recoverableEstimateValue)} description="Open + expired, not yet declined" />
         <Row label="Qualified leads, no appointment" value={String(snapshot.revenueOpportunity.qualifiedLeadsWithoutAppointment)} />
         <Row label="Completed visits, no estimate" value={String(snapshot.revenueOpportunity.completedAppointmentsWithoutEstimate)} />

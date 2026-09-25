@@ -268,13 +268,35 @@ test("10. organization isolation: revenue opportunity for organization A never i
   }
 });
 
+test("11. Pass 3 fix: revenueOpportunity reflects true current state, never scoped down by the caller's requested date range", async () => {
+  const { data: freshOrg } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Current State Not Range-Scoped)" }).select("id").single();
+  try {
+    const contactId = await makeContact(freshOrg!.id, "+15555550410");
+    const staleDate = "2020-01-01T00:00:00.000Z"; // far outside any "today" window
+    await makeLead(freshOrg!.id, contactId, "qualified", { created_at: staleDate });
+    await service.from("estimates").insert({ organization_id: freshOrg!.id, contact_id: contactId, title: "Quote", status: "sent", amount: 750, created_at: staleDate });
+
+    // Requesting "today" must not hide opportunity data created long ago - per MetricTemporality, revenueOpportunity is current-state, not a date-range metric.
+    const snapshot = await getBusinessMetricsSnapshot(service, freshOrg!.id, "today");
+    assert.equal(snapshot.revenueOpportunity.qualifiedLeadsWithoutAppointment, 1, "a qualified, still-unbooked lead from outside the requested range must still count");
+    assert.equal(snapshot.revenueOpportunity.openEstimateValue, 750, "a still-open estimate from outside the requested range must still count");
+    // The requested range itself must still genuinely scope leadMetrics - a "today"-scoped call finds zero leads created today.
+    assert.equal(snapshot.leadMetrics.totalLeads, 0);
+  } finally {
+    await service.from("estimates").delete().eq("organization_id", freshOrg!.id);
+    await service.from("leads").delete().eq("organization_id", freshOrg!.id);
+    await service.from("contacts").delete().eq("organization_id", freshOrg!.id);
+    await service.from("organizations").delete().eq("id", freshOrg!.id);
+  }
+});
+
 // ==================== Part 4: AI token usage aggregation ====================
 
 async function makeAiInteraction(orgId: string, tokensUsed: number | null, interactionType = "lead_followup_response") {
   await service.from("ai_interactions").insert({ organization_id: orgId, interaction_type: interactionType, input: {}, output: {}, model: "test-model", tokens_used: tokensUsed });
 }
 
-test("11. zero ai_interactions: totalTokensUsed/averageTokensPerInteraction are null, interactionsWithUsageData is 0, dataQuality.aiTokenUsageUnavailable is true", async () => {
+test("12. zero ai_interactions: totalTokensUsed/averageTokensPerInteraction are null, interactionsWithUsageData is 0, dataQuality.aiTokenUsageUnavailable is true", async () => {
   const { data: emptyOrg } = await service.from("organizations").insert({ name: "BI Metrics Test Org (No AI)" }).select("id").single();
   try {
     const snapshot = await getBusinessMetricsSnapshot(service, emptyOrg!.id, "allTime");
@@ -287,7 +309,7 @@ test("11. zero ai_interactions: totalTokensUsed/averageTokensPerInteraction are 
   }
 });
 
-test("12. interactions exist but none report usage: totalTokensUsed stays null (never a fabricated 0) - missing provider usage is stored as null, not invented", async () => {
+test("13. interactions exist but none report usage: totalTokensUsed stays null (never a fabricated 0) - missing provider usage is stored as null, not invented", async () => {
   const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (No Usage Data)" }).select("id").single();
   try {
     await makeAiInteraction(org!.id, null);
@@ -304,7 +326,7 @@ test("12. interactions exist but none report usage: totalTokensUsed stays null (
   }
 });
 
-test("13. a mix of interactions with and without usage: totals/averages are computed ONLY over the real data, and interactionsWithUsageData reflects the true count", async () => {
+test("14. a mix of interactions with and without usage: totals/averages are computed ONLY over the real data, and interactionsWithUsageData reflects the true count", async () => {
   const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Mixed Usage)" }).select("id").single();
   try {
     await makeAiInteraction(org!.id, 100);
@@ -323,7 +345,7 @@ test("13. a mix of interactions with and without usage: totals/averages are comp
   }
 });
 
-test("14. organization isolation: organization A's token totals never include organization B's ai_interactions", async () => {
+test("15. organization isolation: organization A's token totals never include organization B's ai_interactions", async () => {
   const { data: orgA } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Token Isolation A)" }).select("id").single();
   const { data: orgB } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Token Isolation B)" }).select("id").single();
   try {

@@ -1,0 +1,140 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * Pass 3 (Revenue Intelligence Foundation), Part 5: reusable, deterministic
+ * customer lifecycle intelligence, built directly on the existing
+ * contacts/jobs relationship (jobs.contact_id) - never a new denormalized
+ * customer column, per this pass's own "prefer derivation over
+ * denormalization" instruction.
+ *
+ * All-time/current-state by design, matching the reasoning already
+ * established for lib/bi/metrics.ts's revenueOpportunity fix: "has this
+ * customer come back" and "what have they completed with us, ever" are not
+ * date-range questions, so these queries deliberately ignore any reporting
+ * window and are never merged into BusinessMetricsSnapshot's period-scoped
+ * groups.
+ *
+ * Terminology: per this pass's explicit rule, jobs.amount is never called
+ * "revenue" - there is no payment ledger in this schema, so a completed
+ * job's contracted amount is only ever "known completed job value," and a
+ * NULL amount is excluded from every sum/average here, never coerced to 0.
+ */
+
+const MAX_ROWS = 10_000;
+
+export type CustomerLifecycle = {
+  contactId: string;
+  totalCompletedJobs: number;
+  firstCompletedJobAt: string | null;
+  lastCompletedJobAt: string | null;
+  daysSinceLastCompletedJob: number | null;
+  /** totalCompletedJobs >= 2 - the single definition of "repeat customer" this codebase uses; the Attention Engine's repeat-service opportunity and the dashboard's repeat-customer rate both read it from here rather than recomputing it. */
+  isRepeatCustomer: boolean;
+  /** SUM(jobs.amount) over this customer's completed jobs with a non-null amount. */
+  knownCompletedJobValue: number;
+  /** Count of this customer's completed jobs that have a non-null amount - the real denominator for averageKnownCompletedJobValue, not necessarily equal to totalCompletedJobs. */
+  knownCompletedJobValueCount: number;
+  averageKnownCompletedJobValue: number | null;
+};
+
+type JobRow = { contact_id: string | null; amount: number | null; completed_at: string | null };
+
+function summarizeCompletedJobs(jobs: JobRow[], now: Date): Omit<CustomerLifecycle, "contactId"> {
+  const totalCompletedJobs = jobs.length;
+  const completedAts = jobs
+    .map((job) => job.completed_at)
+    .filter((value): value is string => value != null)
+    .sort();
+  const firstCompletedJobAt = completedAts[0] ?? null;
+  const lastCompletedJobAt = completedAts[completedAts.length - 1] ?? null;
+  const daysSinceLastCompletedJob = lastCompletedJobAt == null ? null : Math.floor((now.getTime() - new Date(lastCompletedJobAt).getTime()) / (24 * 60 * 60 * 1000));
+
+  let knownCompletedJobValue = 0;
+  let knownCompletedJobValueCount = 0;
+  for (const job of jobs) {
+    if (job.amount != null) {
+      knownCompletedJobValue += job.amount;
+      knownCompletedJobValueCount += 1;
+    }
+  }
+
+  return {
+    totalCompletedJobs,
+    firstCompletedJobAt,
+    lastCompletedJobAt,
+    daysSinceLastCompletedJob,
+    isRepeatCustomer: totalCompletedJobs >= 2,
+    knownCompletedJobValue,
+    knownCompletedJobValueCount,
+    averageKnownCompletedJobValue: knownCompletedJobValueCount === 0 ? null : knownCompletedJobValue / knownCompletedJobValueCount,
+  };
+}
+
+/**
+ * Single-customer lifecycle - this one contact's own completed jobs,
+ * all-time. Returns a real zeroed shape (never throws, never null) when the
+ * contact has no completed jobs at all - "no history yet" is a normal,
+ * expected state for a new customer, not an error.
+ */
+export async function getCustomerLifecycle(supabase: SupabaseClient, organizationId: string, contactId: string, now: Date = new Date()): Promise<CustomerLifecycle> {
+  const { data } = await supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("contact_id", contactId).eq("status", "completed").limit(1000);
+
+  return { contactId, ...summarizeCompletedJobs((data ?? []) as JobRow[], now) };
+}
+
+export type RepeatCustomerSummary = {
+  /** Distinct customers with at least one completed job. */
+  customersWithCompletedJob: number;
+  /** Distinct customers with 2+ completed jobs. */
+  repeatCustomerCount: number;
+  /** repeatCustomerCount / customersWithCompletedJob, as a percentage. `null` when the denominator is 0. */
+  repeatCustomerRate: number | null;
+  completedJobCount: number;
+  /** SUM(jobs.amount) over ALL completed jobs org-wide with a non-null amount, all-time. */
+  knownCompletedJobValue: number;
+  averageKnownCompletedJobValue: number | null;
+};
+
+/**
+ * Org-wide repeat-customer + completed-job-value rollup - Part 9's
+ * analytics reconnection reads this directly rather than deriving the same
+ * fact a second, different way. Groups jobs by contact_id in application
+ * code from a single bounded fetch, matching lib/bi/metrics.ts's own
+ * established "one fetch + in-memory aggregation" shape (e.g.
+ * getLeadBookingCrossReference) rather than a query-per-customer.
+ */
+export async function getRepeatCustomerSummary(supabase: SupabaseClient, organizationId: string): Promise<RepeatCustomerSummary> {
+  const { data } = await supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("status", "completed").not("contact_id", "is", null).limit(MAX_ROWS);
+
+  const jobs = (data ?? []) as JobRow[];
+  const byContact = new Map<string, JobRow[]>();
+  for (const job of jobs) {
+    const contactId = job.contact_id as string;
+    const list = byContact.get(contactId);
+    if (list) list.push(job);
+    else byContact.set(contactId, [job]);
+  }
+
+  const customersWithCompletedJob = byContact.size;
+  let repeatCustomerCount = 0;
+  let knownCompletedJobValue = 0;
+  let knownCompletedJobValueCount = 0;
+  for (const list of byContact.values()) {
+    if (list.length >= 2) repeatCustomerCount += 1;
+    for (const job of list) {
+      if (job.amount != null) {
+        knownCompletedJobValue += job.amount;
+        knownCompletedJobValueCount += 1;
+      }
+    }
+  }
+
+  return {
+    customersWithCompletedJob,
+    repeatCustomerCount,
+    repeatCustomerRate: customersWithCompletedJob === 0 ? null : (repeatCustomerCount / customersWithCompletedJob) * 100,
+    completedJobCount: jobs.length,
+    knownCompletedJobValue,
+    averageKnownCompletedJobValue: knownCompletedJobValueCount === 0 ? null : knownCompletedJobValue / knownCompletedJobValueCount,
+  };
+}

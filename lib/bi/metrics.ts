@@ -8,6 +8,7 @@ import {
   getCommunicationMetrics,
   getAutomationAndFollowUpMetrics,
   getAiMetrics,
+  getReviewReferralMetrics,
 } from "./queries";
 import type {
   DateRangeInput,
@@ -273,21 +274,32 @@ async function getCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient,
 }
 
 /**
- * Growth System Completion Pass 2, Part 3: "Revenue Opportunity" - see
+ * Growth System Completion Pass 2, Part 3 (revised in Pass 3 - Revenue
+ * Intelligence Foundation): "Revenue Opportunity" - see
  * BiRevenueOpportunity's own documentation in lib/bi/types.ts for the exact,
- * deliberately factual meaning of each field. Reuses
- * getLeadBookingCrossReference's own leads/appointments fetch (Part 2) for
- * qualifiedLeadsWithoutAppointment rather than querying leads a second time.
+ * deliberately factual meaning of each field.
+ *
+ * Pass 3 fix: this used to be scoped to the caller's requested `range` (the
+ * dashboard's main render passes "today", the AI Insights action passes
+ * "last30Days"), which made it read as almost always near-empty - a
+ * qualified lead that went unbooked last month, or an estimate that was
+ * sent weeks ago and is still open today, is still a real outstanding
+ * opportunity regardless of when it was created. Per lib/bi/types.ts's own
+ * already-declared MetricTemporality distinction, this is a "current_state"
+ * question, not a "date_range" one, so it is now always computed against an
+ * unbounded ("allTime") range internally, completely independent of
+ * whatever range the caller passed to getBusinessMetricsSnapshot - which is
+ * why, unlike every other builder in this file, it takes no `range`
+ * parameter and fetches its own leads/appointments cross-reference rather
+ * than reusing buildLeadMetrics's range-scoped one.
  */
-async function buildRevenueOpportunity(
-  supabase: SupabaseClient,
-  organizationId: string,
-  range: ResolvedDateRange,
-  qualifiedLeadsWithoutAppointment: number,
-): Promise<BiRevenueOpportunity> {
-  const [{ openEstimateValue, expiredEstimateValue, lostEstimateValue }, completedAppointmentsWithoutEstimate] = await Promise.all([
-    getEstimateOpportunityValues(supabase, organizationId, range),
-    getCompletedAppointmentsWithoutEstimate(supabase, organizationId, range),
+async function buildRevenueOpportunity(supabase: SupabaseClient, organizationId: string): Promise<BiRevenueOpportunity> {
+  const unboundedRange = resolveDateRange("allTime");
+
+  const [{ openEstimateValue, expiredEstimateValue, lostEstimateValue }, completedAppointmentsWithoutEstimate, bookingCrossReference] = await Promise.all([
+    getEstimateOpportunityValues(supabase, organizationId, unboundedRange),
+    getCompletedAppointmentsWithoutEstimate(supabase, organizationId, unboundedRange),
+    getLeadBookingCrossReference(supabase, organizationId, unboundedRange),
   ]);
 
   return {
@@ -295,7 +307,7 @@ async function buildRevenueOpportunity(
     expiredEstimateValue,
     lostEstimateValue,
     recoverableEstimateValue: openEstimateValue + expiredEstimateValue,
-    qualifiedLeadsWithoutAppointment,
+    qualifiedLeadsWithoutAppointment: bookingCrossReference.qualifiedLeadsWithoutAppointment,
     completedAppointmentsWithoutEstimate,
   };
 }
@@ -309,7 +321,7 @@ async function buildLeadMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<{ lead: BiLeadMetrics; pipeline: BiPipelineMetrics; qualifiedLeadsWithoutAppointment: number }> {
+): Promise<{ lead: BiLeadMetrics; pipeline: BiPipelineMetrics }> {
   const [{ leads, pipeline }, sourceCounts, bookingCrossReference] = await Promise.all([
     getLeadAndPipelineMetrics(supabase, organizationId, range),
     getSourceCounts(supabase, organizationId, range),
@@ -339,7 +351,7 @@ async function buildLeadMetrics(
     averagePipelineValue: safeAverage(pipeline.pipelineValue, leads.openLeads),
   };
 
-  return { lead, pipeline: biPipeline, qualifiedLeadsWithoutAppointment: bookingCrossReference.qualifiedLeadsWithoutAppointment };
+  return { lead, pipeline: biPipeline };
 }
 
 async function buildEstimateMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiEstimateMetrics> {
@@ -530,7 +542,7 @@ export async function getBusinessMetricsSnapshot(
   const range = resolveDateRange(dateRangeInput);
   const previousRange = previousPeriodOf(range);
 
-  const [{ lead, pipeline, qualifiedLeadsWithoutAppointment }, estimateMetrics, jobMetrics, appointmentMetrics, communicationMetrics, { automation, followUp }, aiMetrics, previousTotals] =
+  const [{ lead, pipeline }, estimateMetrics, jobMetrics, appointmentMetrics, communicationMetrics, { automation, followUp }, aiMetrics, reviewReferralMetrics, previousTotals] =
     await Promise.all([
       buildLeadMetrics(supabase, organizationId, range),
       buildEstimateMetrics(supabase, organizationId, range),
@@ -539,6 +551,7 @@ export async function getBusinessMetricsSnapshot(
       buildCommunicationMetrics(supabase, organizationId, range),
       buildAutomationMetrics(supabase, organizationId, range),
       buildAiMetrics(supabase, organizationId, range),
+      getReviewReferralMetrics(supabase, organizationId, range),
       previousRange
         ? Promise.all([
             getLeadAndPipelineMetrics(supabase, organizationId, previousRange),
@@ -550,7 +563,7 @@ export async function getBusinessMetricsSnapshot(
 
   estimateMetrics.estimateToJobRate = rate(jobMetrics.totalJobs, estimateMetrics.acceptedEstimates);
 
-  const revenueOpportunity = await buildRevenueOpportunity(supabase, organizationId, range, qualifiedLeadsWithoutAppointment);
+  const revenueOpportunity = await buildRevenueOpportunity(supabase, organizationId);
 
   const comparisons: BusinessMetricsComparisons = previousTotals
     ? {
@@ -578,6 +591,7 @@ export async function getBusinessMetricsSnapshot(
     aiMetrics,
     followUpMetrics: followUp,
     revenueOpportunity,
+    reviewReferralMetrics,
     dataQuality: buildDataQuality(aiMetrics),
     generatedAt: new Date().toISOString(),
   };

@@ -598,7 +598,29 @@ export type BusinessMetricsSnapshot = {
   automationMetrics: BiAutomationMetrics;
   aiMetrics: BiAiMetrics;
   followUpMetrics: BiFollowUpMetrics;
+  /**
+   * Pass 3 (Revenue Intelligence Foundation): unlike every other group in
+   * this snapshot, revenueOpportunity is deliberately NEVER scoped by
+   * `period` - it answers "what needs attention right now" (a qualified
+   * lead sitting unbooked, an estimate that expired, a completed visit that
+   * never got quoted), a current-state question, not "how much of this
+   * happened within the requested reporting window." Computed against an
+   * unbounded range internally regardless of what `period` the caller
+   * requested - see getBusinessMetricsSnapshot's own comment for why this
+   * matters (a date-scoped call, e.g. "today", would otherwise make this
+   * block read as almost always empty).
+   */
   revenueOpportunity: BiRevenueOpportunity;
+  /**
+   * Pass 3 (Revenue Intelligence Foundation): migrated in from the
+   * superseded Phase 5.1 BusinessIntelligenceSnapshot type (which nothing
+   * in the app calls anymore) rather than left orphaned there - same real,
+   * already-tested calculation (lib/bi/queries.ts's getReviewReferralMetrics),
+   * not recomputed or duplicated. Scoped by `period` like every other group
+   * except revenueOpportunity above - "how many review/referral requests
+   * were created in this window" is a genuine date-range question.
+   */
+  reviewReferralMetrics: ReviewReferralMetrics;
   dataQuality: BiDataQuality;
   /** Wall-clock time this snapshot was computed - not a business timestamp. */
   generatedAt: string;

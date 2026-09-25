@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Clock, Flame, FileText, CalendarOff, MessageSquareWarning, DollarSign, MessageCircle, ChevronRight, type LucideIcon } from "lucide-react";
+import { Clock, Flame, FileText, CalendarOff, MessageSquareWarning, DollarSign, MessageCircle, ChevronRight, FileClock, UserX, CalendarX, type LucideIcon } from "lucide-react";
 import { surfaceClass } from "@/lib/ui/surface";
 import { primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
 import { IncidentActions } from "@/app/(app)/automations/_components/incident-actions";
+import { DismissOpportunityButton } from "./dismiss-opportunity-button";
 import type { AttentionItem } from "@/lib/dashboard/queries";
 
 const KIND_ICON: Record<AttentionItem["kind"], LucideIcon> = {
@@ -13,6 +14,9 @@ const KIND_ICON: Record<AttentionItem["kind"], LucideIcon> = {
   calendar_disconnected: CalendarOff,
   human_escalation: MessageSquareWarning,
   awaiting_reply: MessageCircle,
+  stale_estimate: FileClock,
+  dormant_customer: UserX,
+  no_show: CalendarX,
 };
 
 const KIND_STYLE: Record<AttentionItem["kind"], string> = {
@@ -23,6 +27,9 @@ const KIND_STYLE: Record<AttentionItem["kind"], string> = {
   calendar_disconnected: "bg-red-50 text-red-600",
   human_escalation: "bg-red-50 text-red-600",
   awaiting_reply: "bg-blue-50 text-blue-600",
+  stale_estimate: "bg-amber-50 text-amber-600",
+  dormant_customer: "bg-slate-100 text-slate-600",
+  no_show: "bg-amber-50 text-amber-600",
 };
 
 /**
@@ -58,6 +65,7 @@ export function AttentionPanel({ items }: { items: AttentionItem[] }) {
             // dashboard to act on it. The controls sit as a sibling of the
             // link, never nested inside it.
             const isEscalation = item.kind === "human_escalation" && item.incidentId;
+            const isOpportunity = Boolean(item.opportunityId);
             return (
               <div
                 key={item.id}
@@ -74,11 +82,12 @@ export function AttentionPanel({ items }: { items: AttentionItem[] }) {
                   {item.value ? (
                     <span className="shrink-0 text-sm font-medium tabular-nums text-slate-700">{item.value}</span>
                   ) : null}
-                  {!isEscalation ? (
+                  {!isEscalation && !isOpportunity ? (
                     <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
                   ) : null}
                 </Link>
                 {isEscalation ? <IncidentActions incidentId={item.incidentId!} status={item.incidentStatus ?? "open"} /> : null}
+                {isOpportunity ? <DismissOpportunityButton opportunityId={item.opportunityId!} /> : null}
               </div>
             );
           })}

@@ -11,6 +11,8 @@ import { getLeads, summarizeLeads } from "@/lib/leads/queries";
 import { getAppointments, summarizeAppointments } from "@/lib/appointments/queries";
 import { getContacts } from "@/lib/contacts/queries";
 import { isSameCalendarDay } from "@/lib/appointments/format";
+import { syncOpportunities } from "@/lib/opportunities/detect";
+import { getOpenOpportunities, summarizeOpportunities } from "@/lib/opportunities/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { Panel } from "@/lib/ui/section-card";
@@ -58,6 +60,16 @@ export default async function DashboardPage() {
     redirect("/onboarding");
   }
 
+  // Pass 3 (Revenue Intelligence Foundation): runs synchronously, before the
+  // page's own Promise.all below, because getDashboardData's Attention
+  // Engine (stale_estimate/dormant_customer/no_show items) and this page's
+  // own opportunity summary both read the opportunities table - running
+  // sync in parallel with those reads would race and could momentarily
+  // miss a freshly-detected opportunity on its own first render. There is
+  // no new cron/scheduled route in this pass - this "compute/refresh on
+  // read" shape matches the dashboard's pre-existing attention items.
+  await syncOpportunities(supabase, membership.organizationId);
+
   // getDashboardData/getDashboardBusinessMetrics/getCachedBusinessInsights are
   // the page's original three reads, untouched. getLeads/getAppointments/
   // getContacts are the exact same already-existing, unmodified functions the
@@ -72,7 +84,7 @@ export default async function DashboardPage() {
   // getBusinessMetricsSnapshot the rest of this page already calls (with
   // "last30Days"), just a different real date-range preset - not a new
   // metrics engine.
-  const [data, businessMetrics, cachedInsights, leads, appointments, contacts, health, todaySnapshot, dailyBriefing, endOfDaySummary] = await Promise.all([
+  const [data, businessMetrics, cachedInsights, leads, appointments, contacts, health, todaySnapshot, dailyBriefing, endOfDaySummary, openOpportunities] = await Promise.all([
     getDashboardData(supabase, membership.organizationId),
     getDashboardBusinessMetrics(supabase, membership.organizationId),
     getCachedBusinessInsights(supabase, membership.organizationId),
@@ -83,7 +95,12 @@ export default async function DashboardPage() {
     getBusinessMetricsSnapshot(supabase, membership.organizationId, "today"),
     getOwnerDailyBriefing(supabase, membership.organizationId),
     getEndOfDaySummary(supabase, membership.organizationId),
+    // Pass 3: the just-synced, all-5-type open opportunity set - read here
+    // rather than re-derived, so BusinessGlance's opportunity count and
+    // getDashboardData's Attention Engine items above always agree.
+    getOpenOpportunities(supabase, membership.organizationId),
   ]);
+  const opportunitySummary = summarizeOpportunities(openOpportunities);
   const businessName = membership.organizationName ?? "there";
   const leadSummary = summarizeLeads(leads);
   const appointmentSummary = summarizeAppointments(appointments);
@@ -169,7 +186,7 @@ export default async function DashboardPage() {
           </div>
           <div className="lg:sticky lg:top-6 lg:self-start">
             <Panel>
-              <BusinessGlance overview={data.overview} snapshot={businessMetrics} />
+              <BusinessGlance overview={data.overview} snapshot={businessMetrics} opportunitySummary={opportunitySummary} />
             </Panel>
           </div>
         </div>

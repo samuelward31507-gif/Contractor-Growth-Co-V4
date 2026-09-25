@@ -3,6 +3,7 @@ import { formatCurrency, formatRelativeTime } from "./format";
 import { getCalendarConnection } from "@/lib/calendar/connection";
 import { getConversations, getLastMessagesByConversation, attachLastMessages } from "@/lib/conversations/queries";
 import type { IncidentStatus } from "@/lib/automation-health/types";
+import { getOpenOpportunities } from "@/lib/opportunities/queries";
 
 /** Q7 (pre-launch lead-leak audit): a lead below "hot" temperature but at or above this estimated value is still worth surfacing - hotLeads alone ignores value entirely. Deliberately a plain, documented constant rather than a per-organization setting - the smallest correction that fixes the real prioritization gap without building a new configuration surface. */
 const HIGH_VALUE_THRESHOLD = 5000;
@@ -31,7 +32,25 @@ export type PipelineCounts = Record<PipelineStage, number>;
 
 export type AttentionItem = {
   id: string;
-  kind: "overdue_appointment" | "hot_lead" | "high_value_lead" | "pending_estimate" | "calendar_disconnected" | "human_escalation" | "awaiting_reply";
+  kind:
+    | "overdue_appointment"
+    | "hot_lead"
+    | "high_value_lead"
+    | "pending_estimate"
+    | "calendar_disconnected"
+    | "human_escalation"
+    | "awaiting_reply"
+    // Pass 3 (Revenue Intelligence Foundation): backed by the new
+    // opportunities table (lib/opportunities/queries.ts's
+    // getOpenOpportunities), not a second, independent detection path -
+    // see this file's own getDashboardData for exactly which opportunity
+    // types feed which kind and why qualified_lead_unbooked/
+    // completed_appointment_no_estimate deliberately do NOT get their own
+    // kind here (they would duplicate hot_lead/high_value_lead/
+    // pending_estimate, which already surface that same underlying lead).
+    | "stale_estimate"
+    | "dormant_customer"
+    | "no_show";
   title: string;
   detail: string;
   value: string | null;
@@ -39,6 +58,8 @@ export type AttentionItem = {
   /** HANDOFF-01: only present for kind:"human_escalation" - lets the dashboard render the existing acknowledge/resolve incident controls inline without a second lookup. */
   incidentId?: string;
   incidentStatus?: IncidentStatus;
+  /** Pass 3: only present for the three opportunity-backed kinds above - lets the dashboard render the existing dismiss action inline without a second lookup. */
+  opportunityId?: string;
 };
 
 export type ActivityItem = {
@@ -80,7 +101,7 @@ export async function getDashboardData(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<DashboardData> {
-  const [leadsResult, appointmentsResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages] = await Promise.all([
+  const [leadsResult, appointmentsResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities] = await Promise.all([
     supabase
       .from("leads")
       .select("id, status, temperature, estimated_value, service, created_at, contacts(first_name, last_name)")
@@ -130,6 +151,11 @@ export async function getDashboardData(
     // needsReply) - real, already-proven logic, not a new derivation.
     getConversations(supabase, organizationId),
     getLastMessagesByConversation(supabase, organizationId),
+    // Pass 3 (Revenue Intelligence Foundation): the real, persisted result
+    // of the opportunity detectors (lib/opportunities/detect.ts), synced by
+    // the caller (see app/(app)/dashboard/page.tsx) before this function is
+    // called - a read here, never a second detection pass.
+    getOpenOpportunities(supabase, organizationId),
   ]);
 
   const leads = leadsResult.data ?? [];
@@ -245,6 +271,52 @@ export async function getDashboardData(
       href: `/conversations/${conversation.id}`,
     }));
 
+  // Pass 3: three new, genuinely distinct attention kinds backed by the
+  // opportunities table - deliberately NOT surfacing qualified_lead_unbooked
+  // or completed_appointment_no_estimate here, since those would duplicate
+  // the hot_lead/high_value_lead/pending_estimate items above, which already
+  // read the same underlying leads from a different angle.
+  const noShowOpportunities: AttentionItem[] = openOpportunities
+    .filter((opportunity) => opportunity.type === "no_show")
+    .slice(0, 5)
+    .map((opportunity) => ({
+      id: `opp-${opportunity.id}`,
+      kind: "no_show",
+      title: opportunity.title,
+      detail: opportunity.description ?? "Missed appointment - needs rescheduling.",
+      value: null,
+      href: "/appointments",
+      opportunityId: opportunity.id,
+    }));
+
+  const staleEstimateOpportunities: AttentionItem[] = openOpportunities
+    .filter((opportunity) => opportunity.type === "stale_estimate")
+    .slice(0, 5)
+    .map((opportunity) => ({
+      id: `opp-${opportunity.id}`,
+      kind: "stale_estimate",
+      title: opportunity.title,
+      detail: opportunity.description ?? "Estimate expired with no customer decision.",
+      value: opportunity.estimatedValue != null ? formatCurrency(opportunity.estimatedValue) : null,
+      href: "/estimates",
+      opportunityId: opportunity.id,
+    }));
+
+  const dormantCustomerOpportunities: AttentionItem[] = openOpportunities
+    .filter((opportunity) => opportunity.type === "dormant_customer")
+    .slice(0, 5)
+    .map((opportunity) => ({
+      id: `opp-${opportunity.id}`,
+      kind: "dormant_customer",
+      title: opportunity.title,
+      detail: opportunity.description ?? "No activity since their last completed job.",
+      // Deliberately never a value - dormant/repeat-customer opportunities
+      // never get a fabricated future-service estimate (Pass 3's own rule).
+      value: null,
+      href: opportunity.contactId ? `/contacts/${opportunity.contactId}` : "/contacts",
+      opportunityId: opportunity.id,
+    }));
+
   const calendarAttention: AttentionItem[] =
     calendarConnection?.status === "error"
       ? [
@@ -259,7 +331,25 @@ export async function getDashboardData(
         ]
       : [];
 
-  const attentionItems = [...humanEscalations, ...awaitingReply, ...calendarAttention, ...overdueAppointments, ...hotLeads, ...highValueLeads, ...pendingEstimateLeads].slice(0, 6);
+  // Pass 3: raised from 6 to 10 now that three genuinely new, previously
+  // invisible signals (no_show/stale_estimate/dormant_customer) compete for
+  // a slot alongside the original seven kinds - a flat 6-item cap would
+  // have silently squeezed out real opportunity data most of the time.
+  // Ordering is still a fixed priority list, not a score: most
+  // time-sensitive ("a customer is waiting right now") first, longest-
+  // horizon ("a past customer who could be worth re-engaging") last.
+  const attentionItems = [
+    ...humanEscalations,
+    ...awaitingReply,
+    ...calendarAttention,
+    ...overdueAppointments,
+    ...noShowOpportunities,
+    ...hotLeads,
+    ...highValueLeads,
+    ...pendingEstimateLeads,
+    ...staleEstimateOpportunities,
+    ...dormantCustomerOpportunities,
+  ].slice(0, 10);
 
   const leadActivity: ActivityItem[] = leads.slice(0, 5).map((lead) => ({
     id: `lead-${lead.id}`,

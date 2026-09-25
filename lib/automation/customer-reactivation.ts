@@ -10,9 +10,14 @@ import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 
 export const CUSTOMER_REACTIVATION_WORKFLOW = "customer_reactivation_followup";
 
-const ACTIVE_APPOINTMENT_STATUSES = ["scheduled", "confirmed"];
-const ACTIVE_ESTIMATE_STATUSES = ["sent", "accepted"];
-const ACTIVE_JOB_STATUSES = ["scheduled", "in_progress"];
+// Exported (Pass 3, Revenue Intelligence Foundation): reused verbatim by
+// lib/opportunities/detect.ts's dormant-customer opportunity detector, so
+// "what counts as an active engagement that excludes a contact from
+// dormancy" has exactly one definition in this codebase, never a second,
+// potentially-drifting copy.
+export const ACTIVE_APPOINTMENT_STATUSES = ["scheduled", "confirmed"];
+export const ACTIVE_ESTIMATE_STATUSES = ["sent", "accepted"];
+export const ACTIVE_JOB_STATUSES = ["scheduled", "in_progress"];
 
 type CandidateJob = {
   id: string;

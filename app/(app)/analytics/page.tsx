@@ -8,6 +8,7 @@ import {
 } from "@/lib/activity/queries";
 import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
 import type { DateRangePreset } from "@/lib/bi/types";
+import { getRepeatCustomerSummary } from "@/lib/customers/lifecycle";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
 import { ActivityEmptyState } from "./_components/activity-empty-state";
 import { ActivitySummaryCards } from "./_components/activity-summary";
@@ -22,6 +23,8 @@ import {
   AppointmentsSection,
   ConversionSection,
   RevenueOpportunitySection,
+  ReviewReferralSection,
+  RepeatCustomerSection,
   FollowUpSection,
   CommunicationSection,
   AiActivitySection,
@@ -63,10 +66,14 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
     redirect("/onboarding");
   }
 
-  const [summary, activityPage, snapshot] = await Promise.all([
+  const [summary, activityPage, snapshot, repeatCustomerSummary] = await Promise.all([
     getActivitySummary(supabase, membership.organizationId),
     getActivityEntries(supabase, membership.organizationId, { query, entityType, from, to }, limit),
     getBusinessMetricsSnapshot(supabase, membership.organizationId, range),
+    // Pass 3: deliberately not range-scoped (see RepeatCustomerSection's own
+    // documentation) - "has this customer come back, ever" ignores whatever
+    // period the range tabs above have selected.
+    getRepeatCustomerSummary(supabase, membership.organizationId),
   ]);
 
   const hasActiveFilters = Boolean(query.trim()) || entityType !== "all" || Boolean(from) || Boolean(to);
@@ -143,6 +150,15 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
             <div className="divide-y divide-slate-200">
               <FollowUpSection snapshot={snapshot} />
               <CommunicationSection snapshot={snapshot} />
+              <ReviewReferralSection snapshot={snapshot} />
+            </div>
+          </div>
+
+          <div className="border-t border-slate-200 pt-10">
+            <h2 className={primarySectionTitleClass}>Customers</h2>
+            <p className={`mt-1 ${metaClass}`}>Who keeps coming back, and what completed work is really worth - all-time, not scoped to the period above.</p>
+            <div className="divide-y divide-slate-200">
+              <RepeatCustomerSection summary={repeatCustomerSummary} />
             </div>
           </div>
 

@@ -3,6 +3,7 @@ import { sectionLabelClass, metaClass, statLabelClass, statValueClass } from "@/
 import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { formatCurrency } from "@/lib/dashboard/format";
 import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
+import type { RepeatCustomerSummary } from "@/lib/customers/lifecycle";
 import { formatRate, formatComparisonBadge } from "./bi-format";
 import { BarList } from "./bar-list";
 
@@ -142,6 +143,58 @@ export function RevenueOpportunitySection({ snapshot }: { snapshot: BusinessMetr
           { key: "recoverable", label: "Recoverable estimate value", value: formatCurrency(revenueOpportunity.recoverableEstimateValue), detail: "Open + expired, not yet declined" },
           { key: "qualified-no-appt", label: "Qualified leads, no appointment", value: String(revenueOpportunity.qualifiedLeadsWithoutAppointment) },
           { key: "completed-no-estimate", label: "Completed visits, no estimate", value: String(revenueOpportunity.completedAppointmentsWithoutEstimate) },
+        ]}
+      />
+    </Section>
+  );
+}
+
+/**
+ * Pass 3 (Revenue Intelligence Foundation), Part 9: reconnects
+ * ReviewReferralMetrics - real, already-computed by
+ * lib/bi/queries.ts's getReviewReferralMetrics and threaded onto the
+ * current BusinessMetricsSnapshot by lib/bi/metrics.ts, but previously only
+ * ever reachable through the superseded Phase 5.1 BusinessIntelligenceSnapshot
+ * type that nothing in the app calls anymore - this is its first live UI
+ * surface. Same range-scoped semantics as every other section on this page
+ * ("how many review/referral requests were created and resolved in this
+ * window"), unlike RepeatCustomerSection below.
+ */
+export function ReviewReferralSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { reviewReferralMetrics } = snapshot;
+
+  return (
+    <Section label="Reviews &amp; referrals" note="Response/completion counts reflect an explicit contractor confirmation, not an automated inference.">
+      <StatRow
+        stats={[
+          { key: "review-response", label: "Review response rate", value: formatRate(reviewReferralMetrics.reviewResponseRate), detail: `${reviewReferralMetrics.reviewsRequested} requested` },
+          { key: "review-completion", label: "Review completion rate", value: formatRate(reviewReferralMetrics.reviewCompletionRate), detail: `${reviewReferralMetrics.reviewsCompleted} completed` },
+          { key: "referral-response", label: "Referral response rate", value: formatRate(reviewReferralMetrics.referralResponseRate), detail: `${reviewReferralMetrics.referralsRequested} requested` },
+          { key: "referral-conversion", label: "Referral conversion rate", value: formatRate(reviewReferralMetrics.referralConversionRate), detail: `${reviewReferralMetrics.referralsConverted} converted` },
+        ]}
+      />
+    </Section>
+  );
+}
+
+/**
+ * Pass 3, Part 9: repeat-customer + known completed-job value, sourced from
+ * lib/customers/lifecycle.ts's getRepeatCustomerSummary - deliberately a
+ * separate prop from `snapshot`, not a BusinessMetricsSnapshot field,
+ * because (like revenueOpportunity) "has this customer come back, ever" is
+ * a current-state fact, not scoped to whatever period the page's range
+ * tabs have selected. No fabricated CLV formula - only the real underlying
+ * counts/sums this schema can actually support.
+ */
+export function RepeatCustomerSection({ summary }: { summary: RepeatCustomerSummary }) {
+  return (
+    <Section label="Repeat customers" note="Completed job value is the contracted amount, not collected revenue - no payment ledger exists.">
+      <StatRow
+        stats={[
+          { key: "repeat-count", label: "Repeat customers", value: String(summary.repeatCustomerCount), detail: `of ${summary.customersWithCompletedJob} with a completed job` },
+          { key: "repeat-rate", label: "Repeat customer rate", value: formatRate(summary.repeatCustomerRate) },
+          { key: "completed-jobs", label: "Completed jobs", value: String(summary.completedJobCount) },
+          { key: "known-value", label: "Known completed job value", value: formatCurrency(summary.knownCompletedJobValue), detail: summary.averageKnownCompletedJobValue != null ? `${formatCurrency(summary.averageKnownCompletedJobValue)} average` : undefined },
         ]}
       />
     </Section>
