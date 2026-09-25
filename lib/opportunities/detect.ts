@@ -6,7 +6,7 @@ import {
   ACTIVE_ESTIMATE_STATUSES,
   ACTIVE_JOB_STATUSES,
 } from "@/lib/automation/customer-reactivation";
-import { getAutomationConfigByOrganization, readCustomerReactivationConfig } from "@/lib/automation/settings";
+import { getAutomationConfigByOrganization, readCustomerReactivationConfig, getAutomationEnabled } from "@/lib/automation/settings";
 import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
 import type { OpportunityType, OpportunityStatus } from "./queries";
 
@@ -85,6 +85,39 @@ import type { OpportunityType, OpportunityStatus } from "./queries";
  *                                        support. See detectCancelled
  *                                        AppointmentsWithoutRebooking's own
  *                                        comment for the full reasoning.
+ *   uncontacted_lead                  - Pass 5C Batch 2. A lead.status='new'
+ *                                        lead, at least 24 hours old, with no
+ *                                        durable Trackpr evidence of a
+ *                                        successfully sent outbound message
+ *                                        (no inbound reply, no outbound
+ *                                        message with status 'sent' or
+ *                                        'delivered') for its contact, while
+ *                                        the organization currently has
+ *                                        working, eligible automation (live,
+ *                                        paid, unpaused, instant-lead-
+ *                                        followup enabled). Explicitly "no
+ *                                        recorded outbound contact" per
+ *                                        Trackpr's own evidence - never a
+ *                                        claim that the customer was never
+ *                                        reached by any means, that a human
+ *                                        didn't call them, that the AI
+ *                                        failed, or that a send was never
+ *                                        attempted. See
+ *                                        detectUncontactedLeads's own
+ *                                        comment for the full evidence
+ *                                        hierarchy and exclusion list. The
+ *                                        read-only Pass 5C Batch 2 audit
+ *                                        found and closed the one open
+ *                                        question before this was built: a
+ *                                        node-by-node trace of the live,
+ *                                        active n8n lead_created_followup
+ *                                        workflow confirmed should_send is
+ *                                        genuinely conditional (not
+ *                                        hardcoded false) for lead.created,
+ *                                        so "no successful outbound
+ *                                        evidence" is a real, actionable
+ *                                        signal, not a universal, by-design
+ *                                        constant every lead would trigger.
  *
  * Deliberately NOT implemented (each would need either new structured data
  * this schema doesn't have, or a data path too ambiguous to safely
@@ -542,6 +575,142 @@ async function detectCancelledAppointmentsWithoutRebooking(supabase: SupabaseCli
     }));
 }
 
+// ---------------------------------------------------------------------------
+// I. uncontacted_lead
+// ---------------------------------------------------------------------------
+
+/**
+ * Long enough to absorb the after()-deferred n8n dispatch, n8n's own
+ * processing time, and the existing 30-minute stuck-execution window
+ * (app/api/automation/health/route.ts's STUCK_THRESHOLD_MINUTES) without
+ * ever flagging a lead that's merely still in flight - but short of the
+ * multi-day cadences used elsewhere (lead-reactivation's 7/21-day touches,
+ * lost-lead-nurture's 7/21-day touches), since instant-lead-followup is
+ * meant to fire within seconds, not days. A genuinely new number, not
+ * derived from an existing constant - documented as a product decision by
+ * the Pass 5C Batch 2 audit, not an audit-derived fact.
+ */
+const UNCONTACTED_LEAD_AGE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+/** messages.status values that actually prove the customer's carrier accepted or delivered the message - 'queued' (Twilio hasn't responded yet) and 'failed'/'undelivered' (attempted, never reached) are deliberately excluded, matching the Pass 5C Batch 2 audit's evidence hierarchy exactly: an attempt is not contact. */
+const SUCCESSFUL_OUTBOUND_STATUSES = new Set(["sent", "delivered"]);
+
+const INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID = "instant-lead-followup";
+
+type UncontactedLeadContactRow = { id: string; first_name: string | null; last_name: string | null; company_name: string | null; sms_opt_out: boolean };
+type UncontactedLeadContactRef = UncontactedLeadContactRow | UncontactedLeadContactRow[] | null;
+
+function oneUncontactedLeadContact(value: UncontactedLeadContactRef): UncontactedLeadContactRow | null {
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+/**
+ * Deliberately NOT "the lead was ignored" or "the customer was never
+ * contacted" - only that Trackpr itself has no durable evidence of a
+ * successfully sent outbound message. Manual/off-platform contact (a phone
+ * call, an in-person visit) cannot be proven or disproven by any data this
+ * system has - see the Pass 5C Batch 2 audit's own PROVABLE/NOT PROVABLE
+ * split. This detector never claims more than what its own evidence
+ * supports.
+ *
+ * Evidence hierarchy (matches the audit exactly):
+ *   - workflow_executions/automation_events existing at all proves a
+ *     dispatch was attempted, never that a message reached the customer -
+ *     never consulted here.
+ *   - ai_interactions/should_send:false proves the AI declined, never that
+ *     contact happened - never consulted here.
+ *   - messages.status IN ('queued','failed','undelivered') proves an
+ *     attempt, never delivery - excluded from SUCCESSFUL_OUTBOUND_STATUSES.
+ *   - messages.status IN ('sent','delivered') is the only outbound evidence
+ *     that resolves this opportunity.
+ *   - any inbound message resolves this opportunity too - the customer has
+ *     demonstrably engaged, regardless of what Trackpr did or didn't send
+ *     first.
+ *
+ * Organization/automation eligibility (payment/pause/live/enabled) is
+ * re-derived fresh from the database on every call, exactly like
+ * evaluateOutboundGate's own live checks - never inferred from the
+ * presence/absence of workflow_executions rows, since a disabled or paused
+ * organization leaves zero such rows and would otherwise look identical to
+ * "eligible but not yet acted on."
+ *
+ * Three bounded, org-scoped queries (leads, conversations, messages)
+ * regardless of candidate count, aggregated in-memory via Maps/Sets - the
+ * same shape detectCancelledAppointmentsWithoutRebooking above already
+ * uses. Never N+1 per lead.
+ */
+async function detectUncontactedLeads(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
+  const [{ data: organizationRow }, automationEnabled] = await Promise.all([
+    supabase.from("organizations").select("automation_mode, payment_status, automation_paused").eq("id", organizationId).maybeSingle(),
+    getAutomationEnabled(supabase, organizationId, INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID),
+  ]);
+
+  // Mirrors evaluateOutboundGate's own organization_not_live/
+  // organization_payment_inactive/organization_automation_paused checks -
+  // an organization that isn't currently eligible for real automated
+  // outbound produces zero candidates, full stop, regardless of how many
+  // 'new' leads it has.
+  if (!organizationRow || organizationRow.automation_mode !== "live" || organizationRow.payment_status !== "active" || organizationRow.automation_paused || !automationEnabled) {
+    return [];
+  }
+
+  const thresholdIso = new Date(now.getTime() - UNCONTACTED_LEAD_AGE_THRESHOLD_MS).toISOString();
+
+  const { data: leadRows } = await supabase
+    .from("leads")
+    .select("id, contact_id, service, estimated_value, created_at, contacts(id, first_name, last_name, company_name, sms_opt_out)")
+    .eq("organization_id", organizationId)
+    .eq("status", "new")
+    .not("contact_id", "is", null)
+    .lte("created_at", thresholdIso)
+    .limit(MAX_ROWS);
+
+  const leads = (leadRows ?? []) as { id: string; contact_id: string; service: string | null; estimated_value: number | null; created_at: string; contacts: UncontactedLeadContactRef }[];
+  if (leads.length === 0) return [];
+
+  // A contact who has opted out can never receive a remedial SMS - Trackpr
+  // itself cannot act on this, so surfacing it as an actionable "should
+  // contact" opportunity would be misleading.
+  const eligibleLeads = leads.filter((lead) => !(oneUncontactedLeadContact(lead.contacts)?.sms_opt_out ?? false));
+  if (eligibleLeads.length === 0) return [];
+
+  const contactIds = [...new Set(eligibleLeads.map((lead) => lead.contact_id))];
+
+  const { data: conversationRows } = await supabase.from("conversations").select("id, contact_id").eq("organization_id", organizationId).in("contact_id", contactIds).limit(MAX_ROWS);
+  const conversations = (conversationRows ?? []) as { id: string; contact_id: string | null }[];
+
+  const conversationIdToContactId = new Map(conversations.map((row) => [row.id, row.contact_id]));
+  const conversationIds = conversations.map((row) => row.id);
+
+  const { data: messageRows } =
+    conversationIds.length > 0
+      ? await supabase.from("messages").select("conversation_id, direction, status").eq("organization_id", organizationId).in("conversation_id", conversationIds).limit(MAX_ROWS)
+      : { data: [] as { conversation_id: string; direction: string; status: string }[] };
+
+  const contactsWithInbound = new Set<string>();
+  const contactsWithSuccessfulOutbound = new Set<string>();
+  for (const row of (messageRows ?? []) as { conversation_id: string; direction: string; status: string }[]) {
+    const contactId = conversationIdToContactId.get(row.conversation_id);
+    if (!contactId) continue;
+    if (row.direction === "inbound") contactsWithInbound.add(contactId);
+    if (row.direction === "outbound" && SUCCESSFUL_OUTBOUND_STATUSES.has(row.status)) contactsWithSuccessfulOutbound.add(contactId);
+  }
+
+  return eligibleLeads
+    .filter((lead) => !contactsWithInbound.has(lead.contact_id) && !contactsWithSuccessfulOutbound.has(lead.contact_id))
+    .map((lead) => ({
+      type: "uncontacted_lead" as const,
+      sourceEntityType: "lead" as const,
+      sourceEntityId: lead.id,
+      contactId: lead.contact_id,
+      title: displayNameOrFallback(lead.contacts, lead.service || "Uncontacted lead"),
+      description: "No recorded outbound contact for this lead yet.",
+      estimatedValue: lead.estimated_value,
+      valueBasis: lead.estimated_value != null ? "leads.estimated_value" : null,
+      metadata: { lead_created_at: lead.created_at },
+    }));
+}
+
 export async function detectAllOpportunityCandidates(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<OpportunityCandidate[]> {
   const [
     qualifiedLeads,
@@ -552,6 +721,7 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     completedJobsNoReferralRequest,
     completedJobsNoReviewRequest,
     cancelledAppointmentsNoRebooking,
+    uncontactedLeads,
   ] = await Promise.all([
     detectQualifiedLeadsUnbooked(supabase, organizationId),
     detectStaleEstimates(supabase, organizationId),
@@ -561,6 +731,7 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     detectCompletedJobsWithoutReferralRequest(supabase, organizationId),
     detectCompletedJobsWithoutReviewRequest(supabase, organizationId),
     detectCancelledAppointmentsWithoutRebooking(supabase, organizationId, now),
+    detectUncontactedLeads(supabase, organizationId, now),
   ]);
 
   return [
@@ -572,6 +743,7 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     ...completedJobsNoReferralRequest,
     ...completedJobsNoReviewRequest,
     ...cancelledAppointmentsNoRebooking,
+    ...uncontactedLeads,
   ];
 }
 
