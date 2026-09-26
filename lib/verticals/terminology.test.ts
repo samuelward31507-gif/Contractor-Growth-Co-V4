@@ -11,9 +11,9 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { getTerminology }: typeof import("./terminology") = require("./terminology.ts");
 
-test("contractor terminology keeps the existing 'Contacts' wording", () => {
+test("contractor terminology uses the Trackpr 2.0 locked 'Customers' wording", () => {
   const terminology = getTerminology("contractor");
-  assert.equal(terminology.contactsLabel, "Contacts");
+  assert.equal(terminology.contactsLabel, "Customers");
   assert.equal(terminology.contactSingular, "contact");
 });
 

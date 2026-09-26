@@ -16,7 +16,13 @@ export type VerticalTerminology = {
  * it doesn't need a new mechanism.
  */
 const TERMINOLOGY: Record<OrganizationVertical, VerticalTerminology> = {
-  contractor: { contactsLabel: "Contacts", contactSingular: "contact" },
+  // Trackpr 2.0, Phase 1: "Contacts" retired as the contractor-facing nav
+  // label in favor of "Customers" (the locked Trackpr 2.0 umbrella noun -
+  // see the Master Product Specification's own Part 4/7) - the underlying
+  // field name (contactsLabel) is unchanged, since nothing outside
+  // nav-items.ts reads it (verified directly - this dictionary has exactly
+  // one consumer).
+  contractor: { contactsLabel: "Customers", contactSingular: "contact" },
   gym: { contactsLabel: "Members", contactSingular: "member" },
 };
 

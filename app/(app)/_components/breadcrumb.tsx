@@ -13,7 +13,14 @@ import { NAV_GROUPS, AGENCY_NAV_ITEM } from "./nav-items";
  */
 export function Breadcrumb() {
   const pathname = usePathname();
-  const allGroups = [...NAV_GROUPS, { label: "Agency", items: [AGENCY_NAV_ITEM] }];
+  // Trackpr 2.0, Phase 1: Agency Command Center now lives inside the
+  // existing System group (see nav-items.ts's own getNavGroupsForVertical),
+  // not a separate "Agency" group - matched here so the breadcrumb's own
+  // label never disagrees with what the sidebar actually shows. This is a
+  // label-lookup table only (never an authorization check - see this file's
+  // own header comment), so including AGENCY_NAV_ITEM unconditionally here
+  // is harmless even for a user who could never actually reach /agency.
+  const allGroups = NAV_GROUPS.map((group) => (group.label === "System" ? { ...group, items: [...group.items, AGENCY_NAV_ITEM] } : group));
 
   for (const group of allGroups) {
     for (const item of group.items) {

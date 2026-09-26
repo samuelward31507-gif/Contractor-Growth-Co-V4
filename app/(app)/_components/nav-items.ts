@@ -5,12 +5,11 @@
 export type NavIconName =
   | "LayoutDashboard"
   | "Users"
-  | "Contact"
   | "MessageSquare"
-  | "Calendar"
   | "CalendarClock"
-  | "FileText"
   | "Briefcase"
+  | "TrendingUp"
+  | "Star"
   | "Workflow"
   | "BarChart3"
   | "Building2"
@@ -23,19 +22,27 @@ export type NavItem = {
   href: string;
   label: string;
   icon: NavIconName;
-  /** Omitted = visible to every vertical. Gym Foundation Phase 1, Section 6: only Estimates/Jobs are contractor-specific today - everything else (Leads, Contacts, Conversations, Appointments, Automations, Analytics, Settings) is vertical-neutral per the Gym Trackpr audit. */
+  /** Omitted = visible to every vertical. Only Estimates & Jobs (the merged /work destination) is contractor-specific today - everything else is vertical-neutral per the Gym Trackpr audit, unchanged by the Trackpr 2.0 IA work. */
   verticals?: OrganizationVertical[];
 };
 export type NavGroup = { label: string | null; items: NavItem[] };
 
 /**
- * Trackpr visual-system redesign: four operator-facing groups instead of
- * seven thin ones (Customers/Scheduling/Sales/Automation/Insights/Settings
- * previously) - OPERATE holds everything a contractor touches running the
- * day-to-day business, AUTOMATE and INSIGHTS get their own single-purpose
- * groups since they're conceptually distinct from daily operations, SYSTEM
- * holds account-level configuration. Maps directly onto the real, existing
- * routes - no route was invented or removed for this regroup.
+ * Trackpr 2.0, Phase 1 (navigation/IA): the locked Trackpr 2.0 information
+ * architecture (see the Master Product Specification's own Part 1/21) -
+ * Dashboard ungrouped, then WORK/GROWTH/INTELLIGENCE/SYSTEM. Every href
+ * below points at a Phase 0 canonical route (/customers, /schedule, /work)
+ * or a Phase 1 destination (/opportunities, /growth) - never at a legacy
+ * route (/leads, /contacts, /calendar, /appointments, /estimates, /jobs),
+ * which remain real, unmodified, and reachable only through Phase 0's own
+ * redirect layer (next.config.ts), never as a second, competing primary
+ * navigation destination for the same concept.
+ *
+ * Inbox points at /inbox, a page-level redirect to the real, unmodified
+ * /conversations experience (see app/(app)/inbox/page.tsx's own header
+ * comment for why a redirect, not a thin dispatcher, is the correct fix
+ * here - Conversations' nested list+detail layout can't safely receive the
+ * same dispatcher pattern Phase 0 used for Customers/Schedule/Work).
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -43,24 +50,27 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [{ href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard" }],
   },
   {
-    label: "Operate",
+    label: "Work",
     items: [
-      { href: "/leads", label: "Leads", icon: "Users" },
-      { href: "/contacts", label: "Contacts", icon: "Contact" },
-      { href: "/conversations", label: "Inbox", icon: "MessageSquare" },
-      { href: "/calendar", label: "Calendar", icon: "Calendar" },
-      { href: "/appointments", label: "Appointments", icon: "CalendarClock" },
-      { href: "/estimates", label: "Estimates", icon: "FileText", verticals: ["contractor"] },
-      { href: "/jobs", label: "Jobs", icon: "Briefcase", verticals: ["contractor"] },
+      { href: "/customers", label: "Customers", icon: "Users" },
+      { href: "/inbox", label: "Inbox", icon: "MessageSquare" },
+      { href: "/schedule", label: "Schedule", icon: "CalendarClock" },
+      { href: "/work", label: "Estimates & Jobs", icon: "Briefcase", verticals: ["contractor"] },
     ],
   },
   {
-    label: "Automate",
-    items: [{ href: "/automations", label: "Automations", icon: "Workflow" }],
+    label: "Growth",
+    items: [
+      { href: "/opportunities", label: "Opportunities", icon: "TrendingUp" },
+      { href: "/growth", label: "Reviews & Referrals", icon: "Star" },
+    ],
   },
   {
-    label: "Grow",
-    items: [{ href: "/analytics", label: "Analytics", icon: "BarChart3" }],
+    label: "Intelligence",
+    items: [
+      { href: "/analytics", label: "Analytics", icon: "BarChart3" },
+      { href: "/automations", label: "Automations", icon: "Workflow" },
+    ],
   },
   {
     label: "System",
@@ -68,31 +78,39 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-/** Appended conditionally at render time (only for a real, verified agency admin - see sidebar-content.tsx), never unconditionally in NAV_GROUPS - a nav-visible link is not itself an authorization boundary, but it must never imply access a given user does not actually have. */
+/**
+ * Appended conditionally at render time (only for a real, verified agency
+ * admin - see sidebar-content.tsx), never unconditionally in NAV_GROUPS - a
+ * nav-visible link is not itself an authorization boundary, but it must
+ * never imply access a given user does not actually have. Trackpr 2.0,
+ * Phase 1: now placed inside the existing SYSTEM group (alongside Settings)
+ * rather than appended as its own separate "Agency" group, per the locked
+ * IA - its own route (/agency) and label ("Agency Command Center") are
+ * completely unchanged; only its grouping moved.
+ */
 export const AGENCY_NAV_ITEM: NavItem = { href: "/agency", label: "Agency Command Center", icon: "Building2" };
 
 /**
- * Gym Foundation Phase 1, Section 6: filters NAV_GROUPS (plus the Agency
- * group, folded in here rather than in sidebar-content.tsx so this is the
- * single place nav visibility is decided) down to items visible for a given
- * vertical, and relabels "Contacts" via lib/verticals/terminology.ts. A
- * contractor org matches every current item (none is tagged
- * `verticals: ["gym"]` yet), so this produces byte-identical output to the
- * old inline `NAV_GROUPS` / `AGENCY_NAV_ITEM` spread it replaces in
- * sidebar-content.tsx - contractor nav is unchanged. Empty groups (a gym
- * org filtering out every item in "Operate" once Estimates/Jobs are
- * removed) are dropped rather than rendered as a bare, item-less heading.
+ * Gym Foundation Phase 1, Section 6 (unchanged mechanism, retargeted hrefs):
+ * filters NAV_GROUPS down to items visible for a given vertical, relabels
+ * "Customers" via lib/verticals/terminology.ts, and folds a verified agency
+ * admin's AGENCY_NAV_ITEM into the existing SYSTEM group rather than
+ * appending a separate one-item group after it. A contractor org matches
+ * every current item, so contractor nav is unaffected by this filtering
+ * beyond the Trackpr 2.0 relabel/regroup itself.
  */
 export function getNavGroupsForVertical(vertical: OrganizationVertical, showAgencyLink: boolean): NavGroup[] {
   const terminology = getTerminology(vertical);
-  const groups = showAgencyLink ? [...NAV_GROUPS, { label: "Agency", items: [AGENCY_NAV_ITEM] }] : NAV_GROUPS;
 
-  return groups
-    .map((group) => ({
-      ...group,
-      items: group.items
-        .filter((item) => !item.verticals || item.verticals.includes(vertical))
-        .map((item) => (item.href === "/contacts" ? { ...item, label: terminology.contactsLabel } : item)),
-    }))
-    .filter((group) => group.items.length > 0);
+  return NAV_GROUPS.map((group) => {
+    let items = group.items
+      .filter((item) => !item.verticals || item.verticals.includes(vertical))
+      .map((item) => (item.href === "/customers" ? { ...item, label: terminology.contactsLabel } : item));
+
+    if (group.label === "System" && showAgencyLink) {
+      items = [...items, AGENCY_NAV_ITEM];
+    }
+
+    return { ...group, items };
+  }).filter((group) => group.items.length > 0);
 }
