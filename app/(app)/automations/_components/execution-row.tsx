@@ -33,6 +33,15 @@ const TRIGGER_LABEL: Record<WorkflowExecutionTriggerSource, string> = {
  * allowlist retry-eligibility.ts enforces server-side) - this is a display
  * convenience only; retryExecution's own server-side check remains the real
  * authority regardless of what renders here.
+ *
+ * Trackpr 2.0, Phase 3H: rebuilt from a `<tr>`/`<td>` row (whose expand
+ * toggle had to live on a small nested icon-button using
+ * `stopPropagation()` to escape a click handler on the row's own `<tr>`) to
+ * a single real `<button>` covering the whole expandable header - a plain
+ * a11y improvement (no nested interactive elements, no synthetic click
+ * plumbing) alongside the layout change, with the exact same
+ * aria-expanded/aria-controls contract preserved. Retry remains an
+ * independent sibling control, never nested inside the toggle button.
  */
 export function ExecutionRow({ execution, retrySupported }: { execution: AutomationExecutionRow; retrySupported: boolean }) {
   const [expanded, setExpanded] = useState(false);
@@ -67,50 +76,48 @@ export function ExecutionRow({ execution, retrySupported }: { execution: Automat
   }
 
   return (
-    <>
-      <tr className="cursor-pointer hover:bg-slate-50" onClick={toggle}>
-        <td className="py-2 pl-4 pr-2">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggle();
-            }}
-            aria-expanded={expanded}
-            aria-controls={detailId}
-            aria-label={expanded ? "Hide execution details" : "Show execution details"}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
-          >
+    <li>
+      <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={expanded}
+          aria-controls={detailId}
+          className="group flex min-w-0 flex-1 items-start gap-3 rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
+        >
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-slate-400 group-hover:text-slate-600">
             {expanded ? <ChevronDown className="h-3.5 w-3.5" aria-hidden /> : <ChevronRight className="h-3.5 w-3.5" aria-hidden />}
-          </button>
-        </td>
-        <td className="py-2 pr-4">
-          <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
-            {statusBadge.label}
-          </Badge>
-        </td>
-        <td className="py-2 pr-4 text-slate-600">{TRIGGER_LABEL[execution.triggerSource]}</td>
-        <td className="py-2 pr-4 tabular-nums text-slate-700">{formatDateTime(execution.startedAt)}</td>
-        <td className="py-2 pr-4 tabular-nums text-slate-700">{execution.completedAt ? formatDateTime(execution.completedAt) : "—"}</td>
-        <td className="py-2 pr-4 tabular-nums text-slate-500">{durationMs !== null ? formatDurationMs(durationMs) : "—"}</td>
-        <td className="py-2 pr-4 tabular-nums text-slate-500">{execution.attempt}</td>
-        <td className="py-2 pr-4" onClick={(e) => e.stopPropagation()}>
-          {retryEligible ? <RetryButton executionId={execution.id} /> : <span className="text-xs text-slate-300">—</span>}
-        </td>
-      </tr>
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
+                {statusBadge.label}
+              </Badge>
+              <span className="text-xs text-slate-500">{TRIGGER_LABEL[execution.triggerSource]}</span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-slate-500">
+              <span>Started {formatDateTime(execution.startedAt)}</span>
+              <span>{execution.completedAt ? `Completed ${formatDateTime(execution.completedAt)}` : "In progress"}</span>
+              {durationMs !== null ? <span>{formatDurationMs(durationMs)}</span> : null}
+              <span>Attempt {execution.attempt}</span>
+            </div>
+          </div>
+        </button>
+
+        <div className="shrink-0 self-start sm:pl-3">{retryEligible ? <RetryButton executionId={execution.id} /> : null}</div>
+      </div>
+
       {expanded ? (
-        <tr id={detailId}>
-          <td colSpan={8} className="p-0">
-            {isPending ? (
-              <p className="border-t border-slate-100 px-4 py-4 text-xs text-slate-400">Loading details…</p>
-            ) : detailError ? (
-              <p className="border-t border-slate-100 px-4 py-4 text-xs text-red-600">{detailError}</p>
-            ) : detail ? (
-              <ExecutionDetailView detail={detail} />
-            ) : null}
-          </td>
-        </tr>
+        <div id={detailId}>
+          {isPending ? (
+            <p className="border-t border-slate-100 px-4 py-4 text-xs text-slate-400">Loading details…</p>
+          ) : detailError ? (
+            <p className="border-t border-slate-100 px-4 py-4 text-xs text-danger-text">{detailError}</p>
+          ) : detail ? (
+            <ExecutionDetailView detail={detail} />
+          ) : null}
+        </div>
       ) : null}
-    </>
+    </li>
   );
 }

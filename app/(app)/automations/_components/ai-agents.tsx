@@ -105,7 +105,7 @@ export function AiAgents({ summaries }: { summaries: AutomationSummary[] }) {
               <li key={agent.name}>
                 <Link
                   href={agent.href}
-                  className="group flex items-start gap-3.5 px-4 py-4 transition-colors hover:bg-slate-50 sm:items-center"
+                  className="group flex items-start gap-3.5 px-4 py-4 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:bg-slate-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-900/10 sm:items-center"
                 >
                   <span
                     className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${

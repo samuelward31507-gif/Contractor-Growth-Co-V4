@@ -4,10 +4,17 @@ import { EmptyState } from "@/lib/ui/empty-state";
 import type { AutomationExecutionRow } from "@/lib/automation/queries";
 
 /**
- * Operational execution log - workflow name, status, trigger source, timing,
- * attempt, and retry. Clicking a row opens the Phase F detail view (sanitized
+ * Operational execution log - status, trigger source, timing, attempt, and
+ * retry. Clicking a row opens the Phase F detail view (sanitized
  * server-side, fetched on demand per row via ExecutionRow - never eagerly for
  * every row up front, and never rendering a raw database column directly).
+ *
+ * Trackpr 2.0, Phase 3H: rebuilt from a `min-w-[720px]` table wrapped in
+ * `overflow-x-auto` - the exact horizontal-scroll-on-mobile anti-pattern
+ * incident-list.tsx's own header comment already documents fixing for
+ * incidents - into the same stacked row list every other section of this
+ * page (AutomationList, AiAgents, IncidentList, ScheduledLivenessList)
+ * already uses. Same data, same columns' worth of information, no table.
  */
 export function RecentExecutions({ executions, retrySupported }: { executions: AutomationExecutionRow[]; retrySupported: boolean }) {
   if (executions.length === 0) {
@@ -21,26 +28,12 @@ export function RecentExecutions({ executions, retrySupported }: { executions: A
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full min-w-[720px] text-left text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 bg-slate-50 text-[10.5px] font-medium uppercase tracking-wide text-slate-400">
-            <th className="py-2 pl-4 pr-2 font-medium" aria-hidden />
-            <th className="py-2 pr-4 font-medium">Status</th>
-            <th className="py-2 pr-4 font-medium">Trigger</th>
-            <th className="py-2 pr-4 font-medium">Started</th>
-            <th className="py-2 pr-4 font-medium">Completed</th>
-            <th className="py-2 pr-4 font-medium">Duration</th>
-            <th className="py-2 pr-4 font-medium">Attempt</th>
-            <th className="py-2 pr-4 font-medium">Retry</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {executions.map((execution) => (
-            <ExecutionRow key={execution.id} execution={execution} retrySupported={retrySupported} />
-          ))}
-        </tbody>
-      </table>
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <ul className="divide-y divide-slate-100">
+        {executions.map((execution) => (
+          <ExecutionRow key={execution.id} execution={execution} retrySupported={retrySupported} />
+        ))}
+      </ul>
     </div>
   );
 }
