@@ -1,6 +1,23 @@
 import type { OrganizationVertical } from "@/lib/auth/organization";
 
-const N8N_TIMEOUT_MS = 10_000;
+/**
+ * Trackpr 2.0, n8n dispatch timeout fix: n8n's workflows are configured to
+ * respond synchronously via a "Respond to Webhook" node - the fetch below
+ * doesn't resolve until n8n has already called Claude and finished
+ * processing, not merely "accepted" the request. A real production
+ * lead_created_followup round trip was directly observed taking ~12.6s
+ * (webhook receipt + a real Claude call + n8n's own orchestration
+ * overhead), comfortably past the old 10s value - which made a completely
+ * successful dispatch get recorded as a failed one purely because Trackpr's
+ * own client-side wait gave up first (see failWorkflowExecution's own
+ * comment in ./executions for the other half of this fix). 30s is a
+ * generous, still-finite multiple of that observed real latency - long
+ * enough that a legitimately-slower-but-working call is never mistaken for
+ * a hung orchestrator, while still firmly bounding how long Trackpr will
+ * ever wait on one. Exported so tests can reference the real production
+ * value instead of duplicating a magic number that could silently drift.
+ */
+export const N8N_TIMEOUT_MS = 30_000;
 
 export type N8nWorkflowContract = {
   version: 1;

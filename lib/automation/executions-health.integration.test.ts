@@ -120,3 +120,60 @@ test("a failure on one automation never resolves or affects a different automati
   const stillThere = await activeIncidentFor("appointment-lifecycle", "n8n_dispatch_failed");
   assert.ok(stillThere, "an unrelated automation's incident must survive a different automation's success");
 });
+
+// ==================== Trackpr 2.0, n8n dispatch timeout fix ====================
+//
+// The confirmed production defect: a dispatch-side timeout (triggerN8nWorkflow's
+// own fetch() aborting - see lib/automation/n8n.ts) raced against a real,
+// already-successful callback completion for the SAME execution, and the
+// stale timeout won, leaving a genuinely successful workflow recorded as
+// "failed" with a real, misleading incident. These tests simulate the
+// callback side of that race directly (completeWorkflowExecutionAsService
+// landing first) and prove failWorkflowExecutionAsService can no longer
+// overwrite it - never touching n8n or triggerN8nWorkflow itself.
+
+test("4a. a dispatch-timeout failure arriving AFTER the callback already completed the execution never overwrites it, and never creates a false incident", async () => {
+  const executionId = await makeEventAndExecution("lead_created_followup");
+
+  const completed = await completeWorkflowExecutionAsService(service, executionId, { should_send: false });
+  assert.equal(completed.ok, true);
+
+  // Simulates the stale dispatch-side timeout handler running after the
+  // real callback already won the race.
+  const staleFailure = await failWorkflowExecutionAsService(service, executionId, "Could not reach the automation orchestrator.", "n8n_dispatch_failed");
+  assert.equal(staleFailure.ok, true, "the stale failure attempt must be treated as a benign no-op, never a hard error");
+  if (staleFailure.ok) assert.equal(staleFailure.execution.status, "completed", "the execution's real, already-recorded outcome must be preserved, never overwritten");
+
+  const { data: row } = await service.from("workflow_executions").select("status, error_message").eq("id", executionId).single();
+  assert.equal(row!.status, "completed");
+  assert.equal(row!.error_message, null, "no failure error message must ever be written onto an execution a real callback already completed");
+
+  const falseIncident = await activeIncidentFor("instant-lead-followup", "n8n_dispatch_failed");
+  assert.equal(falseIncident, null, "a stale timeout racing against a real success must never create a misleading incident");
+});
+
+test("4b. two genuinely concurrent failure attempts for the same execution never double-record - the second is a safe no-op", async () => {
+  const executionId = await makeEventAndExecution("lead_created_followup");
+
+  const first = await failWorkflowExecutionAsService(service, executionId, "Could not reach the automation orchestrator.", "n8n_dispatch_failed");
+  assert.equal(first.ok, true);
+  if (first.ok) assert.equal(first.execution.status, "failed");
+
+  const second = await failWorkflowExecutionAsService(service, executionId, "Could not reach the automation orchestrator.", "n8n_dispatch_failed");
+  assert.equal(second.ok, true, "a second, redundant failure attempt for an already-failed execution must be a safe no-op, not an error");
+  if (second.ok) assert.equal(second.execution.status, "failed");
+
+  const { data: row } = await service.from("workflow_executions").select("error_message").eq("id", executionId).single();
+  assert.equal(row!.error_message, "Could not reach the automation orchestrator.", "the original failure's error message must be preserved, not silently replaced");
+});
+
+test("4c. the normal, expected case - a genuinely still-running execution is still correctly recorded as failed", async () => {
+  const executionId = await makeEventAndExecution("lead_created_followup");
+
+  const result = await failWorkflowExecutionAsService(service, executionId, "The automation orchestrator rejected the request (status 503).", "n8n_dispatch_failed");
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.execution.status, "failed", "a genuinely running execution that really does fail must still be recorded as failed - this fix must never mask a real failure");
+
+  const incident = await activeIncidentFor("instant-lead-followup", "n8n_dispatch_failed");
+  assert.ok(incident, "a real failure must still create a real incident");
+});

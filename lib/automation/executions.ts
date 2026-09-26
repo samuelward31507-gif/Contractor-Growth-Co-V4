@@ -198,6 +198,29 @@ export async function completeWorkflowExecution(
 }
 
 /**
+ * Trackpr 2.0, n8n dispatch timeout fix: a dispatch-side timeout or network
+ * error (triggerN8nWorkflow's own fetch() failing/aborting - see
+ * ./n8n's own comment) is not proof the workflow actually failed. n8n runs
+ * independently of Trackpr's own client-side wait, so its callback can
+ * legitimately land and complete this same execution around the same time
+ * a timeout is being recorded for it. fail_workflow_execution's own
+ * `where status = 'running'` guard already makes it impossible for both a
+ * completion and a failure to land on the same row, but with no
+ * preference for which one wins a genuine race - a stale timeout signal
+ * could still beat a real, already-successful completion to the row.
+ * Re-checking the execution's current state immediately before (and,
+ * for the narrow remaining window, immediately after a rejected RPC call)
+ * ensures an execution a callback has already legitimately settled is
+ * never overwritten by a timeout that fired merely because Trackpr's own
+ * wait, not the workflow itself, gave up.
+ */
+async function currentExecutionIfSettled(supabase: SupabaseClient, executionId: string): Promise<WorkflowExecution | null> {
+  const { data } = await supabase.from("workflow_executions").select("*").eq("id", executionId).maybeSingle();
+  if (data && (data as WorkflowExecution).status !== "running") return data as WorkflowExecution;
+  return null;
+}
+
+/**
  * `errorMessage` is truncated (matching the migration's own 2000-char cap)
  * before it ever reaches the RPC. Callers are responsible for stripping any
  * secrets/tokens from provider error responses before passing them here -
@@ -213,6 +236,9 @@ export async function failWorkflowExecution(
   const user = await requireUser(supabase);
   if (!user) return { ok: false, error: "Not authenticated." };
 
+  const alreadySettled = await currentExecutionIfSettled(supabase, executionId);
+  if (alreadySettled) return { ok: true, execution: alreadySettled };
+
   const { data, error } = await supabase
     .rpc("fail_workflow_execution", {
       p_execution_id: executionId,
@@ -220,6 +246,10 @@ export async function failWorkflowExecution(
     })
     .single();
 
+  if (error?.message === "Execution is not running") {
+    const settled = await currentExecutionIfSettled(supabase, executionId);
+    if (settled) return { ok: true, execution: settled };
+  }
   if (error || !data) {
     return { ok: false, error: mapExecutionRpcError(error?.message) };
   }
@@ -302,6 +332,12 @@ export async function failWorkflowExecutionAsService(
   errorMessage: string,
   category: WorkflowFailureCategory = "workflow_failed",
 ): Promise<ExecutionResult> {
+  // See failWorkflowExecution's own comment above on currentExecutionIfSettled
+  // - the same dispatch-timeout-vs-real-callback race applies to every
+  // caller of this service-role variant.
+  const alreadySettled = await currentExecutionIfSettled(supabase, executionId);
+  if (alreadySettled) return { ok: true, execution: alreadySettled };
+
   const { data, error } = await supabase
     .rpc("fail_workflow_execution", {
       p_execution_id: executionId,
@@ -309,6 +345,10 @@ export async function failWorkflowExecutionAsService(
     })
     .single();
 
+  if (error?.message === "Execution is not running") {
+    const settled = await currentExecutionIfSettled(supabase, executionId);
+    if (settled) return { ok: true, execution: settled };
+  }
   if (error || !data) {
     return { ok: false, error: mapExecutionRpcError(error?.message) };
   }
