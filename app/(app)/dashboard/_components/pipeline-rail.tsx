@@ -57,14 +57,14 @@ export function PipelineRail({ pipeline, hasNeverHadLeads }: { pipeline: Pipelin
               return (
                 <li key={stage} className="relative flex flex-1 flex-col items-center gap-3 text-center">
                   <span
-                    className={`relative z-10 flex h-11 w-11 items-center justify-center rounded-full border bg-white ${
-                      isPopulated ? "border-emerald-500/40 bg-emerald-50 text-emerald-600" : "border-slate-200 text-slate-400"
+                    className={`relative z-10 flex h-12 w-12 items-center justify-center rounded-full border bg-white transition-colors ${
+                      isPopulated ? "border-emerald-500/40 bg-emerald-50 text-emerald-600 ring-4 ring-emerald-50/60" : "border-slate-200 text-slate-400"
                     }`}
                   >
                     <Icon className="h-[18px] w-[18px]" aria-hidden />
                   </span>
                   <span>
-                    <span className={`block text-xl font-bold tabular-nums ${isPopulated ? "text-slate-900" : "text-slate-300"}`}>
+                    <span className={`block text-2xl font-bold tabular-nums ${isPopulated ? "text-slate-900" : "text-slate-300"}`}>
                       {count}
                     </span>
                     <span className="mt-0.5 block text-xs font-medium text-slate-500">{label}</span>

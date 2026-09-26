@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getDashboardData } from "@/lib/dashboard/queries";
@@ -32,6 +33,16 @@ function greeting(): string {
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";
   return "Good evening";
+}
+
+/**
+ * Trackpr 2.0, Phase 3B: purely presentational date context for the
+ * redesigned header - formats the same `now` the page already computes for
+ * the timezone-aware "today" appointment filter (see the org-timezone
+ * comment further down), never a second clock or a new data source.
+ */
+function formattedDate(now: Date): string {
+  return now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 }
 
 /**
@@ -151,52 +162,70 @@ export default async function DashboardPage() {
             silently render as "there's nothing here," including a possible
             false "You're all caught up." This never claims the system is
             down and never shows a raw error - see DashboardData.partialData's
-            own doc comment for exactly what it does and doesn't cover. */}
+            own doc comment for exactly what it does and doesn't cover.
+            Trackpr 2.0, Phase 3B: restyled onto the app's own warning tokens
+            (established in Phase 3A, previously unused anywhere) instead of
+            a bare slate box - still calm, never red/alarming, just legible
+            as a real notice rather than blending into ordinary body text. */}
         {data.partialData ? (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-600">
-            Some dashboard information may be temporarily unavailable.{" "}
-            <Link href="/dashboard" className="font-medium text-slate-900 hover:underline">
-              Refresh to try again
-            </Link>
-            .
+          <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <p>
+              Some dashboard information may be temporarily unavailable.{" "}
+              <Link href="/dashboard" className="font-medium underline decoration-warning-text/40 underline-offset-2 hover:decoration-warning-text">
+                Refresh to try again
+              </Link>
+              .
+            </p>
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-6">
+        {/* Trackpr 2.0, Phase 3B: the header redesign - same greeting/status
+            data as before, now with a real date line (purely presentational,
+            formatted from the same `now` already computed below for the
+            timezone-aware schedule filter - no new clock, no new data), and
+            Pipeline Value promoted from a bare right-aligned number to a
+            tone-tinted callout so it reads as the page's one primary
+            business metric, not a stat competing quietly with everything
+            else. The exact calculation, currency handling, and the two
+            hot/today links (same hrefs, same summarize functions) are
+            completely unchanged. */}
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className={sectionLabelClass}>Dashboard</p>
+            <p className={sectionLabelClass}>Dashboard · {formattedDate(now)}</p>
             <h1 className={`mt-1.5 ${pageTitleClass}`}>
               {greeting()}, {businessName}.
             </h1>
             <p className={`mt-1.5 ${pageDescriptionClass}`}>{statusLine(data.attentionItems.length)}</p>
           </div>
-          <div className="flex items-start gap-6">
-            <div className="text-right">
-              <p className={sectionLabelClass}>Pipeline value</p>
-              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+            <div className="rounded-xl border border-accent-border bg-accent-muted/60 px-5 py-4 sm:min-w-[240px]">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-accent-text/70">Pipeline value</p>
+              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-accent-text">
                 {formatCurrency(businessMetrics.pipelineMetrics.pipelineValue)}
               </p>
               {/* Real breakdown, not a fabricated one - the same two counts
                   a contractor opens the dashboard to check, reused from
                   Leads/Appointments' own summarize functions rather than two
                   large cards competing with Needs Attention below. */}
-              <p className="mt-1.5 text-sm text-slate-500">
+              <p className="mt-2 text-sm text-accent-text/80">
                 <Link
                   href="/leads?temperature=hot"
-                  className={leadSummary.hotCount > 0 ? "font-medium text-red-600 hover:underline" : "hover:text-slate-900"}
+                  className={leadSummary.hotCount > 0 ? "font-semibold text-red-600 hover:underline" : "hover:underline"}
                 >
                   {leadSummary.hotCount} hot {leadSummary.hotCount === 1 ? "lead" : "leads"}
                 </Link>
-                <span className="mx-1.5 text-slate-300">·</span>
-                <Link
-                  href="/appointments?view=today"
-                  className={appointmentSummary.today > 0 ? "font-medium text-accent-text hover:underline" : "hover:text-slate-900"}
-                >
+                <span className="mx-1.5 text-accent-text/30">·</span>
+                <Link href="/appointments?view=today" className={appointmentSummary.today > 0 ? "font-semibold hover:underline" : "hover:underline"}>
                   {appointmentSummary.today} today
                 </Link>
               </p>
             </div>
-            {contacts.length > 0 ? <AddLeadButton contacts={contacts} /> : null}
+            {contacts.length > 0 ? (
+              <div className="shrink-0 sm:pt-1">
+                <AddLeadButton contacts={contacts} />
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -235,21 +264,37 @@ export default async function DashboardPage() {
             being one of the clearest expressions of Trackpr's own AI
             differentiation. Same component, same data, no new query - only
             its position within the unchanged 4-section top-level hierarchy
-            (Attention/Schedule/Pipeline/More) changed. */}
+            (Attention/Schedule/Pipeline/More) changed.
+            Trackpr 2.0, Phase 3B: every subsection is now wrapped in the
+            same bordered Panel container Business Glance already used on
+            its own - previously the only inconsistency in this region (four
+            subsections sat flush on the canvas, one sat in a card). Boxing
+            all of them gives "More" its own consistent, secondary-tier
+            visual identity (quieter, contained) versus Attention/Schedule/
+            Pipeline above (dominant, flush-on-canvas) - reinforcing the
+            existing primary/secondary hierarchy through container treatment,
+            not new sections or reordering. No collapsible interaction was
+            added - no existing pattern for it in this codebase, and adding
+            new client-side state for a foundation this narrow isn't
+            "extremely low-risk" per this phase's own instruction. */}
         <section aria-labelledby="dashboard-more-heading" className="border-t border-slate-200 pt-8">
           <h2 id="dashboard-more-heading" className={sectionLabelClass}>
             More
           </h2>
 
-          <div className="mt-5 flex flex-col gap-8">
-            <WhatAiHandled snapshot={todaySnapshot} />
+          <div className="mt-5 flex flex-col gap-6">
+            <Panel>
+              <WhatAiHandled snapshot={todaySnapshot} />
+            </Panel>
 
-            <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
+            <Panel>
+              <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
+            </Panel>
 
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="min-w-0">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <Panel className="min-w-0">
                 <RecentActivity items={data.recentActivity} />
-              </div>
+              </Panel>
               <div className="lg:sticky lg:top-6 lg:self-start">
                 <Panel>
                   <BusinessGlance
@@ -264,7 +309,9 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            <AiInsightsPanel cached={cachedInsights} />
+            <Panel>
+              <AiInsightsPanel cached={cachedInsights} />
+            </Panel>
           </div>
         </section>
       </div>

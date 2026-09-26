@@ -30,8 +30,8 @@ export function BriefingPanel({ briefing, endOfDay }: { briefing: OwnerDailyBrie
   const hasNewSignals = briefing.jobsRecentlyCompleted.length > 0 || briefing.reviewReferralOpportunities.length > 0;
 
   return (
-    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-      <div>
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-0 lg:divide-x lg:divide-slate-100">
+      <div className="lg:pr-6">
         <h3 className={sectionLabelClass}>Today&apos;s briefing</h3>
         <p className="mt-1.5 text-sm font-medium text-slate-900">{briefing.summary}</p>
 
@@ -65,7 +65,7 @@ export function BriefingPanel({ briefing, endOfDay }: { briefing: OwnerDailyBrie
         )}
       </div>
 
-      <div>
+      <div className="lg:pl-6">
         <h3 className={sectionLabelClass}>Today&apos;s activity</h3>
         <p className="mt-1.5 text-sm font-medium text-slate-900">{endOfDay.summary}</p>
         <div className="mt-3 divide-y divide-slate-100">

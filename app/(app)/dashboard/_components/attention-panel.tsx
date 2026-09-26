@@ -67,6 +67,27 @@ const KIND_STYLE: Record<AttentionItem["kind"], string> = {
 };
 
 /**
+ * Trackpr 2.0, Phase 3B: a purely presentational "this needs action today"
+ * grouping, derived from the exact same tier-1/tier-2 kinds
+ * lib/dashboard/queries.ts's own documented priority ordering already puts
+ * first (see that file's own 5-tier comment on the final attentionItems
+ * array) - never a new field, never a numeric score, never a second
+ * ordering. This only decides whether a row gets a small time-sensitive
+ * accent mark; it has zero effect on which items appear or in what order -
+ * that remains entirely the server's own, unchanged priority list.
+ */
+const URGENT_KINDS = new Set<AttentionItem["kind"]>([
+  "human_escalation",
+  "awaiting_reply",
+  "abandoned_conversation",
+  "calendar_disconnected",
+  "overdue_appointment",
+  "awaiting_confirmation",
+  "no_show",
+  "accepted_estimate_no_job",
+]);
+
+/**
  * The dashboard's one deliberately dominant section - the only place on the
  * page that gets a real heading (primarySectionTitleClass) rather than a
  * receding label, because "what needs me" is the most actionable question a
@@ -100,21 +121,27 @@ export function AttentionPanel({ items }: { items: AttentionItem[] }) {
             // link, never nested inside it.
             const isEscalation = item.kind === "human_escalation" && item.incidentId;
             const isOpportunity = Boolean(item.opportunityId);
+            const isUrgent = URGENT_KINDS.has(item.kind);
             return (
               <div
                 key={item.id}
-                className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50"
+                className={`group -mx-2 flex items-center gap-3 border-l-2 py-3 pl-2.5 pr-2 transition-colors hover:bg-slate-50 ${
+                  isUrgent ? "border-l-red-300" : "border-l-transparent"
+                }`}
               >
-                <Link href={item.href} className="flex min-w-0 flex-1 items-center gap-3">
-                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${KIND_STYLE[item.kind]}`}>
-                    <ItemIcon className="h-3.5 w-3.5" aria-hidden />
+                <Link
+                  href={item.href}
+                  className="flex min-w-0 flex-1 items-center gap-3 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-1"
+                >
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${KIND_STYLE[item.kind]}`}>
+                    <ItemIcon className="h-4 w-4" aria-hidden />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-slate-900">{item.title}</span>
+                    <span className="block truncate text-sm font-semibold text-slate-900">{item.title}</span>
                     <span className="block truncate text-xs text-slate-500">{item.detail}</span>
                   </span>
                   {item.value ? (
-                    <span className="shrink-0 text-sm font-medium tabular-nums text-slate-700">{item.value}</span>
+                    <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-700">{item.value}</span>
                   ) : null}
                   {!isEscalation && !isOpportunity ? (
                     <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
