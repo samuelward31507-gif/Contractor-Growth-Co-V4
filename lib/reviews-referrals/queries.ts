@@ -97,6 +97,31 @@ export async function getReferralRequests(supabase: SupabaseClient, organization
   return (data ?? []) as ReferralRequest[];
 }
 
+export type ReviewRequestsResult = { data: ReviewRequest[]; failed: boolean };
+export type ReferralRequestsResult = { data: ReferralRequest[]; failed: boolean };
+
+/**
+ * Trackpr 2.0, Phase 3G: same read as getReviewRequests/getReferralRequests
+ * above (unchanged, still used by app/(app)/jobs/page.tsx and
+ * lib/briefing/queries.ts exactly as before), but also reports whether the
+ * Postgrest read itself failed. getReviewRequests/getReferralRequests
+ * discard that `error` and fall back to `[]`, which is indistinguishable
+ * from genuine emptiness - fine for a supporting summary row, but the
+ * Growth page's own "No review/referral activity yet." empty states must
+ * never claim a database error is a quiet zero. Added rather than changing
+ * the existing functions' signatures, so neither existing caller is
+ * touched.
+ */
+export async function getReviewRequestsResult(supabase: SupabaseClient, organizationId: string): Promise<ReviewRequestsResult> {
+  const { data, error } = await supabase.from("review_requests").select(REVIEW_REQUEST_COLUMNS).eq("organization_id", organizationId).limit(1000);
+  return { data: (data ?? []) as ReviewRequest[], failed: Boolean(error) };
+}
+
+export async function getReferralRequestsResult(supabase: SupabaseClient, organizationId: string): Promise<ReferralRequestsResult> {
+  const { data, error } = await supabase.from("referral_requests").select(REFERRAL_REQUEST_COLUMNS).eq("organization_id", organizationId).limit(1000);
+  return { data: (data ?? []) as ReferralRequest[], failed: Boolean(error) };
+}
+
 export type ReviewReferralSummary = {
   reviewsRequested: number;
   reviewsResponded: number;
