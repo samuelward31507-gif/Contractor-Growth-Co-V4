@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowLeft, LayoutDashboard, LogOut } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { ArrowLeft, LayoutDashboard, TrendingUp, LogOut } from "lucide-react";
 import { logout } from "@/app/(app)/actions";
 
 /**
@@ -11,16 +14,25 @@ import { logout } from "@/app/(app)/actions";
  * (same bg, same radial glow, same brand lockup, same nav-link active/hover
  * treatment, same account footer) - it is not a new visual system, just the
  * same one used for an internal-operator context instead of a client
- * workspace. Agency navigation is deliberately a single "Overview" item:
- * today there is exactly one real Agency destination (client detail pages
- * are a drill-down from the client list, never a sidebar destination). The
- * "Back to Trackpr" link above it is a real, explicit route to /dashboard
- * (not browser back) - an agency admin reaching this shell from the client
- * CRM's own nav link needs an equally explicit way back, and it is styled
- * as a muted secondary action (matching the footer's own Log out hover
- * treatment) precisely so it never competes with the Overview destination
- * for visual weight.
+ * workspace. The "Back to Trackpr" link above it is a real, explicit route
+ * to /dashboard (not browser back) - an agency admin reaching this shell
+ * from the client CRM's own nav link needs an equally explicit way back, and
+ * it is styled as a muted secondary action (matching the footer's own Log
+ * out hover treatment) precisely so it never competes with the primary
+ * destinations below it for visual weight.
+ *
+ * Trackpr Phase 5A: a second real destination (Expansion Intelligence,
+ * /agency/expansion) was added alongside Overview, so this now needs actual
+ * active-route detection instead of a single hardcoded aria-current="page" -
+ * the only reason this file is a client component. No other behavior here
+ * changed; client detail pages remain a drill-down from the client list,
+ * never a sidebar destination of their own.
  */
+const NAV_ITEMS = [
+  { href: "/agency", label: "Overview", icon: LayoutDashboard },
+  { href: "/agency/expansion", label: "Expansion", icon: TrendingUp },
+] as const;
+
 export function AgencySidebarContent({
   userEmail,
   isAdmin,
@@ -30,6 +42,8 @@ export function AgencySidebarContent({
   isAdmin: boolean;
   onNavigate?: () => void;
 }) {
+  const pathname = usePathname();
+
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0a120f]">
       <div
@@ -67,15 +81,25 @@ export function AgencySidebarContent({
         </div>
 
         <div className="space-y-0.5">
-          <Link
-            href="/agency"
-            onClick={onNavigate}
-            aria-current="page"
-            className="flex w-full items-center gap-3 rounded-lg bg-emerald-500/[0.14] px-3 py-2 text-[13.5px] font-semibold text-white ring-1 ring-inset ring-emerald-500/25"
-          >
-            <LayoutDashboard className="h-[18px] w-[18px] shrink-0 text-emerald-400" aria-hidden />
-            <span className="truncate">Overview</span>
-          </Link>
+          {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+            const active = href === "/agency" ? pathname === "/agency" : pathname?.startsWith(href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors ${
+                  active
+                    ? "bg-emerald-500/[0.14] font-semibold text-white ring-1 ring-inset ring-emerald-500/25"
+                    : "text-slate-400 hover:bg-white/[0.05] hover:text-white"
+                }`}
+              >
+                <Icon className={`h-[18px] w-[18px] shrink-0 ${active ? "text-emerald-400" : "text-slate-500"}`} aria-hidden />
+                <span className="truncate">{label}</span>
+              </Link>
+            );
+          })}
         </div>
       </nav>
 
