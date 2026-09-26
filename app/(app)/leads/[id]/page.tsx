@@ -35,6 +35,7 @@ import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
 import { CONVERSATION_CHANNELS } from "@/lib/conversations/queries";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass, sectionLabelClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
@@ -80,7 +81,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
     redirect("/onboarding");
   }
 
-  const [lead, contacts, allAppointments, allEstimates, allConversations, allJobs, stageHistory] = await Promise.all([
+  const [lead, contacts, allAppointments, allEstimates, allConversations, allJobs, stageHistory, timeZone] = await Promise.all([
     getLead(supabase, membership.organizationId, id),
     getContacts(supabase, membership.organizationId),
     getAppointments(supabase, membership.organizationId),
@@ -88,6 +89,13 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
     getConversations(supabase, membership.organizationId),
     getJobs(supabase, membership.organizationId),
     getLeadStageHistory(supabase, membership.organizationId, id),
+    // Trackpr 2.0, Launch Certification QA fix: same fix as
+    // app/(app)/contacts/[id]/page.tsx - formatAppointmentDate/
+    // formatAppointmentTimeRange below need the organization's real
+    // timezone, or they silently fall back to the server runtime's default
+    // (UTC), rendering a real appointment several hours off from what
+    // /appointments and /schedule already show correctly.
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
 
   if (!lead) {
@@ -167,7 +175,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
       at: appointment.created_at,
       icon: CalendarClock,
       label: "Appointment scheduled",
-      detail: `${appointment.title} · ${formatAppointmentDate(appointment.start_at)}`,
+      detail: `${appointment.title} · ${formatAppointmentDate(appointment.start_at, timeZone)}`,
     })),
     ...estimates.flatMap((estimate) => {
       const events: TimelineEvent[] = [];
@@ -238,7 +246,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
     : nextAppointment
       ? {
           label: "Appointment scheduled",
-          detail: `${formatAppointmentDate(nextAppointment.start_at)} · ${formatAppointmentTimeRange(nextAppointment.start_at, nextAppointment.end_at)}`,
+          detail: `${formatAppointmentDate(nextAppointment.start_at, timeZone)} · ${formatAppointmentTimeRange(nextAppointment.start_at, nextAppointment.end_at, timeZone)}`,
           href: `/appointments/${nextAppointment.id}`,
           attention: false,
         }
@@ -421,8 +429,8 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                             <span className="min-w-0">
                               <span className="block truncate font-medium text-slate-900">{appointment.title}</span>
                               <span className="block text-xs text-slate-500">
-                                {formatAppointmentDate(appointment.start_at)} ·{" "}
-                                {formatAppointmentTimeRange(appointment.start_at, appointment.end_at)}
+                                {formatAppointmentDate(appointment.start_at, timeZone)} ·{" "}
+                                {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
                               </span>
                             </span>
                             <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]} icon={APPOINTMENT_STATUS_ICON[appointment.status]}>

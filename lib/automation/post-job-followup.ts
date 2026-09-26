@@ -28,46 +28,19 @@ export async function emitPostJobFollowup(
   organizationId: string,
   jobId: string,
 ): Promise<void> {
-  // event_type is "job.post_followup" (dot-namespaced), not literally
-  // "post_job_followup" - the existing EVENT_TYPE_PATTERN validation
-  // (enforced both in lib/automation/events.ts and inside the
-  // create_automation_event RPC itself) requires a "namespace.action" form
-  // like every other event type in this codebase (lead.created,
-  // job.created, estimate.sent, ...); a bare identifier with no dot fails
-  // it. The idempotency key and the n8n workflow_name - both specified
-  // exactly as "post_job_followup" - have no such constraint and use that
-  // literal string unchanged.
-  const eventResult = await createAutomationEvent(supabase, {
-    eventType: "job.post_followup",
-    entityType: "job",
-    entityId: jobId,
-    payload: { job_id: jobId },
-    idempotencyKey: `post_job_followup:${jobId}`,
-  });
-
-  if (!eventResult.ok) {
-    console.error("[automation] failed to create post_job_followup event", { jobId, error: eventResult.error });
-    return;
-  }
-  if (eventResult.duplicate) return;
-  if (eventResult.skipped) return;
-
+  // Trackpr 2.0, Launch Certification QA fix: job/contact/conversation must
+  // be resolved BEFORE createAutomationEvent below, not after - see that
+  // call's own comment for why. This does mean a duplicate/replayed call
+  // now redundantly pays for a job+contact+conversation lookup before
+  // createAutomationEvent's own idempotency check short-circuits it, but
+  // job completion is a rare, one-per-job, user-triggered action, so that
+  // cost is negligible next to a review/referral ask that can never
+  // otherwise be sent.
   const job = await getJob(supabase, organizationId, jobId);
   if (!job) {
-    console.error("[automation] post_job_followup event created but job not found", { jobId, organizationId });
+    console.error("[automation] post_job_followup requested but job not found", { jobId, organizationId });
     return;
   }
-
-  const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, POST_JOB_FOLLOWUP_WORKFLOW);
-  if (!executionResult.ok) {
-    console.error("[automation] failed to start post_job_followup execution", { jobId, error: executionResult.error });
-    return;
-  }
-
-  const [aiSettings, businessProfile] = await Promise.all([
-    getAiSettings(supabase, organizationId),
-    getBusinessProfile(supabase, organizationId),
-  ]);
 
   let conversationId: string | null = null;
   let contact: { id: string; first_name: string | null; last_name: string | null; phone: string | null; email: string | null } | null = null;
@@ -88,6 +61,53 @@ export async function emitPostJobFollowup(
     const conversation = await findOrCreateOpenConversation(supabase, organizationId, job.contact_id, "sms", job.lead_id);
     conversationId = conversation?.id ?? null;
   }
+
+  // event_type is "job.post_followup" (dot-namespaced), not literally
+  // "post_job_followup" - the existing EVENT_TYPE_PATTERN validation
+  // (enforced both in lib/automation/events.ts and inside the
+  // create_automation_event RPC itself) requires a "namespace.action" form
+  // like every other event type in this codebase (lead.created,
+  // job.created, estimate.sent, ...); a bare identifier with no dot fails
+  // it. The idempotency key and the n8n workflow_name - both specified
+  // exactly as "post_job_followup" - have no such constraint and use that
+  // literal string unchanged.
+  //
+  // Trackpr 2.0, Launch Certification QA fix: the stored payload must
+  // include contact_id/lead_id/conversation_id, not just job_id - the n8n
+  // callback route (app/api/automation/n8n-callback/route.ts) re-derives
+  // contactId/leadId/conversationId for the outbound gate exclusively from
+  // THIS STORED payload (event.payload?.contact_id etc.), never from the
+  // separate contract object dispatched to n8n below. With only job_id
+  // stored, every job.post_followup send was unconditionally denied by the
+  // gate's own missing_contact_id check - a live, 100%-reproducible defect
+  // (every completed job's review/referral ask silently failed, in every
+  // organization) confirmed via a fresh QA lifecycle test, not a
+  // pre-existing data artifact.
+  const eventResult = await createAutomationEvent(supabase, {
+    eventType: "job.post_followup",
+    entityType: "job",
+    entityId: jobId,
+    payload: { job_id: jobId, contact_id: job.contact_id, lead_id: job.lead_id, conversation_id: conversationId },
+    idempotencyKey: `post_job_followup:${jobId}`,
+  });
+
+  if (!eventResult.ok) {
+    console.error("[automation] failed to create post_job_followup event", { jobId, error: eventResult.error });
+    return;
+  }
+  if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
+
+  const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, POST_JOB_FOLLOWUP_WORKFLOW);
+  if (!executionResult.ok) {
+    console.error("[automation] failed to start post_job_followup execution", { jobId, error: executionResult.error });
+    return;
+  }
+
+  const [aiSettings, businessProfile] = await Promise.all([
+    getAiSettings(supabase, organizationId),
+    getBusinessProfile(supabase, organizationId),
+  ]);
 
   // review_url is passed through exactly as stored - Trackpr is the only
   // place this value can ever originate; the n8n prompt is instructed to

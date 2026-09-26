@@ -21,8 +21,20 @@ import { formatComparisonBadge, formatRate } from "./period-comparison-format";
  * Deliberately kept as two clearly-labeled groups rather than one merged
  * list: "Right now" (OverviewMetrics - live current-state counts) and "Last
  * 30 days" (BusinessMetricsSnapshot - a period aggregate). Their similarly-
- * named fields (e.g. open opportunities) are computed differently and would
- * misrepresent the business if silently combined into one number.
+ * named fields are computed differently and would misrepresent the business
+ * if silently combined into one number.
+ *
+ * Trackpr 2.0, Launch Certification QA fix: "Right now"'s own
+ * overview.openOpportunities (a count of leads currently in an active
+ * pipeline status - see ACTIVE_LEAD_STATUSES in lib/dashboard/queries.ts)
+ * and the separate "Opportunities" section's real Opportunity Engine count
+ * (opportunitySummary.count) used to render under the IDENTICAL row label
+ * "Open opportunities," on the same page, often showing two different
+ * numbers (e.g. a lead just created counts toward the first but not the
+ * second, since the Opportunity Engine hasn't detected anything about it
+ * yet). The section headers alone weren't enough to prevent this reading as
+ * a data inconsistency - the row label itself must not collide. Renamed to
+ * "Active leads" below, which is what this row actually counts.
  */
 function Row({ label, value, description }: { label: string; value: string; description?: string }) {
   return (
@@ -59,7 +71,7 @@ export function BusinessGlance({
       <p className={sectionLabelClass}>Right now</p>
       <div className="mt-1.5 divide-y divide-slate-100">
         <Row label="New leads" value={String(overview.newLeads)} />
-        <Row label="Open opportunities" value={String(overview.openOpportunities)} />
+        <Row label="Active leads" value={String(overview.openOpportunities)} />
         <Row label="Upcoming appointments" value={String(overview.upcomingAppointments)} />
         <Row label="Estimates pending" value={String(overview.pendingEstimates)} />
       </div>

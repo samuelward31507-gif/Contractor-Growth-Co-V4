@@ -23,11 +23,14 @@ export function ConversationContext({
   relevantAppointment,
   smsOptOut,
   automationActivity,
+  timeZone,
 }: {
   conversation: Conversation;
   relevantAppointment: RelevantAppointment | null;
   smsOptOut: boolean;
   automationActivity: AutomationActivity;
+  /** Trackpr 2.0, Launch Certification QA fix: the organization's real IANA timezone - without it, formatAppointmentDate/formatAppointmentTime below silently fall back to the server runtime's default (UTC). */
+  timeZone: string | undefined;
 }) {
   const contact = conversation.contact;
   const hasContactDetails = Boolean(contact?.company_name || contact?.phone || contact?.email);
@@ -129,7 +132,7 @@ export function ConversationContext({
         >
           <p className="text-sm font-medium text-slate-900">{relevantAppointment.title}</p>
           <p className="mt-0.5 text-sm text-slate-500">
-            {formatAppointmentDate(relevantAppointment.start_at)} · {formatAppointmentTime(relevantAppointment.start_at)}
+            {formatAppointmentDate(relevantAppointment.start_at, timeZone)} · {formatAppointmentTime(relevantAppointment.start_at, timeZone)}
           </p>
           <p className="mt-1 text-xs text-slate-400">{APPOINTMENT_STATUS_LABELS[relevantAppointment.status]}</p>
         </SectionCard>

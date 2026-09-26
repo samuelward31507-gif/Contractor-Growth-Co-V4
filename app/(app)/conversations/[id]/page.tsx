@@ -10,6 +10,7 @@ import {
   pickRelevantAppointment,
 } from "@/lib/conversations/queries";
 import { contactDisplayName, contactInitials } from "@/lib/contacts/format";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { CHANNEL_LABELS } from "@/lib/conversations/format";
 import { Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
@@ -57,7 +58,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     );
   }
 
-  const [messages, contactAppointments, contactOptOut] = await Promise.all([
+  const [messages, contactAppointments, contactOptOut, timeZone] = await Promise.all([
     getMessages(supabase, membership.organizationId, conversation.id),
     conversation.contact_id
       ? getContactAppointments(supabase, membership.organizationId, conversation.contact_id)
@@ -74,6 +75,12 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
           .eq("organization_id", membership.organizationId)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    // Trackpr 2.0, Launch Certification QA fix: same fix as
+    // app/(app)/contacts/[id]/page.tsx and app/(app)/leads/[id]/page.tsx -
+    // ConversationContext's relevant-appointment date/time need the
+    // organization's real timezone, or they silently fall back to the
+    // server runtime's default (UTC).
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
 
   const relevantAppointment = pickRelevantAppointment(contactAppointments);
@@ -141,6 +148,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
               relevantAppointment={relevantAppointment}
               smsOptOut={smsOptOut}
               automationActivity={automationActivity}
+              timeZone={timeZone}
             />
           </div>
         </details>
@@ -151,6 +159,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
             relevantAppointment={relevantAppointment}
             smsOptOut={smsOptOut}
             automationActivity={automationActivity}
+            timeZone={timeZone}
           />
         </div>
       </div>

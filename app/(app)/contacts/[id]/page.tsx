@@ -18,6 +18,7 @@ import { ACTIVE_APPOINTMENT_STATUSES, ACTIVE_ESTIMATE_STATUSES, ACTIVE_JOB_STATU
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { formatAppointmentDate, formatAppointmentTimeRange, STATUS_LABELS as APPOINTMENT_STATUS_LABELS } from "@/lib/appointments/format";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { STATUS_LABELS as LEAD_STATUS_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
 import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
@@ -64,7 +65,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
     redirect("/onboarding");
   }
 
-  const [contact, relationshipCounts, allLeads, allAppointments, allEstimates, allConversations, allJobs, lifecycle, allOpenOpportunities] = await Promise.all([
+  const [contact, relationshipCounts, allLeads, allAppointments, allEstimates, allConversations, allJobs, lifecycle, allOpenOpportunities, timeZone] = await Promise.all([
     getContact(supabase, membership.organizationId, id),
     getContactRelationshipCounts(supabase, membership.organizationId, id),
     getLeads(supabase, membership.organizationId),
@@ -79,6 +80,15 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
     // matching this page's own established "fetch org-wide, filter locally"
     // pattern for leads/appointments/estimates/jobs/conversations above.
     getOpenOpportunities(supabase, membership.organizationId),
+    // Trackpr 2.0, Launch Certification QA fix: appointment.start_at/end_at
+    // are stored/read as UTC ISO strings - without an explicit IANA
+    // timeZone, formatAppointmentDate/formatAppointmentTimeRange below fall
+    // back to the server runtime's own default (UTC on Vercel), rendering a
+    // real appointment several hours off from what it actually shows on
+    // /appointments and /schedule (both of which already fetch and pass
+    // this same organization timezone). Matches the exact pattern
+    // app/(app)/appointments/page.tsx already uses.
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
 
   if (!contact) {
@@ -286,8 +296,8 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                       <span className="min-w-0">
                         <span className="block truncate font-medium text-slate-900">{appointment.title}</span>
                         <span className="block text-xs text-slate-500">
-                          {formatAppointmentDate(appointment.start_at)} ·{" "}
-                          {formatAppointmentTimeRange(appointment.start_at, appointment.end_at)}
+                          {formatAppointmentDate(appointment.start_at, timeZone)} ·{" "}
+                          {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
                         </span>
                       </span>
                       <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]} icon={APPOINTMENT_STATUS_ICON[appointment.status]}>
