@@ -89,7 +89,7 @@ export function SmsRoutingSection({
             </div>
 
             <div className="flex items-center gap-3">
-              <button type="submit" className={primaryButtonAutoClass}>
+              <button type="submit" disabled={!canEdit || isPending} className={primaryButtonAutoClass}>
                 {isSaving ? "Saving…" : "Save"}
               </button>
               {isConfigured ? (

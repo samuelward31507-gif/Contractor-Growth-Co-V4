@@ -31,7 +31,7 @@ function ServiceRow({
         {service.description ? (
           <p className="mt-0.5 truncate text-xs text-slate-500">{service.description}</p>
         ) : null}
-        {state.error ? <p className="mt-1 text-xs text-red-600">{state.error}</p> : null}
+        {state.error ? <p className="mt-1 text-xs text-danger-text">{state.error}</p> : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-3">

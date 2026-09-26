@@ -133,15 +133,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </div>
 
       <div>
-        <SettingsGroup label="Business">
+        <SettingsGroup label="Business & Organization">
           <BusinessProfileSection profile={profile} canEdit={canEdit} />
         </SettingsGroup>
 
-        <SettingsGroup label="Go Live">
+        <SettingsGroup label="Automations">
           <AutomationModeSection mode={automationMode} canEdit={canEdit} />
         </SettingsGroup>
 
-        <SettingsGroup label="Operations">
+        <SettingsGroup label="Scheduling & Booking">
           <BusinessHoursSection hours={hours} timezone={profile.timezone} canEdit={canEdit} />
           <ServicesSection services={services} canEdit={canEdit} />
           <ServiceAreasSection areas={serviceAreas} canEdit={canEdit} />
@@ -150,7 +150,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           <OperationsDetailSection profile={profile} canEdit={canEdit} />
         </SettingsGroup>
 
-        <SettingsGroup label="Communications">
+        <SettingsGroup label="Communications & Notifications">
           <SmsSummarySection smsPhoneNumber={smsPhoneNumber} />
           <LeadCaptureSection intakeUrl={leadIntakeUrl} />
           <NotificationSettingsSection settings={notificationSettings} canEdit={canEdit} />

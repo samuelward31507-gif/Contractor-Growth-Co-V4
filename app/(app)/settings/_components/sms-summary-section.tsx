@@ -26,7 +26,7 @@ export function SmsSummarySection({ smsPhoneNumber }: { smsPhoneNumber: string |
 
       <Link
         href="/settings/sms"
-        className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3 transition-colors hover:border-slate-300 hover:bg-slate-50"
+        className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
       >
         <div>
           <p className={detailLabelClass}>Routing number</p>

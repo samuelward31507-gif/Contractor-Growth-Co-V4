@@ -38,7 +38,7 @@ export default async function SmsRoutingPage() {
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <div>
-        <Link href="/settings" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+        <Link href="/settings" className="inline-flex items-center gap-1 rounded text-xs font-medium text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
           Settings
         </Link>
