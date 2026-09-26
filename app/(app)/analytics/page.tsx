@@ -9,7 +9,8 @@ import {
 import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
 import type { DateRangePreset } from "@/lib/bi/types";
 import { getRepeatCustomerSummary } from "@/lib/customers/lifecycle";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
+import { sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
 import { ActivityEmptyState } from "./_components/activity-empty-state";
 import { ActivitySummaryCards } from "./_components/activity-summary";
 import { ActivityTimeline } from "./_components/activity-timeline";
@@ -99,14 +100,11 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
 
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Grow</p>
-        <h1 className={pageTitleClass}>Analytics</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>
-          How leads turn into booked work and completed jobs, where follow-up is leaking, and what AI and automation
-          are doing - plus a history of activity across your business.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Intelligence"
+        title="Analytics"
+        description="Understand your pipeline, conversion, revenue, and business performance."
+      />
 
       <div>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -114,62 +112,62 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
           <RangeTabs current={range} buildHref={(nextRange) => buildHref({ range: nextRange })} />
         </div>
 
-        <div className="mt-5">
-          <BusinessAtAGlance snapshot={snapshot} />
-        </div>
-
-        {/* Trackpr 2.0 Phase 5: named groups tell the revenue story in order -
-            the raw numbers per pipeline stage, how well each stage converts
-            to the next, where real opportunity is stalling, what AI/
-            automation did, then the honesty footer. Every individual section
-            is unchanged in what it computes (see business-metrics-sections.tsx) -
-            only this grouping, and the two new sections built entirely from
-            already-computed snapshot fields, are new. */}
-        <div className="mt-10 flex flex-col gap-10">
+        {/* Trackpr 2.0 Phase 3I: regrouped under the canonical Analytics
+            hierarchy - revenue/performance, pipeline (current-state
+            opportunity/stage data), conversion (movement through the
+            lifecycle - deliberately never mixed with Pipeline above),
+            opportunities (where revenue may be slipping), then supporting
+            trend detail. Every individual section is unchanged in what it
+            reads and computes (see business-metrics-sections.tsx) - only
+            this top-level grouping/labeling changed. */}
+        <div className="mt-8 flex flex-col gap-10">
           <div>
-            <h2 className={primarySectionTitleClass}>Revenue pipeline</h2>
-            <p className={`mt-1 ${metaClass}`}>Leads in, estimates sent, jobs won and completed - the raw numbers at each stage.</p>
-            <div className="divide-y divide-slate-200">
-              <LeadsPipelineSection snapshot={snapshot} />
+            <h2 className={primarySectionTitleClass}>Revenue &amp; performance</h2>
+            <p className={`mt-1 ${metaClass}`}>How the business is doing, and where quoted/contracted value is coming from - never collected revenue, since no payment ledger exists.</p>
+            <div className="mt-3">
+              <BusinessAtAGlance snapshot={snapshot} />
+            </div>
+            <div className="mt-6 divide-y divide-slate-200">
               <EstimatesSection snapshot={snapshot} />
               <JobsSection snapshot={snapshot} />
-              <AppointmentsSection snapshot={snapshot} />
+            </div>
+          </div>
+
+          <div className="border-t border-slate-200 pt-10">
+            <h2 className={primarySectionTitleClass}>Pipeline</h2>
+            <p className={`mt-1 ${metaClass}`}>Current-state opportunity and lead-stage data - what&apos;s open right now, not how it got there.</p>
+            <div className="divide-y divide-slate-200">
+              <LeadsPipelineSection snapshot={snapshot} />
             </div>
           </div>
 
           <div className="border-t border-slate-200 pt-10">
             <h2 className={primarySectionTitleClass}>Conversion</h2>
-            <p className={`mt-1 ${metaClass}`}>How well each stage above converts to the next.</p>
+            <p className={`mt-1 ${metaClass}`}>Movement through the lifecycle - both the current-state rate and, separately, real historical timing.</p>
             <div className="divide-y divide-slate-200">
               <ConversionSection snapshot={snapshot} />
               <HistoricalFunnelSection snapshot={snapshot} />
+            </div>
+          </div>
+
+          <div className="border-t border-slate-200 pt-10">
+            <h2 className={primarySectionTitleClass}>Opportunities</h2>
+            <p className={`mt-1 ${metaClass}`}>Real, quoted work and stalled follow-up that may be slipping away - not guaranteed revenue or a close probability. Always current-state, not scoped to the period above.</p>
+            <div className="divide-y divide-slate-200">
               <RevenueOpportunitySection snapshot={snapshot} />
             </div>
           </div>
 
           <div className="border-t border-slate-200 pt-10">
-            <h2 className={primarySectionTitleClass}>Follow-up &amp; communication</h2>
-            <p className={`mt-1 ${metaClass}`}>Automated touches sent, and how customers are responding.</p>
+            <h2 className={primarySectionTitleClass}>Trends &amp; supporting insights</h2>
+            <p className={`mt-1 ${metaClass}`}>Scheduling, follow-up, communication, reviews, AI, and automation health for the period above. Repeat customers is the one exception - always all-time, since &ldquo;has this customer come back, ever&rdquo; isn&apos;t a date-range question.</p>
             <div className="divide-y divide-slate-200">
+              <AppointmentsSection snapshot={snapshot} />
               <FollowUpSection snapshot={snapshot} />
               <CommunicationSection snapshot={snapshot} />
               <ResponseTimeSection snapshot={snapshot} />
               <ReviewReferralSection snapshot={snapshot} />
-            </div>
-          </div>
-
-          <div className="border-t border-slate-200 pt-10">
-            <h2 className={primarySectionTitleClass}>Customers</h2>
-            <p className={`mt-1 ${metaClass}`}>Who keeps coming back, and what completed work is really worth - all-time, not scoped to the period above.</p>
-            <div className="divide-y divide-slate-200">
               <RepeatCustomerSection summary={repeatCustomerSummary} />
-            </div>
-          </div>
-
-          <div className="border-t border-slate-200 pt-10">
-            <h2 className={primarySectionTitleClass}>AI &amp; automation</h2>
-            <p className={`mt-1 ${metaClass}`}>What AI is doing, and whether automated dispatch is running cleanly.</p>
-            <div className="divide-y divide-slate-200">
               <AiActivitySection snapshot={snapshot} />
               <AutomationSection snapshot={snapshot} />
             </div>

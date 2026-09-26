@@ -29,7 +29,7 @@ export function RangeTabs({ current, buildHref }: { current: DateRangePreset; bu
             href={buildHref(option.value)}
             role="tab"
             aria-selected={isActive}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
               isActive ? "bg-accent text-accent-foreground" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
             }`}
           >
