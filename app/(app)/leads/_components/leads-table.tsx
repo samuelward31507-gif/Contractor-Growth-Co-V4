@@ -48,7 +48,7 @@ export function LeadsTable({ leads, hasActiveFilters }: { leads: Lead[]; hasActi
             <Link
               key={lead.id}
               href={`/leads/${lead.id}`}
-              className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[LEAD_STATUS_TONE[lead.status]]}`}
+              className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[LEAD_STATUS_TONE[lead.status]]}`}
             >
               <span className="flex min-w-0 items-center gap-3">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
@@ -90,7 +90,7 @@ export function LeadsTable({ leads, hasActiveFilters }: { leads: Lead[]; hasActi
           <li key={lead.id}>
             <Link
               href={`/leads/${lead.id}`}
-              className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 ${RAIL_TONE_CLASS[LEAD_STATUS_TONE[lead.status]]}`}
+              className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[LEAD_STATUS_TONE[lead.status]]}`}
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
                 {lead.contact ? contactInitials(lead.contact) : "?"}

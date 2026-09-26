@@ -39,6 +39,18 @@ function sortContacts(contacts: Contact[], sort: ContactSort): Contact[] {
   return sorted;
 }
 
+/**
+ * Trackpr 2.0, Phase 3C: the header now reads "Customers" - this is the
+ * page an ordinary sidebar click on "Customers" actually renders (the
+ * /customers dispatcher falls back to this component whenever no `from`
+ * marker is present, which is every real navigation except a legacy /leads
+ * link - see app/(app)/customers/page.tsx's own header comment), and its
+ * real scope already matches the locked product definition ("everyone your
+ * business is currently working with or has worked with") far more closely
+ * than "Contacts" as a bare CRM noun did. Only the header's copy changed -
+ * getContacts/filterContacts, the contacts table, and the underlying
+ * `contacts` table itself are completely untouched.
+ */
 export default async function ContactsPage({ searchParams }: PageProps<"/contacts">) {
   const params = await searchParams;
   const query = typeof params.q === "string" ? params.q : "";
@@ -66,8 +78,8 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
         eyebrow="Operate"
-        title="Contacts"
-        description="Manage the people and customers connected to your business."
+        title="Customers"
+        description="Everyone your business is currently working with or has worked with."
         badge={
           allContacts.length > 0 ? (
             <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium tabular-nums text-slate-600">
@@ -76,10 +88,23 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
           ) : undefined
         }
         action={
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            {/* Trackpr 2.0, Phase 3C: a plain link to the already-existing
+                Active Leads view of the same Customer concept (real leads
+                data, its own already-built page - see leads/page.tsx's own
+                header comment) - not a new route, not a new nav item, just
+                a discoverable path between two real, already-existing
+                Customer views the locked IA otherwise splits across two
+                separate legacy URLs. */}
+            <Link
+              href="/customers?from=lead"
+              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              Active leads
+            </Link>
             <Link
               href="/contacts/duplicates"
-              className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
+              className="inline-flex items-center gap-2 rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               <Users2 className="h-4 w-4" aria-hidden />
               Review duplicates

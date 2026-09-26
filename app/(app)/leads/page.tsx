@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
@@ -62,6 +63,20 @@ function sortLeads(leads: Lead[], sort: LeadSort): Lead[] {
   return sorted;
 }
 
+/**
+ * Trackpr 2.0, Phase 3C: the header now reads "Customers" with an "Active
+ * leads" badge, rather than a standalone "Leads" identity - per the locked
+ * product spec's own mental model ("Lead is a stage on a Customer, never a
+ * merged entity" - see app/(app)/customers/[id]/page.tsx's own comment),
+ * this page is genuinely a filtered view of the same Customer concept, not
+ * a separate product. This component is only ever rendered through the
+ * /customers dispatcher now - the literal /leads URL permanently redirects
+ * to /customers?from=lead before Next.js would ever resolve this file
+ * directly (see next.config.ts) - so there is no remaining real navigation
+ * path where a user would see this under a bare "/leads" URL/context.
+ * Only the header's copy changed - getLeads/filterLeads/sortLeads, the
+ * leads table, and the underlying `leads` table itself are untouched.
+ */
 export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   const params = await searchParams;
   const query = typeof params.q === "string" ? params.q : "";
@@ -97,9 +112,23 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
         eyebrow="Operate"
-        title="Leads"
-        description="Manage incoming opportunities and follow-up."
-        action={<AddLeadButton contacts={contacts} />}
+        title="Customers"
+        description="The customers currently in your active sales pipeline."
+        badge={<span className="inline-flex items-center rounded-full bg-warning-muted px-2.5 py-0.5 text-xs font-medium text-warning-text">Active leads</span>}
+        action={
+          <div className="flex items-center gap-4">
+            {/* Trackpr 2.0, Phase 3C: the reverse of contacts/page.tsx's own
+                new "Active leads" link - a plain path back to the full
+                customer directory, not a new route. */}
+            <Link
+              href="/customers"
+              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              All customers
+            </Link>
+            <AddLeadButton contacts={contacts} />
+          </div>
+        }
       />
 
       <LeadsSummary summary={summary} />
