@@ -145,6 +145,23 @@ export default async function DashboardPage() {
           page-header convention every other route uses, just with the
           Pipeline Value figure and Add Lead action alongside it. */}
       <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+        {/* Trackpr 2.0, Phase 2B: a calm, non-alarming notice for the one
+            real trust gap the audit found - a failed read on leads/
+            appointments/estimates/audit_log/automation_incidents used to
+            silently render as "there's nothing here," including a possible
+            false "You're all caught up." This never claims the system is
+            down and never shows a raw error - see DashboardData.partialData's
+            own doc comment for exactly what it does and doesn't cover. */}
+        {data.partialData ? (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-600">
+            Some dashboard information may be temporarily unavailable.{" "}
+            <Link href="/dashboard" className="font-medium text-slate-900 hover:underline">
+              Refresh to try again
+            </Link>
+            .
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-6">
           <div>
             <p className={sectionLabelClass}>Dashboard</p>
@@ -210,16 +227,24 @@ export default async function DashboardPage() {
             isn't one of the three priority sections above - composed from
             existing components only, no new visual system. A real <h2> so
             it reads as its own labeled region, not an unlabeled continuation
-            of Pipeline Snapshot. */}
+            of Pipeline Snapshot.
+            Trackpr 2.0, Phase 2B: What AI Handled moved to the front of this
+            region (previously between Briefing and Recent Activity/Business
+            Glance) - the audit's own product-completeness test found it was
+            the least likely section to be seen in a quick scan, despite
+            being one of the clearest expressions of Trackpr's own AI
+            differentiation. Same component, same data, no new query - only
+            its position within the unchanged 4-section top-level hierarchy
+            (Attention/Schedule/Pipeline/More) changed. */}
         <section aria-labelledby="dashboard-more-heading" className="border-t border-slate-200 pt-8">
           <h2 id="dashboard-more-heading" className={sectionLabelClass}>
             More
           </h2>
 
           <div className="mt-5 flex flex-col gap-8">
-            <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
-
             <WhatAiHandled snapshot={todaySnapshot} />
+
+            <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
 
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="min-w-0">

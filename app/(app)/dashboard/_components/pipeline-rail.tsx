@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Inbox, PhoneCall, ListChecks, CalendarCheck2, FileCheck2, Trophy, type LucideIcon } from "lucide-react";
-import { sectionLabelClass } from "@/lib/ui/typography";
+import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { PIPELINE_STAGES, type PipelineCounts } from "@/lib/dashboard/queries";
 
 const STAGE_ICON: Record<string, LucideIcon> = {
@@ -27,6 +27,13 @@ export function PipelineRail({ pipeline, hasNeverHadLeads }: { pipeline: Pipelin
   return (
     <div>
       <h2 className={sectionLabelClass}>Pipeline</h2>
+      {/* Trackpr 2.0, Phase 2B: the one line connecting this section back to
+          the header's own Pipeline Value figure - the audit's own finding
+          was that the two are real, related numbers with no on-page cue
+          that they're related at all. Only shown once real stage data
+          exists; the two empty-state messages below already explain
+          themselves and don't need it. */}
+      {total > 0 ? <p className={`mt-1 ${metaClass}`}>Current stage counts for the pipeline value shown above.</p> : null}
       {total === 0 ? (
         hasNeverHadLeads ? (
           <p className="mt-3 text-sm text-slate-500">

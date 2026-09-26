@@ -177,6 +177,29 @@ export type DashboardData = {
   pipeline: PipelineCounts;
   attentionItems: AttentionItem[];
   recentActivity: ActivityItem[];
+  /**
+   * Trackpr 2.0, Phase 2B: true when at least one of this function's own
+   * direct reads (leads/appointments/estimates/audit_log/
+   * automation_incidents) returned a real PostgREST error rather than a
+   * genuinely empty result. A successful `{ data: [], error: null }`
+   * response NEVER sets this - "no data" and "the read failed" are and
+   * remain two different things. Never carries the raw error itself (no
+   * message, no table name, no stack trace) - see partialDataSourceCount for
+   * the one bounded, non-identifying number this does expose.
+   *
+   * Scope, disclosed: this only covers the 5 reads getDashboardData issues
+   * directly. The other 4 reads it depends on - getCalendarConnection,
+   * getConversations, getLastMessagesByConversation, getOpenOpportunities -
+   * each already discards its own error internally (`data ?? []`/`?? null`)
+   * inside its own module (lib/calendar/connection.ts, lib/conversations/
+   * queries.ts, lib/opportunities/queries.ts), and this phase's authorized
+   * file scope does not include those modules - closing that gap would
+   * require changing files outside this change's boundary, so it is left
+   * open and named here rather than silently left uncovered.
+   */
+  partialData: boolean;
+  /** Count (0-5) of which of this function's own 5 direct reads failed - bounded, non-identifying, for future debugging only. Never rendered to the end user as a specific number. */
+  partialDataSourceCount: number;
 };
 
 type ContactRef = { first_name: string | null; last_name: string | null } | { first_name: string | null; last_name: string | null }[] | null;
@@ -279,6 +302,14 @@ export async function getDashboardData(
   const estimates = estimatesResult.data ?? [];
   const auditLog = auditResult.data ?? [];
   const escalationIncidents = escalationIncidentsResult.data ?? [];
+
+  // Trackpr 2.0, Phase 2B: a real PostgREST error (not merely an empty
+  // `data: []`) on any of this function's own 5 direct reads means the
+  // corresponding section above silently fell back to an empty array - real
+  // data may be missing, not merely absent. See DashboardData.partialData's
+  // own doc comment for the exact, disclosed scope (5 of 9 total reads).
+  const partialDataSourceCount = [leadsResult, appointmentsResult, estimatesResult, auditResult, escalationIncidentsResult].filter((result) => result.error != null).length;
+  const partialData = partialDataSourceCount > 0;
 
   const now = Date.now();
 
@@ -692,5 +723,5 @@ export async function getDashboardData(
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 8);
 
-  return { overview, pipeline, attentionItems, recentActivity };
+  return { overview, pipeline, attentionItems, recentActivity, partialData, partialDataSourceCount };
 }
