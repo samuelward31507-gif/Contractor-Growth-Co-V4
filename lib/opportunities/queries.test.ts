@@ -46,6 +46,7 @@ test("empty list: a real zeroed summary, never null and never a fabricated non-z
     completed_job_no_review_request: 0,
     cancelled_appointment_no_rebooking: 0,
     uncontacted_lead: 0,
+    accepted_estimate_no_job: 0,
   });
 });
 

@@ -119,6 +119,35 @@ import type { OpportunityType, OpportunityStatus } from "./queries";
  *                                        signal, not a universal, by-design
  *                                        constant every lead would trigger.
  *
+ *   accepted_estimate_no_job          - Pass 5C Batch 7. An estimate whose
+ *                                        status is 'accepted' (a real,
+ *                                        unambiguous customer "yes" -
+ *                                        estimates.responded_at, verified by
+ *                                        direct code inspection to be set
+ *                                        only on the accepted/declined
+ *                                        transition, never for
+ *                                        draft/sent/cancelled/expired) with
+ *                                        no linked jobs row
+ *                                        (jobs.estimate_id) after a
+ *                                        conservative waiting window. Under
+ *                                        normal operation job creation is
+ *                                        synchronous with acceptance
+ *                                        (lib/automation/jobs.ts's
+ *                                        emitJobCreatedFromEstimate, called
+ *                                        from both the manual staff Accept
+ *                                        action and the automated SMS-accept
+ *                                        path) - this type exists as the
+ *                                        honest, deterministic surface for
+ *                                        the rare case where that expected
+ *                                        side effect never happened (a
+ *                                        transient failure, an error
+ *                                        swallowed by
+ *                                        emitJobCreatedFromEstimate's own
+ *                                        documented "never throws"
+ *                                        contract, or a future acceptance
+ *                                        path this file doesn't know
+ *                                        about) - never a claim about why.
+ *
  * Deliberately NOT implemented (each would need either new structured data
  * this schema doesn't have, or a data path too ambiguous to safely
  * dedupe/value - documented, not silently skipped):
@@ -711,6 +740,83 @@ async function detectUncontactedLeads(supabase: SupabaseClient, organizationId: 
     }));
 }
 
+// ---------------------------------------------------------------------------
+// J. accepted_estimate_no_job
+// ---------------------------------------------------------------------------
+
+/**
+ * Pass 5C Batch 7: job creation is synchronous with estimate acceptance
+ * under normal operation (see this file's own header comment), so this
+ * threshold does not need to absorb a genuinely gradual business process
+ * the way CANCELLED_APPOINTMENT_REBOOKING_GRACE_PERIOD_MS does (a
+ * contractor deciding whether/when to rebook a cancelled customer is a
+ * real, multi-day decision) - it only needs to absorb a transient
+ * failure/retry window before treating a missing job as a genuine
+ * candidate. Reuses UNCONTACTED_LEAD_AGE_THRESHOLD_MS's own exact reasoning
+ * and value (24 hours) rather than inventing a new number: "long enough to
+ * absorb any transient failure without ever flagging something merely
+ * still in flight, short of the multi-day cadences this file uses for
+ * genuinely gradual decisions."
+ */
+const ACCEPTED_ESTIMATE_NO_JOB_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * estimates.responded_at is the accepted-state timestamp - verified by
+ * direct code inspection (lib/automation/estimate-reply.ts's
+ * classifyAndProcessEstimateReply, app/(app)/estimates/actions.ts's
+ * transitionEstimate) to be set ONLY on the transition to 'accepted' or
+ * 'declined', nullable, and never populated for 'draft'/'sent'/'cancelled'/
+ * 'expired'. Combined with this detector's own `status = 'accepted'`
+ * filter, a non-null responded_at on a candidate row is unambiguously the
+ * moment this specific estimate was accepted, not a generic "last touched"
+ * timestamp.
+ *
+ * jobs.estimate_id is the authoritative conversion relationship - a real FK
+ * with a partial unique index (jobs_estimate_id_unique, "one job per
+ * estimate, ever"), never contact_id/time-window proximity, lead status, or
+ * appointment existence. A job whose estimate_id is NULL (unrelated to any
+ * estimate) or points at a DIFFERENT estimate can never resolve this
+ * detector's candidates - only an exact estimate_id match does.
+ *
+ * Two bounded, org-scoped queries regardless of candidate count (estimates,
+ * then jobs filtered to exactly those estimate ids), aggregated in-memory
+ * via a Set - the same "one fetch + in-memory aggregation, never N+1"
+ * shape every other detector in this file already uses.
+ */
+async function detectAcceptedEstimatesWithoutJob(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
+  const thresholdIso = new Date(now.getTime() - ACCEPTED_ESTIMATE_NO_JOB_THRESHOLD_MS).toISOString();
+
+  const { data: estimateRows } = await supabase
+    .from("estimates")
+    .select("id, contact_id, title, amount, responded_at, contacts(id, first_name, last_name, company_name)")
+    .eq("organization_id", organizationId)
+    .eq("status", "accepted")
+    .not("responded_at", "is", null)
+    .lte("responded_at", thresholdIso)
+    .limit(MAX_ROWS);
+
+  const estimates = (estimateRows ?? []) as { id: string; contact_id: string | null; title: string; amount: number | null; responded_at: string; contacts: ContactRef }[];
+  if (estimates.length === 0) return [];
+
+  const estimateIds = estimates.map((estimate) => estimate.id);
+  const { data: jobRows } = await supabase.from("jobs").select("estimate_id").eq("organization_id", organizationId).in("estimate_id", estimateIds).limit(MAX_ROWS);
+  const estimateIdsWithJob = new Set(((jobRows ?? []) as { estimate_id: string | null }[]).map((row) => row.estimate_id).filter((id): id is string => id !== null));
+
+  return estimates
+    .filter((estimate) => !estimateIdsWithJob.has(estimate.id))
+    .map((estimate) => ({
+      type: "accepted_estimate_no_job" as const,
+      sourceEntityType: "estimate" as const,
+      sourceEntityId: estimate.id,
+      contactId: estimate.contact_id,
+      title: displayNameOrFallback(estimate.contacts, estimate.title),
+      description: `Estimate "${estimate.title}" was accepted, but no job has been created yet.`,
+      estimatedValue: estimate.amount,
+      valueBasis: estimate.amount != null ? "estimates.amount" : null,
+      metadata: { responded_at: estimate.responded_at },
+    }));
+}
+
 export async function detectAllOpportunityCandidates(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<OpportunityCandidate[]> {
   const [
     qualifiedLeads,
@@ -722,6 +828,7 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     completedJobsNoReviewRequest,
     cancelledAppointmentsNoRebooking,
     uncontactedLeads,
+    acceptedEstimatesNoJob,
   ] = await Promise.all([
     detectQualifiedLeadsUnbooked(supabase, organizationId),
     detectStaleEstimates(supabase, organizationId),
@@ -732,6 +839,7 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     detectCompletedJobsWithoutReviewRequest(supabase, organizationId),
     detectCancelledAppointmentsWithoutRebooking(supabase, organizationId, now),
     detectUncontactedLeads(supabase, organizationId, now),
+    detectAcceptedEstimatesWithoutJob(supabase, organizationId, now),
   ]);
 
   return [
@@ -744,6 +852,7 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     ...completedJobsNoReviewRequest,
     ...cancelledAppointmentsNoRebooking,
     ...uncontactedLeads,
+    ...acceptedEstimatesNoJob,
   ];
 }
 

@@ -41,6 +41,7 @@ const OPPORTUNITY_TYPE_LABELS: Record<string, string> = {
   no_show: "No-show",
   completed_job_no_referral_request: "No referral request yet",
   uncontacted_lead: "Uncontacted lead",
+  accepted_estimate_no_job: "Accepted estimate - job not scheduled",
 };
 
 const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [item.value, item.label]));
