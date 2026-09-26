@@ -33,6 +33,12 @@ const TOGGLES: { name: string; key: keyof NotificationSettings; label: string; d
     label: "Notify on appointment booked",
     description: "When a new appointment is scheduled.",
   },
+  {
+    name: "notifyOnAutomationDegraded",
+    key: "notify_on_automation_degraded",
+    label: "Notify when automation needs attention",
+    description: "When Trackpr detects a degradation in your automation health.",
+  },
 ];
 
 export function NotificationSettingsSection({

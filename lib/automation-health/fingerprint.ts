@@ -35,6 +35,13 @@ import type { IncidentCategory } from "./types";
  *    second, different escalation reason on an already-escalated
  *    conversation increments occurrence_count on the same incident rather
  *    than creating a duplicate.
+ *  - scheduled_automation_stale (Pass 5C Batch 7): context is a fixed
+ *    constant ("scheduled-automation"), never a specific automation/
+ *    execution id - the underlying signal (getScheduledAutomationLiveness)
+ *    is itself a single, global, platform-wide fact, not a per-automation
+ *    one. Uniqueness of the resulting incident is still correctly
+ *    per-organization, since automation_incidents' own dedup key is
+ *    (organization_id, fingerprint), not fingerprint alone.
  */
 export function buildIncidentFingerprint(category: IncidentCategory, context: string): string {
   const trimmed = context.trim();

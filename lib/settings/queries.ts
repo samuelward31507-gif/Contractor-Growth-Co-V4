@@ -322,6 +322,7 @@ export type NotificationSettings = {
   notify_on_ai_escalation: boolean;
   notify_on_missed_call: boolean;
   notify_on_appointment_booked: boolean;
+  notify_on_automation_degraded: boolean;
   escalation_contact_name: string | null;
 };
 
@@ -332,6 +333,7 @@ const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   notify_on_ai_escalation: true,
   notify_on_missed_call: true,
   notify_on_appointment_booked: true,
+  notify_on_automation_degraded: true,
   escalation_contact_name: null,
 };
 
@@ -342,7 +344,7 @@ export async function getNotificationSettings(
   const { data } = await supabase
     .from("notification_settings")
     .select(
-      "notification_email, notification_phone, notify_on_hot_lead, notify_on_ai_escalation, notify_on_missed_call, notify_on_appointment_booked, escalation_contact_name",
+      "notification_email, notification_phone, notify_on_hot_lead, notify_on_ai_escalation, notify_on_missed_call, notify_on_appointment_booked, notify_on_automation_degraded, escalation_contact_name",
     )
     .eq("organization_id", organizationId)
     .maybeSingle();

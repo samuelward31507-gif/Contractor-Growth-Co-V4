@@ -591,6 +591,7 @@ export async function updateNotificationSettings(
       notify_on_ai_escalation: formData.get("notifyOnAiEscalation") === "on",
       notify_on_missed_call: formData.get("notifyOnMissedCall") === "on",
       notify_on_appointment_booked: formData.get("notifyOnAppointmentBooked") === "on",
+      notify_on_automation_degraded: formData.get("notifyOnAutomationDegraded") === "on",
     },
     { onConflict: "organization_id" },
   );

@@ -34,6 +34,7 @@ const CATEGORY_LABEL: Record<AutomationIncident["category"], string> = {
   sms_send_failed: "SMS send failed",
   sms_delivery_failed: "SMS delivery failed",
   human_escalation_requested: "AI needs a human",
+  scheduled_automation_stale: "Automation needs attention",
 };
 
 /**

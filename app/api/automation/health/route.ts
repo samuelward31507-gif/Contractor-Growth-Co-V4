@@ -4,6 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { recordAutomationHealthSignal } from "@/lib/automation-health/service";
 import { getAutomationForWorkflowName } from "@/lib/automation/catalog";
 import { getScheduledAutomationLiveness } from "@/lib/automation-health/scheduled-automation-liveness";
+import { evaluateScheduledAutomationDegradedAlert } from "@/lib/automation-health/scheduled-automation-alert";
 
 /**
  * Read-only operational check for workflow_executions rows stuck in
@@ -104,6 +105,14 @@ export async function GET(request: NextRequest) {
   // comment for the full reasoning.
   const scheduledLiveness = await getScheduledAutomationLiveness(service);
   const staleScheduledAutomations = scheduledLiveness.filter((liveness) => liveness.state === "stale");
+
+  // Pass 5C Batch 7, Item 2: fans the one, already-computed, global stale
+  // fact above out to a proactive owner notification per eligible
+  // organization - see scheduled-automation-alert.ts's own header comment
+  // for the full dedup/recovery reasoning. Best-effort by construction
+  // (recordAutomationHealthSignal/notifyFounder never throw) - a failure
+  // here must never fail this health-check tick's own reporting.
+  await evaluateScheduledAutomationDegradedAlert(service, staleScheduledAutomations.length > 0);
 
   const [{ count: failedExecutionCount }, { count: criticalIncidentCount }, { count: warningIncidentCount }] = await Promise.all([
     service.from("workflow_executions").select("id", { count: "exact", head: true }).eq("status", "failed").gte("started_at", failedSinceIso),

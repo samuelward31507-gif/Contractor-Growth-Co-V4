@@ -17,7 +17,8 @@ export type IncidentCategory =
   | "n8n_callback_failed"
   | "sms_send_failed"
   | "sms_delivery_failed"
-  | "human_escalation_requested";
+  | "human_escalation_requested"
+  | "scheduled_automation_stale";
 
 /** The subset of categories a caller of recordAutomationHealthSignal may request directly. */
 export type RecordableIncidentCategory = Exclude<IncidentCategory, "repeated_workflow_failure">;

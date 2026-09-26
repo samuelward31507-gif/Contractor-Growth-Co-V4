@@ -26,7 +26,7 @@ import { sendSms, resolveAppBaseUrl, type SendSmsResult } from "@/lib/automation
  * already established for founder-facing email.
  */
 
-export type FounderNotificationKind = "hot_lead" | "ai_escalation" | "missed_call" | "appointment_booked";
+export type FounderNotificationKind = "hot_lead" | "ai_escalation" | "missed_call" | "appointment_booked" | "automation_degraded";
 
 export type FounderNotificationInput = {
   organizationId: string;
@@ -42,6 +42,7 @@ const SETTING_KEY: Record<FounderNotificationKind, keyof NotificationSettings> =
   ai_escalation: "notify_on_ai_escalation",
   missed_call: "notify_on_missed_call",
   appointment_booked: "notify_on_appointment_booked",
+  automation_degraded: "notify_on_automation_degraded",
 };
 
 const KIND_LABEL: Record<FounderNotificationKind, string> = {
@@ -49,6 +50,7 @@ const KIND_LABEL: Record<FounderNotificationKind, string> = {
   ai_escalation: "AI escalation",
   missed_call: "Missed call",
   appointment_booked: "Appointment booked",
+  automation_degraded: "Automation needs attention",
 };
 
 function buildDetailUrl(detailPath?: string | null): string | null {
