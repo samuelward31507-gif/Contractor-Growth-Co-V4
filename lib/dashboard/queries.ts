@@ -141,7 +141,20 @@ export type AttentionItem = {
     // Pass 5C, Batch 1: the mirror-image of awaiting_reply - see
     // abandonedConversations' own comment below for the full reasoning.
     // Also directly computed, never opportunity-backed, never persisted.
-    | "abandoned_conversation";
+    | "abandoned_conversation"
+    // Trackpr 2.0, Phase 2A: the 5 remaining opportunity types that had no
+    // dashboard attention kind at all before this pass (see this file's own
+    // getDashboardData for exactly which opportunity type feeds each one,
+    // their priority placement, and the one new dedup rule this pass adds -
+    // uncontacted_lead against hot_lead/high_value_lead's own lead
+    // population). qualified_lead_unbooked and completed_appointment_no_estimate
+    // remain deliberately unrepresented here, unchanged from before this
+    // pass - they still duplicate hot_lead/high_value_lead/pending_estimate.
+    | "accepted_estimate_no_job"
+    | "uncontacted_lead"
+    | "cancelled_appointment_no_rebooking"
+    | "completed_job_no_review_request"
+    | "completed_job_no_referral_request";
   title: string;
   detail: string;
   value: string | null;
@@ -363,6 +376,20 @@ export async function getDashboardData(
       href: "/leads",
     }));
 
+  // Trackpr 2.0, Phase 2A: the uncontacted_lead opportunity (below) and
+  // hot_lead/high_value_lead above can genuinely overlap - a brand-new,
+  // never-contacted lead can also already be flagged "hot" or be a
+  // high-value amount. Built from the same source condition each of those
+  // two uses (not their already-`.slice(0, 5)`'d display arrays), so a lead
+  // trimmed off the visible hot/high-value list by that cap still correctly
+  // excludes it here - the underlying lead is already represented above,
+  // full stop, regardless of whether it made the visible slice.
+  const hotOrHighValueLeadIds = new Set(
+    leads
+      .filter((lead) => ACTIVE_LEAD_STATUSES.has(lead.status) && (lead.temperature === "hot" || (lead.estimated_value != null && Number(lead.estimated_value) >= HIGH_VALUE_THRESHOLD)))
+      .map((lead) => lead.id),
+  );
+
   const pendingEstimateLeads: AttentionItem[] = leads
     .filter((lead) => leadIdsWithPendingEstimate.has(lead.id))
     .slice(0, 5)
@@ -498,6 +525,87 @@ export async function getDashboardData(
       opportunityId: opportunity.id,
     }));
 
+  // Trackpr 2.0, Phase 2A: the 5 remaining opportunity types that had no
+  // dashboard attention kind at all before this pass - each was already
+  // detected and persisted (lib/opportunities/detect.ts), just never
+  // surfaced here. Detector logic and lifecycle are untouched; this is
+  // purely a new read+map over the already-fetched openOpportunities, the
+  // same shape every opportunity-backed kind above already uses.
+  const acceptedEstimateNoJobOpportunities: AttentionItem[] = openOpportunities
+    .filter((opportunity) => opportunity.type === "accepted_estimate_no_job")
+    .slice(0, 5)
+    .map((opportunity) => ({
+      id: `opp-${opportunity.id}`,
+      kind: "accepted_estimate_no_job",
+      title: opportunity.title,
+      detail: "Estimate accepted - job not scheduled yet.",
+      value: opportunity.estimatedValue != null ? formatCurrency(opportunity.estimatedValue) : null,
+      href: "/estimates",
+      opportunityId: opportunity.id,
+    }));
+
+  // Excludes any lead already represented by hotLeads/highValueLeads above
+  // (see hotOrHighValueLeadIds' own comment) - the same underlying lead
+  // never appears as two separate attention items.
+  const uncontactedLeadOpportunities: AttentionItem[] = openOpportunities
+    .filter((opportunity) => opportunity.type === "uncontacted_lead" && !hotOrHighValueLeadIds.has(opportunity.sourceEntityId))
+    .slice(0, 5)
+    .map((opportunity) => ({
+      id: `opp-${opportunity.id}`,
+      kind: "uncontacted_lead",
+      title: opportunity.title,
+      detail: "Lead hasn't been contacted yet.",
+      value: opportunity.estimatedValue != null ? formatCurrency(opportunity.estimatedValue) : null,
+      href: "/leads",
+      opportunityId: opportunity.id,
+    }));
+
+  const cancelledAppointmentOpportunities: AttentionItem[] = openOpportunities
+    .filter((opportunity) => opportunity.type === "cancelled_appointment_no_rebooking")
+    .slice(0, 5)
+    .map((opportunity) => ({
+      id: `opp-${opportunity.id}`,
+      kind: "cancelled_appointment_no_rebooking",
+      title: opportunity.title,
+      detail: "Cancelled appointment needs rebooking.",
+      // No dollar amount exists on an appointment itself - the same
+      // reasoning the no_show kind above already applies.
+      value: null,
+      href: "/appointments",
+      opportunityId: opportunity.id,
+    }));
+
+  const completedJobNoReviewRequestOpportunities: AttentionItem[] = openOpportunities
+    .filter((opportunity) => opportunity.type === "completed_job_no_review_request")
+    .slice(0, 5)
+    .map((opportunity) => ({
+      id: `opp-${opportunity.id}`,
+      kind: "completed_job_no_review_request",
+      title: opportunity.title,
+      detail: "Review request still needed.",
+      // Pass 5C's own detector deliberately surfaces the completed job's
+      // known value here (unlike the referral kind below) - see
+      // lib/opportunities/detect.ts's own comment on that divergence.
+      value: opportunity.estimatedValue != null ? formatCurrency(opportunity.estimatedValue) : null,
+      href: `/jobs/${opportunity.sourceEntityId}`,
+      opportunityId: opportunity.id,
+    }));
+
+  const completedJobNoReferralRequestOpportunities: AttentionItem[] = openOpportunities
+    .filter((opportunity) => opportunity.type === "completed_job_no_referral_request")
+    .slice(0, 5)
+    .map((opportunity) => ({
+      id: `opp-${opportunity.id}`,
+      kind: "completed_job_no_referral_request",
+      title: opportunity.title,
+      detail: "Referral request still needed.",
+      // Deliberately never a value - a referral ask has no dollar figure of
+      // its own (lib/opportunities/detect.ts's own rule for this type).
+      value: null,
+      href: `/jobs/${opportunity.sourceEntityId}`,
+      opportunityId: opportunity.id,
+    }));
+
   const calendarAttention: AttentionItem[] =
     calendarConnection?.status === "error"
       ? [
@@ -516,9 +624,32 @@ export async function getDashboardData(
   // invisible signals (no_show/stale_estimate/dormant_customer) compete for
   // a slot alongside the original seven kinds - a flat 6-item cap would
   // have silently squeezed out real opportunity data most of the time.
-  // Ordering is still a fixed priority list, not a score: most
-  // time-sensitive ("a customer is waiting right now") first, longest-
-  // horizon ("a past customer who could be worth re-engaging") last.
+  //
+  // Trackpr 2.0, Phase 2A: 5 more kinds joined this list (see each one's own
+  // builder above), still a fixed priority list, never a score - explicit
+  // fixed ordering only, per this pass's own instruction. The cap stays at
+  // 10 (no concrete product reason to raise it yet); with 17 candidate
+  // kinds now competing for it, the lowest tier below can be squeezed out on
+  // a busy day - an accepted, documented tradeoff, not an oversight (see the
+  // Phase 2A report's own "Risks/limitations" for this exact point).
+  //
+  // Five tiers, most time-sensitive first:
+  //   1) someone is waiting on a human reply right now
+  //   2) a time-boxed operational gap that needs action today, including
+  //      accepted_estimate_no_job - a customer already said yes; this is
+  //      real, already-committed revenue sitting un-actioned, which is more
+  //      urgent than a merely-hot (still-speculative) lead, so it's placed
+  //      ahead of the lead-pursuit tier, not folded into it
+  //   3) a real lead worth pursuing, including uncontacted_lead - placed
+  //      first in this tier because "zero contact yet" is a more urgent
+  //      version of "worth pursuing" than a lead that's already hot but has
+  //      at least been engaged
+  //   4) a recoverable, longer-horizon opportunity, including
+  //      cancelled_appointment_no_rebooking - grouped with stale_estimate/
+  //      dormant_customer as "past its grace period, worth revisiting,"
+  //      not "needs action today"
+  //   5) a growth/reputation ask with no revenue or customer waiting on it -
+  //      the lowest-urgency tier, new in this pass
   const attentionItems = [
     ...humanEscalations,
     ...awaitingReply,
@@ -527,11 +658,16 @@ export async function getDashboardData(
     ...overdueAppointments,
     ...awaitingConfirmation,
     ...noShowOpportunities,
+    ...acceptedEstimateNoJobOpportunities,
+    ...uncontactedLeadOpportunities,
     ...hotLeads,
     ...highValueLeads,
     ...pendingEstimateLeads,
+    ...cancelledAppointmentOpportunities,
     ...staleEstimateOpportunities,
     ...dormantCustomerOpportunities,
+    ...completedJobNoReviewRequestOpportunities,
+    ...completedJobNoReferralRequestOpportunities,
   ].slice(0, 10);
 
   const leadActivity: ActivityItem[] = leads.slice(0, 5).map((lead) => ({

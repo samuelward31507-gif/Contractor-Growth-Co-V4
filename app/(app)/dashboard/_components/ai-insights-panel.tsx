@@ -18,7 +18,7 @@ export function AiInsightsPanel({ cached }: { cached: CachedBusinessInsights | n
     <div>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className={sectionLabelClass}>AI business insights</p>
+          <h3 className={sectionLabelClass}>AI business insights</h3>
           {cached ? (
             <p className={`mt-1 ${metaClass}`}>
               Generated {formatRelativeTime(cached.generatedAt)}

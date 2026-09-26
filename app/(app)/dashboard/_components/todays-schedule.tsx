@@ -18,15 +18,22 @@ function contactOrTitle(appointment: Appointment): string {
  * the exact same getAppointments() read the Appointments page itself uses -
  * no new query, nothing invented. Cancelled visits are excluded: a
  * cancelled appointment isn't part of "today's schedule" anymore.
+ *
+ * Trackpr 2.0, Phase 2A: `timeZone` is optional and purely a display concern
+ * here - which appointments count as "today" is now decided in the page
+ * itself using the organization's configured timezone (see page.tsx's own
+ * comment); this component just needs the same timezone for its displayed
+ * time range, so it never shows a time in a different zone than the day
+ * boundary that selected it. Omitted, behavior is unchanged from before.
  */
-export function TodaysSchedule({ appointments }: { appointments: Appointment[] }) {
+export function TodaysSchedule({ appointments, timeZone }: { appointments: Appointment[]; timeZone?: string }) {
   const items = appointments
     .filter((appointment) => appointment.status !== "cancelled")
     .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
 
   return (
     <div>
-      <p className={sectionLabelClass}>Today&apos;s schedule</p>
+      <h2 className={sectionLabelClass}>Today&apos;s schedule</h2>
       {items.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500">No appointments scheduled for today.</p>
       ) : (
@@ -38,7 +45,7 @@ export function TodaysSchedule({ appointments }: { appointments: Appointment[] }
                 className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-slate-50"
               >
                 <span className="w-[92px] shrink-0 text-xs font-medium tabular-nums text-slate-500">
-                  {formatAppointmentTimeRange(appointment.start_at, appointment.end_at)}
+                  {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{contactOrTitle(appointment)}</span>
                 <span className="flex shrink-0 items-center gap-1.5 text-xs text-slate-500">

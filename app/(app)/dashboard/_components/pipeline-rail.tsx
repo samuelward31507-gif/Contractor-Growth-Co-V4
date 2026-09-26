@@ -26,7 +26,7 @@ export function PipelineRail({ pipeline, hasNeverHadLeads }: { pipeline: Pipelin
 
   return (
     <div>
-      <p className={sectionLabelClass}>Pipeline</p>
+      <h2 className={sectionLabelClass}>Pipeline</h2>
       {total === 0 ? (
         hasNeverHadLeads ? (
           <p className="mt-3 text-sm text-slate-500">

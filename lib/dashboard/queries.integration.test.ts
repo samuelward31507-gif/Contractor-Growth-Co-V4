@@ -694,7 +694,325 @@ test("39. a pending-estimate lead with a NULL estimated_value never renders a fa
   assert.equal(item!.value, null, "a NULL leads.estimated_value must render as null, never a fabricated $0");
 });
 
-test("40. organization isolation: organization A's real appointment/estimate never inflates organization B's pipeline/overview counts", async () => {
+// ==================== Trackpr 2.0, Phase 2A: the 5 newly-surfaced opportunity-backed attention kinds ====================
+//
+// Each of these 5 opportunity types was already detected and persisted
+// before this pass (lib/opportunities/detect.ts) but had no dashboard
+// attention kind at all - see lib/dashboard/queries.ts's own Phase 2A
+// comments for exactly why each one is placed where it is in the priority
+// list. Every test below goes through the real path: create the underlying
+// data, run syncOpportunities, then call getDashboardData - never a bare
+// unit test of a helper, matching this file's own established convention.
+
+// Tests 41, 42, and 44 each use their own dedicated, disposable organization
+// (mirroring tests 43/45-48's own convention) rather than the shared
+// `organizationId` - by this point in the file the shared org has
+// accumulated many real, uncleaned higher- and lower-tier attention
+// conditions from earlier tests, and the global 10-item cap (test 48) is a
+// real, intentional behavior, not something these existence checks should
+// have to race against.
+
+test("41. accepted_estimate_no_job: an estimate accepted more than 24h ago with no linked job appears in attentionItems with its real amount", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Accepted Estimate)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, first_name: "AcceptedNoJob", phone: "+15555920001" }).select("id").single();
+    const respondedAt = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { data: estimate } = await service
+      .from("estimates")
+      .insert({ organization_id: orgId, contact_id: contact!.id, title: "Deck rebuild", status: "accepted", amount: 3000, responded_at: respondedAt })
+      .select("id")
+      .single();
+
+    const sync = await syncOpportunities(service, orgId);
+    assert.ok(sync.created >= 1);
+
+    const data = await getDashboardData(service, orgId);
+    const item = data.attentionItems.find((i) => i.kind === "accepted_estimate_no_job" && i.opportunityId);
+    assert.ok(item, "expected an accepted_estimate_no_job attention item");
+    assert.equal(item!.value, "$3,000");
+    assert.equal(item!.detail, "Estimate accepted - job not scheduled yet.");
+    assert.equal(item!.href, "/estimates");
+
+    const { data: oppRow } = await service.from("opportunities").select("source_entity_id, type").eq("id", item!.opportunityId!).single();
+    assert.equal(oppRow?.type, "accepted_estimate_no_job");
+    assert.equal(oppRow?.source_entity_id, estimate!.id);
+  } finally {
+    await service.from("opportunities").delete().eq("organization_id", orgId);
+    await service.from("estimates").delete().eq("organization_id", orgId);
+    await service.from("contacts").delete().eq("organization_id", orgId);
+    await service.from("organizations").delete().eq("id", orgId);
+  }
+});
+
+test("42. accepted_estimate_no_job: once a job links to the estimate, it no longer appears", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Accepted Estimate With Job)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, first_name: "AcceptedWithJob", phone: "+15555930001" }).select("id").single();
+    const respondedAt = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { data: estimate } = await service
+      .from("estimates")
+      .insert({ organization_id: orgId, contact_id: contact!.id, title: "Fence repair", status: "accepted", amount: 1500, responded_at: respondedAt })
+      .select("id")
+      .single();
+    await service.from("jobs").insert({ organization_id: orgId, contact_id: contact!.id, estimate_id: estimate!.id, title: "Fence repair", status: "scheduled" });
+
+    await syncOpportunities(service, orgId);
+
+    const data = await getDashboardData(service, orgId);
+    assert.equal(data.attentionItems.some((i) => i.kind === "accepted_estimate_no_job"), false);
+  } finally {
+    await service.from("opportunities").delete().eq("organization_id", orgId);
+    await service.from("jobs").delete().eq("organization_id", orgId);
+    await service.from("estimates").delete().eq("organization_id", orgId);
+    await service.from("contacts").delete().eq("organization_id", orgId);
+    await service.from("organizations").delete().eq("id", orgId);
+  }
+});
+
+const LIVE_AUTOMATION_ORG_COLUMNS = { payment_status: "active", automation_mode: "live", automation_paused: false };
+
+test("43. uncontacted_lead: a new, 48h-old lead with no recorded outbound contact appears in attentionItems, and is never double-counted with hot_lead for the same lead", async () => {
+  const { data: liveOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Uncontacted)", ...LIVE_AUTOMATION_ORG_COLUMNS }).select("id").single();
+  const liveOrgId = liveOrg!.id;
+  try {
+    const oldEnough = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+    // A hot, uncontacted lead - eligible for BOTH hot_lead and
+    // uncontacted_lead's own detector, proving the dedup rule this pass adds.
+    const { data: hotContact } = await service.from("contacts").insert({ organization_id: liveOrgId, first_name: "HotUncontacted", phone: "+15555940001" }).select("id").single();
+    const { data: hotLead } = await service.from("leads").insert({ organization_id: liveOrgId, contact_id: hotContact!.id, status: "new", temperature: "hot", source: "website", created_at: oldEnough }).select("id").single();
+
+    // A plain (not hot, not high-value), uncontacted lead - the real,
+    // non-duplicate case this attention kind exists for.
+    const { data: plainContact } = await service.from("contacts").insert({ organization_id: liveOrgId, first_name: "PlainUncontacted", phone: "+15555940002" }).select("id").single();
+    await service.from("leads").insert({ organization_id: liveOrgId, contact_id: plainContact!.id, status: "new", temperature: "cold", source: "website", created_at: oldEnough, estimated_value: null });
+
+    const sync = await syncOpportunities(service, liveOrgId);
+    assert.ok(sync.created >= 2, "expected an uncontacted_lead opportunity for both leads");
+
+    const data = await getDashboardData(service, liveOrgId);
+
+    const hotItem = data.attentionItems.find((i) => i.id === `hot-${hotLead!.id}`);
+    assert.ok(hotItem, "the hot+uncontacted lead must still appear as hot_lead");
+    assert.equal(
+      data.attentionItems.some((i) => i.kind === "uncontacted_lead" && i.title === "HotUncontacted"),
+      false,
+      "a lead already represented by hot_lead must never also appear as uncontacted_lead",
+    );
+
+    const plainItem = data.attentionItems.find((i) => i.kind === "uncontacted_lead" && i.title === "PlainUncontacted");
+    assert.ok(plainItem, "expected the plain (non-hot, non-high-value) uncontacted lead to appear");
+    assert.equal(plainItem!.value, null, "a NULL estimated_value must render as null, never a fabricated $0");
+    assert.equal(plainItem!.detail, "Lead hasn't been contacted yet.");
+    assert.equal(plainItem!.href, "/leads");
+  } finally {
+    await service.from("opportunities").delete().eq("organization_id", liveOrgId);
+    await service.from("leads").delete().eq("organization_id", liveOrgId);
+    await service.from("contacts").delete().eq("organization_id", liveOrgId);
+    await service.from("organizations").delete().eq("id", liveOrgId);
+  }
+});
+
+test("44. cancelled_appointment_no_rebooking: a cancellation past the grace period with no later booking appears in attentionItems", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Cancelled No Rebooking)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, first_name: "CancelledNoRebook", phone: "+15555950001" }).select("id").single();
+    const pastGracePeriod = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: appointment } = await service
+      .from("appointments")
+      .insert({ organization_id: orgId, contact_id: contact!.id, title: "Cancelled visit", status: "cancelled", start_at: "2027-04-01T09:00:00.000Z", end_at: "2027-04-01T10:00:00.000Z", updated_at: pastGracePeriod })
+      .select("id")
+      .single();
+
+    const sync = await syncOpportunities(service, orgId);
+    assert.ok(sync.created >= 1);
+
+    const data = await getDashboardData(service, orgId);
+    const item = data.attentionItems.find((i) => i.kind === "cancelled_appointment_no_rebooking");
+    assert.ok(item, "expected a cancelled_appointment_no_rebooking attention item");
+    assert.equal(item!.value, null);
+    assert.equal(item!.detail, "Cancelled appointment needs rebooking.");
+    assert.equal(item!.href, "/appointments");
+
+    const { data: oppRow } = await service.from("opportunities").select("source_entity_id, type").eq("id", item!.opportunityId!).single();
+    assert.equal(oppRow?.type, "cancelled_appointment_no_rebooking");
+    assert.equal(oppRow?.source_entity_id, appointment!.id);
+  } finally {
+    await service.from("opportunities").delete().eq("organization_id", orgId);
+    await service.from("appointments").delete().eq("organization_id", orgId);
+    await service.from("contacts").delete().eq("organization_id", orgId);
+    await service.from("organizations").delete().eq("id", orgId);
+  }
+});
+
+test("45. completed_job_no_review_request and completed_job_no_referral_request both appear for a completed job with neither request sent, with the documented value divergence between them", async () => {
+  const { data: reviewOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Review/Referral)", review_url: "https://example.com/leave-a-review" }).select("id").single();
+  const reviewOrgId = reviewOrg!.id;
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: reviewOrgId, first_name: "NeedsAsk", phone: "+15555960001" }).select("id").single();
+    const { data: job } = await service
+      .from("jobs")
+      .insert({ organization_id: reviewOrgId, contact_id: contact!.id, title: "Roof replacement", status: "completed", amount: 8000, completed_at: new Date().toISOString() })
+      .select("id")
+      .single();
+
+    const sync = await syncOpportunities(service, reviewOrgId);
+    assert.ok(sync.created >= 2, "expected both a review-request and a referral-request opportunity");
+
+    const data = await getDashboardData(service, reviewOrgId);
+
+    const reviewItem = data.attentionItems.find((i) => i.kind === "completed_job_no_review_request");
+    assert.ok(reviewItem, "expected a completed_job_no_review_request attention item");
+    assert.equal(reviewItem!.detail, "Review request still needed.");
+    assert.equal(reviewItem!.value, "$8,000", "unlike the referral kind, this one surfaces the completed job's known value");
+    assert.equal(reviewItem!.href, `/jobs/${job!.id}`);
+
+    const referralItem = data.attentionItems.find((i) => i.kind === "completed_job_no_referral_request");
+    assert.ok(referralItem, "expected a completed_job_no_referral_request attention item");
+    assert.equal(referralItem!.detail, "Referral request still needed.");
+    assert.equal(referralItem!.value, null, "a referral ask deliberately never carries a dollar value");
+    assert.equal(referralItem!.href, `/jobs/${job!.id}`);
+  } finally {
+    await service.from("opportunities").delete().eq("organization_id", reviewOrgId);
+    await service.from("jobs").delete().eq("organization_id", reviewOrgId);
+    await service.from("contacts").delete().eq("organization_id", reviewOrgId);
+    await service.from("organizations").delete().eq("id", reviewOrgId);
+  }
+});
+
+test("46. completed_job_no_review_request: an org with no review_url configured never produces one, even for a completed job with no review request", async () => {
+  const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "NoReviewUrlOrg", phone: `+1555597${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();
+  await service.from("jobs").insert({ organization_id: organizationId, contact_id: contact!.id, title: "Gutter cleaning", status: "completed", amount: 400, completed_at: new Date().toISOString() });
+
+  await syncOpportunities(service, organizationId);
+
+  const data = await getDashboardData(service, organizationId);
+  assert.equal(
+    data.attentionItems.some((i) => i.kind === "completed_job_no_review_request" && i.title === "NoReviewUrlOrg"),
+    false,
+    "an organization with no review_url configured must never produce a review-request opportunity",
+  );
+});
+
+// ==================== Trackpr 2.0, Phase 2A: priority order and the cap ====================
+
+test("47. priority order: human_escalation (tier 1) ranks ahead of hot_lead (tier 3), which ranks ahead of dormant_customer (tier 4), in the same attentionItems array", async () => {
+  const { data: orderOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Priority Order)" }).select("id").single();
+  const orderOrgId = orderOrg!.id;
+  try {
+    const conversationId = "55555555-5555-4555-8555-555555555555";
+    const { data: incident } = await service
+      .rpc("record_automation_incident_signal", {
+        p_organization_id: orderOrgId,
+        p_category: "human_escalation_requested",
+        p_severity: "warning",
+        p_fingerprint: `human_escalation_requested:${conversationId}`,
+        p_title: "AI escalated a conversation to a human",
+        p_metadata: { conversationId },
+      })
+      .single();
+
+    const { data: hotContact } = await service.from("contacts").insert({ organization_id: orderOrgId, first_name: "OrderHot", phone: "+15555980001" }).select("id").single();
+    const { data: hotLead } = await service.from("leads").insert({ organization_id: orderOrgId, contact_id: hotContact!.id, status: "qualified", temperature: "hot", source: "website" }).select("id").single();
+
+    const { data: dormantContact } = await service.from("contacts").insert({ organization_id: orderOrgId, first_name: "OrderDormant", phone: "+15555980002" }).select("id").single();
+    const oldCompletedAt = new Date(Date.now() - 250 * 24 * 60 * 60 * 1000).toISOString();
+    await service.from("jobs").insert({ organization_id: orderOrgId, contact_id: dormantContact!.id, title: "Old job", status: "completed", completed_at: oldCompletedAt });
+
+    await syncOpportunities(service, orderOrgId);
+    const data = await getDashboardData(service, orderOrgId);
+
+    const escalationIndex = data.attentionItems.findIndex((i) => i.kind === "human_escalation");
+    const hotIndex = data.attentionItems.findIndex((i) => i.id === `hot-${hotLead!.id}`);
+    const dormantIndex = data.attentionItems.findIndex((i) => i.kind === "dormant_customer");
+
+    assert.ok(escalationIndex !== -1 && hotIndex !== -1 && dormantIndex !== -1, "expected all three tiers to be represented");
+    assert.ok(escalationIndex < hotIndex, "human_escalation (tier 1) must rank ahead of hot_lead (tier 3)");
+    assert.ok(hotIndex < dormantIndex, "hot_lead (tier 3) must rank ahead of dormant_customer (tier 4)");
+
+    await service.from("automation_incidents").delete().eq("id", (incident as { id: string }).id);
+  } finally {
+    await service.from("opportunities").delete().eq("organization_id", orderOrgId);
+    await service.from("jobs").delete().eq("organization_id", orderOrgId);
+    await service.from("leads").delete().eq("organization_id", orderOrgId);
+    await service.from("contacts").delete().eq("organization_id", orderOrgId);
+    await service.from("organizations").delete().eq("id", orderOrgId);
+  }
+});
+
+test("48. the 10-item cap keeps the highest-priority kind and drops only the lowest-priority overflow", async () => {
+  const { data: capOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Cap)" }).select("id").single();
+  const capOrgId = capOrg!.id;
+  try {
+    const conversationId = "66666666-6666-4666-8666-666666666666";
+    const { data: incident } = await service
+      .rpc("record_automation_incident_signal", {
+        p_organization_id: capOrgId,
+        p_category: "human_escalation_requested",
+        p_severity: "warning",
+        p_fingerprint: `human_escalation_requested:${conversationId}`,
+        p_title: "AI escalated a conversation to a human",
+        p_metadata: { conversationId },
+      })
+      .single();
+
+    // 5 overdue appointments (tier 2, per-kind cap of 5) + 5 awaiting-
+    // confirmation appointments (tier 2, per-kind cap of 5) + the one
+    // human_escalation above = 11 candidates competing for the global
+    // 10-item cap - exactly one must be dropped, and it must be the LAST
+    // one in priority order (the 5th awaiting_confirmation item), never
+    // the human_escalation.
+    // A single captured `now` (not a fresh Date.now() per iteration) plus a
+    // 2-hour stride for each 1-hour-long appointment - guarantees a real
+    // gap between every pair, so this never races the database's own
+    // appointments_no_overlap exclusion constraint the way computing each
+    // window from a separately-read wall clock could.
+    const now = Date.now();
+    const contacts: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const { data: contact } = await service.from("contacts").insert({ organization_id: capOrgId, first_name: `Overdue${i}`, phone: `+1555599${1000 + i}` }).select("id").single();
+      contacts.push(contact!.id);
+      await service.from("appointments").insert({
+        organization_id: capOrgId,
+        contact_id: contact!.id,
+        title: `Overdue ${i}`,
+        status: "scheduled",
+        start_at: new Date(now - (2 + 2 * i) * 60 * 60 * 1000).toISOString(),
+        end_at: new Date(now - (1 + 2 * i) * 60 * 60 * 1000).toISOString(),
+      });
+    }
+    for (let i = 0; i < 5; i++) {
+      const { data: contact } = await service.from("contacts").insert({ organization_id: capOrgId, first_name: `Confirming${i}`, phone: `+1555599${2000 + i}` }).select("id").single();
+      contacts.push(contact!.id);
+      await service.from("appointments").insert({
+        organization_id: capOrgId,
+        contact_id: contact!.id,
+        title: `Confirming ${i}`,
+        status: "scheduled",
+        start_at: new Date(now + (2 + 2 * i) * 60 * 60 * 1000).toISOString(),
+        end_at: new Date(now + (3 + 2 * i) * 60 * 60 * 1000).toISOString(),
+        confirmation_requested_at: new Date(now - 60 * 60 * 1000).toISOString(),
+      });
+    }
+
+    const data = await getDashboardData(service, capOrgId);
+    assert.equal(data.attentionItems.length, 10, "the cap must still be exactly 10");
+    assert.equal(data.attentionItems.filter((i) => i.kind === "human_escalation").length, 1, "human_escalation must never be squeezed out by lower-priority overflow");
+    assert.equal(data.attentionItems.filter((i) => i.kind === "overdue_appointment").length, 5, "all 5 overdue_appointment items must survive - they rank ahead of awaiting_confirmation");
+    assert.equal(data.attentionItems.filter((i) => i.kind === "awaiting_confirmation").length, 4, "exactly 1 of the 5 awaiting_confirmation items must be dropped by the cap - the lowest-priority overflow");
+
+    await service.from("automation_incidents").delete().eq("id", (incident as { id: string }).id);
+  } finally {
+    await service.from("appointments").delete().eq("organization_id", capOrgId);
+    await service.from("contacts").delete().eq("organization_id", capOrgId);
+    await service.from("organizations").delete().eq("id", capOrgId);
+  }
+});
+
+test("49. organization isolation: organization A's real appointment/estimate never inflates organization B's pipeline/overview counts", async () => {
   const { data: otherOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Other, Funnel Truth)" }).select("id").single();
   try {
     const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, phone: `+1555591${Math.floor(1000 + Math.random() * 8999)}` }).select("id").single();

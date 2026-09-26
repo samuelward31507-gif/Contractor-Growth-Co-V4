@@ -5,7 +5,7 @@ import { formatRelativeTime } from "@/lib/dashboard/format";
 export function RecentActivity({ items }: { items: ActivityItem[] }) {
   return (
     <div>
-      <p className={sectionLabelClass}>Recent activity</p>
+      <h3 className={sectionLabelClass}>Recent activity</h3>
       {items.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500">Activity will appear here as leads come in and you work your pipeline.</p>
       ) : (

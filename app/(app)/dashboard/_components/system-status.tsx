@@ -4,6 +4,17 @@ import { formatRelativeTime } from "@/lib/dashboard/format";
 import type { OrganizationHealthStatus } from "@/lib/automation-health/types";
 
 /**
+ * Trackpr 2.0, Phase 2A: no longer rendered on the dashboard - per the
+ * locked Phase 2 decision, system health is not a standalone dashboard
+ * section; app/(app)/_components/top-bar.tsx already shows the same
+ * getOrganizationHealth-derived status globally, on every authenticated
+ * page, not just this one. Left unused rather than deleted (per this
+ * pass's own instruction not to perform unrelated cleanup) - the
+ * underlying getOrganizationHealth read, /automation-health page, and every
+ * health/payment/pause state it models are all completely untouched.
+ */
+
+/**
  * Pass 5A: "paused" and "payment_blocked" joined the original 3 states so
  * this line can never say "Running normally" while automation is actually
  * blocked or intentionally paused - see lib/automation-health/health.ts's

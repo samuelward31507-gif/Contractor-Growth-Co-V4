@@ -6,7 +6,6 @@ import { getDashboardData } from "@/lib/dashboard/queries";
 import { getOwnerDailyBriefing, getEndOfDaySummary } from "@/lib/briefing/queries";
 import { getDashboardBusinessMetrics, getCachedBusinessInsights } from "@/lib/dashboard/business-metrics";
 import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
-import { getOrganizationHealth } from "@/lib/automation-health/health";
 import { getLeads, summarizeLeads } from "@/lib/leads/queries";
 import { getAppointments, summarizeAppointments } from "@/lib/appointments/queries";
 import { getContacts } from "@/lib/contacts/queries";
@@ -14,6 +13,7 @@ import { isSameCalendarDay } from "@/lib/appointments/format";
 import { syncOpportunities } from "@/lib/opportunities/detect";
 import { getOpenOpportunities, summarizeOpportunities } from "@/lib/opportunities/queries";
 import { getRepeatCustomerSummary, getDormantCustomersValueSummary } from "@/lib/customers/lifecycle";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { Panel } from "@/lib/ui/section-card";
@@ -23,7 +23,6 @@ import { TodaysSchedule } from "./_components/todays-schedule";
 import { RecentActivity } from "./_components/recent-activity";
 import { BusinessGlance } from "./_components/business-glance";
 import { AiInsightsPanel } from "./_components/ai-insights-panel";
-import { SystemStatus } from "./_components/system-status";
 import { BriefingPanel } from "./_components/briefing-panel";
 import { WhatAiHandled } from "./_components/what-ai-handled";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
@@ -78,21 +77,34 @@ export default async function DashboardPage() {
   // new query, not new business logic) so the dashboard can surface the two
   // numbers a contractor actually opens it to check (hot leads, today's
   // schedule) and offer the same "Add Lead" action Leads itself offers,
-  // without duplicating summarizeLeads/summarizeAppointments's logic.
-  // getOrganizationHealth is the exact same deterministic health read the
-  // Agency Command Center and /automation-health already use - no second
-  // health model. The "today" snapshot reuses the exact same
-  // getBusinessMetricsSnapshot the rest of this page already calls (with
-  // "last30Days"), just a different real date-range preset - not a new
-  // metrics engine.
-  const [data, businessMetrics, cachedInsights, leads, appointments, contacts, health, todaySnapshot, dailyBriefing, endOfDaySummary, openOpportunities] = await Promise.all([
+  // without duplicating summarizeLeads/summarizeAppointments's logic. The
+  // "today" snapshot reuses the exact same getBusinessMetricsSnapshot the
+  // rest of this page already calls (with "last30Days"), just a different
+  // real date-range preset - not a new metrics engine.
+  //
+  // Trackpr 2.0, Phase 2A: getOrganizationHealth is no longer called here -
+  // its only consumer on this page was the dashboard-body SystemStatus
+  // section, now removed (the top bar's own independent getOrganizationHealth
+  // call in app/(app)/_components/top-bar.tsx already shows this globally on
+  // every page, per the locked Phase 2 decision - see system-status.tsx's own
+  // header comment for what happened to that component). This is plain
+  // dead-code removal following from the section's removal, not a query
+  // architecture change - the audit's other 3 redundant getOrganizationHealth/
+  // getDashboardData calls (inside TopBar, getOwnerDailyBriefing,
+  // getEndOfDaySummary) are untouched, per this phase's explicit "do not
+  // optimize performance" instruction.
+  // getOrganizationTimezone is the exact same small, focused read the two
+  // Appointments pages already use for display - reused here so "today"
+  // below is decided in the organization's own configured timezone rather
+  // than the server's, instead of a second, divergent timezone mechanism.
+  const [data, businessMetrics, cachedInsights, leads, appointments, contacts, organizationTimezone, todaySnapshot, dailyBriefing, endOfDaySummary, openOpportunities] = await Promise.all([
     getDashboardData(supabase, membership.organizationId),
     getDashboardBusinessMetrics(supabase, membership.organizationId),
     getCachedBusinessInsights(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getAppointments(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
-    getOrganizationHealth(supabase, membership.organizationId),
+    getOrganizationTimezone(supabase, membership.organizationId),
     getBusinessMetricsSnapshot(supabase, membership.organizationId, "today"),
     getOwnerDailyBriefing(supabase, membership.organizationId),
     getEndOfDaySummary(supabase, membership.organizationId),
@@ -118,8 +130,13 @@ export default async function DashboardPage() {
   const leadSummary = summarizeLeads(leads);
   const appointmentSummary = summarizeAppointments(appointments);
   const now = new Date();
-  const todaysAppointments = appointments.filter((appointment) => isSameCalendarDay(new Date(appointment.start_at), now));
-  const lastLeadCapturedAt = leads[0]?.created_at ?? null;
+  // Trackpr 2.0, Phase 2A: passes the organization's own configured timezone
+  // (undefined for an org that hasn't set one - isSameCalendarDay's own
+  // documented fallback to runtime-local, unchanged) - previously omitted
+  // entirely, so "today" was decided in whatever timezone the server process
+  // happened to run in, not the contractor's own. Fixes a real near-midnight
+  // boundary mismatch without introducing a second timezone mechanism.
+  const todaysAppointments = appointments.filter((appointment) => isSameCalendarDay(new Date(appointment.start_at), now, organizationTimezone));
 
   return (
     <div className="flex flex-1 flex-col">
@@ -166,64 +183,65 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Section order follows Phase 2's priority (attention, pipeline,
-            today, activity, system status, AI) on desktop - the natural DOM
-            order below. On mobile, System Status moves to right after the
-            greeting (Phase 12) via the order-* overrides, since a contractor
-            glancing at their phone wants "is everything working" before
-            scrolling into specifics; the AI insights panel stays last at
-            every width, since it isn't part of the core priority list. */}
-        <div className="order-2 border-t border-slate-200 pt-8 lg:order-none lg:border-t-0 lg:pt-0">
+        {/* Trackpr 2.0, Phase 2A: the locked dashboard hierarchy - Needs Your
+            Attention, then Today's Schedule, then Pipeline Snapshot, then
+            secondary/More - expressed directly as DOM order, identical on
+            every screen width. This replaces the previous mobile-only
+            "order" utility class overrides (which put System Status first on
+            mobile only, and Pipeline before Schedule everywhere) - a real,
+            audited mismatch with this same locked hierarchy. Real DOM order
+            needs no override classes to keep mobile and desktop in
+            agreement, so none remain. System Status itself is gone from this
+            page entirely - the top bar already shows system health globally
+            (see system-status.tsx's own header comment). */}
+        <div className="border-t border-slate-200 pt-8 lg:border-t-0 lg:pt-0">
           <AttentionPanel items={data.attentionItems} />
         </div>
 
-        <div className="order-3 border-t border-slate-200 pt-8 lg:order-none">
+        <div className="border-t border-slate-200 pt-8">
+          <TodaysSchedule appointments={todaysAppointments} timeZone={organizationTimezone} />
+        </div>
+
+        <div className="border-t border-slate-200 pt-8">
           <PipelineRail pipeline={data.pipeline} hasNeverHadLeads={leads.length === 0} />
         </div>
 
-        <div className="order-4 border-t border-slate-200 pt-8 lg:order-none">
-          <TodaysSchedule appointments={todaysAppointments} />
-        </div>
+        {/* More / secondary information: everything real and useful that
+            isn't one of the three priority sections above - composed from
+            existing components only, no new visual system. A real <h2> so
+            it reads as its own labeled region, not an unlabeled continuation
+            of Pipeline Snapshot. */}
+        <section aria-labelledby="dashboard-more-heading" className="border-t border-slate-200 pt-8">
+          <h2 id="dashboard-more-heading" className={sectionLabelClass}>
+            More
+          </h2>
 
-        <div className="order-4 border-t border-slate-200 pt-8 lg:order-none">
-          <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
-        </div>
+          <div className="mt-5 flex flex-col gap-8">
+            <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
 
-        <div className="order-4 border-t border-slate-200 pt-8 lg:order-none">
-          <WhatAiHandled snapshot={todaySnapshot} />
-        </div>
+            <WhatAiHandled snapshot={todaySnapshot} />
 
-        <div className="order-5 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 lg:order-none lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="min-w-0">
-            <RecentActivity items={data.recentActivity} />
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="min-w-0">
+                <RecentActivity items={data.recentActivity} />
+              </div>
+              <div className="lg:sticky lg:top-6 lg:self-start">
+                <Panel>
+                  <BusinessGlance
+                    overview={data.overview}
+                    snapshot={businessMetrics}
+                    opportunitySummary={opportunitySummary}
+                    repeatCustomerSummary={repeatCustomerSummary}
+                    dormantCustomerCount={dormantContactIds.length}
+                    dormantCustomersValue={dormantCustomersValue}
+                  />
+                </Panel>
+              </div>
+            </div>
+
+            <AiInsightsPanel cached={cachedInsights} />
           </div>
-          <div className="lg:sticky lg:top-6 lg:self-start">
-            <Panel>
-              <BusinessGlance
-                overview={data.overview}
-                snapshot={businessMetrics}
-                opportunitySummary={opportunitySummary}
-                repeatCustomerSummary={repeatCustomerSummary}
-                dormantCustomerCount={dormantContactIds.length}
-                dormantCustomersValue={dormantCustomersValue}
-              />
-            </Panel>
-          </div>
-        </div>
-
-        <div className="order-1 pt-0 lg:order-none lg:border-t lg:border-slate-200 lg:pt-8">
-          <SystemStatus
-            status={health.status}
-            lastLeadCapturedAt={lastLeadCapturedAt}
-            automationActivityToday={todaySnapshot.automationMetrics.automationEvents}
-            issuesRequiringAttention={health.activeIncidentCount}
-            staleScheduledAutomationCount={health.staleScheduledAutomationCount}
-          />
-        </div>
-
-        <div className="order-6 border-t border-slate-200 pt-8 lg:order-none">
-          <AiInsightsPanel cached={cachedInsights} />
-        </div>
+        </section>
       </div>
     </div>
   );

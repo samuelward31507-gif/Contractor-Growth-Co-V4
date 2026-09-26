@@ -29,7 +29,7 @@ export function WhatAiHandled({ snapshot }: { snapshot: BusinessMetricsSnapshot 
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
-        <p className={sectionLabelClass}>What AI handled today</p>
+        <h3 className={sectionLabelClass}>What AI handled today</h3>
         <Link href="/automations" className="shrink-0 text-xs font-medium text-slate-500 hover:text-slate-900">
           View
         </Link>
