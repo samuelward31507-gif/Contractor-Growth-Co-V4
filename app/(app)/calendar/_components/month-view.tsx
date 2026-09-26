@@ -82,7 +82,7 @@ export function MonthView({
               <div className="flex items-center justify-between">
                 <Link
                   href={buildCalendarHref("day", formatDateOnly(date))}
-                  className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors hover:bg-slate-100 ${
+                  className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
                     isToday ? "bg-accent text-accent-foreground hover:bg-accent-strong" : isCurrentMonth ? "text-slate-700" : "text-slate-400"
                   }`}
                 >
@@ -99,14 +99,17 @@ export function MonthView({
                       key={appointment.id}
                       type="button"
                       onClick={() => setOpenAppointment(appointment)}
-                      className={`truncate rounded border-l-2 bg-slate-50 px-1.5 py-0.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-100 ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
+                      className={`truncate rounded border-l-2 bg-slate-50 px-1.5 py-0.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
                     >
                       {formatAppointmentTime(appointment.start_at, timeZone)} {name}
                     </button>
                   );
                 })}
                 {overflow > 0 ? (
-                  <Link href={buildCalendarHref("day", formatDateOnly(date))} className="px-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-900">
+                  <Link
+                    href={buildCalendarHref("day", formatDateOnly(date))}
+                    className="rounded px-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                  >
                     +{overflow} more
                   </Link>
                 ) : null}

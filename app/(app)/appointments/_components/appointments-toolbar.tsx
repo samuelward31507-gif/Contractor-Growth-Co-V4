@@ -73,7 +73,7 @@ export function AppointmentsToolbar({
             type="button"
             aria-pressed={view === item.value}
             onClick={() => handleViewChange(item.value)}
-            className={`flex-1 rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors sm:flex-none ${
+            className={`flex-1 rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:flex-none ${
               view === item.value
                 ? "bg-white text-slate-900 shadow-sm"
                 : "text-slate-500 hover:text-slate-900"
@@ -125,7 +125,7 @@ export function AppointmentsToolbar({
           <button
             type="button"
             onClick={clearFilters}
-            className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
+            className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           >
             Clear filters
           </button>

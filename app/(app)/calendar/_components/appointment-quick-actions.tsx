@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { CheckCircle2, CheckCheck, Ban, UserX, Clock } from "lucide-react";
-import { errorBannerClass, destructiveButtonAutoClass, secondaryButtonAutoClass, ghostButtonClass } from "@/lib/ui/form";
+import { errorBannerClass, destructiveButtonAutoClass, destructiveGhostButtonAutoClass, secondaryButtonAutoClass, ghostButtonClass } from "@/lib/ui/form";
 import type { Appointment, AppointmentStatus } from "@/lib/appointments/queries";
 import { updateAppointmentStatus } from "../../appointments/actions";
 import { RescheduleDialog } from "./reschedule-dialog";
@@ -49,8 +49,8 @@ export function AppointmentQuickActions({ appointment, timeZone, onChanged }: { 
       {error ? <p className={errorBannerClass}>{error}</p> : null}
 
       {confirmingCancel ? (
-        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
-          <p className="flex-1 text-xs font-medium text-red-700">Cancel this appointment?</p>
+        <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-muted px-3 py-2.5">
+          <p className="flex-1 text-xs font-medium text-danger-text">Cancel this appointment?</p>
           <button type="button" onClick={() => setConfirmingCancel(false)} className={ghostButtonClass} disabled={isPending}>
             No
           </button>
@@ -78,7 +78,7 @@ export function AppointmentQuickActions({ appointment, timeZone, onChanged }: { 
             <UserX aria-hidden className="h-4 w-4" />
             No-show
           </button>
-          <button type="button" onClick={() => setConfirmingCancel(true)} disabled={isPending} className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={() => setConfirmingCancel(true)} disabled={isPending} className={destructiveGhostButtonAutoClass}>
             <Ban aria-hidden className="h-4 w-4" />
             Cancel
           </button>

@@ -29,7 +29,7 @@ function AppointmentRow({
     <li>
       <Link
         href={`/appointments/${appointment.id}`}
-        className={`group flex items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
+        className={`group flex items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
       >
         {/* Leading time column - this list reads as "the contractor's day"
             first and foremost, so the answer to "when" is the first thing

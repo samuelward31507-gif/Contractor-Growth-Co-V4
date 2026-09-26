@@ -12,6 +12,7 @@ import {
   type AppointmentView,
 } from "@/lib/appointments/queries";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
+import Link from "next/link";
 import { PageHeader } from "@/lib/ui/page-header";
 import { AddAppointmentButton } from "./_components/add-appointment-button";
 import { AppointmentsEmptyState } from "./_components/appointments-empty-state";
@@ -30,6 +31,17 @@ function normalizeView(value: string | undefined): AppointmentView {
   return value && VALID_VIEWS.has(value) ? (value as AppointmentView) : "upcoming";
 }
 
+/**
+ * Trackpr 2.0, Phase 3D: the header now reads "Schedule" with a "List view"
+ * badge, rather than a standalone "Appointments" identity - the literal
+ * /appointments URL permanently redirects to /schedule?view=list
+ * (next.config.ts) before Next.js would ever resolve this file directly, so
+ * this component is only ever rendered through the /schedule dispatcher now.
+ * This shows the exact same appointments data as the Calendar grid view
+ * (see calendar/page.tsx's own comment) - just a list presentation of it -
+ * so both consistently read as "Schedule," with a plain link back to the
+ * grid view.
+ */
 export default async function AppointmentsPage({ searchParams }: PageProps<"/appointments">) {
   const params = await searchParams;
   const query = typeof params.q === "string" ? params.q : "";
@@ -67,9 +79,20 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
         eyebrow="Operate"
-        title="Appointments"
+        title="Schedule"
         description="Keep every customer appointment organized and on schedule."
-        action={<AddAppointmentButton contacts={contacts} leads={leads} />}
+        badge={<span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">List view</span>}
+        action={
+          <div className="flex items-center gap-4">
+            <Link
+              href="/schedule"
+              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              Calendar view
+            </Link>
+            <AddAppointmentButton contacts={contacts} leads={leads} />
+          </div>
+        }
       />
 
       <AppointmentsSummary summary={summary} />

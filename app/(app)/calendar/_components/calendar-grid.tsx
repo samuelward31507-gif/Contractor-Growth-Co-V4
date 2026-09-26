@@ -126,7 +126,7 @@ export function CalendarGrid({
                   onClick={() => openCreateAt(date, hour)}
                   aria-label={`Add appointment at ${formatHourLabel(hour)}`}
                   style={{ top: index * HOUR_HEIGHT_PX, height: HOUR_HEIGHT_PX }}
-                  className="absolute left-0 right-0 border-b border-slate-50 transition-colors hover:bg-slate-50"
+                  className="absolute left-0 right-0 border-b border-slate-50 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
                 />
               ))}
 
@@ -153,7 +153,7 @@ export function CalendarGrid({
                     type="button"
                     onClick={() => setOpenBlockedTime(block)}
                     style={{ top: position.topPx, height: position.heightPx }}
-                    className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,theme(colors.slate.200),theme(colors.slate.200)_6px,theme(colors.slate.100)_6px,theme(colors.slate.100)_12px)] px-2 py-1 text-left text-xs font-medium text-slate-600 shadow-sm ring-1 ring-inset ring-slate-300 hover:ring-slate-400"
+                    className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,theme(colors.slate.200),theme(colors.slate.200)_6px,theme(colors.slate.100)_6px,theme(colors.slate.100)_12px)] px-2 py-1 text-left text-xs font-medium text-slate-600 shadow-sm ring-1 ring-inset ring-slate-300 hover:ring-slate-400 focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     {block.reason || "Blocked"}
                   </button>
@@ -171,7 +171,7 @@ export function CalendarGrid({
                     type="button"
                     onClick={() => setOpenAppointment(appointment)}
                     style={{ top: position.topPx, height: position.heightPx }}
-                    className={`absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-2 bg-white px-2 py-1 text-left text-xs shadow-sm ring-1 ring-inset ring-slate-200 transition-shadow hover:shadow-md ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
+                    className={`absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-2 bg-white px-2 py-1 text-left text-xs shadow-sm ring-1 ring-inset ring-slate-200 transition-shadow hover:shadow-md focus:outline-none focus-visible:z-30 focus-visible:shadow-md focus-visible:ring-2 focus-visible:ring-accent ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
                   >
                     <span className="block truncate font-semibold text-slate-900">
                       {formatAppointmentTime(appointment.start_at, timeZone)} · {name}

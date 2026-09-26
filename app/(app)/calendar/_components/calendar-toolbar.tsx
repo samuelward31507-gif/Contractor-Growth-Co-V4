@@ -61,10 +61,18 @@ export function CalendarToolbar({
     <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1">
-          <Link href={prevHref} aria-label="Previous" className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900">
+          <Link
+            href={prevHref}
+            aria-label="Previous"
+            className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
             <ChevronLeft aria-hidden className="h-4 w-4" />
           </Link>
-          <Link href={nextHref} aria-label="Next" className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900">
+          <Link
+            href={nextHref}
+            aria-label="Next"
+            className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
             <ChevronRight aria-hidden className="h-4 w-4" />
           </Link>
         </div>
@@ -81,7 +89,7 @@ export function CalendarToolbar({
               key={item.value}
               href={buildCalendarHref(item.value, activeDateStr)}
               aria-pressed={view === item.value}
-              className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
+              className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
                 view === item.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
               }`}
             >

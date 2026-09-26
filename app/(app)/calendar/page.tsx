@@ -6,6 +6,7 @@ import { getLeads } from "@/lib/leads/queries";
 import { getAppointmentsInRange } from "@/lib/appointments/queries";
 import { getBlockedTimeInRange } from "@/lib/scheduling/blocked-time";
 import { getOrganizationTimezone, getBusinessHours, getBookingSettings } from "@/lib/settings/queries";
+import Link from "next/link";
 import { PageHeader } from "@/lib/ui/page-header";
 import {
   parseDateOnly,
@@ -61,6 +62,16 @@ function formatRangeLabel(view: CalendarView, parts: ReturnType<typeof parseDate
  * page and its components only display real data and dispatch to those
  * existing, authoritative primitives; it never computes availability or
  * conflicts itself.
+ *
+ * Trackpr 2.0, Phase 3D: the header now reads "Schedule" - the literal
+ * /calendar URL permanently redirects to /schedule (next.config.ts) before
+ * Next.js would ever resolve this file directly, so this component is only
+ * ever rendered through the /schedule dispatcher now, same reasoning as
+ * Phase 3C's Leads/Contacts retitle. Unlike Leads/Contacts (genuinely
+ * different populations), this and the Appointments list view show the
+ * exact same appointments data, just two presentations of it - so both
+ * consistently read as "Schedule" now, with a plain link to the other
+ * view, rather than a superficial rename of a different dataset.
  */
 export default async function CalendarPage({ searchParams }: PageProps<"/calendar">) {
   const params = await searchParams;
@@ -128,8 +139,16 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
         eyebrow="Operate"
-        title="Calendar"
+        title="Schedule"
         description="Your real-time scheduling command center - appointments, availability, and blocked time in one place."
+        action={
+          <Link
+            href="/schedule?view=list"
+            className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
+            List view
+          </Link>
+        }
       />
 
       <CalendarToolbar

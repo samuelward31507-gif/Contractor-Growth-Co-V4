@@ -84,7 +84,10 @@ export function AppointmentDetailDialog({ appointment, timeZone, onClose }: { ap
           }}
         />
 
-        <Link href={`/appointments/${appointment.id}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
+        <Link
+          href={`/appointments/${appointment.id}`}
+          className="inline-flex items-center gap-1.5 rounded text-sm font-medium text-slate-600 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        >
           View full details
           <ExternalLink aria-hidden className="h-3.5 w-3.5" />
         </Link>
