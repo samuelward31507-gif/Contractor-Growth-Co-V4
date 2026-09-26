@@ -56,16 +56,35 @@ function toSafeConnection(row: ConnectionRow): SafeCalendarConnection {
   };
 }
 
-/** Safe-metadata-only read. Never touches calendar_credentials. */
-export async function getCalendarConnection(supabase: SupabaseClient, organizationId: string): Promise<SafeCalendarConnection | null> {
-  const { data } = await supabase
+export type CalendarConnectionResult = { connection: SafeCalendarConnection | null; failed: boolean };
+
+/**
+ * Trackpr 2.0, Phase 4B (P1 #3): same safe-metadata-only read as
+ * getCalendarConnection below, but distinguishes "no row" (an ordinary,
+ * common org-has-no-connection state) from "the read itself failed" -
+ * `failed` is true only on a real Postgrest error, never on a genuine
+ * `{ data: null, error: null }` no-row response. Added for
+ * lib/scheduling/availability.ts specifically: a database failure here must
+ * never be silently treated as "this organization has no calendar
+ * connected," which would make live availability skip the Google Calendar
+ * busy-period check entirely and could offer a slot that's actually busy.
+ * Every other, lower-stakes, display-only caller keeps using
+ * getCalendarConnection below unchanged.
+ */
+export async function getCalendarConnectionResult(supabase: SupabaseClient, organizationId: string): Promise<CalendarConnectionResult> {
+  const { data, error } = await supabase
     .from("calendar_connections")
     .select(CONNECTION_COLUMNS)
     .eq("organization_id", organizationId)
     .eq("provider", "google")
     .maybeSingle();
 
-  return data ? toSafeConnection(data as ConnectionRow) : null;
+  return { connection: data ? toSafeConnection(data as ConnectionRow) : null, failed: error != null };
+}
+
+/** Safe-metadata-only read. Never touches calendar_credentials. */
+export async function getCalendarConnection(supabase: SupabaseClient, organizationId: string): Promise<SafeCalendarConnection | null> {
+  return (await getCalendarConnectionResult(supabase, organizationId)).connection;
 }
 
 /**

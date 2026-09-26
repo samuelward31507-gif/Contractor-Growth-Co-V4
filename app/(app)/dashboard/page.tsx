@@ -166,8 +166,14 @@ export default async function DashboardPage() {
             Trackpr 2.0, Phase 3B: restyled onto the app's own warning tokens
             (established in Phase 3A, previously unused anywhere) instead of
             a bare slate box - still calm, never red/alarming, just legible
-            as a real notice rather than blending into ordinary body text. */}
-        {data.partialData ? (
+            as a real notice rather than blending into ordinary body text.
+            Trackpr 2.0, Phase 4B (P1 #2): also covers businessMetrics'
+            (getDashboardBusinessMetrics/getBusinessMetricsSnapshot) own
+            partialData - the Pipeline Value figure rendered just below reads
+            directly from that snapshot, so a failure there deserves the
+            exact same disclosure as a failure on this page's own 5 direct
+            reads, not a second, separate banner. */}
+        {data.partialData || businessMetrics.partialData ? (
           <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <p>

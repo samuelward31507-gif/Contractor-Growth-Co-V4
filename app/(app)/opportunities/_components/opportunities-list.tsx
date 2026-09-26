@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Target } from "lucide-react";
+import { ArrowRight, Target, AlertCircle } from "lucide-react";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { RAIL_TONE_CLASS, type BadgeTone } from "@/lib/ui/badge";
 import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
@@ -81,7 +81,21 @@ function OpportunityRow({ opportunity }: { opportunity: Opportunity }) {
   );
 }
 
-export function OpportunitiesList({ opportunities }: { opportunities: Opportunity[] }) {
+export function OpportunitiesList({ opportunities, failed }: { opportunities: Opportunity[]; failed: boolean }) {
+  // Trackpr 2.0, Phase 4B (P1 #5): a real query failure must never render as
+  // "You're all caught up." - see getOpenOpportunitiesResult's own comment
+  // in lib/opportunities/queries.ts. Checked before the genuine-emptiness
+  // branch below since a failed read also comes back as an empty array.
+  if (failed) {
+    return (
+      <EmptyState
+        icon={AlertCircle}
+        title="Opportunities couldn't be loaded."
+        description="Some information is temporarily unavailable. Please try again."
+      />
+    );
+  }
+
   if (opportunities.length === 0) {
     return (
       <EmptyState

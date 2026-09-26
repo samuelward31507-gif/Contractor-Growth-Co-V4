@@ -684,6 +684,19 @@ export type BusinessMetricsSnapshot = {
    */
   responseTime: LeadResponseTimeMetrics;
   dataQuality: BiDataQuality;
+  /**
+   * Trackpr 2.0, Phase 4B (P1 #2): true when at least one of this snapshot's
+   * own core reads (lead/pipeline, estimates, jobs, appointments, AI)
+   * returned a real Postgrest error rather than a genuinely empty result. A
+   * successful `{ data: [], error: null }` response NEVER sets this - "no
+   * data" and "the read failed" are and remain two different things.
+   * Mirrors DashboardData.partialData (lib/dashboard/queries.ts) exactly.
+   * Never carries the raw error itself - see partialDataSourceCount for the
+   * one bounded, non-identifying number this exposes.
+   */
+  partialData: boolean;
+  /** Count (0-5) of which of this snapshot's own 5 tracked reads failed - bounded, non-identifying, for future debugging only. Never rendered to the end user as a specific number. */
+  partialDataSourceCount: number;
   /** Wall-clock time this snapshot was computed - not a business timestamp. */
   generatedAt: string;
 };

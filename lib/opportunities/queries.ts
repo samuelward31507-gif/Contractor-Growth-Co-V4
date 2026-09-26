@@ -81,9 +81,22 @@ function normalizeOpportunity(row: OpportunityRow): Opportunity {
 
 const OPPORTUNITY_COLUMNS = "id, type, status, source_entity_type, source_entity_id, contact_id, title, description, estimated_value, value_basis, created_at, updated_at, resolved_at, metadata";
 
-/** Every currently-open opportunity for the org, newest first - the primary read for both the dashboard summary and the Attention Engine. */
-export async function getOpenOpportunities(supabase: SupabaseClient, organizationId: string): Promise<Opportunity[]> {
-  const { data } = await supabase
+export type OpenOpportunitiesResult = { data: Opportunity[]; failed: boolean };
+
+/**
+ * Trackpr 2.0, Phase 4B (P1 #5): same read as getOpenOpportunities below,
+ * but distinguishes "genuinely zero open opportunities" from "the read
+ * itself failed" - `failed` is true only on a real Postgrest error, never
+ * on a genuine `{ data: [], error: null }` response. Added for
+ * app/(app)/opportunities/page.tsx specifically, which must never render
+ * "You're all caught up." when the query actually failed. Dismissal,
+ * resolution, and organization scoping are completely unchanged - this is
+ * the exact same query, just with its error observed instead of discarded.
+ * Every other, lower-stakes caller (Dashboard, Contact Detail) keeps using
+ * getOpenOpportunities below unchanged.
+ */
+export async function getOpenOpportunitiesResult(supabase: SupabaseClient, organizationId: string): Promise<OpenOpportunitiesResult> {
+  const { data, error } = await supabase
     .from("opportunities")
     .select(OPPORTUNITY_COLUMNS)
     .eq("organization_id", organizationId)
@@ -91,7 +104,12 @@ export async function getOpenOpportunities(supabase: SupabaseClient, organizatio
     .order("created_at", { ascending: false })
     .limit(500);
 
-  return ((data ?? []) as OpportunityRow[]).map(normalizeOpportunity);
+  return { data: ((data ?? []) as OpportunityRow[]).map(normalizeOpportunity), failed: error != null };
+}
+
+/** Every currently-open opportunity for the org, newest first - the primary read for both the dashboard summary and the Attention Engine. */
+export async function getOpenOpportunities(supabase: SupabaseClient, organizationId: string): Promise<Opportunity[]> {
+  return (await getOpenOpportunitiesResult(supabase, organizationId)).data;
 }
 
 export type OpportunitySummary = {

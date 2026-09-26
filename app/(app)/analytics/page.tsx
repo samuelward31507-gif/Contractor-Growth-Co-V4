@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -105,6 +106,19 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
         title="Analytics"
         description="Understand your pipeline, conversion, revenue, and business performance."
       />
+
+      {/* Trackpr 2.0, Phase 4B (P1 #2): a real Postgrest error on one of the
+          BI snapshot's own core reads (lead/pipeline, estimates, jobs,
+          appointments, AI) used to silently render as $0/0%/"no data" -
+          indistinguishable from genuine emptiness on the one page whose
+          entire purpose is "how is my business doing." Mirrors Dashboard's
+          own partialData notice exactly (app/(app)/dashboard/page.tsx). */}
+      {snapshot.partialData ? (
+        <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>Some information is temporarily unavailable. Please try again.</p>
+        </div>
+      ) : null}
 
       <div>
         <div className="flex flex-wrap items-center justify-between gap-3">

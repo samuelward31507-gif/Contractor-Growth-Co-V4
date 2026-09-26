@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { syncOpportunities } from "@/lib/opportunities/detect";
-import { getOpenOpportunities, summarizeOpportunities } from "@/lib/opportunities/queries";
+import { getOpenOpportunitiesResult, summarizeOpportunities } from "@/lib/opportunities/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { PageHeader } from "@/lib/ui/page-header";
 import { metaClass } from "@/lib/ui/typography";
@@ -53,7 +53,8 @@ export default async function OpportunitiesPage() {
   }
 
   await syncOpportunities(supabase, membership.organizationId);
-  const openOpportunities = await getOpenOpportunities(supabase, membership.organizationId);
+  const opportunitiesResult = await getOpenOpportunitiesResult(supabase, membership.organizationId);
+  const openOpportunities = opportunitiesResult.data;
   const summary = summarizeOpportunities(openOpportunities);
 
   return (
@@ -81,7 +82,7 @@ export default async function OpportunitiesPage() {
         </p>
       ) : null}
 
-      <OpportunitiesList opportunities={openOpportunities} />
+      <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
     </div>
   );
 }

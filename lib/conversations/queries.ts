@@ -96,6 +96,30 @@ function normalizeConversation(row: RawConversationRow): Conversation {
   return { ...row, contact: one(row.contact), lead: one(row.lead) };
 }
 
+export type ConversationsResult = { data: Conversation[]; failed: boolean };
+export type LastMessagesByConversationResult = { data: Map<string, Message>; failed: boolean };
+
+/**
+ * Trackpr 2.0, Phase 4B (P1 #4): same read as getConversations below, but
+ * distinguishes "zero conversations" from "the read itself failed" -
+ * `failed` is true only on a real Postgrest error, never on a genuine
+ * `{ data: [], error: null }` response. Added for the Inbox
+ * (app/(app)/conversations/layout.tsx), which must never render "no
+ * conversations" when the query actually failed. Every other, lower-stakes
+ * caller (Dashboard, Contact/Lead Detail) keeps using getConversations
+ * below unchanged.
+ */
+export async function getConversationsResult(supabase: SupabaseClient, organizationId: string): Promise<ConversationsResult> {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select(CONVERSATION_COLUMNS)
+    .eq("organization_id", organizationId)
+    .order("updated_at", { ascending: false })
+    .limit(500);
+
+  return { data: ((data ?? []) as RawConversationRow[]).map(normalizeConversation), failed: error != null };
+}
+
 /**
  * Loads every conversation for the org (capped, matching the
  * Contacts/Leads/Appointments pattern), with its contact and lead embedded
@@ -104,14 +128,33 @@ function normalizeConversation(row: RawConversationRow): Conversation {
  * intent obvious.
  */
 export async function getConversations(supabase: SupabaseClient, organizationId: string): Promise<Conversation[]> {
-  const { data } = await supabase
-    .from("conversations")
-    .select(CONVERSATION_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("updated_at", { ascending: false })
-    .limit(500);
+  return (await getConversationsResult(supabase, organizationId)).data;
+}
 
-  return ((data ?? []) as RawConversationRow[]).map(normalizeConversation);
+/**
+ * Trackpr 2.0, Phase 4B (P1 #4): same read as getLastMessagesByConversation
+ * below, but distinguishes genuine emptiness from a real Postgrest error -
+ * see getConversationsResult's own comment for the full discipline and why
+ * this exists specifically for the Inbox.
+ */
+export async function getLastMessagesByConversationResult(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<LastMessagesByConversationResult> {
+  const { data, error } = await supabase
+    .from("messages")
+    .select(MESSAGE_COLUMNS)
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(2000);
+
+  const map = new Map<string, Message>();
+  for (const message of (data ?? []) as Message[]) {
+    if (!map.has(message.conversation_id)) {
+      map.set(message.conversation_id, message);
+    }
+  }
+  return { data: map, failed: error != null };
 }
 
 /**
@@ -125,20 +168,7 @@ export async function getLastMessagesByConversation(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<Map<string, Message>> {
-  const { data } = await supabase
-    .from("messages")
-    .select(MESSAGE_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(2000);
-
-  const map = new Map<string, Message>();
-  for (const message of (data ?? []) as Message[]) {
-    if (!map.has(message.conversation_id)) {
-      map.set(message.conversation_id, message);
-    }
-  }
-  return map;
+  return (await getLastMessagesByConversationResult(supabase, organizationId)).data;
 }
 
 /**

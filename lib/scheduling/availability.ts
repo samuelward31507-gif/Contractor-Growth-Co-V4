@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getBookingSettings, getBusinessHours, getOrganizationTimezone, type BookingSettings, type BusinessHour, type DayOfWeek } from "@/lib/settings/queries";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
-import { getCalendarConnection, getCalendarBusyPeriods } from "@/lib/calendar/connection";
+import { getCalendarConnectionResult, getCalendarBusyPeriods } from "@/lib/calendar/connection";
 import { googleCalendarProvider } from "@/lib/calendar/google";
 import type { CalendarProvider } from "@/lib/calendar/provider";
 
@@ -326,11 +326,11 @@ export async function getAvailableSlots(
   now: Date = new Date(),
   calendarProvider: CalendarProvider = googleCalendarProvider,
 ): Promise<AvailabilityResult> {
-  const [bookingSettings, businessHours, timeZone, connection] = await Promise.all([
+  const [bookingSettings, businessHours, timeZone, connectionResult] = await Promise.all([
     getBookingSettings(supabase, query.organizationId),
     getBusinessHours(supabase, query.organizationId),
     getOrganizationTimezone(supabase, query.organizationId),
-    getCalendarConnection(supabase, query.organizationId),
+    getCalendarConnectionResult(supabase, query.organizationId),
   ]);
 
   if (!bookingSettings.booking_enabled) {
@@ -339,6 +339,18 @@ export async function getAvailableSlots(
   if (businessHours.length === 0) {
     return { status: "business_hours_not_configured" };
   }
+
+  // Trackpr 2.0, Phase 4B (P1 #3): a real database failure on the calendar
+  // connection lookup must never be silently treated as "no calendar
+  // connected" - that would skip the Google Calendar busy-period check
+  // entirely and could offer a slot that's actually busy. Fail closed with
+  // the same calendar_unavailable status already used below for a real
+  // provider failure, rather than inventing a new status or silently
+  // proceeding as if disconnected.
+  if (connectionResult.failed) {
+    return { status: "calendar_unavailable", reason: "We couldn't verify your calendar connection. Please try again." };
+  }
+  const connection = connectionResult.connection;
 
   const [{ data: appointmentRows }, { data: blockedTimeRows }] = await Promise.all([
     supabase

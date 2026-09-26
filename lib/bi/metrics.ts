@@ -136,14 +136,15 @@ async function getOptOutCount(supabase: SupabaseClient, organizationId: string, 
   return rows.filter((row) => row.sms_opt_out).length;
 }
 
-type AiOutputFields = { aiOutboundInteractions: number; customerReplyAiInteractions: number; aiNeedsHumanCount: number };
+type AiOutputFields = { aiOutboundInteractions: number; customerReplyAiInteractions: number; aiNeedsHumanCount: number; failed: boolean };
 
+/** Trackpr 2.0, Phase 4B (P1 #2): `failed` feeds buildAiMetrics's own combined failure signal - see getLeadAndPipelineMetrics's own comment in lib/bi/queries.ts for the full discipline this mirrors. */
 async function getAiOutputFields(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<AiOutputFields> {
   let query = supabase.from("ai_interactions").select("interaction_type, output").eq("organization_id", organizationId).limit(MAX_ROWS);
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
-  const { data } = await query;
+  const { data, error } = await query;
   const rows = (data ?? []) as { interaction_type: string; output: Record<string, unknown> | null }[];
 
   let aiOutboundInteractions = 0;
@@ -156,7 +157,7 @@ async function getAiOutputFields(supabase: SupabaseClient, organizationId: strin
     if (row.interaction_type === "customer_reply_response") customerReplyAiInteractions += 1;
   }
 
-  return { aiOutboundInteractions, customerReplyAiInteractions, aiNeedsHumanCount };
+  return { aiOutboundInteractions, customerReplyAiInteractions, aiNeedsHumanCount, failed: error != null };
 }
 
 /**
@@ -323,8 +324,8 @@ async function buildLeadMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<{ lead: BiLeadMetrics; pipeline: BiPipelineMetrics }> {
-  const [{ leads, pipeline }, sourceCounts, bookingCrossReference] = await Promise.all([
+): Promise<{ lead: BiLeadMetrics; pipeline: BiPipelineMetrics; failed: boolean }> {
+  const [{ leads, pipeline, failed }, sourceCounts, bookingCrossReference] = await Promise.all([
     getLeadAndPipelineMetrics(supabase, organizationId, range),
     getSourceCounts(supabase, organizationId, range),
     getLeadBookingCrossReference(supabase, organizationId, range),
@@ -353,59 +354,71 @@ async function buildLeadMetrics(
     averagePipelineValue: safeAverage(pipeline.pipelineValue, leads.openLeads),
   };
 
-  return { lead, pipeline: biPipeline };
+  return { lead, pipeline: biPipeline, failed };
 }
 
-async function buildEstimateMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiEstimateMetrics> {
+/** Trackpr 2.0, Phase 4B (P1 #2): `failed` propagates getEstimateMetrics's own error signal up to getBusinessMetricsSnapshot's partialData - see lib/bi/queries.ts's getLeadAndPipelineMetrics for the full discipline. getNonNullAmountCount's own error handling is a narrower, already-safe-direction case (a failure there can only ever force a real average into "not enough data yet," never fabricate one) and is left as-is, matching this phase's scope. */
+async function buildEstimateMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiEstimateMetrics; failed: boolean }> {
   const [estimates, amountCount] = await Promise.all([
     getEstimateMetrics(supabase, organizationId, range),
     getNonNullAmountCount(supabase, "estimates", organizationId, range),
   ]);
   return {
-    totalEstimates: estimates.totalEstimates,
-    draftEstimates: estimates.draftEstimates,
-    sentEstimates: estimates.sentEstimates,
-    acceptedEstimates: estimates.acceptedEstimates,
-    declinedEstimates: estimates.declinedEstimates,
-    cancelledEstimates: estimates.cancelledEstimates,
-    expiredEstimates: estimates.expiredEstimates,
-    estimateValue: estimates.totalEstimateValue,
-    acceptedEstimateValue: estimates.acceptedEstimateValue,
-    averageEstimateValue: amountCount === 0 ? null : estimates.averageEstimateValue,
-    estimateAcceptanceRate: rate(estimates.acceptedEstimates, estimates.acceptedEstimates + estimates.declinedEstimates),
-    estimateToJobRate: null, // filled in by the caller once job metrics are available
+    metrics: {
+      totalEstimates: estimates.totalEstimates,
+      draftEstimates: estimates.draftEstimates,
+      sentEstimates: estimates.sentEstimates,
+      acceptedEstimates: estimates.acceptedEstimates,
+      declinedEstimates: estimates.declinedEstimates,
+      cancelledEstimates: estimates.cancelledEstimates,
+      expiredEstimates: estimates.expiredEstimates,
+      estimateValue: estimates.totalEstimateValue,
+      acceptedEstimateValue: estimates.acceptedEstimateValue,
+      averageEstimateValue: amountCount === 0 ? null : estimates.averageEstimateValue,
+      estimateAcceptanceRate: rate(estimates.acceptedEstimates, estimates.acceptedEstimates + estimates.declinedEstimates),
+      estimateToJobRate: null, // filled in by the caller once job metrics are available
+    },
+    failed: estimates.failed,
   };
 }
 
-async function buildJobMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiJobMetrics> {
+/** Trackpr 2.0, Phase 4B (P1 #2): `failed` propagates getJobMetrics's own error signal - see buildEstimateMetrics's own comment above for the identical discipline and the same getNonNullAmountCount scope note. */
+async function buildJobMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiJobMetrics; failed: boolean }> {
   const [jobs, amountCount] = await Promise.all([
     getJobMetrics(supabase, organizationId, range),
     getNonNullAmountCount(supabase, "jobs", organizationId, range),
   ]);
   return {
-    totalJobs: jobs.totalJobs,
-    scheduledJobs: jobs.scheduledJobs,
-    inProgressJobs: jobs.inProgressJobs,
-    completedJobs: jobs.completedJobs,
-    cancelledJobs: jobs.cancelledJobs,
-    contractedJobValue: jobs.totalContractedJobValue,
-    completedContractedJobValue: jobs.completedContractedJobValue,
-    averageContractedJobValue: amountCount === 0 ? null : jobs.averageContractedJobValue,
-    jobCompletionRate: rate(jobs.completedJobs, jobs.completedJobs + jobs.cancelledJobs),
+    metrics: {
+      totalJobs: jobs.totalJobs,
+      scheduledJobs: jobs.scheduledJobs,
+      inProgressJobs: jobs.inProgressJobs,
+      completedJobs: jobs.completedJobs,
+      cancelledJobs: jobs.cancelledJobs,
+      contractedJobValue: jobs.totalContractedJobValue,
+      completedContractedJobValue: jobs.completedContractedJobValue,
+      averageContractedJobValue: amountCount === 0 ? null : jobs.averageContractedJobValue,
+      jobCompletionRate: rate(jobs.completedJobs, jobs.completedJobs + jobs.cancelledJobs),
+    },
+    failed: jobs.failed,
   };
 }
 
-async function buildAppointmentMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiAppointmentMetrics> {
+/** Trackpr 2.0, Phase 4B (P1 #2): `failed` propagates getAppointmentMetrics's own error signal - see buildEstimateMetrics's own comment above for the identical discipline. */
+async function buildAppointmentMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiAppointmentMetrics; failed: boolean }> {
   const appointments = await getAppointmentMetrics(supabase, organizationId, range);
   const resolved = appointments.completedAppointments + appointments.cancelledAppointments + appointments.noShowAppointments;
   return {
-    totalAppointments: appointments.totalAppointments,
-    scheduledAppointments: appointments.scheduledAppointments,
-    confirmedAppointments: appointments.confirmedAppointments,
-    completedAppointments: appointments.completedAppointments,
-    cancelledAppointments: appointments.cancelledAppointments,
-    noShowAppointments: appointments.noShowAppointments,
-    appointmentNoShowRate: rate(appointments.noShowAppointments, resolved),
+    metrics: {
+      totalAppointments: appointments.totalAppointments,
+      scheduledAppointments: appointments.scheduledAppointments,
+      confirmedAppointments: appointments.confirmedAppointments,
+      completedAppointments: appointments.completedAppointments,
+      cancelledAppointments: appointments.cancelledAppointments,
+      noShowAppointments: appointments.noShowAppointments,
+      appointmentNoShowRate: rate(appointments.noShowAppointments, resolved),
+    },
+    failed: appointments.failed,
   };
 }
 
@@ -466,24 +479,30 @@ async function buildAutomationMetrics(supabase: SupabaseClient, organizationId: 
  * separately, matching getNonNullAmountCount's own established null-vs-zero
  * discipline for estimates/jobs.
  */
-async function getAiUsageTotals(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ totalTokensUsed: number | null; averageTokensPerInteraction: number | null; interactionsWithUsageData: number }> {
+async function getAiUsageTotals(
+  supabase: SupabaseClient,
+  organizationId: string,
+  range: ResolvedDateRange,
+): Promise<{ totalTokensUsed: number | null; averageTokensPerInteraction: number | null; interactionsWithUsageData: number; failed: boolean }> {
   let query = supabase.from("ai_interactions").select("tokens_used").eq("organization_id", organizationId).not("tokens_used", "is", null).limit(MAX_ROWS);
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
-  const { data } = await query;
+  const { data, error } = await query;
   const rows = (data ?? []) as { tokens_used: number | null }[];
   const values = rows.map((row) => row.tokens_used).filter((value): value is number => value !== null);
+  const failed = error != null;
 
   if (values.length === 0) {
-    return { totalTokensUsed: null, averageTokensPerInteraction: null, interactionsWithUsageData: 0 };
+    return { totalTokensUsed: null, averageTokensPerInteraction: null, interactionsWithUsageData: 0, failed };
   }
 
   const total = values.reduce((sum, value) => sum + value, 0);
-  return { totalTokensUsed: total, averageTokensPerInteraction: total / values.length, interactionsWithUsageData: values.length };
+  return { totalTokensUsed: total, averageTokensPerInteraction: total / values.length, interactionsWithUsageData: values.length, failed };
 }
 
-async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiAiMetrics> {
+/** Trackpr 2.0, Phase 4B (P1 #2): `failed` is true if ANY of the three reads that make up BiAiMetrics failed - see getLeadAndPipelineMetrics's own comment in lib/bi/queries.ts for the full discipline. */
+async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiAiMetrics; failed: boolean }> {
   const [ai, outputFields, usage] = await Promise.all([
     getAiMetrics(supabase, organizationId, range),
     getAiOutputFields(supabase, organizationId, range),
@@ -491,13 +510,16 @@ async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, 
   ]);
 
   return {
-    aiInteractions: ai.totalAiInteractions,
-    aiOutboundInteractions: outputFields.aiOutboundInteractions,
-    customerReplyAiInteractions: outputFields.customerReplyAiInteractions,
-    aiNeedsHumanCount: outputFields.aiNeedsHumanCount,
-    totalTokensUsed: usage.totalTokensUsed,
-    averageTokensPerInteraction: usage.averageTokensPerInteraction,
-    interactionsWithUsageData: usage.interactionsWithUsageData,
+    metrics: {
+      aiInteractions: ai.totalAiInteractions,
+      aiOutboundInteractions: outputFields.aiOutboundInteractions,
+      customerReplyAiInteractions: outputFields.customerReplyAiInteractions,
+      aiNeedsHumanCount: outputFields.aiNeedsHumanCount,
+      totalTokensUsed: usage.totalTokensUsed,
+      averageTokensPerInteraction: usage.averageTokensPerInteraction,
+      interactionsWithUsageData: usage.interactionsWithUsageData,
+    },
+    failed: ai.failed || outputFields.failed || usage.failed,
   };
 }
 
@@ -561,7 +583,20 @@ export async function getBusinessMetricsSnapshot(
   const range = resolveDateRange(dateRangeInput);
   const previousRange = previousPeriodOf(range);
 
-  const [{ lead, pipeline }, estimateMetrics, jobMetrics, appointmentMetrics, communicationMetrics, { automation, followUp }, aiMetrics, reviewReferralMetrics, stageHistoryExists, sharedLeads, transitionMetrics, previousTotals] =
+  const [
+    { lead, pipeline, failed: leadFailed },
+    { metrics: estimateMetrics, failed: estimatesFailed },
+    { metrics: jobMetrics, failed: jobsFailed },
+    { metrics: appointmentMetrics, failed: appointmentsFailed },
+    communicationMetrics,
+    { automation, followUp },
+    { metrics: aiMetrics, failed: aiFailed },
+    reviewReferralMetrics,
+    stageHistoryExists,
+    sharedLeads,
+    transitionMetrics,
+    previousTotals,
+  ] =
     await Promise.all([
       buildLeadMetrics(supabase, organizationId, range),
       buildEstimateMetrics(supabase, organizationId, range),
@@ -627,6 +662,19 @@ export async function getBusinessMetricsSnapshot(
         leadsContacted: computeComparison(responseTimeMetrics.leadsContacted, null),
       };
 
+  // Trackpr 2.0, Phase 4B (P1 #2): true only when one of this function's own
+  // core reads (lead/pipeline, estimates, jobs, appointments, AI) returned a
+  // real Postgrest error - a genuinely empty `{ data: [], error: null }`
+  // response never sets this. Mirrors DashboardData.partialData
+  // (lib/dashboard/queries.ts) exactly. Deliberately scoped to the CURRENT
+  // period's reads only, not the previous-period comparison reads above
+  // (comparisons/leadCount etc. are a secondary, smaller-stakes signal - see
+  // this phase's own report for the explicit scope line drawn here), and
+  // deliberately does not extend to communication/automation/review-referral/
+  // funnel metrics, which were not part of the audited P1 finding.
+  const partialDataSourceCount = [leadFailed, estimatesFailed, jobsFailed, appointmentsFailed, aiFailed].filter(Boolean).length;
+  const partialData = partialDataSourceCount > 0;
+
   return {
     organizationId,
     period: range,
@@ -645,6 +693,8 @@ export async function getBusinessMetricsSnapshot(
     leadStageFunnel: { transitions: transitionMetrics, timing: timingMetrics },
     responseTime: responseTimeMetrics,
     dataQuality: buildDataQuality(aiMetrics, !stageHistoryExists, timingMetrics),
+    partialData,
+    partialDataSourceCount,
     generatedAt: new Date().toISOString(),
   };
 }

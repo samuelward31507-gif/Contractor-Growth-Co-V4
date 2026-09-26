@@ -623,3 +623,86 @@ test("22 (L). the consolidated shared-leads fetch produces identical results to 
     await cleanupSnapshotOrg(orgId);
   }
 });
+
+// ==================== Phase 4B, P1 #1: pipeline is current-state ====================
+//
+// Real-database proof (unlike lib/bi/queries.partial-data.test.ts's mocked
+// unit tests) that an open lead genuinely created outside the requested
+// date range still counts toward pipelineMetrics.pipelineValue/
+// openOpportunityCount - the exact verified bug this phase fixes.
+
+function daysAgoIso(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+test("P1 #1: an open lead created 90 days ago still counts toward pipeline value and open opportunity count under the 'today' range", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (P1-1 Pipeline)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const contactId = await makeContact(orgId, "+15555720001");
+    await makeLead(orgId, contactId, "qualified", { estimated_value: 8000, created_at: daysAgoIso(90) });
+
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "today");
+
+    assert.equal(snapshot.pipelineMetrics.pipelineValue, 8000, "pipeline value must include an open lead regardless of when it was created - Pipeline is current-state, never a date-range question");
+    assert.equal(snapshot.pipelineMetrics.openOpportunityCount, 1);
+  } finally {
+    await cleanupSnapshotOrg(orgId);
+  }
+});
+
+test("P1 #1: pipeline excludes a lead created 90 days ago once it reaches a terminal (won/lost) status, exactly as it would if created today", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (P1-1 Terminal)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const contactId = await makeContact(orgId, "+15555720002");
+    await makeLead(orgId, contactId, "won", { estimated_value: 9000, created_at: daysAgoIso(90) });
+    await makeLead(orgId, contactId, "lost", { estimated_value: 4000, created_at: daysAgoIso(90) });
+
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "today");
+
+    assert.equal(snapshot.pipelineMetrics.pipelineValue, 0, "a won/lost lead is not open pipeline regardless of its age - this fix only removes the date-range filter, it never changes which STATUSES count as open");
+    assert.equal(snapshot.pipelineMetrics.openOpportunityCount, 0);
+  } finally {
+    await cleanupSnapshotOrg(orgId);
+  }
+});
+
+test("P1 #1: legitimately period-scoped lead metrics (newLeads, totalLeads) remain scoped to the requested range - unaffected by the pipeline fix", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (P1-1 Period Scope)" }).select("id").single();
+  const orgId = org!.id;
+  try {
+    const contactId = await makeContact(orgId, "+15555720003");
+    // Old, outside 'today' - must still count toward pipeline (proven above) but must NOT count toward today's newLeads/totalLeads.
+    await makeLead(orgId, contactId, "qualified", { estimated_value: 5000, created_at: daysAgoIso(90) });
+    // Created today - must count toward today's newLeads/totalLeads.
+    const todayLeadId = await makeLead(orgId, contactId, "new", { estimated_value: 1000 });
+    void todayLeadId;
+
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "today");
+
+    assert.equal(snapshot.leadMetrics.totalLeads, 1, "the 90-day-old lead must not count toward today's totalLeads - that remains a genuinely period-scoped question");
+    assert.equal(snapshot.leadMetrics.newLeads, 1);
+    // Both leads are open, so pipeline (current-state, unbounded) reflects both.
+    assert.equal(snapshot.pipelineMetrics.pipelineValue, 6000);
+    assert.equal(snapshot.pipelineMetrics.openOpportunityCount, 2);
+  } finally {
+    await cleanupSnapshotOrg(orgId);
+  }
+});
+
+test("P1 #1: organization isolation - organization B's open pipeline never appears in organization A's pipelineMetrics", async () => {
+  const { data: orgA } = await service.from("organizations").insert({ name: "BI Metrics Test Org (P1-1 Isolation A)" }).select("id").single();
+  const { data: orgB } = await service.from("organizations").insert({ name: "BI Metrics Test Org (P1-1 Isolation B)" }).select("id").single();
+  try {
+    const contactB = await makeContact(orgB!.id, "+15555720004");
+    await makeLead(orgB!.id, contactB, "qualified", { estimated_value: 7000, created_at: daysAgoIso(90) });
+
+    const snapshotA = await getBusinessMetricsSnapshot(service, orgA!.id, "today");
+    assert.equal(snapshotA.pipelineMetrics.pipelineValue, 0);
+    assert.equal(snapshotA.pipelineMetrics.openOpportunityCount, 0);
+  } finally {
+    await cleanupSnapshotOrg(orgB!.id);
+    await service.from("organizations").delete().eq("id", orgA!.id);
+  }
+});

@@ -160,30 +160,63 @@ const WORKFLOW_EXECUTION_STATUSES = ["running", "completed", "failed", "cancelle
  * stage-transition data exists, so this never reports "when" a lead entered
  * a stage - only current counts.
  */
+/**
+ * Trackpr 2.0, Phase 4B (P1 #1 + P1 #2 hardening of one verified bug in this
+ * function):
+ *
+ * P1 #1 - pipeline value and open-opportunity count used to be derived from
+ * the SAME range-filtered `leads` read this function issues for the
+ * legitimately period-scoped LeadMetrics counts (byStatus/newLeads/...) -
+ * meaning "Pipeline Value" silently excluded any open lead created outside
+ * whatever date range the caller happened to request. That contradicts this
+ * product's own locked rule (Pipeline = current state, never a date-range
+ * question) and the architecture buildRevenueOpportunity in lib/bi/metrics.ts
+ * already uses correctly for the exact same reason (see its own comment).
+ * Pipeline is now its own always-unbounded read, completely independent of
+ * `range` - openLeads/pipelineValue below always reflect every currently
+ * open lead, regardless of when it was created. Every other LeadMetrics
+ * field (byStatus, newLeads, totalLeads, temperature counts, ...) answers a
+ * genuinely different, legitimately period-scoped question ("how many leads
+ * created in this window are now in each stage") and is completely
+ * unchanged.
+ *
+ * P1 #2 - a real Postgrest error on either read used to silently collapse
+ * into an empty/zero result indistinguishable from genuine emptiness.
+ * `failed` is true only when a real error came back on either read - never
+ * set by a genuinely empty `{ data: [], error: null }` response. Mirrors
+ * lib/dashboard/queries.ts's own DashboardData.partialData discipline.
+ */
 export async function getLeadAndPipelineMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<{ leads: LeadMetrics; pipeline: PipelineMetrics }> {
-  let query = supabase
-    .from("leads")
-    .select("status, temperature, estimated_value")
-    .eq("organization_id", organizationId)
-    .limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
+): Promise<{ leads: LeadMetrics; pipeline: PipelineMetrics; failed: boolean }> {
+  let periodQuery = supabase.from("leads").select("status, temperature").eq("organization_id", organizationId).limit(MAX_ROWS);
+  if (range.from) periodQuery = periodQuery.gte("created_at", range.from);
+  if (range.to) periodQuery = periodQuery.lt("created_at", range.to);
 
-  const { data } = await query;
-  const rows = (data ?? []) as { status: LeadStatus; temperature: LeadTemperature; estimated_value: number | null }[];
+  // Deliberately unbounded (no created_at filter at all) - "what's open
+  // right now" doesn't care when the lead was created. Filtered server-side
+  // to the open statuses since this read has exactly one purpose, unlike
+  // periodQuery above which needs every status for its own breakdown.
+  const pipelineQuery = supabase
+    .from("leads")
+    .select("estimated_value")
+    .eq("organization_id", organizationId)
+    .in("status", [...OPEN_LEAD_STATUSES])
+    .limit(MAX_ROWS);
+
+  const [{ data: periodData, error: periodError }, { data: pipelineData, error: pipelineError }] = await Promise.all([periodQuery, pipelineQuery]);
+
+  const rows = (periodData ?? []) as { status: LeadStatus; temperature: LeadTemperature }[];
+  const openRows = (pipelineData ?? []) as { estimated_value: number | null }[];
 
   const byStatus = zeroCounts(LEAD_STATUSES.map((s) => s.value));
   const byTemperature = zeroCounts(LEAD_TEMPERATURES.map((t) => t.value));
-  let pipelineValue = 0;
 
   for (const row of rows) {
     if (row.status in byStatus) byStatus[row.status] += 1;
     if (row.temperature in byTemperature) byTemperature[row.temperature] += 1;
-    if (OPEN_LEAD_STATUSES.has(row.status)) pipelineValue += row.estimated_value ?? 0;
   }
 
   const leads: LeadMetrics = {
@@ -200,15 +233,15 @@ export async function getLeadAndPipelineMetrics(
     hotLeads: byTemperature.hot,
     warmLeads: byTemperature.warm,
     coldLeads: byTemperature.cold,
-    openLeads: rows.filter((row) => OPEN_LEAD_STATUSES.has(row.status)).length,
+    openLeads: openRows.length,
   };
 
   const pipeline: PipelineMetrics = {
-    pipelineValue,
+    pipelineValue: openRows.reduce((total, row) => total + (row.estimated_value ?? 0), 0),
     pipelineStatuses: [...OPEN_LEAD_STATUSES],
   };
 
-  return { leads, pipeline };
+  return { leads, pipeline, failed: periodError != null || pipelineError != null };
 }
 
 // ---------------------------------------------------------------------------
@@ -221,11 +254,12 @@ export async function getLeadAndPipelineMetrics(
  * payment infrastructure exists - see the Phase 5.1 audit). Timestamp used
  * for date-range filtering: created_at. Reliability: directly reliable.
  */
+/** Trackpr 2.0, Phase 4B (P1 #2): `failed` is true only on a real Postgrest error, never on genuine emptiness - see getLeadAndPipelineMetrics's own comment for the full discipline this mirrors. */
 export async function getEstimateMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<EstimateMetrics> {
+): Promise<EstimateMetrics & { failed: boolean }> {
   let query = supabase
     .from("estimates")
     .select("status, amount")
@@ -234,7 +268,7 @@ export async function getEstimateMetrics(
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
-  const { data } = await query;
+  const { data, error } = await query;
   const rows = (data ?? []) as { status: EstimateStatus; amount: number | null }[];
 
   const byStatus = zeroCounts(ESTIMATE_STATUSES.map((s) => s.value));
@@ -259,6 +293,7 @@ export async function getEstimateMetrics(
     sentEstimateValue: sum(sentAmounts),
     acceptedEstimateValue: sum(acceptedAmounts),
     averageEstimateValue: average(amounts),
+    failed: error != null,
   };
 }
 
@@ -274,11 +309,12 @@ export async function getEstimateMetrics(
  * `jobs.started_at` is never written by any code path in this repo and is
  * always null in practice). Reliability: directly reliable.
  */
+/** Trackpr 2.0, Phase 4B (P1 #2): `failed` is true only on a real Postgrest error, never on genuine emptiness - see getLeadAndPipelineMetrics's own comment for the full discipline this mirrors. */
 export async function getJobMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<JobMetrics> {
+): Promise<JobMetrics & { failed: boolean }> {
   let query = supabase
     .from("jobs")
     .select("status, amount")
@@ -287,7 +323,7 @@ export async function getJobMetrics(
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
-  const { data } = await query;
+  const { data, error } = await query;
   const rows = (data ?? []) as { status: JobStatus; amount: number | null }[];
 
   const byStatus = zeroCounts(JOB_STATUSES.map((s) => s.value));
@@ -308,6 +344,7 @@ export async function getJobMetrics(
     totalContractedJobValue: sum(amounts),
     completedContractedJobValue: sum(completedAmounts),
     averageContractedJobValue: average(amounts),
+    failed: error != null,
   };
 }
 
@@ -321,11 +358,12 @@ export async function getJobMetrics(
  * created - not start_at, which is a scheduling dimension rather than an
  * activity-volume one). Reliability: directly reliable.
  */
+/** Trackpr 2.0, Phase 4B (P1 #2): `failed` is true only on a real Postgrest error, never on genuine emptiness - see getLeadAndPipelineMetrics's own comment for the full discipline this mirrors. */
 export async function getAppointmentMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<AppointmentMetrics> {
+): Promise<AppointmentMetrics & { failed: boolean }> {
   let query = supabase
     .from("appointments")
     .select("status")
@@ -334,7 +372,7 @@ export async function getAppointmentMetrics(
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
-  const { data } = await query;
+  const { data, error } = await query;
   const rows = (data ?? []) as { status: AppointmentStatus }[];
 
   const byStatus = zeroCounts(APPOINTMENT_STATUSES.map((s) => s.value));
@@ -350,6 +388,7 @@ export async function getAppointmentMetrics(
     completedAppointments: byStatus.completed,
     cancelledAppointments: byStatus.cancelled,
     noShowAppointments: byStatus.no_show,
+    failed: error != null,
   };
 }
 
@@ -546,11 +585,12 @@ export async function getAutomationAndFollowUpMetrics(
  * populated by any code path in this repo (always null in practice), so any
  * derived cost figure would be fabricated, not calculated.
  */
+/** Trackpr 2.0, Phase 4B (P1 #2): `failed` is true only on a real Postgrest error, never on genuine emptiness - see getLeadAndPipelineMetrics's own comment for the full discipline this mirrors. */
 export async function getAiMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<AiMetrics> {
+): Promise<AiMetrics & { failed: boolean }> {
   let query = supabase
     .from("ai_interactions")
     .select("interaction_type, model")
@@ -559,7 +599,7 @@ export async function getAiMetrics(
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
-  const { data } = await query;
+  const { data, error } = await query;
   const rows = (data ?? []) as { interaction_type: string; model: string | null }[];
 
   const aiInteractionsByType: Record<string, number> = {};
@@ -575,6 +615,7 @@ export async function getAiMetrics(
     totalAiInteractions: rows.length,
     aiInteractionsByType,
     aiInteractionsByModel,
+    failed: error != null,
   };
 }
 
