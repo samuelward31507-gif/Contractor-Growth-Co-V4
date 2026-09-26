@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, SearchX } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS } from "@/lib/jobs/format";
 import type { Job } from "@/lib/jobs/queries";
 import { Badge, RAIL_TONE_CLASS } from "@/lib/ui/badge";
+import { EmptyState } from "@/lib/ui/empty-state";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "./status";
 
 const ROW_GRID = "grid-cols-[minmax(0,1fr)_112px_96px_92px_20px]";
@@ -12,11 +13,12 @@ const ROW_GRID = "grid-cols-[minmax(0,1fr)_112px_96px_92px_20px]";
 export function JobsTable({ jobs, hasActiveFilters }: { jobs: Job[]; hasActiveFilters: boolean }) {
   if (jobs.length === 0) {
     return (
-      <div className="px-2 py-14 text-center">
-        <p className="text-sm font-medium text-slate-900">No jobs match your search.</p>
-        <p className="mt-1 text-sm text-slate-500">
-          {hasActiveFilters ? "Try a different search term or clear your filters." : "Try a different search term."}
-        </p>
+      <div className="px-2">
+        <EmptyState
+          icon={SearchX}
+          title="No jobs match your search."
+          description={hasActiveFilters ? "Try a different search term or clear your filters." : "Try a different search term."}
+        />
       </div>
     );
   }
@@ -39,7 +41,7 @@ export function JobsTable({ jobs, hasActiveFilters }: { jobs: Job[]; hasActiveFi
             <Link
               key={job.id}
               href={`/jobs/${job.id}`}
-              className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[JOB_STATUS_TONE[job.status]]}`}
+              className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[JOB_STATUS_TONE[job.status]]}`}
             >
               <span className="flex min-w-0 items-center gap-3">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
@@ -76,7 +78,7 @@ export function JobsTable({ jobs, hasActiveFilters }: { jobs: Job[]; hasActiveFi
           <li key={job.id}>
             <Link
               href={`/jobs/${job.id}`}
-              className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 ${RAIL_TONE_CLASS[JOB_STATUS_TONE[job.status]]}`}
+              className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[JOB_STATUS_TONE[job.status]]}`}
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
                 {job.contact ? contactInitials(job.contact) : "?"}

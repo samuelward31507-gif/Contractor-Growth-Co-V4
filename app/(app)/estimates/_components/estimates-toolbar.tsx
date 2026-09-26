@@ -81,7 +81,7 @@ export function EstimatesToolbar({
         <button
           type="button"
           onClick={clearAll}
-          className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
+          className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
           Clear filters
         </button>

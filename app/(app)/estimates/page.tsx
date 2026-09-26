@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
@@ -18,6 +19,18 @@ function normalizeStatus(value: string | undefined): EstimateStatus | "all" {
   return value && VALID_STATUSES.has(value) ? (value as EstimateStatus) : "all";
 }
 
+/**
+ * Trackpr 2.0, Phase 3E: the header now reads "Estimates & Jobs" with an
+ * "Estimates" badge, rather than a standalone "Estimates" identity - the
+ * literal /estimates URL permanently redirects to /work?type=estimates
+ * (next.config.ts) before Next.js would ever resolve this file directly, so
+ * this component is only ever rendered through the /work dispatcher now
+ * (same reasoning as Phase 3C/3D's own retitles). Estimates and Jobs remain
+ * genuinely distinct data (unlike Schedule's Calendar/Appointments, which
+ * showed identical data two ways) - so, like Customers, this reads as one
+ * named lifecycle view of the shared "Estimates & Jobs" surface, with a
+ * plain link to the other view, not a merged list.
+ */
 export default async function EstimatesPage({ searchParams }: PageProps<"/estimates">) {
   const params = await searchParams;
   const query = typeof params.q === "string" ? params.q : "";
@@ -52,9 +65,20 @@ export default async function EstimatesPage({ searchParams }: PageProps<"/estima
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
         eyebrow="Operate"
-        title="Estimates"
+        title="Estimates & Jobs"
         description="Create, send, and track project estimates."
-        action={<AddEstimateButton contacts={contacts} leads={leads} />}
+        badge={<span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">Estimates</span>}
+        action={
+          <div className="flex items-center gap-4">
+            <Link
+              href="/work?type=jobs"
+              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              View jobs
+            </Link>
+            <AddEstimateButton contacts={contacts} leads={leads} />
+          </div>
+        }
       />
 
       <EstimatesSummary summary={summary} />
