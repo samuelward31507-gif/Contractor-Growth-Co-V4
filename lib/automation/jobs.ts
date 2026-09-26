@@ -137,37 +137,15 @@ export async function emitJobCreatedFromEstimate(
  * identical regardless of which path created the job.
  */
 export async function emitJobCreatedEvent(supabase: SupabaseClient, organizationId: string, jobId: string, estimateId: string | null): Promise<void> {
-  const eventResult = await createAutomationEvent(supabase, {
-    eventType: "job.created",
-    entityType: "job",
-    entityId: jobId,
-    payload: estimateId ? { job_id: jobId, estimate_id: estimateId } : { job_id: jobId },
-    idempotencyKey: `job.created:${jobId}`,
-  });
-
-  if (!eventResult.ok) {
-    console.error("[automation] failed to create job.created event", { jobId, error: eventResult.error });
-    return;
-  }
-  if (eventResult.duplicate) return;
-  if (eventResult.skipped) return;
-
+  // Trackpr 2.0, n8n job-created payload fix: job/contact/conversation must
+  // be resolved BEFORE createAutomationEvent below, not after - see that
+  // call's own comment for why (same fix, same reasoning, as
+  // lib/automation/post-job-followup.ts's emitPostJobFollowup).
   const job = await getJob(supabase, organizationId, jobId);
   if (!job) {
-    console.error("[automation] job.created event created but job not found", { jobId });
+    console.error("[automation] job.created requested but job not found", { jobId, organizationId });
     return;
   }
-
-  const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, JOB_CREATED_WORKFLOW);
-  if (!executionResult.ok) {
-    console.error("[automation] failed to start job.created execution", { jobId, error: executionResult.error });
-    return;
-  }
-
-  const [aiSettings, businessProfile] = await Promise.all([
-    getAiSettings(supabase, organizationId),
-    getBusinessProfile(supabase, organizationId),
-  ]);
 
   let conversationId: string | null = null;
   let contact: { id: string; first_name: string | null; last_name: string | null; phone: string | null; email: string | null } | null = null;
@@ -188,6 +166,47 @@ export async function emitJobCreatedEvent(supabase: SupabaseClient, organization
     const conversation = await findOrCreateOpenConversation(supabase, organizationId, job.contact_id, "sms", job.lead_id);
     conversationId = conversation?.id ?? null;
   }
+
+  // Trackpr 2.0, n8n job-created payload fix: the stored payload must
+  // include contact_id/lead_id/conversation_id, not just job_id/
+  // estimate_id - the n8n callback route (app/api/automation/n8n-callback/
+  // route.ts) re-derives contactId/leadId/conversationId for the outbound
+  // gate exclusively from THIS STORED payload, never from the separate
+  // contract object dispatched to n8n below. With these omitted, every
+  // job.created send was unconditionally denied by the gate's own
+  // missing_contact_id check - the same defect class already fixed for
+  // job.post_followup, found live in production for this event type too.
+  const eventResult = await createAutomationEvent(supabase, {
+    eventType: "job.created",
+    entityType: "job",
+    entityId: jobId,
+    payload: {
+      job_id: jobId,
+      ...(estimateId ? { estimate_id: estimateId } : {}),
+      contact_id: job.contact_id,
+      lead_id: job.lead_id,
+      conversation_id: conversationId,
+    },
+    idempotencyKey: `job.created:${jobId}`,
+  });
+
+  if (!eventResult.ok) {
+    console.error("[automation] failed to create job.created event", { jobId, error: eventResult.error });
+    return;
+  }
+  if (eventResult.duplicate) return;
+  if (eventResult.skipped) return;
+
+  const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, JOB_CREATED_WORKFLOW);
+  if (!executionResult.ok) {
+    console.error("[automation] failed to start job.created execution", { jobId, error: executionResult.error });
+    return;
+  }
+
+  const [aiSettings, businessProfile] = await Promise.all([
+    getAiSettings(supabase, organizationId),
+    getBusinessProfile(supabase, organizationId),
+  ]);
 
   const contract: N8nWorkflowContract = {
     version: 1,
