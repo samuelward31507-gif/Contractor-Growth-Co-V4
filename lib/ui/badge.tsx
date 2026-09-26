@@ -15,14 +15,19 @@ export type BadgeTone = "neutral" | "info" | "success" | "warning" | "danger";
 
 const TONE_CLASS: Record<BadgeTone, string> = {
   neutral: "bg-slate-100 text-slate-600",
-  info: "bg-blue-50 text-blue-700",
   // Final visual polish pass: the app's one accent token set (globals.css)
   // instead of a bare emerald-* pair, so every "success" badge app-wide
   // shares the exact same green with StatCard's success tone and the new
   // accent button.
   success: "bg-accent-muted text-accent-text",
-  warning: "bg-amber-50 text-amber-700",
-  danger: "bg-red-50 text-red-700",
+  // Trackpr 2.0, Phase 3A: info/warning/danger now reference the same
+  // globals.css semantic token families as success (--accent) does, rather
+  // than bare Tailwind color literals - identical rendered colors (amber-50/
+  // amber-700, red-50/red-700, blue-50/blue-700), now from one named source
+  // of truth instead of three scattered literals.
+  info: "bg-info-muted text-info-text",
+  warning: "bg-warning-muted text-warning-text",
+  danger: "bg-danger-muted text-danger-text",
 };
 
 /**

@@ -40,7 +40,7 @@ export function MobileNav({
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/[0.06]"
+          className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a120f]"
         >
           <Menu className="h-5 w-5" aria-hidden />
         </button>
@@ -68,7 +68,7 @@ export function MobileNav({
               onClick={() => setOpen(false)}
               aria-label="Close menu"
               tabIndex={open ? 0 : -1}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/[0.06]"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a120f]"
             >
               <X className="h-5 w-5" aria-hidden />
             </button>

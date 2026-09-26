@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrganizationHealth } from "@/lib/automation-health/health";
 import type { OrganizationHealthStatus } from "@/lib/automation-health/types";
@@ -34,23 +35,33 @@ const STATUS_CONFIG: Record<OrganizationHealthStatus, { dot: string; label: stri
  * Automation Health page itself already pays on every load) - never a new
  * query path. Fails silently to no indicator (never a broken page) if the
  * health read errors for any reason.
+ *
+ * Trackpr 2.0, Phase 3A: `actions` is a new, optional right-side slot for a
+ * future page's own contextual controls (e.g. a page-level primary action
+ * that should live in the persistent top bar rather than scroll away with
+ * page content) - foundation only, nothing passes it yet, so it renders
+ * nothing and changes no existing page's appearance until a future phase
+ * actually uses it.
  */
-export async function TopBar({ supabase, organizationId }: { supabase: SupabaseClient; organizationId: string }) {
+export async function TopBar({ supabase, organizationId, actions }: { supabase: SupabaseClient; organizationId: string; actions?: ReactNode }) {
   const health = await getOrganizationHealth(supabase, organizationId).catch(() => null);
   const status = health ? STATUS_CONFIG[health.status] : null;
 
   return (
-    <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 lg:px-10">
+    <div className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 sm:px-6 lg:px-10">
       <Breadcrumb />
-      {status ? (
-        <Link
-          href="/automation-health"
-          className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-colors ${status.ring} ${status.text}`}
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden />
-          {status.label}
-        </Link>
-      ) : null}
+      <div className="flex shrink-0 items-center gap-3">
+        {actions}
+        {status ? (
+          <Link
+            href="/automation-health"
+            className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/25 focus-visible:ring-offset-2 ${status.ring} ${status.text}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden />
+            {status.label}
+          </Link>
+        ) : null}
+      </div>
     </div>
   );
 }
