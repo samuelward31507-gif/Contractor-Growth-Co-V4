@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
@@ -6,7 +7,7 @@ import { getLeads } from "@/lib/leads/queries";
 import {
   filterAppointments,
   filterAppointmentsByView,
-  getAppointments,
+  getAppointmentsResult,
   summarizeAppointments,
   type AppointmentStatus,
   type AppointmentView,
@@ -63,12 +64,13 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
     redirect("/onboarding");
   }
 
-  const [allAppointments, contacts, leads, timeZone] = await Promise.all([
-    getAppointments(supabase, membership.organizationId),
+  const [appointmentsResult, contacts, leads, timeZone] = await Promise.all([
+    getAppointmentsResult(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getOrganizationTimezone(supabase, membership.organizationId),
   ]);
+  const allAppointments = appointmentsResult.data;
 
   const summary = summarizeAppointments(allAppointments);
   const inView = filterAppointmentsByView(allAppointments, view);
@@ -94,6 +96,13 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
           </div>
         }
       />
+
+      {appointmentsResult.failed ? (
+        <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>Some information is temporarily unavailable. Please try again.</p>
+        </div>
+      ) : null}
 
       <AppointmentsSummary summary={summary} />
 

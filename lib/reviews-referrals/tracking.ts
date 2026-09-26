@@ -162,6 +162,24 @@ export async function recordPostJobFollowupOutcome(
  * request that isn't currently 'requested' - a request already 'responded'
  * or further along is left alone, so a second reply from the same customer
  * doesn't reset or duplicate anything.
+ *
+ * Trackpr 2.0, Phase 4C (P2 #4) - documented, intentional tradeoff: this
+ * function receives no message body/content at all (by design - see above),
+ * so it cannot and does not check whether an inbound reply is topically
+ * related to the review/referral ask. A contact who replies about something
+ * else entirely (e.g. asking to reschedule an unrelated appointment) while
+ * they happen to have a pending 'requested' review/referral will still mark
+ * that request 'responded'. This is accepted, not accidental: building real
+ * topic classification would mean either a new AI call on every inbound
+ * message (out of scope, and this system's own review-escalation logic
+ * already runs a conservative keyword heuristic specifically so a
+ * genuinely negative reply is never missed - see
+ * classifyAndEscalateReviewReply below) or a fragile heuristic that would
+ * itself risk missing a real, on-topic response. "Responded" here means
+ * "the contact said something back," not "the contact specifically
+ * addressed the review/referral ask" - see lib/reviews-referrals/format.ts's
+ * own label ("Responded") for the exact, deliberately modest claim this
+ * status makes.
  */
 export async function recordRequestResponses(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<void> {
   const respondedAt = new Date().toISOString();

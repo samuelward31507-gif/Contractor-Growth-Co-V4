@@ -407,6 +407,36 @@ export async function createLeadFromReferralForOrganization(
     return { ok: false, error: "This referral request is not in an eligible state." };
   }
 
+  // Trackpr 2.0, Phase 4C (P2 #3): claim the referral BEFORE creating a
+  // contact or lead, using the exact same atomic conditional-update
+  // primitive this function already relied on (only reordered, and split
+  // into two updates since the real lead id doesn't exist yet at claim
+  // time). Two concurrent calls for the same referral can both pass the
+  // plain read above, but only one can win this atomic update (status must
+  // still be requested/responded AND referred_lead_id must still be null) -
+  // the loser fails here, before ever creating a contact or lead, which is
+  // what actually closes the duplicate-lead race the previous ordering left
+  // open (it used to create the lead first, so a losing concurrent call
+  // still left behind a real, unattributed lead).
+  const { data: claimedReferral, error: claimError } = await supabase
+    .from("referral_requests")
+    .update({ status: "converted", resolved_at: new Date().toISOString() })
+    .eq("id", referral.id)
+    .eq("organization_id", organizationId)
+    .in("status", ["requested", "responded"])
+    .is("referred_lead_id", null)
+    .select("id")
+    .maybeSingle();
+
+  if (claimError || !claimedReferral) {
+    return { ok: false, error: "This referral has already been converted to a lead." };
+  }
+
+  /** Reverts the claim above back to the referral's real, original status - used whenever this call fails AFTER claiming but BEFORE a lead actually exists, so the referral remains a normal, retriable referral rather than a permanently broken "converted with no lead" row. */
+  async function releaseClaim() {
+    await supabase.from("referral_requests").update({ status: referral!.status, resolved_at: null }).eq("id", referral!.id).eq("organization_id", organizationId);
+  }
+
   const contactResult = await resolveOrCreateContact(supabase, {
     organizationId,
     firstName,
@@ -415,8 +445,12 @@ export async function createLeadFromReferralForOrganization(
     email,
   });
 
-  if (contactResult.outcome === "error") return { ok: false, error: contactResult.error };
+  if (contactResult.outcome === "error") {
+    await releaseClaim();
+    return { ok: false, error: contactResult.error };
+  }
   if (contactResult.outcome === "conflict") {
+    await releaseClaim();
     return { ok: false, error: "This phone and email belong to two different existing contacts. Resolve the conflict first." };
   }
   const contact = contactResult.contact;
@@ -434,32 +468,22 @@ export async function createLeadFromReferralForOrganization(
     .select("id")
     .single();
 
-  if (insertError || !lead) return { ok: false, error: "We couldn't create this lead." };
+  if (insertError || !lead) {
+    await releaseClaim();
+    return { ok: false, error: "We couldn't create this lead." };
+  }
 
-  // Attribution is claimed BEFORE triggering the lead-created lifecycle
-  // below, deliberately - this is the real, durable guarantee ("no
-  // duplicate lead for the same referral"), and it must not depend on the
-  // lifecycle dispatch (an n8n round trip) succeeding. The atomic
-  // conditional update is what actually prevents two concurrent conversions
-  // of the same referral from ever both succeeding.
-  const { data: updatedReferral, error: referralUpdateError } = await supabase
-    .from("referral_requests")
-    .update({ status: "converted", resolved_at: new Date().toISOString(), referred_lead_id: lead.id })
-    .eq("id", referral.id)
-    .eq("organization_id", organizationId)
-    .in("status", ["requested", "responded"])
-    .is("referred_lead_id", null)
-    .select("id")
-    .maybeSingle();
+  // The referral is already exclusively claimed by this call (the atomic
+  // update above already won the race) - recording the real lead id here is
+  // a plain update, not a second race to protect against.
+  const { error: attributionError } = await supabase.from("referral_requests").update({ referred_lead_id: lead.id }).eq("id", referral.id).eq("organization_id", organizationId);
 
-  if (referralUpdateError || !updatedReferral) {
-    // Lost a race against a concurrent conversion of the same referral - the
-    // lead itself was still created and remains usable, but attribution
-    // could not be claimed here, so this call reports failure rather than
-    // going on to trigger a second lead.created lifecycle for what is now a
-    // redundant lead.
-    console.error("[jobs] referral attribution update failed after lead creation", { jobId, leadId: lead.id, error: referralUpdateError?.message });
-    return { ok: false, error: "This referral has already been converted to a lead." };
+  if (attributionError) {
+    // The referral is genuinely converted and a real lead now exists from
+    // it - only the referred_lead_id pointer itself failed to persist. Never
+    // rolled back here (unlike the earlier failures): reverting the status
+    // now would make an already-real conversion look unconverted again.
+    console.error("[jobs] referral attribution pointer failed to save after a successful claim + lead creation", { jobId, leadId: lead.id, error: attributionError.message });
   }
 
   await recordAudit(supabase, organizationId, "referral_marked_converted", "referral_request", referral.id);

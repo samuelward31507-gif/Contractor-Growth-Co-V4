@@ -71,15 +71,34 @@ function summarizeCompletedJobs(jobs: JobRow[], now: Date): Omit<CustomerLifecyc
 }
 
 /**
+ * Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest
+ * error, never on genuine emptiness ("no completed jobs yet" for a new
+ * customer) - mirrors the getLeadAndPipelineMetrics discipline established
+ * in lib/bi/queries.ts. Added for API completeness across this file's read
+ * layer; getCustomerLifecycle's own single-customer consumer (Contact
+ * Detail) is lower-stakes than the org-wide aggregates below and is left
+ * unwired for now, per this phase's own "update consumers only where
+ * necessary" scope.
+ */
+export async function getCustomerLifecycleResult(
+  supabase: SupabaseClient,
+  organizationId: string,
+  contactId: string,
+  now: Date = new Date(),
+): Promise<CustomerLifecycle & { failed: boolean }> {
+  const { data, error } = await supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("contact_id", contactId).eq("status", "completed").limit(1000);
+
+  return { contactId, ...summarizeCompletedJobs((data ?? []) as JobRow[], now), failed: error != null };
+}
+
+/**
  * Single-customer lifecycle - this one contact's own completed jobs,
  * all-time. Returns a real zeroed shape (never throws, never null) when the
  * contact has no completed jobs at all - "no history yet" is a normal,
  * expected state for a new customer, not an error.
  */
 export async function getCustomerLifecycle(supabase: SupabaseClient, organizationId: string, contactId: string, now: Date = new Date()): Promise<CustomerLifecycle> {
-  const { data } = await supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("contact_id", contactId).eq("status", "completed").limit(1000);
-
-  return { contactId, ...summarizeCompletedJobs((data ?? []) as JobRow[], now) };
+  return getCustomerLifecycleResult(supabase, organizationId, contactId, now);
 }
 
 export type RepeatCustomerSummary = {
@@ -111,9 +130,15 @@ export type RepeatCustomerSummary = {
  * code from a single bounded fetch, matching lib/bi/metrics.ts's own
  * established "one fetch + in-memory aggregation" shape (e.g.
  * getLeadBookingCrossReference) rather than a query-per-customer.
+ *
+ * Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest
+ * error, never on genuine emptiness. Wired into both Dashboard and Analytics
+ * (their own partialData banners now also cover this read) since a failure
+ * here would otherwise render as a false "0 repeat customers" on both
+ * business-health surfaces.
  */
-export async function getRepeatCustomerSummary(supabase: SupabaseClient, organizationId: string): Promise<RepeatCustomerSummary> {
-  const { data } = await supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("status", "completed").not("contact_id", "is", null).limit(MAX_ROWS);
+export async function getRepeatCustomerSummaryResult(supabase: SupabaseClient, organizationId: string): Promise<RepeatCustomerSummary & { failed: boolean }> {
+  const { data, error } = await supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("status", "completed").not("contact_id", "is", null).limit(MAX_ROWS);
 
   const jobs = (data ?? []) as JobRow[];
   const byContact = new Map<string, JobRow[]>();
@@ -159,7 +184,13 @@ export async function getRepeatCustomerSummary(supabase: SupabaseClient, organiz
     averageKnownCompletedJobValue: knownCompletedJobValueCount === 0 ? null : knownCompletedJobValue / knownCompletedJobValueCount,
     additionalCompletedJobCount,
     additionalCompletedJobKnownValue,
+    failed: error != null,
   };
+}
+
+/** Org-wide repeat-customer + completed-job-value rollup - see getRepeatCustomerSummaryResult's own comment above. Unchanged for all existing callers. */
+export async function getRepeatCustomerSummary(supabase: SupabaseClient, organizationId: string): Promise<RepeatCustomerSummary> {
+  return getRepeatCustomerSummaryResult(supabase, organizationId);
 }
 
 export type DormantCustomersValueSummary = {
@@ -180,10 +211,11 @@ export type DormantCustomersValueSummary = {
  * and avoiding any join fanout (a single, ungrouped select against jobs
  * alone, exactly like every other function in this file).
  */
-export async function getDormantCustomersValueSummary(supabase: SupabaseClient, organizationId: string, dormantContactIds: string[]): Promise<DormantCustomersValueSummary> {
-  if (dormantContactIds.length === 0) return { knownValue: 0, unknownValueCount: 0 };
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on genuine emptiness. Wired into Dashboard (whose own partialData banner now also covers this read) since a failure here would otherwise render as a false $0 dormant-customer value. */
+export async function getDormantCustomersValueSummaryResult(supabase: SupabaseClient, organizationId: string, dormantContactIds: string[]): Promise<DormantCustomersValueSummary & { failed: boolean }> {
+  if (dormantContactIds.length === 0) return { knownValue: 0, unknownValueCount: 0, failed: false };
 
-  const { data } = await supabase.from("jobs").select("contact_id, amount").eq("organization_id", organizationId).eq("status", "completed").in("contact_id", dormantContactIds).limit(MAX_ROWS);
+  const { data, error } = await supabase.from("jobs").select("contact_id, amount").eq("organization_id", organizationId).eq("status", "completed").in("contact_id", dormantContactIds).limit(MAX_ROWS);
 
   const jobs = (data ?? []) as { contact_id: string | null; amount: number | null }[];
   const hasKnownValueByContact = new Map<string, boolean>(dormantContactIds.map((id) => [id, false]));
@@ -195,5 +227,10 @@ export async function getDormantCustomersValueSummary(supabase: SupabaseClient, 
   }
 
   const unknownValueCount = [...hasKnownValueByContact.values()].filter((hasKnown) => !hasKnown).length;
-  return { knownValue, unknownValueCount };
+  return { knownValue, unknownValueCount, failed: error != null };
+}
+
+/** Dormant-customer known value summary - see getDormantCustomersValueSummaryResult's own comment above. Unchanged for all existing callers. */
+export async function getDormantCustomersValueSummary(supabase: SupabaseClient, organizationId: string, dormantContactIds: string[]): Promise<DormantCustomersValueSummary> {
+  return getDormantCustomersValueSummaryResult(supabase, organizationId, dormantContactIds);
 }

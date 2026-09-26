@@ -183,6 +183,8 @@ export type AgencyHealthResult =
       organizations: AgencyOrganizationHealth[];
       incidentRollup: AgencyIncidentRollup;
       schedulerHeartbeat: SchedulerHeartbeat;
+      /** Trackpr 2.0, Phase 4C (P2 #1): true when the stuck-execution, calendar-health, or payment/pause read returned a real Postgrest error - never set by genuine emptiness. See each loader's own comment in this file. */
+      partialData: boolean;
       generatedAt: string;
     }
   | AgencyAuthFailure;
@@ -195,12 +197,13 @@ type StuckExecutionRow = {
   started_at: string;
 };
 
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on genuine emptiness - a failure here must never read as "nothing is stuck" to an agency admin. */
 async function loadStuckExecutions(
   serviceSupabase: SupabaseClient,
   organizationIds: string[],
   thresholdMinutes: number,
-): Promise<StuckExecutionRow[]> {
-  if (organizationIds.length === 0) return [];
+): Promise<{ rows: StuckExecutionRow[]; failed: boolean }> {
+  if (organizationIds.length === 0) return { rows: [], failed: false };
 
   const thresholdIso = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
 
@@ -213,8 +216,7 @@ async function loadStuckExecutions(
     .order("started_at", { ascending: true })
     .limit(MAX_STUCK_ROWS);
 
-  if (error || !data) return [];
-  return data as StuckExecutionRow[];
+  return { rows: (data ?? []) as StuckExecutionRow[], failed: error != null };
 }
 
 type CalendarConnectionHealthRow = { organization_id: string; status: "connected" | "disconnected" | "error"; last_error: string | null };
@@ -226,16 +228,17 @@ type CalendarConnectionHealthRow = { organization_id: string; status: "connected
  * account_email/calendar_id/calendar_name (not needed here), and never
  * calendar_credentials, which this module does not import a path to at all.
  */
-async function loadCalendarHealth(serviceSupabase: SupabaseClient, organizationIds: string[]): Promise<Map<string, CalendarConnectionHealthRow>> {
-  if (organizationIds.length === 0) return new Map();
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error - a missing row here (a real, common state) must stay distinguishable from a failed read, since a caller currently treats "no row" as "not_connected" (a normal, non-alarming state). */
+async function loadCalendarHealth(serviceSupabase: SupabaseClient, organizationIds: string[]): Promise<{ byOrg: Map<string, CalendarConnectionHealthRow>; failed: boolean }> {
+  if (organizationIds.length === 0) return { byOrg: new Map(), failed: false };
 
-  const { data } = await serviceSupabase
+  const { data, error } = await serviceSupabase
     .from("calendar_connections")
     .select("organization_id, status, last_error")
     .eq("provider", "google")
     .in("organization_id", organizationIds);
 
-  return new Map(((data ?? []) as CalendarConnectionHealthRow[]).map((row) => [row.organization_id, row]));
+  return { byOrg: new Map(((data ?? []) as CalendarConnectionHealthRow[]).map((row) => [row.organization_id, row])), failed: error != null };
 }
 
 type PaymentAndPauseRow = { id: string; payment_status: AgencyPaymentStatus; automation_paused: boolean | null };
@@ -247,12 +250,13 @@ type PaymentAndPauseRow = { id: string; payment_status: AgencyPaymentStatus; aut
  * exists on this table at all; payment_status is the whole of what
  * Trackpr's own payment gate tracks).
  */
-async function loadPaymentAndPauseStatus(serviceSupabase: SupabaseClient, organizationIds: string[]): Promise<Map<string, PaymentAndPauseRow>> {
-  if (organizationIds.length === 0) return new Map();
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error - a failure here must never be silently treated as "no payment/pause problem" for the agency admin's own needs-attention rollup. */
+async function loadPaymentAndPauseStatus(serviceSupabase: SupabaseClient, organizationIds: string[]): Promise<{ byOrg: Map<string, PaymentAndPauseRow>; failed: boolean }> {
+  if (organizationIds.length === 0) return { byOrg: new Map(), failed: false };
 
-  const { data } = await serviceSupabase.from("organizations").select("id, payment_status, automation_paused").in("id", organizationIds);
+  const { data, error } = await serviceSupabase.from("organizations").select("id, payment_status, automation_paused").in("id", organizationIds);
 
-  return new Map(((data ?? []) as PaymentAndPauseRow[]).map((row) => [row.id, row]));
+  return { byOrg: new Map(((data ?? []) as PaymentAndPauseRow[]).map((row) => [row.id, row])), failed: error != null };
 }
 
 export async function getAgencyHealth(
@@ -268,7 +272,7 @@ export async function getAgencyHealth(
   const { organizations } = snapshots;
   const organizationNameById = new Map(organizations.map((org) => [org.organizationId, org.organizationName]));
 
-  const [stuckRows, calendarHealthByOrg, paymentAndPauseByOrg] = await Promise.all([
+  const [{ rows: stuckRows, failed: stuckFailed }, { byOrg: calendarHealthByOrg, failed: calendarFailed }, { byOrg: paymentAndPauseByOrg, failed: paymentFailed }] = await Promise.all([
     loadStuckExecutions(
       serviceSupabase,
       organizations.map((org) => org.organizationId),
@@ -283,6 +287,10 @@ export async function getAgencyHealth(
       organizations.map((org) => org.organizationId),
     ),
   ]);
+  // Trackpr 2.0, Phase 4C (P2 #1): a real error on any of these three reads
+  // must be disclosed, never silently folded into "nothing stuck / no
+  // calendar issues / no payment problem" - see each loader's own comment.
+  const partialData = stuckFailed || calendarFailed || paymentFailed;
 
   const now = Date.now();
   const stuck: StuckExecution[] = stuckRows.map((row) => ({
@@ -379,6 +387,7 @@ export async function getAgencyHealth(
     organizations: orgHealthWithIncidents,
     incidentRollup,
     schedulerHeartbeat,
+    partialData,
     generatedAt: new Date().toISOString(),
   };
 }

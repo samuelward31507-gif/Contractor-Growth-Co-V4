@@ -14,11 +14,18 @@ import { INSIGHT_TYPES, INSIGHT_SEVERITIES, INSIGHT_CONFIDENCES, type BusinessIn
  *
  * lib/dashboard/queries.ts (getDashboardData) is untouched by this phase -
  * its existing overview/pipeline/attention/activity calculations keep their
- * exact current semantics, including the known "pendingEstimates is
- * lead-status-based, not estimates-table-based" discrepancy the Phase 5.1
- * audit flagged. That reconciliation is left for a future redesign/cleanup
- * phase, per this phase's explicit instructions - this file adds a
- * NEW, separate data source rather than editing the old one.
+ * exact current semantics. This file adds a NEW, separate data source
+ * rather than editing the old one.
+ *
+ * Trackpr 2.0, Phase 4C (P2 #9): the "pendingEstimates is lead-status-based,
+ * not estimates-table-based" discrepancy this comment used to describe was
+ * already stale by the time of that audit (getDashboardData's own
+ * OverviewMetrics.pendingEstimates was already estimates-table-based via
+ * distinctLeadIdsWithPendingEstimate, just still deduplicated by lead) - the
+ * real, verified discrepancy was a unit mismatch against Analytics'
+ * BiEstimateMetrics.sentEstimates (distinct leads vs. estimate rows), now
+ * fixed directly in lib/dashboard/queries.ts's own OverviewMetrics
+ * computation - see that file's own comment at the fix site.
  */
 
 /** A simple, sensible default - "how are things going lately." Phase 5.2 already supports this preset; no new date-range system is introduced. */

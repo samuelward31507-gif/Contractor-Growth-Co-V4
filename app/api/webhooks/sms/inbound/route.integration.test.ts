@@ -213,3 +213,80 @@ test("D. 'cancel my appointment tomorrow' is NOT treated as the STOP keyword - t
     .maybeSingle();
   assert.ok(incident, "expected a durable escalation incident from the real cancellation path, not from any STOP handling");
 });
+
+// ==================== Trackpr 2.0, Phase 4C (P2 #7) ====================
+//
+// Documents, via a real test (not just a code comment), the explicit,
+// existing product decision that HELP is intentionally exempt from
+// evaluateOutboundGate() - and therefore from the payment/pause/live-mode
+// checks that gate performs - while still being subject to its own real
+// opt-out and duplicate-send protections via sendOutboundMessage(). This
+// pass does NOT change that behavior (see the route's own comment at the
+// HELP branch); it only makes the behavior observable and durable via a
+// test, so a future change to it is a deliberate, visible decision rather
+// than an untested assumption.
+
+async function makeIsolatedOrg(overrides: Record<string, unknown>) {
+  const number = `+1555${Math.floor(1000000 + Math.random() * 8999999)}`;
+  const { data: org } = await service
+    .from("organizations")
+    .insert({ name: "SMS Inbound HELP Gate-Exempt Test Org", payment_status: "active", automation_mode: "live", timezone: "UTC", sms_phone_number: number, phone: "+15559990001", email: "help-gate@example.test", ...overrides })
+    .select("id")
+    .single();
+  return { organizationId: org!.id as string, smsNumber: number };
+}
+
+async function cleanupIsolatedOrg(orgId: string) {
+  await service.from("messages").delete().eq("organization_id", orgId);
+  await service.from("conversations").delete().eq("organization_id", orgId);
+  await service.from("contacts").delete().eq("organization_id", orgId);
+  await service.from("organizations").delete().eq("id", orgId);
+}
+
+test("E (P2 #7). HELP still sends its deterministic reply for a SUSPENDED (payment_status) organization - documented, intentional gate exemption", async () => {
+  const { organizationId: orgId, smsNumber: number } = await makeIsolatedOrg({ payment_status: "suspended" });
+  try {
+    const from = "+15555580005";
+    const response = await sendInbound(number, from, "HELP");
+    assert.equal(response.status, 200);
+
+    const { data: contact } = await service.from("contacts").select("id").eq("organization_id", orgId).eq("phone", from).single();
+    const { data: conversation } = await service.from("conversations").select("id").eq("organization_id", orgId).eq("contact_id", contact!.id).single();
+    const { data: outbound } = await service.from("messages").select("body").eq("conversation_id", conversation!.id).eq("direction", "outbound");
+    assert.equal(outbound?.length, 1, "HELP's compliance reply is not gated on payment_status - a documented, intentional exemption, not a bug");
+  } finally {
+    await cleanupIsolatedOrg(orgId);
+  }
+});
+
+test("F (P2 #7). HELP still sends its deterministic reply for a PAUSED organization - documented, intentional gate exemption", async () => {
+  const { organizationId: orgId, smsNumber: number } = await makeIsolatedOrg({ automation_paused: true });
+  try {
+    const from = "+15555580006";
+    const response = await sendInbound(number, from, "HELP");
+    assert.equal(response.status, 200);
+
+    const { data: contact } = await service.from("contacts").select("id").eq("organization_id", orgId).eq("phone", from).single();
+    const { data: conversation } = await service.from("conversations").select("id").eq("organization_id", orgId).eq("contact_id", contact!.id).single();
+    const { data: outbound } = await service.from("messages").select("body").eq("conversation_id", conversation!.id).eq("direction", "outbound");
+    assert.equal(outbound?.length, 1, "HELP's compliance reply is not gated on automation_paused - a documented, intentional exemption, not a bug");
+  } finally {
+    await cleanupIsolatedOrg(orgId);
+  }
+});
+
+test("G (P2 #7). HELP still sends its deterministic reply for a TEST-mode (not yet live) organization - documented, intentional gate exemption", async () => {
+  const { organizationId: orgId, smsNumber: number } = await makeIsolatedOrg({ automation_mode: "test" });
+  try {
+    const from = "+15555580007";
+    const response = await sendInbound(number, from, "HELP");
+    assert.equal(response.status, 200);
+
+    const { data: contact } = await service.from("contacts").select("id").eq("organization_id", orgId).eq("phone", from).single();
+    const { data: conversation } = await service.from("conversations").select("id").eq("organization_id", orgId).eq("contact_id", contact!.id).single();
+    const { data: outbound } = await service.from("messages").select("body").eq("conversation_id", conversation!.id).eq("direction", "outbound");
+    assert.equal(outbound?.length, 1, "HELP's compliance reply is not gated on automation_mode - a documented, intentional exemption, not a bug");
+  } finally {
+    await cleanupIsolatedOrg(orgId);
+  }
+});

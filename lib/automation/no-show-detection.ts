@@ -56,7 +56,22 @@ export type NoShowDetectionOutcome =
   | { appointmentId: string; outcome: "marked_no_show" }
   | { appointmentId: string; outcome: "already_transitioned" };
 
-export type NoShowDetectionResult = { candidates: number; outcomes: NoShowDetectionOutcome[] };
+export type NoShowDetectionResult = {
+  candidates: number;
+  outcomes: NoShowDetectionOutcome[];
+  /**
+   * Trackpr 2.0, Phase 4C (P2 #5): true only when the candidate scan itself
+   * returned a real Postgrest error - never set by a genuine "nothing due
+   * right now" tick. Previously this scan silently discarded its own error
+   * and reported `candidates: 0`, indistinguishable from a real, healthy,
+   * empty scan. The route (app/api/automation/no-show-detection/route.ts)
+   * surfaces this as an honest `ok: false` HTTP response rather than the
+   * previous unconditional `ok: true` - the same `console.error` mechanism
+   * this file already uses for a per-appointment update failure
+   * (processOneAppointment), now also used for the scan itself.
+   */
+  scanFailed: boolean;
+};
 
 const MAX_CANDIDATE_ROWS = 200;
 
@@ -73,13 +88,17 @@ const MAX_CANDIDATE_ROWS = 200;
 export async function processNoShowDetection(supabase: SupabaseClient, now: Date = new Date()): Promise<NoShowDetectionResult> {
   const cutoff = new Date(now.getTime() - NO_SHOW_GRACE_PERIOD_MS).toISOString();
 
-  const { data: rawCandidates } = await supabase
+  const { data: rawCandidates, error: scanError } = await supabase
     .from("appointments")
     .select("id, organization_id, end_at")
     .in("status", ELIGIBLE_STATUSES)
     .lt("end_at", cutoff)
     .order("end_at", { ascending: true })
     .limit(MAX_CANDIDATE_ROWS);
+
+  if (scanError) {
+    console.error("[automation] no-show detection scan failed", { error: scanError.message });
+  }
 
   const candidates = (rawCandidates ?? []) as CandidateAppointment[];
   const outcomes: NoShowDetectionOutcome[] = [];
@@ -88,7 +107,7 @@ export async function processNoShowDetection(supabase: SupabaseClient, now: Date
     outcomes.push(await processOneAppointment(supabase, appointment));
   }
 
-  return { candidates: candidates.length, outcomes };
+  return { candidates: candidates.length, outcomes, scanFailed: scanError != null };
 }
 
 /**

@@ -222,3 +222,37 @@ test("7. a job with no referral request at all is rejected", async () => {
   assert.equal(result.ok, false);
   assert.match((result as { error: string }).error, /no referral request/);
 });
+
+test("8. CONCURRENCY (P2 #3): two truly concurrent conversions of the same referral produce exactly one lead - the loser must never create a contact/lead at all", async () => {
+  const { jobId, referralId } = await makeReferringSetup("requested");
+  const phoneA = `+1555560${Math.floor(1000 + Math.random() * 8999)}`;
+  const phoneB = `+1555561${Math.floor(1000 + Math.random() * 8999)}`;
+
+  // Both calls read the same eligible referral before either commits its own
+  // claim - the exact race window the old ordering (create the lead, THEN
+  // atomically claim) left open. Different phone numbers so a bug would be
+  // visible as two distinct contacts/leads, not merely two attempts at the
+  // same contact.
+  const [resultA, resultB] = await Promise.all([callAction(jobId, { firstName: "Race-A", phone: phoneA }), callAction(jobId, { firstName: "Race-B", phone: phoneB })]);
+
+  const outcomes = [resultA, resultB];
+  const succeeded = outcomes.filter((r) => r.ok);
+  const failed = outcomes.filter((r) => !r.ok);
+  assert.equal(succeeded.length, 1, "exactly one concurrent call must win the claim");
+  assert.equal(failed.length, 1);
+  assert.match((failed[0] as { error: string }).error, /already been converted/);
+
+  // The loser must never have created ITS OWN contact - not just "no second
+  // lead for the winner's contact," but genuinely zero trace of the losing
+  // attempt at all.
+  const loserPhone = resultA.ok ? phoneB : phoneA;
+  const { data: loserContact } = await service.from("contacts").select("id").eq("organization_id", organizationId).eq("phone", loserPhone).maybeSingle();
+  assert.equal(loserContact, null, "the losing concurrent call must never create a contact, let alone a lead");
+
+  const { data: allLeadsForReferral } = await service.from("leads").select("id, contact_id").eq("organization_id", organizationId).in("contact_id", (await service.from("contacts").select("id").eq("organization_id", organizationId).in("phone", [phoneA, phoneB])).data!.map((c) => c.id));
+  assert.equal((allLeadsForReferral ?? []).length, 1, "exactly one lead must exist across both attempted phone numbers");
+
+  const { data: referral } = await service.from("referral_requests").select("status, referred_lead_id").eq("id", referralId).single();
+  assert.equal(referral!.status, "converted");
+  assert.equal(referral!.referred_lead_id, allLeadsForReferral![0].id, "the referral must be attributed to the one real lead that was actually created");
+});

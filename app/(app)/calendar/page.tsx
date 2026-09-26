@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
-import { getAppointmentsInRange } from "@/lib/appointments/queries";
+import { getAppointmentsInRangeResult } from "@/lib/appointments/queries";
 import { getBlockedTimeInRange } from "@/lib/scheduling/blocked-time";
 import { getOrganizationTimezone, getBusinessHours, getBookingSettings } from "@/lib/settings/queries";
 import Link from "next/link";
@@ -124,10 +125,11 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     days = [];
   }
 
-  const [appointments, blockedTime] = await Promise.all([
-    getAppointmentsInRange(supabase, organizationId, dataRangeStart, dataRangeEnd),
+  const [appointmentsResult, blockedTime] = await Promise.all([
+    getAppointmentsInRangeResult(supabase, organizationId, dataRangeStart, dataRangeEnd),
     getBlockedTimeInRange(supabase, organizationId, dataRangeStart, dataRangeEnd),
   ]);
+  const appointments = appointmentsResult.data;
 
   const prevParts = navigateDate(activeParts, view, -1);
   const nextParts = navigateDate(activeParts, view, 1);
@@ -150,6 +152,13 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
           </Link>
         }
       />
+
+      {appointmentsResult.failed ? (
+        <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>Some information is temporarily unavailable. Please try again.</p>
+        </div>
+      ) : null}
 
       <CalendarToolbar
         view={view}

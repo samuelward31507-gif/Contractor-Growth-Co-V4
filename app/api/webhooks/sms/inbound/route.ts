@@ -220,8 +220,22 @@ export async function POST(request: NextRequest) {
     // (redundant here since a HELP sender is by definition not opted out of
     // receiving this exact reply, but sendOutboundMessage() re-checks
     // regardless, never trusting the caller) and is recorded in `messages`
-    // like any other send. Never touches evaluateOutboundGate() - that gate
-    // exists to police AI-recommended sends, and this is not one.
+    // like any other send, so the existing duplicate-send protection
+    // (messages(workflow_execution_id) unique-when-outbound index) still
+    // applies. Never touches evaluateOutboundGate() - that gate exists to
+    // police AI-recommended sends, and this is not one.
+    //
+    // Trackpr 2.0, Phase 4C (P2 #7) - explicit, documented product decision,
+    // NOT changed by this pass: bypassing evaluateOutboundGate() also means
+    // HELP is exempt from that gate's payment_status/automation_paused/
+    // automation_mode checks - a suspended, paused, or still-in-test
+    // organization still receives this one fixed, non-AI compliance message
+    // when a customer texts HELP. This is intentional (a carrier/compliance
+    // reply is not the kind of customer-facing automation those checks exist
+    // to police) and is proven, not just asserted, by
+    // app/api/webhooks/sms/inbound/route.integration.test.ts's own
+    // "P2 #7" tests. Changing this exemption is a separate, explicit product
+    // decision this pass is not authorized to make.
     await sendOutboundMessage(service, {
       organizationId: organization.id,
       contactId: contact.id,

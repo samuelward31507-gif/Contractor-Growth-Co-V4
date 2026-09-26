@@ -73,13 +73,20 @@ export type SharedLeadRow = {
  * remains true for both callers: neither infers a historical stage from
  * current status).
  */
-export async function getLeadsForRange(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<SharedLeadRow[]> {
+export type SharedLeadsResult = { leads: SharedLeadRow[]; failed: boolean };
+
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on genuine emptiness - see lib/bi/queries.ts's getLeadAndPipelineMetrics for the full discipline this mirrors. */
+export async function getLeadsForRangeResult(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<SharedLeadsResult> {
   let query = supabase.from("leads").select("id, contact_id, created_at").eq("organization_id", organizationId).limit(MAX_ROWS);
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
-  const { data } = await query;
-  return (data ?? []) as SharedLeadRow[];
+  const { data, error } = await query;
+  return { leads: (data ?? []) as SharedLeadRow[], failed: error != null };
+}
+
+export async function getLeadsForRange(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<SharedLeadRow[]> {
+  return (await getLeadsForRangeResult(supabase, organizationId, range)).leads;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +108,7 @@ type StageChangedEventRow = {
  * (getLeadStageHistory) and that already has its own passing integration
  * test suite (lib/automation/lead-stage-history.integration.test.ts).
  */
-export async function getLeadStageTransitionMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<LeadStageTransitionMetrics> {
+export async function getLeadStageTransitionMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<LeadStageTransitionMetrics & { failed: boolean }> {
   let query = supabase
     .from("automation_events")
     .select("entity_id, payload, created_at")
@@ -111,7 +118,7 @@ export async function getLeadStageTransitionMetrics(supabase: SupabaseClient, or
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
-  const { data } = await query;
+  const { data, error } = await query;
   const rows = (data ?? []) as StageChangedEventRow[];
 
   const transitionCounts: Record<string, number> = {};
@@ -137,6 +144,7 @@ export async function getLeadStageTransitionMetrics(supabase: SupabaseClient, or
     leadsTransitionedToQualified: leadsToQualified.size,
     leadsTransitionedToWon: leadsToWon.size,
     transitionCounts,
+    failed: error != null,
   };
 }
 
@@ -170,13 +178,13 @@ function average(values: number[]): number | null {
  * org-scoped query of its own remains (the events, by entity_id) - never
  * N+1 per lead.
  */
-export async function getLeadStageTimingMetrics(supabase: SupabaseClient, organizationId: string, leads: SharedLeadRow[]): Promise<LeadStageTimingMetrics> {
+export async function getLeadStageTimingMetrics(supabase: SupabaseClient, organizationId: string, leads: SharedLeadRow[]): Promise<LeadStageTimingMetrics & { failed: boolean }> {
   if (leads.length === 0) {
-    return { leadsInRange: 0, leadsWithRecordedHistory: 0, leadsWithQualifiedTiming: 0, averageTimeToQualifiedMs: null, medianTimeToQualifiedMs: null, leadsWithWonTiming: 0, averageTimeToWonMs: null, medianTimeToWonMs: null };
+    return { leadsInRange: 0, leadsWithRecordedHistory: 0, leadsWithQualifiedTiming: 0, averageTimeToQualifiedMs: null, medianTimeToQualifiedMs: null, leadsWithWonTiming: 0, averageTimeToWonMs: null, medianTimeToWonMs: null, failed: false };
   }
 
   const leadIds = leads.map((lead) => lead.id);
-  const { data: eventRows } = await supabase
+  const { data: eventRows, error } = await supabase
     .from("automation_events")
     .select("entity_id, payload, created_at")
     .eq("organization_id", organizationId)
@@ -221,6 +229,7 @@ export async function getLeadStageTimingMetrics(supabase: SupabaseClient, organi
     leadsWithWonTiming: wonDurations.length,
     averageTimeToWonMs: average(wonDurations),
     medianTimeToWonMs: median(wonDurations),
+    failed: error != null,
   };
 }
 
@@ -283,35 +292,35 @@ function percentageRate(numerator: number, denominator: number): number | null {
  * query. Reuses the real idx_messages_conversation index (conversation_id,
  * created_at) already present on the messages table.
  */
-export async function getLeadResponseTimeMetrics(supabase: SupabaseClient, organizationId: string, leads: SharedLeadRow[]): Promise<LeadResponseTimeMetrics> {
+export async function getLeadResponseTimeMetrics(supabase: SupabaseClient, organizationId: string, leads: SharedLeadRow[]): Promise<LeadResponseTimeMetrics & { failed: boolean }> {
   const totalLeadsInPopulation = leads.length;
   if (totalLeadsInPopulation === 0) {
-    return { totalLeadsInPopulation: 0, leadsContacted: 0, leadsNeverContacted: 0, contactRate: null, averageResponseTimeMs: null, medianResponseTimeMs: null, bucketCounts: emptyBucketCounts() };
+    return { totalLeadsInPopulation: 0, leadsContacted: 0, leadsNeverContacted: 0, contactRate: null, averageResponseTimeMs: null, medianResponseTimeMs: null, bucketCounts: emptyBucketCounts(), failed: false };
   }
 
   const contactIds = [...new Set(leads.map((lead) => lead.contact_id).filter((id): id is string => id !== null))];
 
-  const conversations =
+  const conversationsRead =
     contactIds.length > 0
-      ? (((await supabase.from("conversations").select("id, contact_id").eq("organization_id", organizationId).in("contact_id", contactIds).limit(MAX_ROWS)).data ?? []) as {
-          id: string;
-          contact_id: string | null;
-        }[])
-      : [];
+      ? await supabase.from("conversations").select("id, contact_id").eq("organization_id", organizationId).in("contact_id", contactIds).limit(MAX_ROWS)
+      : { data: [] as { id: string; contact_id: string | null }[], error: null };
+  const conversations = (conversationsRead.data ?? []) as { id: string; contact_id: string | null }[];
 
   const conversationIdToContactId = new Map(conversations.map((conversation) => [conversation.id, conversation.contact_id]));
   const conversationIds = conversations.map((conversation) => conversation.id);
 
-  const messages =
+  const messagesRead =
     conversationIds.length > 0
-      ? (((await supabase
+      ? await supabase
           .from("messages")
           .select("conversation_id, direction, status, created_at")
           .eq("organization_id", organizationId)
           .in("conversation_id", conversationIds)
           .order("created_at", { ascending: true })
-          .limit(MAX_ROWS)).data ?? []) as { conversation_id: string; direction: string; status: string; created_at: string }[])
-      : [];
+          .limit(MAX_ROWS)
+      : { data: [] as { conversation_id: string; direction: string; status: string; created_at: string }[], error: null };
+  const messages = (messagesRead.data ?? []) as { conversation_id: string; direction: string; status: string; created_at: string }[];
+  const failed = conversationsRead.error != null || messagesRead.error != null;
 
   // Ascending-ordered successful-outbound timestamps per contact - the fetch
   // above is already ordered by created_at, so each per-contact list built
@@ -357,5 +366,6 @@ export async function getLeadResponseTimeMetrics(supabase: SupabaseClient, organ
     averageResponseTimeMs: average(responseTimesMs),
     medianResponseTimeMs: median(responseTimesMs),
     bucketCounts,
+    failed,
   };
 }

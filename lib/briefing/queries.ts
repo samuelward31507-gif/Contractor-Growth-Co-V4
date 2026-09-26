@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDashboardData, type AttentionItem } from "@/lib/dashboard/queries";
-import { getAppointments, type Appointment } from "@/lib/appointments/queries";
-import { getEstimates, type Estimate } from "@/lib/estimates/queries";
-import { getJobs, type Job } from "@/lib/jobs/queries";
-import { getReviewRequests, getReferralRequests } from "@/lib/reviews-referrals/queries";
+import { getAppointmentsResult, type Appointment } from "@/lib/appointments/queries";
+import { getEstimatesResult, type Estimate } from "@/lib/estimates/queries";
+import { getJobsResult, type Job } from "@/lib/jobs/queries";
+import { getReviewRequestsResult, getReferralRequestsResult } from "@/lib/reviews-referrals/queries";
 import { getOrganizationHealth } from "@/lib/automation-health/health";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName } from "@/lib/contacts/format";
@@ -76,19 +76,33 @@ export type OwnerDailyBriefing = {
   aiEscalationsCount: number;
   /** A short, deterministic, non-AI-generated sentence composed from the fields above. */
   summary: string;
+  /**
+   * Trackpr 2.0, Phase 4C (P2 #2): true when any of this briefing's own
+   * reads (appointments, estimates, jobs, review/referral requests, or
+   * dashboard.partialData's own 5 direct reads) returned a real Postgrest
+   * error - a genuinely quiet day must never be indistinguishable from a
+   * briefing built on incomplete data. Never set by genuine emptiness.
+   */
+  partialData: boolean;
 };
 
 export async function getOwnerDailyBriefing(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<OwnerDailyBriefing> {
-  const [dashboard, appointments, estimates, jobs, reviewRequests, referralRequests, health, aiEscalationsCount] = await Promise.all([
+  const [dashboard, appointmentsResult, estimatesResult, jobsResult, reviewRequestsResult, referralRequestsResult, health, aiEscalationsCount] = await Promise.all([
     getDashboardData(supabase, organizationId),
-    getAppointments(supabase, organizationId),
-    getEstimates(supabase, organizationId),
-    getJobs(supabase, organizationId),
-    getReviewRequests(supabase, organizationId),
-    getReferralRequests(supabase, organizationId),
+    getAppointmentsResult(supabase, organizationId),
+    getEstimatesResult(supabase, organizationId),
+    getJobsResult(supabase, organizationId),
+    getReviewRequestsResult(supabase, organizationId),
+    getReferralRequestsResult(supabase, organizationId),
     getOrganizationHealth(supabase, organizationId),
     getAiEscalationCount(supabase, organizationId),
   ]);
+  const appointments = appointmentsResult.data;
+  const estimates = estimatesResult.data;
+  const jobs = jobsResult.data;
+  const reviewRequests = reviewRequestsResult.data;
+  const referralRequests = referralRequestsResult.data;
+  const partialData = dashboard.partialData || appointmentsResult.failed || estimatesResult.failed || jobsResult.failed || reviewRequestsResult.failed || referralRequestsResult.failed;
 
   const hotLeads: BriefingLead[] = dashboard.attentionItems
     .filter((item): item is AttentionItem & { kind: "hot_lead" } => item.kind === "hot_lead")
@@ -155,6 +169,7 @@ export async function getOwnerDailyBriefing(supabase: SupabaseClient, organizati
     automationProblems,
     aiEscalationsCount,
     summary,
+    partialData,
   };
 }
 
@@ -175,6 +190,8 @@ export type EndOfDaySummary = {
   automationIncidentsCount: number;
   aiEscalationsCount: number;
   summary: string;
+  /** Trackpr 2.0, Phase 4C (P2 #2): true when any of this summary's own reads returned a real Postgrest error - see OwnerDailyBriefing.partialData's own comment for the full discipline. */
+  partialData: boolean;
 };
 
 /**
@@ -184,14 +201,18 @@ export type EndOfDaySummary = {
  * its "today" preset, not yet organization-timezone-aware.
  */
 export async function getEndOfDaySummary(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<EndOfDaySummary> {
-  const [dashboard, appointments, estimates, jobs, health, aiEscalationsCount] = await Promise.all([
+  const [dashboard, appointmentsResult, estimatesResult, jobsResult, health, aiEscalationsCount] = await Promise.all([
     getDashboardData(supabase, organizationId),
-    getAppointments(supabase, organizationId),
-    getEstimates(supabase, organizationId),
-    getJobs(supabase, organizationId),
+    getAppointmentsResult(supabase, organizationId),
+    getEstimatesResult(supabase, organizationId),
+    getJobsResult(supabase, organizationId),
     getOrganizationHealth(supabase, organizationId),
     getAiEscalationCount(supabase, organizationId),
   ]);
+  const appointments = appointmentsResult.data;
+  const estimates = estimatesResult.data;
+  const jobs = jobsResult.data;
+  const partialData = dashboard.partialData || appointmentsResult.failed || estimatesResult.failed || jobsResult.failed;
 
   const leadsReceived = dashboard.recentActivity.filter((item) => item.id.startsWith("lead-") && isToday(item.timestamp, now)).length;
 
@@ -234,5 +255,6 @@ export async function getEndOfDaySummary(supabase: SupabaseClient, organizationI
     automationIncidentsCount,
     aiEscalationsCount,
     summary,
+    partialData,
   };
 }

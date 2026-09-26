@@ -76,15 +76,22 @@ function normalizeAppointment(row: RawAppointmentRow): Appointment {
  * organization; the explicit filter keeps the query efficient and its
  * intent obvious.
  */
-export async function getAppointments(supabase: SupabaseClient, organizationId: string): Promise<Appointment[]> {
-  const { data } = await supabase
+export type AppointmentsResult = { data: Appointment[]; failed: boolean };
+
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on a genuine empty org. Wired into the canonical Appointments list page, whose own "no appointments yet" empty state would otherwise be indistinguishable from a failed read. */
+export async function getAppointmentsResult(supabase: SupabaseClient, organizationId: string): Promise<AppointmentsResult> {
+  const { data, error } = await supabase
     .from("appointments")
     .select(APPOINTMENT_COLUMNS)
     .eq("organization_id", organizationId)
     .order("start_at", { ascending: true })
     .limit(1000);
 
-  return ((data ?? []) as RawAppointmentRow[]).map(normalizeAppointment);
+  return { data: ((data ?? []) as RawAppointmentRow[]).map(normalizeAppointment), failed: error != null };
+}
+
+export async function getAppointments(supabase: SupabaseClient, organizationId: string): Promise<Appointment[]> {
+  return (await getAppointmentsResult(supabase, organizationId)).data;
 }
 
 /**
@@ -123,13 +130,16 @@ export async function getAppointment(
  * to display and act on all of them); only the availability engine filters
  * by occupying status.
  */
-export async function getAppointmentsInRange(
+export type AppointmentsInRangeResult = { data: Appointment[]; failed: boolean };
+
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on a genuine empty range. Wired into the Calendar grid view, whose own empty grid would otherwise be indistinguishable from a failed read. */
+export async function getAppointmentsInRangeResult(
   supabase: SupabaseClient,
   organizationId: string,
   rangeStart: Date,
   rangeEnd: Date,
-): Promise<Appointment[]> {
-  const { data } = await supabase
+): Promise<AppointmentsInRangeResult> {
+  const { data, error } = await supabase
     .from("appointments")
     .select(APPOINTMENT_COLUMNS)
     .eq("organization_id", organizationId)
@@ -138,7 +148,16 @@ export async function getAppointmentsInRange(
     .order("start_at", { ascending: true })
     .limit(1000);
 
-  return ((data ?? []) as RawAppointmentRow[]).map(normalizeAppointment);
+  return { data: ((data ?? []) as RawAppointmentRow[]).map(normalizeAppointment), failed: error != null };
+}
+
+export async function getAppointmentsInRange(
+  supabase: SupabaseClient,
+  organizationId: string,
+  rangeStart: Date,
+  rangeEnd: Date,
+): Promise<Appointment[]> {
+  return (await getAppointmentsInRangeResult(supabase, organizationId, rangeStart, rangeEnd)).data;
 }
 
 export type AppointmentView = "upcoming" | "today" | "past";

@@ -68,15 +68,22 @@ function normalizeEstimate(row: RawEstimateRow): Estimate {
  * keys. RLS already scopes rows to the caller's organization; the explicit
  * filter keeps the query efficient and its intent obvious.
  */
-export async function getEstimates(supabase: SupabaseClient, organizationId: string): Promise<Estimate[]> {
-  const { data } = await supabase
+export type EstimatesResult = { data: Estimate[]; failed: boolean };
+
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on a genuine empty org. Wired into the canonical Estimates list page, whose own "no estimates yet" empty state would otherwise be indistinguishable from a failed read. */
+export async function getEstimatesResult(supabase: SupabaseClient, organizationId: string): Promise<EstimatesResult> {
+  const { data, error } = await supabase
     .from("estimates")
     .select(ESTIMATE_COLUMNS)
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false })
     .limit(1000);
 
-  return ((data ?? []) as RawEstimateRow[]).map(normalizeEstimate);
+  return { data: ((data ?? []) as RawEstimateRow[]).map(normalizeEstimate), failed: error != null };
+}
+
+export async function getEstimates(supabase: SupabaseClient, organizationId: string): Promise<Estimate[]> {
+  return (await getEstimatesResult(supabase, organizationId)).data;
 }
 
 /**

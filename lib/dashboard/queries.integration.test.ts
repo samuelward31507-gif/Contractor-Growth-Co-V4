@@ -36,6 +36,7 @@ const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = req
 const { getDashboardData }: typeof import("./queries") = require(path.join(REPO_ROOT, "lib/dashboard/queries.ts"));
 const { findOrCreateOpenConversation }: typeof import("@/lib/conversations/queries") = require(path.join(REPO_ROOT, "lib/conversations/queries.ts"));
 const { syncOpportunities }: typeof import("@/lib/opportunities/detect") = require(path.join(REPO_ROOT, "lib/opportunities/detect.ts"));
+const { getBusinessMetricsSnapshot }: typeof import("@/lib/bi/metrics") = require(path.join(REPO_ROOT, "lib/bi/metrics.ts"));
 
 const service = createServiceRoleClient();
 
@@ -665,7 +666,7 @@ test("37. multiple appointments for the same lead never double-count it in pipel
   }
 });
 
-test("38. multiple estimates for the same lead never double-count it in pipeline.estimate/overview.pendingEstimates", async () => {
+test("38. multiple estimates for the same lead never double-count it in pipeline.estimate (a current-state, lead-based pipeline stage) - but Phase 4C's own fix means overview.pendingEstimates now correctly counts BOTH estimate rows, matching Analytics' sentEstimates exactly", async () => {
   const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (38)");
   try {
     const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800010" }).select("id").single();
@@ -676,8 +677,40 @@ test("38. multiple estimates for the same lead never double-count it in pipeline
     ]);
 
     const data = await getDashboardData(service, orgId);
-    assert.equal(data.pipeline.estimate, 1, "the same lead must count exactly once even with two real sent-estimate rows");
-    assert.equal(data.overview.pendingEstimates, 1);
+    assert.equal(data.pipeline.estimate, 1, "the same lead must still count exactly once in the current-state pipeline stage, even with two real sent-estimate rows");
+    assert.equal(
+      data.overview.pendingEstimates,
+      2,
+      "Trackpr 2.0, Phase 4C (P2 #9): overview.pendingEstimates is now a real count of sent estimate ROWS (matching Analytics' BiEstimateMetrics.sentEstimates exactly), not a distinct-lead count - two real sent estimates for the same lead correctly count as 2, never silently collapsed to 1",
+    );
+  } finally {
+    await cleanupFunnelTruthOrg(orgId);
+  }
+});
+
+test("38b (P2 #9). Dashboard's overview.pendingEstimates and Analytics' sentEstimates now agree exactly, even for a lead with multiple simultaneously-sent estimates", async () => {
+  const orgId = await makeFunnelTruthOrg("Funnel Truth Test Org (38b)");
+  try {
+    const { data: contactA } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800011" }).select("id").single();
+    const { data: leadA } = await service.from("leads").insert({ organization_id: orgId, contact_id: contactA!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("estimates").insert([
+      { organization_id: orgId, contact_id: contactA!.id, lead_id: leadA!.id, title: "Quote A", status: "sent", amount: 100 },
+      { organization_id: orgId, contact_id: contactA!.id, lead_id: leadA!.id, title: "Quote B", status: "sent", amount: 200 },
+    ]);
+    const { data: contactB } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555800012" }).select("id").single();
+    const { data: leadB } = await service.from("leads").insert({ organization_id: orgId, contact_id: contactB!.id, status: "qualified", temperature: "warm", source: "website" }).select("id").single();
+    await service.from("estimates").insert({ organization_id: orgId, contact_id: contactB!.id, lead_id: leadB!.id, title: "Quote C", status: "sent", amount: 300 });
+
+    const dashboardData = await getDashboardData(service, orgId);
+    const snapshot = await getBusinessMetricsSnapshot(service, orgId, "allTime");
+
+    assert.equal(dashboardData.overview.pendingEstimates, 3, "3 real sent-estimate rows across 2 leads");
+    assert.equal(snapshot.estimateMetrics.sentEstimates, 3);
+    assert.equal(
+      dashboardData.overview.pendingEstimates,
+      snapshot.estimateMetrics.sentEstimates,
+      "Dashboard and Analytics must report the exact same real number for the exact same underlying fact - the verified P2 #9 unit mismatch is fixed",
+    );
   } finally {
     await cleanupFunnelTruthOrg(orgId);
   }

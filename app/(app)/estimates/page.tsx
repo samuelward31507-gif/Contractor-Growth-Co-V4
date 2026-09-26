@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
-import { filterEstimates, getEstimates, summarizeEstimates, type EstimateStatus } from "@/lib/estimates/queries";
+import { filterEstimates, getEstimatesResult, summarizeEstimates, type EstimateStatus } from "@/lib/estimates/queries";
 import { PageHeader } from "@/lib/ui/page-header";
 import { Panel } from "@/lib/ui/section-card";
 import { AddEstimateButton } from "./_components/add-estimate-button";
@@ -51,11 +52,12 @@ export default async function EstimatesPage({ searchParams }: PageProps<"/estima
     redirect("/onboarding");
   }
 
-  const [allEstimates, contacts, leads] = await Promise.all([
-    getEstimates(supabase, membership.organizationId),
+  const [estimatesResult, contacts, leads] = await Promise.all([
+    getEstimatesResult(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
   ]);
+  const allEstimates = estimatesResult.data;
 
   const summary = summarizeEstimates(allEstimates);
   const filtered = filterEstimates(allEstimates, { query, status });
@@ -80,6 +82,13 @@ export default async function EstimatesPage({ searchParams }: PageProps<"/estima
           </div>
         }
       />
+
+      {estimatesResult.failed ? (
+        <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>Some information is temporarily unavailable. Please try again.</p>
+        </div>
+      ) : null}
 
       <EstimatesSummary summary={summary} />
 

@@ -206,6 +206,19 @@ function displayNameOrFallback(contact: ContactRef, fallback: string): string {
 // A. qualified_lead_unbooked
 // ---------------------------------------------------------------------------
 
+/**
+ * Trackpr 2.0, Phase 4C (P2 #6): "booked" means an appointment in one of the
+ * three statuses that represent a real, still-relevant booking outcome -
+ * matches lib/scheduling/availability.ts's own OCCUPYING_APPOINTMENT_STATUSES
+ * exactly (a cancelled appointment never happened; a no-show means the slot
+ * is free again and the lead was never actually seen). Previously this
+ * checked for ANY appointment row regardless of status, so a lead whose only
+ * appointment history was cancelled (or a no-show) was permanently treated
+ * as "booked" and could never resurface here again, even though nothing is
+ * actually on the calendar for them.
+ */
+const ACTIVE_BOOKING_STATUSES = ["scheduled", "confirmed", "completed"] as const;
+
 async function detectQualifiedLeadsUnbooked(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
   const { data: leadRows } = await supabase
     .from("leads")
@@ -217,7 +230,13 @@ async function detectQualifiedLeadsUnbooked(supabase: SupabaseClient, organizati
   const leads = (leadRows ?? []) as { id: string; contact_id: string | null; service: string | null; estimated_value: number | null; contacts: ContactRef }[];
   if (leads.length === 0) return [];
 
-  const { data: appointmentRows } = await supabase.from("appointments").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).limit(MAX_ROWS);
+  const { data: appointmentRows } = await supabase
+    .from("appointments")
+    .select("lead_id")
+    .eq("organization_id", organizationId)
+    .not("lead_id", "is", null)
+    .in("status", ACTIVE_BOOKING_STATUSES)
+    .limit(MAX_ROWS);
   const bookedLeadIds = new Set(((appointmentRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id));
 
   return leads

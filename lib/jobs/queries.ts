@@ -77,15 +77,22 @@ function normalizeJob(row: RawJobRow): Job {
  * caller's organization; the explicit filter keeps the query efficient and
  * its intent obvious.
  */
-export async function getJobs(supabase: SupabaseClient, organizationId: string): Promise<Job[]> {
-  const { data } = await supabase
+export type JobsResult = { data: Job[]; failed: boolean };
+
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on a genuine empty org. Wired into the canonical Jobs list page, whose own "no jobs yet" empty state would otherwise be indistinguishable from a failed read. */
+export async function getJobsResult(supabase: SupabaseClient, organizationId: string): Promise<JobsResult> {
+  const { data, error } = await supabase
     .from("jobs")
     .select(JOB_COLUMNS)
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false })
     .limit(1000);
 
-  return ((data ?? []) as RawJobRow[]).map(normalizeJob);
+  return { data: ((data ?? []) as RawJobRow[]).map(normalizeJob), failed: error != null };
+}
+
+export async function getJobs(supabase: SupabaseClient, organizationId: string): Promise<Job[]> {
+  return (await getJobsResult(supabase, organizationId)).data;
 }
 
 /**

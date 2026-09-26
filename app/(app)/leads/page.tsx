@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import {
   filterLeads,
-  getLeads,
+  getLeadsResult,
   summarizeLeads,
   type Lead,
   type LeadStatus,
@@ -99,10 +100,11 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
     redirect("/onboarding");
   }
 
-  const [allLeads, contacts] = await Promise.all([
-    getLeads(supabase, membership.organizationId),
+  const [leadsResult, contacts] = await Promise.all([
+    getLeadsResult(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
   ]);
+  const allLeads = leadsResult.data;
 
   const summary = summarizeLeads(allLeads);
   const filtered = sortLeads(filterLeads(allLeads, { query, status, temperature }), sort);
@@ -130,6 +132,13 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
           </div>
         }
       />
+
+      {leadsResult.failed ? (
+        <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>Some information is temporarily unavailable. Please try again.</p>
+        </div>
+      ) : null}
 
       <LeadsSummary summary={summary} />
 

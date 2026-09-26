@@ -347,6 +347,35 @@ test("recordRequestResponses is a safe no-op for a contact with no pending reque
   await service.from("contacts").delete().eq("id", freshContact!.id);
 });
 
+test("Trackpr 2.0, Phase 4C (P2 #4) - documented, intentional tradeoff: a reply that is topically unrelated to the review/referral ask still marks the pending request 'responded', since this function takes no message content at all", async () => {
+  const jobId = await makeJob();
+  const messageId = await makeMessage(conversationId);
+  const executionId = await makeExecution();
+  await recordPostJobFollowupOutcome(
+    service,
+    { organizationId, jobId, contactId, conversationId: null, reviewUrl: "https://example.com/review" },
+    { kind: "sent", messageId, workflowExecutionId: executionId },
+  );
+
+  // A real inbound message with content entirely unrelated to the review
+  // ask - the webhook still calls recordRequestResponses for every normal
+  // inbound message regardless of what it says (see the function's own
+  // updated doc comment for why this is accepted, not accidental).
+  await service.from("messages").insert({
+    organization_id: organizationId,
+    conversation_id: conversationId,
+    direction: "inbound",
+    sender_type: "customer",
+    body: "Hey, can we reschedule tomorrow's appointment to next Tuesday instead?",
+    status: "delivered",
+  });
+
+  await recordRequestResponses(service, organizationId, contactId);
+
+  const { data: review } = await service.from("review_requests").select("status").eq("job_id", jobId).single();
+  assert.equal(review?.status, "responded", "an off-topic reply still counts as 'responded' - this status means 'the contact said something back,' never 'the contact addressed the review ask'");
+});
+
 // ==================== Security / RLS ====================
 
 test("an org member can read their own organization's review/referral requests", async () => {

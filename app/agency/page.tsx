@@ -1,3 +1,4 @@
+import { AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
@@ -134,6 +135,17 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
           Contractor Growth Co. · {formatCount(metrics.organizations.length)} client organization{metrics.organizations.length === 1 ? "" : "s"}
         </p>
       </div>
+
+      {/* Trackpr 2.0, Phase 4C (P2 #1): a real Postgrest error on the
+          stuck-execution, calendar-health, or payment/pause read must never
+          silently render as "nothing wrong" in the System Health row below -
+          see getAgencyHealth's own AgencyHealthResult.partialData comment. */}
+      {health.partialData ? (
+        <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>Some information is temporarily unavailable. Please try again.</p>
+        </div>
+      ) : null}
 
       <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-slate-200 py-4">
         <Row label="Clients" value={formatCount(allRows.length)} />

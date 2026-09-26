@@ -101,6 +101,7 @@ function distinctLeadIdsWithPendingEstimate(estimates: { lead_id: string | null;
 export type OverviewMetrics = {
   newLeads: number;
   upcomingAppointments: number;
+  /** Trackpr 2.0, Phase 4C (P2 #9): COUNT(estimates) where status = 'sent' - the exact same real-world number as Analytics' BiEstimateMetrics.sentEstimates, never a distinct-lead count (see the computation site in getDashboardData for the full history). */
   pendingEstimates: number;
   openOpportunities: number;
 };
@@ -327,7 +328,17 @@ export async function getDashboardData(
         (appointment.status === "scheduled" || appointment.status === "confirmed") &&
         new Date(appointment.start_at).getTime() >= now,
     ).length,
-    pendingEstimates: leads.filter((lead) => leadIdsWithPendingEstimate.has(lead.id)).length,
+    // Trackpr 2.0, Phase 4C (P2 #9): a count of estimate ROWS with
+    // status = 'sent' - now exactly the same real-world number as
+    // Analytics' BiEstimateMetrics.sentEstimates (lib/bi/queries.ts's
+    // getEstimateMetrics), not a count of distinct leads. Previously this
+    // counted distinct leads with at least one sent estimate, which could
+    // silently disagree with Analytics whenever a lead has more than one
+    // simultaneously-sent estimate. pipeline.estimate below is deliberately
+    // NOT changed - "how many leads are currently sitting in the estimate
+    // stage" is a genuinely different, legitimately lead-based current-state
+    // pipeline question, not the same metric as this one.
+    pendingEstimates: estimates.filter((estimate) => estimate.status === PENDING_ESTIMATE_STATUS).length,
     openOpportunities: leads.filter((lead) => ACTIVE_LEAD_STATUSES.has(lead.status)).length,
   };
 

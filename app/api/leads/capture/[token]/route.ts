@@ -10,6 +10,23 @@ const MAX_MESSAGE_LENGTH = 2000;
 const DUPLICATE_WINDOW_MINUTES = 10;
 
 /**
+ * Trackpr 2.0, Phase 4C (P2 #8): lightweight abuse control for a leaked or
+ * guessed lead_intake_token - deliberately org-wide (not per-contact; the
+ * existing DUPLICATE_WINDOW_MINUTES check above already handles the
+ * per-contact case), and deliberately counting EVERY lead created for this
+ * organization in the window regardless of source, never a caller-supplied
+ * field (an attacker varying `source` per request must not be able to dodge
+ * a per-source count). 20 new leads in 10 minutes is far beyond any real
+ * contractor's normal volume through this one endpoint, so this is set
+ * generously to avoid ever blocking legitimate traffic - the goal is to stop
+ * an obvious flood, not to meter ordinary usage. Uses only the leads table
+ * this route already queries for its own duplicate check - no new table, no
+ * schema change, no Redis/external service.
+ */
+const RATE_LIMIT_WINDOW_MINUTES = 10;
+const RATE_LIMIT_MAX_LEADS_PER_WINDOW = 20;
+
+/**
  * First-Client Lead Capture V1: the missing connection between an external
  * lead source (a contractor's own website contact form, a lead-gen
  * platform's webhook, Zapier/Make, etc.) and Trackpr. Before this route,
@@ -31,10 +48,13 @@ const DUPLICATE_WINDOW_MINUTES = 10;
  * A client-supplied organization_id in the request body, if present, is
  * never read for authorization anywhere in this file.
  *
- * What this route does NOT do (see the final report's DEFERRED section):
- * no rate limiting/abuse protection beyond ordinary platform limits, no
- * lead-source management UI, no configurable field mapping - the minimum
- * needed for the first real contractor to receive a lead safely.
+ * What this route does NOT do: no lead-source management UI, no
+ * configurable field mapping - the minimum needed for the first real
+ * contractor to receive a lead safely. Trackpr 2.0, Phase 4C (P2 #8) added a
+ * simple, org-wide, database-backed rate limit (see
+ * RATE_LIMIT_MAX_LEADS_PER_WINDOW below) - this is deliberately a coarse
+ * flood guard, not a precise per-source/per-IP throttle, and never blocks on
+ * its own query failing (fails open).
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -54,6 +74,27 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
   }
   const organizationId = organization.id as string;
+
+  // Trackpr 2.0, Phase 4C (P2 #8): checked before any body parsing or
+  // contact/lead creation, so a flood never gets far enough to create
+  // contacts even when the submissions themselves would otherwise be
+  // rejected downstream. Fails OPEN (never blocks) on a query error - for a
+  // public lead-capture endpoint, silently under-enforcing an abuse control
+  // during a transient database hiccup is far safer than dropping a real
+  // contractor's real lead because a rate-limit check itself broke.
+  const rateLimitWindowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000).toISOString();
+  const { count: recentLeadCount, error: rateLimitCheckError } = await service
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .gte("created_at", rateLimitWindowStart);
+
+  if (rateLimitCheckError) {
+    console.error("[lead-capture] rate-limit check failed - failing open", { organizationId, error: rateLimitCheckError.message });
+  } else if ((recentLeadCount ?? 0) >= RATE_LIMIT_MAX_LEADS_PER_WINDOW) {
+    console.error("[lead-capture] rate limit exceeded", { organizationId, recentLeadCount });
+    return NextResponse.json({ ok: false, error: "Too many submissions. Please try again shortly." }, { status: 429 });
+  }
 
   let raw: unknown;
   try {

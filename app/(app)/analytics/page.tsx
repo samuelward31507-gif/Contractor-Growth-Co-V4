@@ -9,7 +9,7 @@ import {
 } from "@/lib/activity/queries";
 import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
 import type { DateRangePreset } from "@/lib/bi/types";
-import { getRepeatCustomerSummary } from "@/lib/customers/lifecycle";
+import { getRepeatCustomerSummaryResult } from "@/lib/customers/lifecycle";
 import { PageHeader } from "@/lib/ui/page-header";
 import { sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
 import { ActivityEmptyState } from "./_components/activity-empty-state";
@@ -77,7 +77,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
     // Pass 3: deliberately not range-scoped (see RepeatCustomerSection's own
     // documentation) - "has this customer come back, ever" ignores whatever
     // period the range tabs above have selected.
-    getRepeatCustomerSummary(supabase, membership.organizationId),
+    getRepeatCustomerSummaryResult(supabase, membership.organizationId),
   ]);
 
   const hasActiveFilters = Boolean(query.trim()) || entityType !== "all" || Boolean(from) || Boolean(to);
@@ -112,8 +112,11 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
           appointments, AI) used to silently render as $0/0%/"no data" -
           indistinguishable from genuine emptiness on the one page whose
           entire purpose is "how is my business doing." Mirrors Dashboard's
-          own partialData notice exactly (app/(app)/dashboard/page.tsx). */}
-      {snapshot.partialData ? (
+          own partialData notice exactly (app/(app)/dashboard/page.tsx).
+          Trackpr 2.0, Phase 4C (P2 #1): also covers repeatCustomerSummary's
+          own failed signal - a failure there would otherwise render as a
+          false "0 repeat customers" in the Customers section below. */}
+      {snapshot.partialData || repeatCustomerSummary.failed ? (
         <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>Some information is temporarily unavailable. Please try again.</p>

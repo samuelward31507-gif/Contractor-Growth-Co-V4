@@ -13,7 +13,7 @@ import { getContacts } from "@/lib/contacts/queries";
 import { isSameCalendarDay } from "@/lib/appointments/format";
 import { syncOpportunities } from "@/lib/opportunities/detect";
 import { getOpenOpportunities, summarizeOpportunities } from "@/lib/opportunities/queries";
-import { getRepeatCustomerSummary, getDormantCustomersValueSummary } from "@/lib/customers/lifecycle";
+import { getRepeatCustomerSummaryResult, getDormantCustomersValueSummaryResult } from "@/lib/customers/lifecycle";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
@@ -133,8 +133,8 @@ export default async function DashboardPage() {
   // shape.
   const dormantContactIds = [...new Set(openOpportunities.filter((o) => o.type === "dormant_customer" && o.contactId != null).map((o) => o.contactId as string))];
   const [repeatCustomerSummary, dormantCustomersValue] = await Promise.all([
-    getRepeatCustomerSummary(supabase, membership.organizationId),
-    getDormantCustomersValueSummary(supabase, membership.organizationId, dormantContactIds),
+    getRepeatCustomerSummaryResult(supabase, membership.organizationId),
+    getDormantCustomersValueSummaryResult(supabase, membership.organizationId, dormantContactIds),
   ]);
 
   const businessName = membership.organizationName ?? "there";
@@ -172,8 +172,16 @@ export default async function DashboardPage() {
             partialData - the Pipeline Value figure rendered just below reads
             directly from that snapshot, so a failure there deserves the
             exact same disclosure as a failure on this page's own 5 direct
-            reads, not a second, separate banner. */}
-        {data.partialData || businessMetrics.partialData ? (
+            reads, not a second, separate banner.
+            Trackpr 2.0, Phase 4C (P2 #1): also covers repeatCustomerSummary/
+            dormantCustomersValue's own failed signal - a failure there would
+            otherwise render as a false "0 repeat customers"/"$0 dormant
+            value" in the Customers section below.
+            Trackpr 2.0, Phase 4C (P2 #2): also covers dailyBriefing/
+            endOfDaySummary's own partialData - a failure there would
+            otherwise render as a confidently "clean" briefing sentence built
+            on incomplete data. */}
+        {data.partialData || businessMetrics.partialData || repeatCustomerSummary.failed || dormantCustomersValue.failed || dailyBriefing.partialData || endOfDaySummary.partialData ? (
           <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <p>

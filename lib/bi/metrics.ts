@@ -10,7 +10,7 @@ import {
   getAiMetrics,
   getReviewReferralMetrics,
 } from "./queries";
-import { hasAnyLeadStageHistory, getLeadsForRange, getLeadStageTransitionMetrics, getLeadStageTimingMetrics, getLeadResponseTimeMetrics } from "./funnel";
+import { hasAnyLeadStageHistory, getLeadsForRangeResult, getLeadStageTransitionMetrics, getLeadStageTimingMetrics, getLeadResponseTimeMetrics } from "./funnel";
 import type {
   DateRangeInput,
   ResolvedDateRange,
@@ -593,7 +593,7 @@ export async function getBusinessMetricsSnapshot(
     { metrics: aiMetrics, failed: aiFailed },
     reviewReferralMetrics,
     stageHistoryExists,
-    sharedLeads,
+    { leads: sharedLeads, failed: sharedLeadsFailed },
     transitionMetrics,
     previousTotals,
   ] =
@@ -617,7 +617,7 @@ export async function getBusinessMetricsSnapshot(
       // below by getLeadStageTimingMetrics and getLeadResponseTimeMetrics -
       // see lib/bi/funnel.ts's own header comment for why this replaces two
       // separate, redundant `leads` reads with one.
-      getLeadsForRange(supabase, organizationId, range),
+      getLeadsForRangeResult(supabase, organizationId, range),
       getLeadStageTransitionMetrics(supabase, organizationId, range),
       previousRange
         ? Promise.all([
@@ -625,7 +625,7 @@ export async function getBusinessMetricsSnapshot(
             getEstimateMetrics(supabase, organizationId, previousRange),
             getJobMetrics(supabase, organizationId, previousRange),
             getLeadStageTransitionMetrics(supabase, organizationId, previousRange),
-            getLeadsForRange(supabase, organizationId, previousRange),
+            getLeadsForRangeResult(supabase, organizationId, previousRange),
           ])
         : Promise.resolve(null),
     ]);
@@ -641,7 +641,7 @@ export async function getBusinessMetricsSnapshot(
   const [timingMetrics, responseTimeMetrics, previousResponseTimeMetrics] = await Promise.all([
     getLeadStageTimingMetrics(supabase, organizationId, sharedLeads),
     getLeadResponseTimeMetrics(supabase, organizationId, sharedLeads),
-    previousTotals ? getLeadResponseTimeMetrics(supabase, organizationId, previousTotals[4]) : Promise.resolve(null),
+    previousTotals ? getLeadResponseTimeMetrics(supabase, organizationId, previousTotals[4].leads) : Promise.resolve(null),
   ]);
 
   const comparisons: BusinessMetricsComparisons = previousTotals
@@ -668,11 +668,18 @@ export async function getBusinessMetricsSnapshot(
   // response never sets this. Mirrors DashboardData.partialData
   // (lib/dashboard/queries.ts) exactly. Deliberately scoped to the CURRENT
   // period's reads only, not the previous-period comparison reads above
-  // (comparisons/leadCount etc. are a secondary, smaller-stakes signal - see
-  // this phase's own report for the explicit scope line drawn here), and
-  // deliberately does not extend to communication/automation/review-referral/
-  // funnel metrics, which were not part of the audited P1 finding.
-  const partialDataSourceCount = [leadFailed, estimatesFailed, jobsFailed, appointmentsFailed, aiFailed].filter(Boolean).length;
+  // (comparisons/leadCount etc. are a secondary, smaller-stakes signal), and
+  // deliberately does not extend to communication/automation/review-referral
+  // metrics, which are outside this file's own audited scope.
+  //
+  // Trackpr 2.0, Phase 4C (P2 #1): extended to also cover lib/bi/funnel.ts's
+  // own reads (the shared leads fetch, historical transitions, timing, and
+  // response-time metrics) - a failure there would otherwise silently render
+  // as an empty/zeroed "Historical funnel"/"Time to first response" section
+  // on Analytics, indistinguishable from a genuinely quiet period.
+  const partialDataSourceCount = [leadFailed, estimatesFailed, jobsFailed, appointmentsFailed, aiFailed, sharedLeadsFailed, transitionMetrics.failed, timingMetrics.failed, responseTimeMetrics.failed].filter(
+    Boolean,
+  ).length;
   const partialData = partialDataSourceCount > 0;
 
   return {

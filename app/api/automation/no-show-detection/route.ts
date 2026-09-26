@@ -21,8 +21,20 @@ async function handle(request: NextRequest) {
   const service = createServiceRoleClient();
   const result = await processNoShowDetection(service);
   // Pass 5A: records that this route actually ran, independent of candidate
-  // count - see scheduled-automation-liveness.ts's own header comment.
+  // count - see scheduled-automation-liveness.ts's own header comment. Still
+  // recorded even when the scan itself failed below - the route DID execute,
+  // which is exactly what this heartbeat is documented to mean; it is never
+  // a claim that the scan succeeded.
   await recordScheduledAutomationRun(service, "no-show-detection", result.candidates);
+
+  // Trackpr 2.0, Phase 4C (P2 #5): a real scan failure must never report
+  // ok: true with a fabricated-looking "0 candidates" - see
+  // NoShowDetectionResult.scanFailed's own comment in
+  // lib/automation/no-show-detection.ts. The underlying error was already
+  // logged there; never leaked into this response.
+  if (result.scanFailed) {
+    return NextResponse.json({ ok: false, error: "The no-show detection scan failed. See server logs." }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true, candidates: result.candidates, outcomes: result.outcomes });
 }

@@ -69,15 +69,22 @@ function normalizeLead(row: RawLeadRow): Lead {
  * caller's organization; the explicit filter keeps the query efficient and
  * its intent obvious.
  */
-export async function getLeads(supabase: SupabaseClient, organizationId: string): Promise<Lead[]> {
-  const { data } = await supabase
+export type LeadsResult = { data: Lead[]; failed: boolean };
+
+/** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on a genuine empty org. Wired into the canonical Leads (Customers) list page, whose own "no leads yet" empty state would otherwise be indistinguishable from a failed read. */
+export async function getLeadsResult(supabase: SupabaseClient, organizationId: string): Promise<LeadsResult> {
+  const { data, error } = await supabase
     .from("leads")
     .select(LEAD_COLUMNS)
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false })
     .limit(1000);
 
-  return ((data ?? []) as RawLeadRow[]).map(normalizeLead);
+  return { data: ((data ?? []) as RawLeadRow[]).map(normalizeLead), failed: error != null };
+}
+
+export async function getLeads(supabase: SupabaseClient, organizationId: string): Promise<Lead[]> {
+  return (await getLeadsResult(supabase, organizationId)).data;
 }
 
 export type LeadFilters = {

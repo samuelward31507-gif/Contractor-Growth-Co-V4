@@ -83,7 +83,7 @@ async function processNoShowDetectionTolerant(...args: Parameters<typeof process
     return await processNoShowDetection(...args);
   } catch (e) {
     if (!String(e).includes("after` was called outside a request scope")) throw e;
-    return { candidates: 0, outcomes: [] };
+    return { candidates: 0, outcomes: [], scanFailed: false };
   }
 }
 
@@ -263,4 +263,12 @@ test("24. rebooking behavior: once a no-show appointment is moved back to 'sched
 
   const { data: allOpportunitiesForAppointment } = await service.from("opportunities").select("id, status").eq("organization_id", organizationId).eq("type", "no_show").eq("source_entity_id", appointmentId);
   assert.equal(allOpportunitiesForAppointment?.length, 1, "rebooking must resolve the existing opportunity, never create a second one for the same appointment id");
+});
+
+test("25 (P2 #5). a normal, successful scan reports scanFailed: false - even when it finds real candidates", async () => {
+  const { end_at } = nextSlot();
+  await insertAppointment(organizationId, contactId, "scheduled", end_at);
+
+  const result = await processNoShowDetectionTolerant(service);
+  assert.equal(result.scanFailed, false, "a genuine, successful scan must never be reported as failed");
 });
