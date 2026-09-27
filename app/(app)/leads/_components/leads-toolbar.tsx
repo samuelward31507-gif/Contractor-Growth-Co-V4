@@ -6,6 +6,7 @@ import { Search, X } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import { LEAD_STATUSES, LEAD_TEMPERATURES } from "@/lib/leads/queries";
 import type { LeadSort } from "../page";
+import { buildLeadsQueryString } from "./leads-toolbar-query";
 
 const SORT_OPTIONS: { value: LeadSort; label: string }[] = [
   { value: "newest", label: "Newest first" },
@@ -19,11 +20,21 @@ export function LeadsToolbar({
   initialStatus,
   initialTemperature,
   initialSort,
+  from,
 }: {
   initialQuery: string;
   initialStatus: string;
   initialTemperature: string;
   initialSort: LeadSort;
+  /**
+   * The dispatcher's own page-identity marker (see app/(app)/customers/
+   * page.tsx - `from=lead` is what routes a request to this page instead
+   * of ContactsPage). It is never user-editable here, only ever carried
+   * forward - every navigate() below must include it, or a filter/search/
+   * sort change silently drops the view back into the unfiltered Customers
+   * list on the next render.
+   */
+  from?: string;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [status, setStatus] = useState(initialStatus);
@@ -33,13 +44,7 @@ export function LeadsToolbar({
   const pathname = usePathname();
 
   function navigate(nextQuery: string, nextStatus: string, nextTemperature: string, nextSort: LeadSort) {
-    const params = new URLSearchParams();
-    const trimmed = nextQuery.trim();
-    if (trimmed) params.set("q", trimmed);
-    if (nextStatus !== "all") params.set("status", nextStatus);
-    if (nextTemperature !== "all") params.set("temperature", nextTemperature);
-    if (nextSort !== "newest") params.set("sort", nextSort);
-    const queryString = params.toString();
+    const queryString = buildLeadsQueryString({ from, query: nextQuery, status: nextStatus, temperature: nextTemperature, sort: nextSort });
     router.replace(queryString ? `${pathname}?${queryString}` : pathname);
   }
 

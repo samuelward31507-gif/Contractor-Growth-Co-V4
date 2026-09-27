@@ -98,6 +98,12 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   const status = normalizeStatus(typeof params.status === "string" ? params.status : undefined);
   const temperature = normalizeTemperature(typeof params.temperature === "string" ? params.temperature : undefined);
   const sort = normalizeSort(typeof params.sort === "string" ? params.sort : undefined);
+  // This page only ever renders via /customers?from=lead (see the header
+  // comment above) - `from` is the dispatcher's own page-identity marker,
+  // not a user-facing filter, but LeadsToolbar's client-side URL sync must
+  // still carry it forward on every replace() or a filter/search/sort
+  // change silently drops the request back into ContactsPage.
+  const from = typeof params.from === "string" ? params.from : undefined;
 
   const supabase = await createClient();
 
@@ -184,7 +190,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
         <LeadsEmptyState contacts={contacts} />
       ) : (
         <Panel>
-          <LeadsToolbar initialQuery={query} initialStatus={status} initialTemperature={temperature} initialSort={sort} />
+          <LeadsToolbar initialQuery={query} initialStatus={status} initialTemperature={temperature} initialSort={sort} from={from} />
           <div className="mt-5">
             <LeadsTable leads={filtered} hasActiveFilters={hasActiveFilters} />
           </div>
