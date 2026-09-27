@@ -27,14 +27,19 @@ export const labelClass = "text-sm font-medium text-slate-700";
 // state at all, relying solely on the browser's own default outline, which
 // varies by browser and is easy to miss against a colored button fill.
 // Ring color matches each tier's own semantic color.
+// Phase 1 (components pass): min-h-[52px] on mobile only (sm:min-h-0 lets
+// desktop keep its existing compact py-2.5 sizing, where a mouse pointer
+// doesn't need the same touch-target floor) - Apple/Google both recommend
+// a 44px floor for a touch target; 52px gives real margin above that for
+// the primary action specifically.
 export const primaryButtonClass =
-  "inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
+  "inline-flex w-full min-h-[52px] items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300 sm:min-h-0";
 
 // Same treatment as primaryButtonClass without the forced full width, for
 // buttons placed inline (e.g. a right-aligned section "Save" action) rather
 // than filling a dialog.
 export const primaryButtonAutoClass =
-  "inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
+  "inline-flex min-h-[52px] items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300 sm:min-h-0";
 
 export const errorBannerClass =
   "rounded-lg border border-danger-border bg-danger-muted px-3.5 py-2.5 text-sm text-danger-text";
@@ -46,7 +51,7 @@ export const successBannerClass =
 // accent tier (see that constant's comment) - kept so any existing import
 // keeps working unchanged. Prefer primaryButtonAutoClass in new code.
 export const accentButtonAutoClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
+  "inline-flex min-h-[52px] items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300 sm:min-h-0";
 
 // Premium-polish pass: the button hierarchy every route should reach for
 // instead of hand-rolling its own "secondary"/"destructive" button classes
@@ -73,8 +78,13 @@ export const destructiveGhostButtonAutoClass =
 
 // Compact variants for dense inline contexts (a detail-page action row, a
 // table row's actions) where the full py-2.5 buttons above are too tall.
+// Phase 1 (components pass): min-h-[44px] - the tier used to be ~32px
+// tall (py-1.5 + text-xs), well under Apple/Google's shared 44px touch-
+// target floor. The visible padding/text size are unchanged; only the
+// minimum hit area grows, via min-height rather than more padding, so
+// dense contexts don't get visually bulkier than the plan calls for.
 export const primaryButtonSmallClass =
-  "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
+  "inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
 
 export const secondaryButtonSmallClass =
-  "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
