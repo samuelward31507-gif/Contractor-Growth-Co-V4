@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, LayoutDashboard, TrendingUp, LogOut } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, TrendingUp, Activity, LogOut } from "lucide-react";
 import { logout } from "@/app/(app)/actions";
 
 /**
@@ -27,10 +27,15 @@ import { logout } from "@/app/(app)/actions";
  * the only reason this file is a client component. No other behavior here
  * changed; client detail pages remain a drill-down from the client list,
  * never a sidebar destination of their own.
+ *
+ * Trackpr Phase 5B: a third destination (Client Usage, /agency/usage) added
+ * the same way - no new logic, just one more entry in the same list the
+ * active-route detection below already handles generically.
  */
 const NAV_ITEMS = [
   { href: "/agency", label: "Overview", icon: LayoutDashboard },
   { href: "/agency/expansion", label: "Expansion", icon: TrendingUp },
+  { href: "/agency/usage", label: "Usage", icon: Activity },
 ] as const;
 
 export function AgencySidebarContent({

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertCircle, ChevronRight } from "lucide-react";
+import { AlertCircle, ChevronRight, Activity } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
@@ -167,17 +167,16 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
       </div>
 
       {/*
-        Trackpr Phase 5A: a minimal navigation entry to the new
-        Expansion Intelligence page - deliberately NOT a live summary with
-        its own opportunity/known-value numbers. Computing those here would
-        mean this already-heavy overview page (7 parallel agency reads on
-        every load) runs the full per-organization opportunities fan-out a
-        second time, for numbers whose only real destination is the
-        Expansion page itself. A plain link keeps this page's existing query
-        cost unchanged; the real numbers live on /agency/expansion, where
-        they're fetched exactly once.
+        Trackpr Phase 5A/5B: minimal navigation entries to the Expansion and
+        Usage pages - deliberately NOT live summaries with their own numbers.
+        Computing those here would mean this already-heavy overview page (7
+        parallel agency reads on every load) runs each page's own full
+        per-organization fan-out a second time, for numbers whose only real
+        destination is that dedicated page. A plain link keeps this page's
+        existing query cost unchanged; the real numbers live on
+        /agency/expansion and /agency/usage, each fetched exactly once.
       */}
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 grid grid-cols-1 gap-4 border-t border-slate-200 pt-8 sm:grid-cols-2">
         <Link
           href="/agency/expansion"
           className="group flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-5 py-4 transition-colors hover:border-slate-300 hover:bg-slate-50"
@@ -186,9 +185,20 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
             <p className="text-sm font-semibold text-slate-900">Expansion Opportunities</p>
             <p className="mt-0.5 text-xs text-slate-500">Estimate recovery, reactivation, and other service opportunities across your managed clients.</p>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-accent-text">
-            View Expansion Intelligence
-            <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+          <ChevronRight className="h-4 w-4 shrink-0 text-accent-text transition-transform group-hover:translate-x-0.5" aria-hidden />
+        </Link>
+
+        <Link
+          href="/agency/usage"
+          className="group flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-5 py-4 transition-colors hover:border-slate-300 hover:bg-slate-50"
+        >
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Client Usage</p>
+            <p className="mt-0.5 text-xs text-slate-500">Messaging, AI, and automation activity across your managed clients — usage visibility, not billing.</p>
+          </div>
+          <span className="flex shrink-0 items-center gap-2">
+            <Activity className="h-4 w-4 text-accent-text" aria-hidden />
+            <ChevronRight className="h-4 w-4 text-accent-text transition-transform group-hover:translate-x-0.5" aria-hidden />
           </span>
         </Link>
       </div>
