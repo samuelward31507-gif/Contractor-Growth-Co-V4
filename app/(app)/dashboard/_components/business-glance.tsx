@@ -74,6 +74,7 @@ export function BusinessGlance({
         <Row label="Active leads" value={String(overview.openOpportunities)} />
         <Row label="Upcoming appointments" value={String(overview.upcomingAppointments)} />
         <Row label="Estimates pending" value={String(overview.pendingEstimates)} />
+        <Row label="Pipeline value" value={formatCurrency(snapshot.pipelineMetrics.pipelineValue)} description="Open leads, current" />
       </div>
 
       <p className={`mt-5 ${sectionLabelClass}`}>Last 30 days</p>
@@ -84,8 +85,11 @@ export function BusinessGlance({
           value={String(snapshot.comparisons.estimateCount.current)}
           description={`Accept rate ${formatRate(snapshot.estimateMetrics.estimateAcceptanceRate)}`}
         />
+        <Row label="Quoted value" value={formatCurrency(snapshot.estimateMetrics.estimateValue)} />
+        <Row label="Accepted estimate value" value={formatCurrency(snapshot.estimateMetrics.acceptedEstimateValue)} />
         <Row label="Jobs" value={String(snapshot.comparisons.jobCount.current)} description={formatComparisonBadge(snapshot.comparisons.jobCount) ?? undefined} />
         <Row label="Contracted job value" value={formatCurrency(snapshot.jobMetrics.contractedJobValue)} />
+        <Row label="Completed job value" value={formatCurrency(snapshot.jobMetrics.completedContractedJobValue)} />
         <Row label="Lead → booking rate" value={formatRate(snapshot.leadMetrics.leadToBookingRate)} description="Leads that got an appointment" />
         <Row label="Review rate" value={formatRate(snapshot.reviewReferralMetrics.reviewResponseRate)} description={`${snapshot.reviewReferralMetrics.reviewsRequested} requested`} />
         <Row label="Referral rate" value={formatRate(snapshot.reviewReferralMetrics.referralResponseRate)} description={`${snapshot.reviewReferralMetrics.referralsRequested} requested`} />
