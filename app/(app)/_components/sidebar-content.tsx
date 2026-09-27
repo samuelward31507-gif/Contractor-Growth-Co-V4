@@ -146,7 +146,13 @@ export function SidebarContent({
         </div>
       )}
 
-      <nav className={`relative flex-1 overflow-y-auto pb-4 ${isRail ? "space-y-1.5 px-2" : "space-y-6 px-3"}`}>
+      {/* Rail mode: the gap between groups (space-y-3, this <nav>) is
+          deliberately larger than the gap between icons within one group
+          (space-y-1.5, each group's own inner wrapper below) - spacing
+          alone marks where WORK ends and GROWTH begins, with no label, no
+          divider line, and no change to the expanded sidebar's own
+          space-y-6 rhythm. */}
+      <nav className={`relative flex-1 overflow-y-auto pb-4 ${isRail ? "space-y-3 px-2" : "space-y-6 px-3"}`}>
         {groups.map((group, index) => {
           const isOpen = group.label === null || openGroups[group.label] !== false;
           return (

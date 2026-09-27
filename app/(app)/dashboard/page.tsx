@@ -260,10 +260,7 @@ export default async function DashboardPage() {
             the grouping and section framing moved. Act 1 shows at most 3
             attention items open by default (AttentionPanel's own
             `previewCount`) with the rest one click away, never dropped. */}
-        <section aria-labelledby="dashboard-attention-heading" className="border-t border-slate-200 pt-8">
-          <h2 id="dashboard-attention-heading" className="sr-only">
-            What needs you
-          </h2>
+        <section className="border-t border-slate-200 pt-8">
           <AttentionPanel items={data.attentionItems} heading="What needs you" previewCount={3} />
         </section>
 
