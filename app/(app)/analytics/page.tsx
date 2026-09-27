@@ -8,6 +8,8 @@ import {
   getActivitySummary,
 } from "@/lib/activity/queries";
 import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
+import { resolveDateRange } from "@/lib/bi/queries";
+import { getLeadsCreatedPerDay } from "@/lib/bi/series";
 import type { DateRangePreset } from "@/lib/bi/types";
 import { getRepeatCustomerSummaryResult } from "@/lib/customers/lifecycle";
 import { PageHeader } from "@/lib/ui/page-header";
@@ -17,6 +19,7 @@ import { ActivitySummaryCards } from "./_components/activity-summary";
 import { ActivityTimeline } from "./_components/activity-timeline";
 import { ActivityToolbar } from "./_components/activity-toolbar";
 import { RangeTabs } from "./_components/range-tabs";
+import { TrendSection } from "./_components/trend-section";
 import {
   BusinessAtAGlance,
   LeadsPipelineSection,
@@ -70,7 +73,21 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
     redirect("/onboarding");
   }
 
-  const [summary, activityPage, snapshot, repeatCustomerSummary] = await Promise.all([
+  // Phase 6 (Trend chart pass): a day-bucketed chart needs concrete bounds -
+  // "all time" (the one range-tabs preset resolveDateRange leaves
+  // unbounded) falls back to the same last-30-days window the range tabs
+  // themselves offer, purely for the chart's own x-axis. This never changes
+  // what "all time" means for every other number on this page (snapshot is
+  // still computed against the real, unbounded `range`) - only the trend
+  // chart's own bounded window differs from it in that one case.
+  const resolvedRange = resolveDateRange(range);
+  const fallbackRange = resolveDateRange("last30Days");
+  const chartRange =
+    resolvedRange.from && resolvedRange.to
+      ? { from: resolvedRange.from, to: resolvedRange.to }
+      : { from: fallbackRange.from!, to: fallbackRange.to! };
+
+  const [summary, activityPage, snapshot, repeatCustomerSummary, leadSeries] = await Promise.all([
     getActivitySummary(supabase, membership.organizationId),
     getActivityEntries(supabase, membership.organizationId, { query, entityType, from, to }, limit),
     getBusinessMetricsSnapshot(supabase, membership.organizationId, range),
@@ -78,6 +95,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
     // documentation) - "has this customer come back, ever" ignores whatever
     // period the range tabs above have selected.
     getRepeatCustomerSummaryResult(supabase, membership.organizationId),
+    getLeadsCreatedPerDay(supabase, membership.organizationId, chartRange),
   ]);
 
   const hasActiveFilters = Boolean(query.trim()) || entityType !== "all" || Boolean(from) || Boolean(to);
@@ -164,6 +182,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
             <div className="mt-3">
               <BusinessAtAGlance snapshot={snapshot} />
             </div>
+            <TrendSection series={leadSeries.data} failed={leadSeries.failed} />
             <div className="mt-6 divide-y divide-slate-200">
               <EstimatesSection snapshot={snapshot} />
               <JobsSection snapshot={snapshot} />
