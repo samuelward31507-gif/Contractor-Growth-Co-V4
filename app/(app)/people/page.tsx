@@ -1,0 +1,129 @@
+import { redirect } from "next/navigation";
+import { getUserOrganization } from "@/lib/auth/organization";
+import { createClient } from "@/lib/supabase/server";
+import { filterContacts, getContacts, type Contact } from "@/lib/contacts/queries";
+import { getLeads, type Lead, type LeadTemperature } from "@/lib/leads/queries";
+import { getEstimates } from "@/lib/estimates/queries";
+import { getJobs } from "@/lib/jobs/queries";
+import { getAppointments } from "@/lib/appointments/queries";
+import { getReviewRequests } from "@/lib/reviews-referrals/queries";
+import { deriveContactLifecycle, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
+import { PageHeader } from "@/lib/ui/page-header";
+import { Panel } from "@/lib/ui/section-card";
+import { AddContactButton } from "@/app/(app)/contacts/_components/add-contact-button";
+import { PeopleEmptyState } from "./_components/people-empty-state";
+import { PeopleSearch } from "./_components/people-search";
+import { PeopleTable } from "./_components/people-table";
+
+export type PersonSort = "newest" | "oldest" | "name_asc";
+const VALID_SORTS = new Set<string>(["newest", "oldest", "name_asc"]);
+const OPEN_LEAD_STATUSES = new Set<Lead["status"]>(["new", "contacted", "qualified", "appointment", "estimate"]);
+
+function normalizeSort(value: string | undefined): PersonSort {
+  return value && VALID_SORTS.has(value) ? (value as PersonSort) : "newest";
+}
+
+function personSortName(contact: Contact): string {
+  return [contact.last_name, contact.first_name].filter(Boolean).join(" ").trim().toLowerCase() || "zzz";
+}
+
+function sortContacts(contacts: Contact[], sort: PersonSort): Contact[] {
+  const sorted = [...contacts];
+  switch (sort) {
+    case "oldest":
+      sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      break;
+    case "name_asc":
+      sorted.sort((a, b) => personSortName(a).localeCompare(personSortName(b)));
+      break;
+    case "newest":
+    default:
+      sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+  return sorted;
+}
+
+/**
+ * Phase 3 (People pass): one list, no Lead-vs-Contact distinction - the
+ * repo's own contacts/[id]/page.tsx and leads/[id]/page.tsx comments already
+ * flagged this merge as deferred twice. This page reuses the exact query set
+ * contacts/page.tsx already performs (getContacts/getLeads/getEstimates/
+ * getJobs/getAppointments/getReviewRequests) - zero new queries - and adds
+ * one presentation-only derivation on top: each contact's still-open lead's
+ * temperature (most recently created, if more than one is open), the same
+ * hot/warm signal the old /leads list surfaced, so it isn't lost by merging
+ * into one view. /contacts and /leads themselves are completely untouched.
+ */
+export default async function PeoplePage({ searchParams }: PageProps<"/people">) {
+  const params = await searchParams;
+  const query = typeof params.q === "string" ? params.q : "";
+  const sort = normalizeSort(typeof params.sort === "string" ? params.sort : undefined);
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const membership = await getUserOrganization(supabase, user.id);
+  if (!membership) {
+    redirect("/onboarding");
+  }
+
+  const [allContacts, leads, estimates, jobs, appointments, reviewRequests] = await Promise.all([
+    getContacts(supabase, membership.organizationId),
+    getLeads(supabase, membership.organizationId),
+    getEstimates(supabase, membership.organizationId),
+    getJobs(supabase, membership.organizationId),
+    getAppointments(supabase, membership.organizationId),
+    getReviewRequests(supabase, membership.organizationId),
+  ]);
+  const contacts = sortContacts(filterContacts(allContacts, query), sort);
+
+  const lifecycleByContactId = new Map<string, ContactLifecycleStage>(
+    allContacts.map((contact) => [contact.id, deriveContactLifecycle(contact.id, { leads, estimates, jobs, appointments, reviewRequests })]),
+  );
+
+  const temperatureByContactId = new Map<string, LeadTemperature>();
+  for (const contact of allContacts) {
+    const openLeads = leads
+      .filter((lead) => lead.contact_id === contact.id && OPEN_LEAD_STATUSES.has(lead.status))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    if (openLeads.length > 0) {
+      temperatureByContactId.set(contact.id, openLeads[0].temperature);
+    }
+  }
+
+  return (
+    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <PageHeader
+        eyebrow="Operate"
+        title="People"
+        description="Everyone your business is currently working with or has worked with."
+        badge={
+          allContacts.length > 0 ? (
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+              {allContacts.length}
+            </span>
+          ) : undefined
+        }
+        action={allContacts.length > 0 ? <AddContactButton /> : undefined}
+      />
+
+      {allContacts.length === 0 ? (
+        <PeopleEmptyState />
+      ) : (
+        <Panel>
+          <PeopleSearch initialQuery={query} initialSort={sort} />
+          <div className="mt-5">
+            <PeopleTable contacts={contacts} query={query} lifecycleByContactId={lifecycleByContactId} temperatureByContactId={temperatureByContactId} />
+          </div>
+        </Panel>
+      )}
+    </div>
+  );
+}
