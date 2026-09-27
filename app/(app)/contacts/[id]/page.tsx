@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Briefcase, CalendarClock, FileSearch, FileX2, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles } from "lucide-react";
+import { ArrowRight, Briefcase, CalendarClock, FileSearch, FileX2, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContact } from "@/lib/contacts/queries";
@@ -22,10 +22,10 @@ import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { STATUS_LABELS as LEAD_STATUS_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
 import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
-import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
+import { detailLabelClass, detailValueClass, subsectionTitleClass, metaClass } from "@/lib/ui/typography";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
-import { SectionCard, Panel } from "@/lib/ui/section-card";
+import { Panel } from "@/lib/ui/section-card";
 import { DetailHeader } from "@/lib/ui/detail-header";
 import { LEAD_STATUS_TONE } from "../../leads/_components/lead-status";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointments/_components/status";
@@ -226,260 +226,305 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
       />
 
       <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
-        {/* MAIN COLUMN: this customer's history across the CRM */}
-        <div className="flex flex-col gap-6 lg:col-span-2">
-          <SectionCard title="Leads" description="Opportunities tied to this contact." icon={Flame}>
-            {leads.length === 0 ? (
-              <p className="text-sm text-slate-500">No leads for this contact yet.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {leads.map((lead) => (
-                  <li key={lead.id}>
-                    <Link
-                      href={`/leads/${lead.id}`}
-                      className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
-                    >
+        {/* Customer/person-view redesign: "what stage they're in" already
+            lives in the header's status badge (unchanged); this is "what
+            happens next" - grounded entirely in the same opportunities table
+            the Customer intelligence group below also reads, never a second
+            or invented signal. Only renders when a real open opportunity
+            exists, in the exact visual pattern the Lead detail page already
+            established (see app/(app)/leads/[id]/page.tsx's own nextStep),
+            so the two detail pages read as the same product. */}
+        {openOpportunities.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-5 py-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-muted text-accent-text">
+                <ArrowRight className="h-4 w-4" aria-hidden />
+              </span>
+              <div>
+                <p className="text-[12.5px] font-medium text-slate-500">What happens next</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  {OPPORTUNITY_TYPE_LABELS[openOpportunities[0].type] ?? openOpportunities[0].type}
+                </p>
+                {openOpportunities[0].estimatedValue != null ? (
+                  <p className="text-xs text-slate-500">{formatCurrency(openOpportunities[0].estimatedValue)}</p>
+                ) : null}
+              </div>
+            </div>
+            {openOpportunities.length > 1 ? <span className={metaClass}>+{openOpportunities.length - 1} more</span> : null}
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+          {/* MAIN COLUMN: this customer's history across the CRM - one flush,
+              divider-separated stack (fewer competing cards) instead of five
+              individually bordered sections. Every list, row, href, and
+              empty-state string below is unchanged; only the outer
+              container moved. */}
+          <div className="flex flex-col divide-y divide-slate-200 lg:col-span-2">
+            <section className="pb-6">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <Flame className="h-4 w-4 text-slate-400" aria-hidden />
+                Leads
+              </h2>
+              {leads.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">No leads for this contact yet.</p>
+              ) : (
+                <ul className="mt-1 divide-y divide-slate-100">
+                  {leads.map((lead) => (
+                    <li key={lead.id}>
+                      <Link
+                        href={`/leads/${lead.id}`}
+                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-slate-900">{lead.service || "General inquiry"}</span>
+                          <span className="block text-xs text-slate-500">{formatContactDate(lead.created_at)}</span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className="text-sm font-medium tabular-nums text-slate-700">
+                            {lead.estimated_value != null ? formatCurrency(lead.estimated_value) : "—"}
+                          </span>
+                          <Badge tone={LEAD_STATUS_TONE[lead.status]}>{LEAD_STATUS_LABELS[lead.status]}</Badge>
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="py-6">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <MessagesSquare className="h-4 w-4 text-slate-400" aria-hidden />
+                Conversations
+              </h2>
+              {conversations.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">No conversations with this contact yet.</p>
+              ) : (
+                <ul className="mt-1 divide-y divide-slate-100">
+                  {conversations.map((conversation) => (
+                    <li key={conversation.id}>
+                      <Link
+                        href={`/conversations/${conversation.id}`}
+                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                      >
+                        <span className="flex items-center gap-2 text-slate-700">
+                          <span className="font-medium">{CHANNEL_LABEL[conversation.channel] ?? conversation.channel}</span>
+                          <span className="text-xs text-slate-400">Updated {formatContactDate(conversation.updated_at)}</span>
+                        </span>
+                        <Badge tone={conversation.status === "open" ? "info" : "neutral"}>
+                          {conversation.status === "open" ? "Open" : "Closed"}
+                        </Badge>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="py-6">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <CalendarClock className="h-4 w-4 text-slate-400" aria-hidden />
+                Appointments
+              </h2>
+              {appointments.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">No appointments for this contact yet.</p>
+              ) : (
+                <ul className="mt-1 divide-y divide-slate-100">
+                  {appointments.map((appointment) => (
+                    <li key={appointment.id}>
+                      <Link
+                        href={`/appointments/${appointment.id}`}
+                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-slate-900">{appointment.title}</span>
+                          <span className="block text-xs text-slate-500">
+                            {formatAppointmentDate(appointment.start_at, timeZone)} ·{" "}
+                            {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
+                          </span>
+                        </span>
+                        <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]} icon={APPOINTMENT_STATUS_ICON[appointment.status]}>
+                          {APPOINTMENT_STATUS_LABELS[appointment.status]}
+                        </Badge>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="py-6">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <FileSearch className="h-4 w-4 text-slate-400" aria-hidden />
+                Estimates
+              </h2>
+              {estimates.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">No estimates for this contact yet.</p>
+              ) : (
+                <ul className="mt-1 divide-y divide-slate-100">
+                  {estimates.map((estimate) => (
+                    <li key={estimate.id}>
+                      <Link
+                        href={`/estimates/${estimate.id}`}
+                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-slate-900">{estimate.title}</span>
+                          <span className="block text-xs text-slate-500">{formatContactDate(estimate.created_at)}</span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className="text-sm font-medium tabular-nums text-slate-700">
+                            {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
+                          </span>
+                          <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
+                            {ESTIMATE_STATUS_LABELS[estimate.status]}
+                          </Badge>
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="pt-6">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <Briefcase className="h-4 w-4 text-slate-400" aria-hidden />
+                Jobs
+              </h2>
+              {jobs.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">No jobs for this contact yet.</p>
+              ) : (
+                <ul className="mt-1 divide-y divide-slate-100">
+                  {jobs.map((job) => (
+                    <li key={job.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
                       <span className="min-w-0">
-                        <span className="block truncate font-medium text-slate-900">{lead.service || "General inquiry"}</span>
-                        <span className="block text-xs text-slate-500">{formatContactDate(lead.created_at)}</span>
+                        <span className="block truncate font-medium text-slate-900">{job.title}</span>
+                        <span className="block text-xs text-slate-500">{formatContactDate(job.created_at)}</span>
                       </span>
                       <span className="flex shrink-0 items-center gap-2">
                         <span className="text-sm font-medium tabular-nums text-slate-700">
-                          {lead.estimated_value != null ? formatCurrency(lead.estimated_value) : "—"}
+                          {job.amount != null ? formatCurrency(job.amount) : "—"}
                         </span>
-                        <Badge tone={LEAD_STATUS_TONE[lead.status]}>{LEAD_STATUS_LABELS[lead.status]}</Badge>
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-
-          <SectionCard title="Conversations" description="Messages and calls with this contact." icon={MessagesSquare}>
-            {conversations.length === 0 ? (
-              <p className="text-sm text-slate-500">No conversations with this contact yet.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {conversations.map((conversation) => (
-                  <li key={conversation.id}>
-                    <Link
-                      href={`/conversations/${conversation.id}`}
-                      className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
-                    >
-                      <span className="flex items-center gap-2 text-slate-700">
-                        <span className="font-medium">{CHANNEL_LABEL[conversation.channel] ?? conversation.channel}</span>
-                        <span className="text-xs text-slate-400">Updated {formatContactDate(conversation.updated_at)}</span>
-                      </span>
-                      <Badge tone={conversation.status === "open" ? "info" : "neutral"}>
-                        {conversation.status === "open" ? "Open" : "Closed"}
-                      </Badge>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-
-          <SectionCard title="Appointments" description="Scheduled and past visits." icon={CalendarClock}>
-            {appointments.length === 0 ? (
-              <p className="text-sm text-slate-500">No appointments for this contact yet.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {appointments.map((appointment) => (
-                  <li key={appointment.id}>
-                    <Link
-                      href={`/appointments/${appointment.id}`}
-                      className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium text-slate-900">{appointment.title}</span>
-                        <span className="block text-xs text-slate-500">
-                          {formatAppointmentDate(appointment.start_at, timeZone)} ·{" "}
-                          {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
-                        </span>
-                      </span>
-                      <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]} icon={APPOINTMENT_STATUS_ICON[appointment.status]}>
-                        {APPOINTMENT_STATUS_LABELS[appointment.status]}
-                      </Badge>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-
-          <SectionCard title="Estimates" description="Estimates prepared for this contact." icon={FileSearch}>
-            {estimates.length === 0 ? (
-              <p className="text-sm text-slate-500">No estimates for this contact yet.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {estimates.map((estimate) => (
-                  <li key={estimate.id}>
-                    <Link
-                      href={`/estimates/${estimate.id}`}
-                      className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium text-slate-900">{estimate.title}</span>
-                        <span className="block text-xs text-slate-500">{formatContactDate(estimate.created_at)}</span>
-                      </span>
-                      <span className="flex shrink-0 items-center gap-2">
-                        <span className="text-sm font-medium tabular-nums text-slate-700">
-                          {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
-                        </span>
-                        <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
-                          {ESTIMATE_STATUS_LABELS[estimate.status]}
+                        <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
+                          {JOB_STATUS_LABELS[job.status]}
                         </Badge>
                       </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-
-          <SectionCard title="Jobs" description="Completed and in-progress work." icon={Briefcase}>
-            {jobs.length === 0 ? (
-              <p className="text-sm text-slate-500">No jobs for this contact yet.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {jobs.map((job) => (
-                  <li key={job.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-slate-900">{job.title}</span>
-                      <span className="block text-xs text-slate-500">{formatContactDate(job.created_at)}</span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-2">
-                      <span className="text-sm font-medium tabular-nums text-slate-700">
-                        {job.amount != null ? formatCurrency(job.amount) : "—"}
-                      </span>
-                      <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
-                        {JOB_STATUS_LABELS[job.status]}
-                      </Badge>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-        </div>
-
-        {/* SIDEBAR: contact details, notes, timestamps */}
-        <div className="flex flex-col gap-6">
-          {/* Pass 4 P1-A: compact customer intelligence - reuses
-              lib/customers/lifecycle.ts and the opportunities table exactly
-              as-is, never a second calculation. Kept to a single dl of real
-              facts, matching the existing "Details" panel's own visual
-              weight - not a new reporting page. */}
-          <Panel>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className={subsectionTitleClass}>Customer intelligence</h2>
-              <Badge tone={lifecycleStatusTone} icon={Sparkles}>
-                {lifecycleStatus}
-              </Badge>
-            </div>
-            <dl className="mt-3 space-y-3">
-              <div>
-                <dt className={detailLabelClass}>Completed jobs</dt>
-                <dd className={detailValueClass}>{lifecycle.totalCompletedJobs}</dd>
-              </div>
-              {lifecycle.totalCompletedJobs > 0 ? (
-                <>
-                  <div>
-                    <dt className={detailLabelClass}>Known completed-job value</dt>
-                    <dd className={detailValueClass}>
-                      {lifecycle.knownCompletedJobValueCount > 0 ? formatCurrency(lifecycle.knownCompletedJobValue) : "Unknown"}
-                      {lifecycle.averageKnownCompletedJobValue != null ? (
-                        <span className="ml-1.5 text-xs font-normal text-slate-400">{formatCurrency(lifecycle.averageKnownCompletedJobValue)} average</span>
-                      ) : null}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className={detailLabelClass}>Last completed job</dt>
-                    <dd className={detailValueClass}>
-                      {formatContactDate(lifecycle.lastCompletedJobAt as string)}
-                      {lifecycle.daysSinceLastCompletedJob != null ? (
-                        <span className="ml-1.5 text-xs font-normal text-slate-400">{lifecycle.daysSinceLastCompletedJob} days ago</span>
-                      ) : null}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className={detailLabelClass}>First completed job</dt>
-                    <dd className={detailValueClass}>{formatContactDate(lifecycle.firstCompletedJobAt as string)}</dd>
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-slate-500">No completed jobs yet.</p>
+                    </li>
+                  ))}
+                </ul>
               )}
-              {openOpportunities.length > 0 ? (
-                <div>
-                  <dt className={detailLabelClass}>Open opportunities</dt>
-                  <dd className={`${detailValueClass} space-y-1`}>
-                    {openOpportunities.map((opportunity) => (
-                      <span key={opportunity.id} className="block text-sm font-normal text-slate-700">
-                        {OPPORTUNITY_TYPE_LABELS[opportunity.type] ?? opportunity.type}
-                        {opportunity.estimatedValue != null ? ` · ${formatCurrency(opportunity.estimatedValue)}` : ""}
-                      </span>
-                    ))}
-                  </dd>
-                </div>
-              ) : null}
-              {reviewRequest ? (
-                <div>
-                  <dt className={detailLabelClass}>Review status</dt>
-                  <dd className={detailValueClass}>{REVIEW_STATUS_LABELS[reviewRequest.status]}</dd>
-                </div>
-              ) : null}
-              {referralRequest ? (
-                <div>
-                  <dt className={detailLabelClass}>Referral status</dt>
-                  <dd className={detailValueClass}>{REFERRAL_STATUS_LABELS[referralRequest.status]}</dd>
-                </div>
-              ) : null}
-            </dl>
-          </Panel>
+            </section>
+          </div>
 
-          <SectionCard title="Contact information">
-            {infoFields.length > 0 ? (
-              <dl className="space-y-3">
+          {/* SIDEBAR: computed intelligence, then plain reference metadata -
+              consolidated from four bordered boxes to two (three when a note
+              exists), same fields, same values. */}
+          <div className="flex flex-col gap-6">
+            {/* Pass 4 P1-A: compact customer intelligence - reuses
+                lib/customers/lifecycle.ts and the opportunities table exactly
+                as-is, never a second calculation. Kept to a single dl of real
+                facts, matching the existing "Details" panel's own visual
+                weight - not a new reporting page. */}
+            <Panel>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className={subsectionTitleClass}>Customer intelligence</h2>
+                <Badge tone={lifecycleStatusTone} icon={Sparkles}>
+                  {lifecycleStatus}
+                </Badge>
+              </div>
+              <dl className="mt-3 space-y-3">
+                <div>
+                  <dt className={detailLabelClass}>Completed jobs</dt>
+                  <dd className={detailValueClass}>{lifecycle.totalCompletedJobs}</dd>
+                </div>
+                {lifecycle.totalCompletedJobs > 0 ? (
+                  <>
+                    <div>
+                      <dt className={detailLabelClass}>Known completed-job value</dt>
+                      <dd className={detailValueClass}>
+                        {lifecycle.knownCompletedJobValueCount > 0 ? formatCurrency(lifecycle.knownCompletedJobValue) : "Unknown"}
+                        {lifecycle.averageKnownCompletedJobValue != null ? (
+                          <span className="ml-1.5 text-xs font-normal text-slate-400">{formatCurrency(lifecycle.averageKnownCompletedJobValue)} average</span>
+                        ) : null}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className={detailLabelClass}>Last completed job</dt>
+                      <dd className={detailValueClass}>
+                        {formatContactDate(lifecycle.lastCompletedJobAt as string)}
+                        {lifecycle.daysSinceLastCompletedJob != null ? (
+                          <span className="ml-1.5 text-xs font-normal text-slate-400">{lifecycle.daysSinceLastCompletedJob} days ago</span>
+                        ) : null}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className={detailLabelClass}>First completed job</dt>
+                      <dd className={detailValueClass}>{formatContactDate(lifecycle.firstCompletedJobAt as string)}</dd>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500">No completed jobs yet.</p>
+                )}
+                {openOpportunities.length > 0 ? (
+                  <div>
+                    <dt className={detailLabelClass}>Open opportunities</dt>
+                    <dd className={`${detailValueClass} space-y-1`}>
+                      {openOpportunities.map((opportunity) => (
+                        <span key={opportunity.id} className="block text-sm font-normal text-slate-700">
+                          {OPPORTUNITY_TYPE_LABELS[opportunity.type] ?? opportunity.type}
+                          {opportunity.estimatedValue != null ? ` · ${formatCurrency(opportunity.estimatedValue)}` : ""}
+                        </span>
+                      ))}
+                    </dd>
+                  </div>
+                ) : null}
+                {reviewRequest ? (
+                  <div>
+                    <dt className={detailLabelClass}>Review status</dt>
+                    <dd className={detailValueClass}>{REVIEW_STATUS_LABELS[reviewRequest.status]}</dd>
+                  </div>
+                ) : null}
+                {referralRequest ? (
+                  <div>
+                    <dt className={detailLabelClass}>Referral status</dt>
+                    <dd className={detailValueClass}>{REFERRAL_STATUS_LABELS[referralRequest.status]}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </Panel>
+
+            {contact.notes ? (
+              <Panel>
+                <h2 className={subsectionTitleClass}>Notes</h2>
+                <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{contact.notes}</p>
+              </Panel>
+            ) : null}
+
+            <Panel>
+              <h2 className={subsectionTitleClass}>Details</h2>
+              <dl className="mt-3 space-y-3">
                 {infoFields.map((field) => (
                   <div key={field.label}>
                     <dt className={detailLabelClass}>{field.label}</dt>
                     <dd className={detailValueClass}>{field.value}</dd>
                   </div>
                 ))}
-              </dl>
-            ) : (
-              <p className="text-sm text-slate-500">No contact details provided yet.</p>
-            )}
-          </SectionCard>
-
-          {contact.notes ? (
-            <Panel>
-              <h2 className={subsectionTitleClass}>Notes</h2>
-              <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{contact.notes}</p>
-            </Panel>
-          ) : null}
-
-          <Panel>
-            <h2 className={subsectionTitleClass}>Details</h2>
-            <dl className="mt-3 space-y-3">
-              <div>
-                <dt className={detailLabelClass}>Added</dt>
-                <dd className={detailValueClass}>{formatContactDate(contact.created_at)}</dd>
-              </div>
-              {contact.updated_at !== contact.created_at ? (
                 <div>
-                  <dt className={detailLabelClass}>Last updated</dt>
-                  <dd className={detailValueClass}>{formatContactDate(contact.updated_at)}</dd>
+                  <dt className={detailLabelClass}>Added</dt>
+                  <dd className={detailValueClass}>{formatContactDate(contact.created_at)}</dd>
                 </div>
-              ) : null}
-            </dl>
-          </Panel>
+                {contact.updated_at !== contact.created_at ? (
+                  <div>
+                    <dt className={detailLabelClass}>Last updated</dt>
+                    <dd className={detailValueClass}>{formatContactDate(contact.updated_at)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </Panel>
+          </div>
         </div>
-      </div>
       </div>
     </div>
   );

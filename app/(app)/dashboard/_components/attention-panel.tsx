@@ -91,6 +91,44 @@ const URGENT_KINDS = new Set<AttentionItem["kind"]>([
   "accepted_estimate_no_job",
 ]);
 
+function AttentionRow({ item }: { item: AttentionItem }) {
+  const ItemIcon = KIND_ICON[item.kind];
+  // HANDOFF-01: a human_escalation item is the one kind that's resolvable
+  // in place - it gets the existing acknowledge/resolve controls (the same
+  // ones already used on /automations) instead of a bare chevron, so the
+  // contractor never has to leave the dashboard to act on it. The controls
+  // sit as a sibling of the link, never nested inside it.
+  const isEscalation = item.kind === "human_escalation" && item.incidentId;
+  const isOpportunity = Boolean(item.opportunityId);
+  const isUrgent = URGENT_KINDS.has(item.kind);
+  return (
+    <div
+      className={`group -mx-2 flex items-center gap-3 border-l-2 py-3 pl-2.5 pr-2 transition-colors hover:bg-slate-50 ${
+        isUrgent ? "border-l-danger/50" : "border-l-transparent"
+      }`}
+    >
+      <Link
+        href={item.href}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-1"
+      >
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${KIND_STYLE[item.kind]}`}>
+          <ItemIcon className="h-4 w-4" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-slate-900">{item.title}</span>
+          <span className="block truncate text-xs text-slate-500">{item.detail}</span>
+        </span>
+        {item.value ? <span className={`shrink-0 text-sm font-semibold text-slate-700 ${numericDisplayClass}`}>{item.value}</span> : null}
+        {!isEscalation && !isOpportunity ? (
+          <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+        ) : null}
+      </Link>
+      {isEscalation ? <IncidentActions incidentId={item.incidentId!} status={item.incidentStatus ?? "open"} /> : null}
+      {isOpportunity ? <DismissOpportunityButton opportunityId={item.opportunityId!} /> : null}
+    </div>
+  );
+}
+
 /**
  * The dashboard's one deliberately dominant section - the only place on the
  * page that gets a real heading (primarySectionTitleClass) rather than a
@@ -99,12 +137,24 @@ const URGENT_KINDS = new Set<AttentionItem["kind"]>([
  * with divider lines, not inside a bordered card; the empty state is the one
  * moment that earns a distinct surface, so it reads as a confirmed state
  * rather than a gap.
+ *
+ * Navigation/dashboard simplification pass: `previewCount` caps how many
+ * items render up front (the page passes 3, matching the "a few things need
+ * you" framing - never a hardcoded literal "3" in copy, since the real count
+ * can be 0, 1, or many) - every remaining item is still fully present and
+ * reachable, just tucked behind a native <details>/<summary> disclosure
+ * rather than a second client component. Nothing is hidden permanently and
+ * no item is dropped: this only changes how much renders open by default.
  */
-export function AttentionPanel({ items }: { items: AttentionItem[] }) {
+export function AttentionPanel({ items, heading = "What needs you", previewCount }: { items: AttentionItem[]; heading?: string; previewCount?: number }) {
+  const limit = previewCount ?? items.length;
+  const visible = items.slice(0, limit);
+  const rest = items.slice(limit);
+
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <h2 className={primarySectionTitleClass}>Needs your attention</h2>
+        <h2 className={primarySectionTitleClass}>{heading}</h2>
         {items.length > 0 ? <span className={metaClass}>{items.length}</span> : null}
       </div>
 
@@ -115,47 +165,21 @@ export function AttentionPanel({ items }: { items: AttentionItem[] }) {
         </div>
       ) : (
         <div className="mt-3 divide-y divide-slate-100">
-          {items.map((item) => {
-            const ItemIcon = KIND_ICON[item.kind];
-            // HANDOFF-01: a human_escalation item is the one kind that's
-            // resolvable in place - it gets the existing acknowledge/resolve
-            // controls (the same ones already used on /automations) instead
-            // of a bare chevron, so the contractor never has to leave the
-            // dashboard to act on it. The controls sit as a sibling of the
-            // link, never nested inside it.
-            const isEscalation = item.kind === "human_escalation" && item.incidentId;
-            const isOpportunity = Boolean(item.opportunityId);
-            const isUrgent = URGENT_KINDS.has(item.kind);
-            return (
-              <div
-                key={item.id}
-                className={`group -mx-2 flex items-center gap-3 border-l-2 py-3 pl-2.5 pr-2 transition-colors hover:bg-slate-50 ${
-                  isUrgent ? "border-l-danger/50" : "border-l-transparent"
-                }`}
-              >
-                <Link
-                  href={item.href}
-                  className="flex min-w-0 flex-1 items-center gap-3 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-1"
-                >
-                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${KIND_STYLE[item.kind]}`}>
-                    <ItemIcon className="h-4 w-4" aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-slate-900">{item.title}</span>
-                    <span className="block truncate text-xs text-slate-500">{item.detail}</span>
-                  </span>
-                  {item.value ? (
-                    <span className={`shrink-0 text-sm font-semibold text-slate-700 ${numericDisplayClass}`}>{item.value}</span>
-                  ) : null}
-                  {!isEscalation && !isOpportunity ? (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
-                  ) : null}
-                </Link>
-                {isEscalation ? <IncidentActions incidentId={item.incidentId!} status={item.incidentStatus ?? "open"} /> : null}
-                {isOpportunity ? <DismissOpportunityButton opportunityId={item.opportunityId!} /> : null}
+          {visible.map((item) => (
+            <AttentionRow key={item.id} item={item} />
+          ))}
+          {rest.length > 0 ? (
+            <details className="group/more">
+              <summary className="-mx-2 cursor-pointer list-none rounded-md px-2.5 py-3 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
+                {rest.length} more {rest.length === 1 ? "item" : "items"}
+              </summary>
+              <div className="divide-y divide-slate-100">
+                {rest.map((item) => (
+                  <AttentionRow key={item.id} item={item} />
+                ))}
               </div>
-            );
-          })}
+            </details>
+          ) : null}
         </div>
       )}
     </div>

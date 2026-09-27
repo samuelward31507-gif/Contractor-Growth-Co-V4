@@ -252,53 +252,62 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Usability audit fix (#3, Dashboard executive hierarchy): the
-            primary daily-operating story is now a real 2-column region -
-            Needs Your Attention (left) and Pipeline/business state (right) -
-            so Pipeline Value (in the header above) reads together with the
-            Pipeline stage rail directly below/beside it, instead of the
-            rail appearing as a disconnected full-width section several
-            scrolls down. Stacks to one column below `lg`, Attention first
-            (unchanged reading order on mobile). Same components, same data,
-            same hrefs - only the container changed from three stacked
-            full-width sections to one 2-column grid. */}
-        <div className="grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 lg:grid-cols-2 lg:border-t-0 lg:pt-0">
-          <div>
-            <AttentionPanel items={data.attentionItems} />
-          </div>
-          <div className="border-t border-slate-200 pt-8 lg:border-t-0 lg:pt-0">
+        {/* Navigation/dashboard simplification pass: the page now reads as
+            three deliberately ordered acts - what needs you, where the
+            business is heading, and what Trackpr already handled - instead
+            of a flat stack of same-weight sections. Every subcomponent,
+            query, and href below is unchanged from the prior structure; only
+            the grouping and section framing moved. Act 1 shows at most 3
+            attention items open by default (AttentionPanel's own
+            `previewCount`) with the rest one click away, never dropped. */}
+        <section aria-labelledby="dashboard-attention-heading" className="border-t border-slate-200 pt-8">
+          <h2 id="dashboard-attention-heading" className="sr-only">
+            What needs you
+          </h2>
+          <AttentionPanel items={data.attentionItems} heading="What needs you" previewCount={3} />
+        </section>
+
+        {/* Act 2, "Where you're going": the forward-looking half of the
+            daily story - current pipeline shape, what's on the schedule,
+            and the compact operational counts - grouped under one narrative
+            heading instead of appearing as disconnected full-width
+            sections. Same PipelineRail/OperationalStrip/TodaysSchedule
+            components, same data, same hrefs. */}
+        <section aria-labelledby="dashboard-heading-heading" className="border-t border-slate-200 pt-8">
+          <h2 id="dashboard-heading-heading" className={sectionLabelClass}>
+            Where you&apos;re going
+          </h2>
+          <div className="mt-5">
             <PipelineRail pipeline={data.pipeline} hasNeverHadLeads={leads.length === 0} />
           </div>
-        </div>
-
-        {/* Operational strip (#3/#4): "what's happening today," compact and
-            reference-tier - below the primary Attention/Pipeline story, above
-            the secondary More region. The detailed Today's Schedule list
-            (unchanged, same data) sits directly beneath the compact strip -
-            preserved in full, not replaced by the strip's three summary
-            numbers. */}
-        <div className="border-t border-slate-200 pt-8">
-          <OperationalStrip todayCount={appointmentSummary.today} estimatesAwaitingCount={data.overview.pendingEstimates} activeJobsCount={activeJobsCount} />
-          <div className="mt-6">
-            <TodaysSchedule appointments={todaysAppointments} timeZone={organizationTimezone} />
+          <div className="mt-8 border-t border-slate-200 pt-8">
+            <OperationalStrip todayCount={appointmentSummary.today} estimatesAwaitingCount={data.overview.pendingEstimates} activeJobsCount={activeJobsCount} />
+            <div className="mt-6">
+              <TodaysSchedule appointments={todaysAppointments} timeZone={organizationTimezone} />
+            </div>
           </div>
-        </div>
+          <div className="mt-8 max-w-2xl border-t border-slate-200 pt-8">
+            <BusinessGlance
+              overview={data.overview}
+              snapshot={businessMetrics}
+              opportunitySummary={opportunitySummary}
+              repeatCustomerSummary={repeatCustomerSummary}
+              dormantCustomerCount={dormantContactIds.length}
+              dormantCustomersValue={dormantCustomersValue}
+            />
+          </div>
+        </section>
 
-        {/* More / secondary information: everything real and useful that
-            isn't part of the primary daily-operating story above - composed
-            from existing components only, no new visual system. A real <h2>
-            so it reads as its own labeled region.
-            Usability audit fix (#8): reduced from five individually
-            bordered/shadowed Panel containers to one flush, divider-
-            separated stack - the same divide-y convention already used
-            elsewhere on this exact page (AttentionPanel's own item rows) and
-            across the app (Growth, Analytics section groups), rather than a
-            new visual treatment. Every subsection keeps its own internal
-            heading (each already renders one), so removing the outer card
-            chrome loses no information - only the border/shadow weight. */}
-        <section aria-labelledby="dashboard-more-heading" className="border-t border-slate-200 pt-8">
-          <h2 id="dashboard-more-heading" className={sectionLabelClass}>
-            More
+        {/* Act 3, "What Trackpr did": everything that's a record of work
+            already done on the contractor's behalf - AI handling, the daily/
+            end-of-day briefing, the activity log, and cached AI insights -
+            rather than a generic "More" catch-all. Same components, same
+            data, same flush divider convention already used elsewhere on
+            this page and across the app (Growth, Analytics section
+            groups). */}
+        <section aria-labelledby="dashboard-did-heading" className="border-t border-slate-200 pt-8">
+          <h2 id="dashboard-did-heading" className={sectionLabelClass}>
+            What Trackpr did
           </h2>
 
           <div className="mt-5 divide-y divide-slate-200">
@@ -310,20 +319,8 @@ export default async function DashboardPage() {
               <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
             </div>
 
-            <div className="grid grid-cols-1 gap-6 py-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="min-w-0">
-                <RecentActivity items={data.recentActivity} />
-              </div>
-              <div className="lg:sticky lg:top-6 lg:self-start">
-                <BusinessGlance
-                  overview={data.overview}
-                  snapshot={businessMetrics}
-                  opportunitySummary={opportunitySummary}
-                  repeatCustomerSummary={repeatCustomerSummary}
-                  dormantCustomerCount={dormantContactIds.length}
-                  dormantCustomersValue={dormantCustomersValue}
-                />
-              </div>
+            <div className="py-8">
+              <RecentActivity items={data.recentActivity} />
             </div>
 
             <div className="pt-8">
