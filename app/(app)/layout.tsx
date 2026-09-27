@@ -4,6 +4,7 @@ import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { isAgencyAdmin } from "@/lib/agency/queries";
 import { MobileNav } from "./_components/mobile-nav";
+import { MobileTabBar } from "./_components/mobile-tab-bar";
 import { Sidebar } from "./_components/sidebar";
 import { TopBar } from "./_components/top-bar";
 
@@ -59,18 +60,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         showAgencyLink={showAgencyLink}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <MobileNav
-          organizationName={organizationName}
-          userEmail={user.email ?? ""}
-          role={membership.role}
-          vertical={membership.vertical}
-          showAgencyLink={showAgencyLink}
-        />
+        <MobileNav />
         <TopBar supabase={supabase} organizationId={membership.organizationId} />
         {/* The only scrolling region in the shell - sidebar, mobile header,
-            and top bar all sit outside this element, so they stay in place
-            while a page's own content scrolls independently beneath them. */}
+            top bar, and the mobile tab bar all sit outside this element, so
+            they stay in place while a page's own content scrolls
+            independently beneath them. */}
         <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
+        <MobileTabBar vertical={membership.vertical} showAgencyLink={showAgencyLink} userEmail={user.email ?? ""} />
       </div>
     </div>
   );

@@ -1,28 +1,15 @@
-"use client";
-
-import { useState } from "react";
-import { Menu, X } from "lucide-react";
-import type { OrganizationVertical } from "@/lib/auth/organization";
-import { SidebarContent } from "./sidebar-content";
-
-export function MobileNav({
-  organizationName,
-  userEmail,
-  role,
-  vertical,
-  showAgencyLink,
-}: {
-  organizationName: string;
-  userEmail: string;
-  role: string;
-  vertical: OrganizationVertical;
-  showAgencyLink: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-
+/**
+ * Phase 5 (nav and mobile pass): the hamburger + full-height drawer this
+ * component used to render is gone - MobileTabBar (a persistent bottom tab
+ * bar) now owns every mobile navigation duty, including the "More" sheet
+ * for everything that isn't one of the four primary destinations. This is
+ * left as the plain top branding strip only, unchanged in appearance from
+ * before.
+ */
+export function MobileNav() {
   return (
     <div className="lg:hidden">
-      <header className="relative flex items-center justify-between overflow-hidden border-b border-white/[0.06] bg-[#0a120f] px-4 py-3">
+      <header className="relative flex items-center overflow-hidden border-b border-white/[0.06] bg-[#0a120f] px-4 py-3">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_80%_at_20%_-30%,rgba(16,185,129,0.10),transparent)]"
@@ -36,55 +23,7 @@ export function MobileNav({
             <span className="block text-[12px] font-semibold uppercase tracking-[0.02em] text-emerald-400/80">Contractor Growth Co.</span>
           </span>
         </span>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label="Open menu"
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a120f]"
-        >
-          <Menu className="h-5 w-5" aria-hidden />
-        </button>
       </header>
-
-      {/* Always mounted (not conditionally rendered) so open/close animates
-          rather than snapping - same pattern as the marketing site's mobile
-          drawer, adapted for this dark surface. */}
-      <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
-        <button
-          type="button"
-          aria-label="Close menu"
-          tabIndex={open ? 0 : -1}
-          className={`absolute inset-0 bg-slate-950/60 transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0"}`}
-          onClick={() => setOpen(false)}
-        />
-        <div
-          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] shadow-2xl transition-transform duration-200 ease-out ${
-            open ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
-          <div className="flex justify-end bg-[#0a120f] px-3 pt-3">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Close menu"
-              tabIndex={open ? 0 : -1}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a120f]"
-            >
-              <X className="h-5 w-5" aria-hidden />
-            </button>
-          </div>
-          <div className="h-[calc(100%-3.25rem)]">
-            <SidebarContent
-              organizationName={organizationName}
-              userEmail={userEmail}
-              role={role}
-              vertical={vertical}
-              showAgencyLink={showAgencyLink}
-              onNavigate={() => setOpen(false)}
-            />
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

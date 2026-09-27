@@ -2,38 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { LucideIcon } from "lucide-react";
-import {
-  LayoutDashboard,
-  Users,
-  MessageSquare,
-  CalendarClock,
-  Briefcase,
-  TrendingUp,
-  Star,
-  Workflow,
-  BarChart3,
-  Building2,
-  Settings,
-} from "lucide-react";
-import type { NavItem, NavIconName } from "./nav-items";
-
-// The actual icon components live here, in the Client Component - NavItem
-// only ever carries the icon's name (a plain string) across the Server ->
-// Client boundary from sidebar-content.tsx.
-const ICONS: Record<NavIconName, LucideIcon> = {
-  LayoutDashboard,
-  Users,
-  MessageSquare,
-  CalendarClock,
-  Briefcase,
-  TrendingUp,
-  Star,
-  Workflow,
-  BarChart3,
-  Building2,
-  Settings,
-};
+import type { NavItem } from "./nav-items";
+import { NAV_ICONS } from "./nav-icons";
 
 /**
  * Trackpr visual-system redesign: the active state is now a real filled,
@@ -46,7 +16,7 @@ const ICONS: Record<NavIconName, LucideIcon> = {
 export function NavLink({ item, onNavigate, collapsed }: { item: NavItem; onNavigate?: () => void; collapsed?: boolean }) {
   const pathname = usePathname();
   const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
-  const Icon = ICONS[item.icon];
+  const Icon = NAV_ICONS[item.icon];
 
   if (collapsed) {
     // Rail mode: icon only, centered, with a CSS-only tooltip (no new
