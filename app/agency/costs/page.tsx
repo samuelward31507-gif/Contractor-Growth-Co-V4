@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyAiCosts, getAgencySmsCosts } from "@/lib/agency/costs";
 import type { DateRangeInput } from "@/lib/bi/types";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import { UnauthorizedState } from "../_components/unauthorized-state";
 import { ErrorState } from "../_components/error-state";
 import { RangeSelector, type CostRangeKey } from "./_components/range-selector";
@@ -94,11 +95,11 @@ export default async function AgencyCostsPage({ searchParams }: { searchParams: 
       </Link>
 
       <div className="mt-3">
-        <p className={sectionLabelClass}>Finance</p>
-        <h1 className={`mt-1.5 ${pageTitleClass}`}>Costs</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>
-          Contractor Growth Co.&rsquo;s own provider cost from managed clients - real usage, a real historical rate, never an estimate.
-        </p>
+        <PageHeader
+          eyebrow="Finance"
+          title="Costs"
+          description="Contractor Growth Co.’s own provider cost from managed clients - real usage, a real historical rate, never an estimate."
+        />
         <p className={`mt-1 ${metaClass}`}>Period: {range.label}</p>
       </div>
 

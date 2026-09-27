@@ -3,7 +3,8 @@ import { AlertCircle, ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyCostReadiness } from "@/lib/agency/cost-readiness";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import { formatCount } from "../_components/format";
 import { formatNullableCount } from "./_components/format";
 import { UnauthorizedState } from "../_components/unauthorized-state";
@@ -79,9 +80,11 @@ export default async function AgencyUsagePage() {
       </Link>
 
       <div className="mt-3">
-        <p className={sectionLabelClass}>Monitoring</p>
-        <h1 className={`mt-1.5 ${pageTitleClass}`}>Client Usage</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>How much each managed client is actually using Trackpr — messaging, AI, and automation activity, not billing.</p>
+        <PageHeader
+          eyebrow="Monitoring"
+          title="Client Usage"
+          description="How much each managed client is actually using Trackpr — messaging, AI, and automation activity, not billing."
+        />
         <p className={`mt-1 ${metaClass}`}>Period: {period}</p>
       </div>
 

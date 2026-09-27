@@ -3,7 +3,8 @@ import { AlertCircle, ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyExpansionOpportunities, getAgencyExpansionReadiness, type AgencyExpansionOpportunity } from "@/lib/agency/expansion";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { formatCount } from "../_components/format";
 import { UnauthorizedState } from "../_components/unauthorized-state";
@@ -96,11 +97,11 @@ export default async function AgencyExpansionPage() {
       </Link>
 
       <div className="mt-3">
-        <p className={sectionLabelClass}>Growth</p>
-        <h1 className={`mt-1.5 ${pageTitleClass}`}>Expansion Intelligence</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>
-          Where a managed client may have an additional service opportunity, based on signals Trackpr already tracks for them.
-        </p>
+        <PageHeader
+          eyebrow="Growth"
+          title="Expansion Intelligence"
+          description="Where a managed client may have an additional service opportunity, based on signals Trackpr already tracks for them."
+        />
       </div>
 
       {/* Mirrors app/agency/page.tsx's own health.partialData banner exactly -

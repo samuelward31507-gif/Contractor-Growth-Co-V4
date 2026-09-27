@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyRevenue } from "@/lib/agency/revenue";
 import type { DateRangeInput } from "@/lib/bi/types";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import { UnauthorizedState } from "../_components/unauthorized-state";
 import { ErrorState } from "../_components/error-state";
 import { RangeSelector, type RevenueRangeKey } from "./_components/range-selector";
@@ -76,11 +77,11 @@ export default async function AgencyRevenuePage({ searchParams }: { searchParams
       </Link>
 
       <div className="mt-3">
-        <p className={sectionLabelClass}>Finance</p>
-        <h1 className={`mt-1.5 ${pageTitleClass}`}>Revenue</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>
-          Contractor Growth Co.&rsquo;s own revenue from managed clients, recorded from real Stripe payment events.
-        </p>
+        <PageHeader
+          eyebrow="Finance"
+          title="Revenue"
+          description="Contractor Growth Co.’s own revenue from managed clients, recorded from real Stripe payment events."
+        />
         <p className={`mt-1 ${metaClass}`}>Period: {range.label}</p>
       </div>
 

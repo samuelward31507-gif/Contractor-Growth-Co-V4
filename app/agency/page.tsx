@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertCircle, ChevronRight, Activity, DollarSign } from "lucide-react";
+import { AlertCircle, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
@@ -7,7 +7,8 @@ import { getAgencyHealth, type AgencyOrganizationHealth } from "@/lib/agency/hea
 import { getAgencyOnboardingStages, getAgencyRecentActivity, getAgencyOperationsToday } from "@/lib/agency/operations";
 import { getAgencyEscalatedConversations } from "@/lib/agency/communication";
 import { getAgencyNeedsAttentionItems } from "@/lib/agency/needs-attention";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
+import { sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import type { OnboardingStage } from "@/lib/onboarding/checklist";
 import { UnauthorizedState } from "./_components/unauthorized-state";
 import { ErrorState } from "./_components/error-state";
@@ -127,15 +128,46 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
 
   const smsFailureCount = (metrics.summary.messagesByStatus.failed ?? 0) + (metrics.summary.messagesByStatus.undelivered ?? 0);
 
+  const hasAttentionItems = needsAttention.items.length > 0;
+
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      <div>
-        <p className={sectionLabelClass}>Overview</p>
-        <h1 className={`mt-1.5 ${pageTitleClass}`}>Agency Command Center</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>
-          Contractor Growth Co. · {formatCount(metrics.organizations.length)} client organization{metrics.organizations.length === 1 ? "" : "s"}
-        </p>
-      </div>
+      {/*
+        Trackpr Phase 5 UI polish: adopts the shared PageHeader primitive
+        (already used by /analytics, /automations, and every top-level
+        client route) instead of hand-rolling the eyebrow/title/description
+        markup - same content as before, now consistent with the rest of
+        Trackpr's own header convention. The `action` slot carries the one
+        agency-level hero metric (Needs attention), mirroring
+        app/(app)/dashboard/page.tsx's own primary-metric callout treatment
+        exactly (tone-tinted rounded-xl border box, eyebrow label, large
+        bold number) - reusing the same accent/danger design tokens already
+        defined in globals.css, never a new color or component. This is the
+        one number this page now makes visually dominant, so the flat
+        reference strip below it never has to repeat it at equal weight.
+      */}
+      <PageHeader
+        eyebrow="Overview"
+        title="Agency Command Center"
+        description={`Contractor Growth Co. · ${formatCount(metrics.organizations.length)} client organization${metrics.organizations.length === 1 ? "" : "s"}`}
+        action={
+          <div
+            className={`rounded-xl border px-5 py-4 sm:min-w-[220px] ${
+              hasAttentionItems ? "border-danger-border bg-danger-muted" : "border-accent-border bg-accent-muted/60"
+            }`}
+          >
+            <p className={`text-[11px] font-semibold uppercase tracking-wider ${hasAttentionItems ? "text-danger-text/80" : "text-accent-text/70"}`}>
+              Needs attention
+            </p>
+            <p className={`mt-1 text-3xl font-bold tracking-tight tabular-nums ${hasAttentionItems ? "text-danger-text" : "text-accent-text"}`}>
+              {formatCount(needsAttention.items.length)}
+            </p>
+            <p className={`mt-1 text-xs ${hasAttentionItems ? "text-danger-text/70" : "text-accent-text/70"}`}>
+              {hasAttentionItems ? `client${needsAttention.items.length === 1 ? "" : "s"} to review` : "All clients operating normally"}
+            </p>
+          </div>
+        }
+      />
 
       {/* Trackpr 2.0, Phase 4C (P2 #1): a real Postgrest error on the
           stuck-execution, calendar-health, or payment/pause read must never
@@ -148,9 +180,16 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         </div>
       ) : null}
 
+      {/*
+        Trackpr Phase 5 UI polish: a secondary reference rail, not a second
+        headline - "Needs attention" was removed from this strip since the
+        header hero above now carries that exact number at full visual
+        weight; repeating it here at the same size as "Leads today" would
+        just recreate the duplication the audit flagged. Every other value
+        and its calculation is unchanged.
+      */}
       <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-slate-200 py-4">
         <Row label="Clients" value={formatCount(allRows.length)} />
-        <Row label="Needs attention" value={formatCount(needsAttention.items.length)} tone={needsAttention.items.length > 0 ? "danger" : "default"} />
         <Row label="Live" value={formatCount(liveCount)} />
         <Row label="Setting up" value={formatCount(settingUpCount)} />
         <Row label="Leads today" value={formatCount(today.leadsToday)} />
@@ -166,61 +205,12 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         <NeedsAttention items={needsAttention.items} />
       </div>
 
-      {/*
-        Trackpr Phase 5A/5B/5D-1: minimal navigation entries to the
-        Expansion, Usage, and Revenue pages - deliberately NOT live summaries
-        with their own numbers. Computing those here would mean this
-        already-heavy overview page (7 parallel agency reads on every load)
-        runs each page's own full per-organization fan-out a second time, for
-        numbers whose only real destination is that dedicated page. A plain
-        link keeps this page's existing query cost unchanged; the real
-        numbers live on /agency/expansion, /agency/usage, and
-        /agency/revenue, each fetched exactly once.
-      */}
-      <div className="mt-8 grid grid-cols-1 gap-4 border-t border-slate-200 pt-8 sm:grid-cols-2 lg:grid-cols-3">
-        <Link
-          href="/agency/expansion"
-          className="group flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-5 py-4 transition-colors hover:border-slate-300 hover:bg-slate-50"
-        >
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Expansion Opportunities</p>
-            <p className="mt-0.5 text-xs text-slate-500">Estimate recovery, reactivation, and other service opportunities across your managed clients.</p>
-          </div>
-          <ChevronRight className="h-4 w-4 shrink-0 text-accent-text transition-transform group-hover:translate-x-0.5" aria-hidden />
-        </Link>
-
-        <Link
-          href="/agency/usage"
-          className="group flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-5 py-4 transition-colors hover:border-slate-300 hover:bg-slate-50"
-        >
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Client Usage</p>
-            <p className="mt-0.5 text-xs text-slate-500">Messaging, AI, and automation activity across your managed clients — usage visibility, not billing.</p>
-          </div>
-          <span className="flex shrink-0 items-center gap-2">
-            <Activity className="h-4 w-4 text-accent-text" aria-hidden />
-            <ChevronRight className="h-4 w-4 text-accent-text transition-transform group-hover:translate-x-0.5" aria-hidden />
-          </span>
-        </Link>
-
-        <Link
-          href="/agency/revenue"
-          className="group flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-5 py-4 transition-colors hover:border-slate-300 hover:bg-slate-50"
-        >
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Revenue</p>
-            <p className="mt-0.5 text-xs text-slate-500">Contractor Growth Co.&rsquo;s own revenue from managed clients, recorded from real Stripe events.</p>
-          </div>
-          <span className="flex shrink-0 items-center gap-2">
-            <DollarSign className="h-4 w-4 text-accent-text" aria-hidden />
-            <ChevronRight className="h-4 w-4 text-accent-text transition-transform group-hover:translate-x-0.5" aria-hidden />
-          </span>
-        </Link>
-      </div>
-
-      <div className="mt-8 border-t border-slate-200 pt-8">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Clients</p>
+      <div className="mt-8">
+        <div className="flex items-baseline justify-between">
+          <h2 className={primarySectionTitleClass}>Clients</h2>
+          <span className={metaClass}>{formatCount(allRows.length)}</span>
+        </div>
+        <div className="mt-4">
           <AgencyToolbar initialQuery={query} initialFilter={filter} />
         </div>
         <div className="mt-3">
@@ -228,7 +218,63 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         </div>
       </div>
 
+      {/*
+        Trackpr Phase 5A/5B/5D-1 links to Expansion, Usage, and Revenue -
+        deliberately NOT live summaries with their own numbers (see below for
+        why), and deliberately NOT the only bordered-card container on the
+        page anymore. Trackpr Phase 5 UI polish: de-weighted from three
+        bordered "dashboard card" boxes to flush, divider-separated rows -
+        the same flush-canvas convention every other section on this page
+        already uses (NeedsAttention, AgencyActivity) - so this reads as a
+        plain navigation list to deeper intelligence, not a second set of
+        headline metrics competing with Clients above it.
+        Computing live numbers here would mean this already-heavy overview
+        page (7 parallel agency reads on every load) runs each page's own
+        full per-organization fan-out a second time, for numbers whose only
+        real destination is that dedicated page. A plain link keeps this
+        page's existing query cost unchanged; the real numbers live on
+        /agency/expansion, /agency/usage, and /agency/revenue, each fetched
+        exactly once.
+      */}
       <div className="mt-8 border-t border-slate-200 pt-8">
+        <p className={sectionLabelClass}>Deeper intelligence</p>
+        <div className="mt-2 divide-y divide-slate-100">
+          <Link href="/agency/expansion" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-900">Expansion Opportunities</p>
+              <p className="mt-0.5 truncate text-xs text-slate-500">Estimate recovery, reactivation, and other service opportunities across your managed clients.</p>
+            </div>
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+          </Link>
+
+          <Link href="/agency/usage" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-900">Client Usage</p>
+              <p className="mt-0.5 truncate text-xs text-slate-500">Messaging, AI, and automation activity across your managed clients — usage visibility, not billing.</p>
+            </div>
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+          </Link>
+
+          <Link href="/agency/revenue" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-900">Revenue</p>
+              <p className="mt-0.5 truncate text-xs text-slate-500">Contractor Growth Co.&rsquo;s own revenue from managed clients, recorded from real Stripe events.</p>
+            </div>
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+          </Link>
+        </div>
+      </div>
+
+      {/*
+        Trackpr Phase 5 UI polish: the secondary/reference tier - Onboarding
+        pipeline, System health, Recent activity - starts with deliberately
+        more separation (mt-14 instead of the mt-8 used everywhere above) so
+        the page reads as two clear weight classes (the core operational
+        workspace above vs. reference detail below), not six identically-
+        spaced sections. No component, data, or internal spacing within this
+        tier was changed - only the gap leading into it.
+      */}
+      <div className="mt-14 border-t border-slate-200 pt-8">
         <p className={sectionLabelClass}>Onboarding pipeline</p>
         <OnboardingPipeline byStage={byStage} />
       </div>
