@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
-import { getAgencyUsageSummary } from "@/lib/agency/usage";
+import { getAgencyCostReadiness } from "@/lib/agency/cost-readiness";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { formatCount } from "../_components/format";
 import { formatNullableCount } from "./_components/format";
@@ -10,6 +10,7 @@ import { UnauthorizedState } from "../_components/unauthorized-state";
 import { ErrorState } from "../_components/error-state";
 import { Row } from "../_components/row";
 import { ClientUsageRows } from "./_components/client-usage-rows";
+import { CostReadinessSection } from "./_components/cost-readiness-section";
 
 /**
  * Trackpr Phase 5B - Agency Client Usage Intelligence. A thin, read-only
@@ -26,6 +27,15 @@ import { ClientUsageRows } from "./_components/client-usage-rows";
  * own client-grouping-in-the-page-component convention: lib/agency/usage.ts
  * returns clients in whatever order the underlying snapshot naturally comes
  * in, and this page does the one sort that makes the page useful to scan.
+ *
+ * Trackpr Phase 5C: now fetches through getAgencyCostReadiness() instead of
+ * calling getAgencyUsageSummary() directly - that function calls
+ * getAgencyUsageSummary() internally exactly once and returns its result
+ * unchanged under `usage`, so every existing summary/table render below is
+ * completely unmodified (same `clients`/`totals` shape, same component). The
+ * only new content is the Cost Readiness section, added from the same
+ * result's new `costReadiness` field - no second data fetch, no redesign of
+ * the existing page.
  */
 function totalActivity(client: { messaging: { total: number }; ai: { interactions: number }; automation: { executions: number } }): number {
   return client.messaging.total + client.ai.interactions + client.automation.executions;
@@ -35,10 +45,10 @@ export default async function AgencyUsagePage() {
   const supabase = await createClient();
   const service = createServiceRoleClient();
 
-  let result: Awaited<ReturnType<typeof getAgencyUsageSummary>>;
+  let result: Awaited<ReturnType<typeof getAgencyCostReadiness>>;
 
   try {
-    result = await getAgencyUsageSummary(supabase, service);
+    result = await getAgencyCostReadiness(supabase, service);
   } catch {
     return (
       <div className="mx-auto flex w-full max-w-[1150px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
@@ -55,7 +65,8 @@ export default async function AgencyUsagePage() {
     );
   }
 
-  const { clients, totals, partialData } = result;
+  const { clients, totals } = result.usage;
+  const { partialData } = result;
   const period = clients[0]?.period.label ?? "last 30 days";
 
   const sortedClients = [...clients].sort((a, b) => totalActivity(b) - totalActivity(a));
@@ -102,6 +113,8 @@ export default async function AgencyUsagePage() {
           <ClientUsageRows clients={sortedClients} />
         </div>
       </div>
+
+      <CostReadinessSection clients={result.costReadiness.clients} />
 
       <div className="mt-8 border-t border-slate-200 pt-8">
         <p className={sectionLabelClass}>About this page</p>
