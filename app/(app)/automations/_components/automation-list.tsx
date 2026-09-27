@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { formatCount, formatRelativeTime, AUTOMATION_STATUS_BADGE } from "./format";
 import { Badge } from "@/lib/ui/badge";
+import { Panel } from "@/lib/ui/section-card";
 import type { AutomationSummary } from "@/lib/automation/queries";
 import type { AutomationHealthSummary } from "@/lib/automation-health/types";
 
@@ -77,7 +78,7 @@ export function AutomationList({ summaries, healthByAutomationId }: { summaries:
             <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               {group.label} <span className="text-slate-300">· {items.length}</span>
             </p>
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <Panel className="overflow-hidden p-0">
               <ul className="divide-y divide-slate-100">
                 {items.map((summary) => (
                   <AutomationRow
@@ -87,7 +88,7 @@ export function AutomationList({ summaries, healthByAutomationId }: { summaries:
                   />
                 ))}
               </ul>
-            </div>
+            </Panel>
           </div>
         );
       })}

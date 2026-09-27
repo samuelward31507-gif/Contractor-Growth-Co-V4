@@ -14,7 +14,8 @@ import { computeSetupChecklist, ONBOARDING_STAGE_LABEL, type OnboardingStage } f
 import { getBusinessProfile, getServiceAreas } from "@/lib/settings/queries";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
-import { pageTitleClass, sectionLabelClass, metaClass, statLabelClass, statValueClass } from "@/lib/ui/typography";
+import { sectionLabelClass, metaClass, statLabelClass, statValueClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import { Row, RowGroup } from "../../_components/row";
 import { formatRate, formatCount } from "../../_components/format";
 import { UnauthorizedState } from "../../_components/unauthorized-state";
@@ -175,19 +176,21 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         </Link>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className={sectionLabelClass}>Client</p>
-          <h1 className={`mt-1.5 ${pageTitleClass}`}>{org.organizationName}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge tone={STAGE_TONE[checklist.stage]}>{ONBOARDING_STAGE_LABEL[checklist.stage]}</Badge>
-          {orgHealth.needsAttention ? (
-            <Badge tone="danger" icon={AlertTriangle}>Needs attention</Badge>
-          ) : (
-            <Badge tone="success" icon={CheckCircle2}>Healthy</Badge>
-          )}
-        </div>
+      <div className="mt-3">
+        <PageHeader
+          eyebrow="Client"
+          title={org.organizationName}
+          action={
+            <div className="flex items-center gap-2">
+              <Badge tone={STAGE_TONE[checklist.stage]}>{ONBOARDING_STAGE_LABEL[checklist.stage]}</Badge>
+              {orgHealth.needsAttention ? (
+                <Badge tone="danger" icon={AlertTriangle}>Needs attention</Badge>
+              ) : (
+                <Badge tone="success" icon={CheckCircle2}>Healthy</Badge>
+              )}
+            </div>
+          }
+        />
       </div>
 
       <div className="mt-4">
@@ -204,7 +207,10 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           what needs action and how healthy the client is, before any of the
           slower-moving setup/business detail below. Today's two numbers get
           the same large stat treatment as a dashboard KPI (not a Row) since
-          this is meant to be read at a glance, not scanned in a list. */}
+          this is meant to be read at a glance, not scanned in a list. This
+          is the last section of the page's primary tier - everything below
+          this point is reference/supporting detail, per the deliberately
+          larger gap that follows. */}
       <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-[auto_1fr]">
         <div className="flex gap-8 sm:shrink-0">
           <div>
@@ -233,8 +239,21 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         </div>
       </div>
 
-      {/* Automation + Communication - operational status side by side. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-2">
+      {/*
+        Trackpr 2.0 UI optimization pass: this is the one deliberate tier
+        break on the page (pt-14 instead of the pt-8 used everywhere else,
+        the same "you've left the core workspace" signal already proven on
+        /agency) - everything above this point (identity, pause control,
+        Needs Attention, Today/Live activity) is the primary tier; everything
+        from here down is reference/supporting detail. The lighter
+        border-slate-100 dividers used on every subsequent block (instead of
+        border-slate-200) mark them as sub-topics within this one lower tier,
+        not additional tier boundaries of their own. No RowGroup/Row content
+        or data changed - only spacing and divider weight.
+
+        Automation + Communication - operational status side by side.
+      */}
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-14 sm:grid-cols-2">
         <RowGroup label="Automation">
           <Row label="Executions" value={formatCount(m.automationMetrics.workflowExecutions)} />
           <Row label="Completed" value={formatCount(m.automationMetrics.successfulWorkflowExecutions)} tone={m.automationMetrics.successfulWorkflowExecutions > 0 ? "success" : "default"} />
@@ -263,7 +282,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           internal safe-AI safety layer, which is never independently
           triggered). Never invents an automation that isn't in
           AUTOMATION_CATALOG. */}
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-slate-100 pt-8">
         <p className={sectionLabelClass}>Automations</p>
         <AutomationsPanel automations={automations.automations} />
       </div>
@@ -272,7 +291,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           two things "is this client configured" is actually made of. Secondary
           business/CRM-style detail from here down - operational state and
           what changed already surfaced above. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-100 pt-8 sm:grid-cols-2">
         <RowGroup label="Client">
           <Row label="Owner / contact" value={profile?.owner_name ?? "Not set"} />
           <Row label="Trade" value={profile?.trade ?? "Not set"} />
@@ -298,7 +317,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       </div>
 
       {/* Readiness - what's still blocking Go Live, if anything. */}
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-slate-100 pt-8">
         <p className={sectionLabelClass}>Readiness</p>
         {missingItems.length === 0 ? (
           <p className="mt-2 text-sm text-accent-text">Everything required is complete.</p>
@@ -318,7 +337,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       </div>
 
       {/* Test - the real, most recent onboarding test-lead outcome. */}
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-slate-100 pt-8">
         <p className={sectionLabelClass}>Test</p>
         {testLeadOutcome ? (
           <div className="mt-2 space-y-1 text-sm text-slate-700">
@@ -337,7 +356,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       </div>
 
       {/* Active incidents - kept as its own list, already the right shape. */}
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-slate-100 pt-8">
         <div className="flex items-baseline justify-between">
           <p className={sectionLabelClass}>Active incidents</p>
           <span className={metaClass}>{incidents.length} open or acknowledged</span>
@@ -363,7 +382,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
       {/* Operational detail - business/estimate/job/appointment/AI figures,
           grouped as reference rows rather than six separate card walls. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-100 pt-8 sm:grid-cols-2">
         <RowGroup label="Business">
           <Row label="Leads" value={formatCount(m.leadMetrics.totalLeads)} />
           <Row label="Open opportunities" value={formatCount(m.pipelineMetrics.openOpportunityCount)} />
@@ -393,7 +412,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       </div>
 
       {Object.keys(org.aiInteractionsByType).length > 0 ? (
-        <div className="mt-8 border-t border-slate-200 pt-8">
+        <div className="mt-8 border-t border-slate-100 pt-8">
           <RowGroup label="AI activity">
             <Row label="Total interactions" value={formatCount(m.aiMetrics.aiInteractions)} />
             {m.aiMetrics.totalTokensUsed !== null ? (
@@ -412,7 +431,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         </div>
       ) : null}
 
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-slate-100 pt-8">
         <p className={sectionLabelClass}>Data quality</p>
         <ul className="mt-2 space-y-1.5 text-xs text-slate-500">
           <li className="flex gap-2">

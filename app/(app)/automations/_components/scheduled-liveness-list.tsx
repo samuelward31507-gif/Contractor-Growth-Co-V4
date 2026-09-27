@@ -1,5 +1,6 @@
 import { CheckCircle2, AlertTriangle, HelpCircle, type LucideIcon } from "lucide-react";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
+import { Panel } from "@/lib/ui/section-card";
 import { formatRelativeTime, formatCount } from "./format";
 import type { ScheduledAutomationLiveness, ScheduledAutomationLivenessState } from "@/lib/automation-health/scheduled-automation-liveness";
 
@@ -22,7 +23,7 @@ const STATE_BADGE: Record<ScheduledAutomationLivenessState, { label: string; ton
 
 export function ScheduledLivenessList({ liveness }: { liveness: ScheduledAutomationLiveness[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <Panel className="overflow-hidden p-0">
       <ul className="divide-y divide-slate-100">
         {liveness.map((item) => {
           const badge = STATE_BADGE[item.state];
@@ -43,6 +44,6 @@ export function ScheduledLivenessList({ liveness }: { liveness: ScheduledAutomat
           );
         })}
       </ul>
-    </div>
+    </Panel>
   );
 }

@@ -18,7 +18,8 @@ import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
 import { resolveAppBaseUrl } from "@/lib/automation/sms";
 import { getCalendarConnection, listConnectedCalendars } from "@/lib/calendar/connection";
 import type { CalendarListItem } from "@/lib/calendar/provider";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
+import { sectionLabelClass } from "@/lib/ui/typography";
+import { PageHeader } from "@/lib/ui/page-header";
 import { successBannerClass, errorBannerClass } from "@/lib/ui/form";
 import { AiSettingsSection } from "./_components/ai-settings-section";
 import { AutomationModeSection } from "./_components/automation-mode-section";
@@ -117,11 +118,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">System</p>
-        <h1 className={pageTitleClass}>Settings</h1>
-        <p className={`mt-1.5 ${pageDescriptionClass}`}>
-          Configure the business rules your automations use.
-        </p>
+        <PageHeader eyebrow="System" title="Settings" description="Configure the business rules your automations use." />
         {!canEdit ? (
           <p className="mt-3 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
             You have read-only access. Only owners and admins can change these settings.

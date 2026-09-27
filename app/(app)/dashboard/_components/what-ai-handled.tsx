@@ -23,7 +23,7 @@ import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
 function Stat({ icon: Icon, label, value, tone = "neutral" }: { icon: LucideIcon; label: string; value: number; tone?: "neutral" | "attention" }) {
   return (
     <div className="flex items-center gap-3">
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone === "attention" ? "bg-danger-muted text-danger" : "bg-accent-muted text-accent-text"}`}>
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone === "attention" ? "bg-danger-muted text-danger-text" : "bg-accent-muted text-accent-text"}`}>
         <Icon className="h-4 w-4" aria-hidden />
       </span>
       <div className="min-w-0">

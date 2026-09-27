@@ -1,5 +1,5 @@
 import { AlertOctagon, AlertTriangle, Info, CircleDashed, Eye, CheckCircle2, type LucideIcon } from "lucide-react";
-import { primarySectionTitleClass } from "@/lib/ui/typography";
+import { sectionLabelClass } from "@/lib/ui/typography";
 import { Panel } from "@/lib/ui/section-card";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
@@ -55,7 +55,7 @@ const CATEGORY_LABEL: Record<AutomationIncident["category"], string> = {
 export function IncidentList({ incidents }: { incidents: AutomationIncident[] }) {
   return (
     <section className="flex flex-col gap-2">
-      <h2 className={primarySectionTitleClass}>Active incidents</h2>
+      <p className={sectionLabelClass}>Active incidents</p>
       {incidents.length === 0 ? (
         <EmptyState icon={CheckCircle2} title="All clear" description="No active incidents. Automations are running cleanly." />
       ) : (

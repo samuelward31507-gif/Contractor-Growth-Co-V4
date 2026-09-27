@@ -129,14 +129,34 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
           <RangeTabs current={range} buildHref={(nextRange) => buildHref({ range: nextRange })} />
         </div>
 
-        {/* Trackpr 2.0 Phase 3I: regrouped under the canonical Analytics
-            hierarchy - revenue/performance, pipeline (current-state
-            opportunity/stage data), conversion (movement through the
-            lifecycle - deliberately never mixed with Pipeline above),
-            opportunities (where revenue may be slipping), then supporting
-            trend detail. Every individual section is unchanged in what it
-            reads and computes (see business-metrics-sections.tsx) - only
-            this top-level grouping/labeling changed. */}
+        {/* Trackpr 2.0 UI optimization pass: three deliberate tiers instead
+            of six equal-weight primarySectionTitleClass headings (that
+            token's own doc comment reserves it for "the one (or two)
+            sections... that should genuinely lead the eye" - six uses
+            recreated the exact uniform-heading syndrome it warns against).
+            Every individual section below is unchanged in what it reads,
+            computes, or renders internally (see business-metrics-sections.tsx,
+            untouched) - only this page-level grouping/heading-weight/spacing
+            changed:
+              Tier 1 (primary, the one true primarySectionTitleClass use):
+                Revenue & performance - the page's single headline story.
+              Tier 2 (secondary intelligence, the one remaining
+                primarySectionTitleClass use - "rarely twice," per the
+                token's own doc comment, and justified here since pipeline/
+                conversion/opportunity data is the page's clear second
+                story): Pipeline, conversion & opportunities - merges the
+                three former same-weight groups under one real heading;
+                each already-labeled child section (Leads & pipeline,
+                Conversion, Historical funnel, Where follow-up is leaking)
+                keeps its own existing sectionLabelClass sub-label unchanged.
+              Tier 3 (supporting/reference, demoted from
+                primarySectionTitleClass to sectionLabelClass - matching
+                every other genuinely-secondary label already used
+                elsewhere in this app): Trends & supporting insights and,
+                below it, Activity timeline - reached via a deliberately
+                larger gap (pt-16 instead of pt-10) marking the one real
+                tier break on the page, the same "you've left the core
+                workspace" signal already proven on /agency. */}
         <div className="mt-8 flex flex-col gap-10">
           <div>
             <h2 className={primarySectionTitleClass}>Revenue &amp; performance</h2>
@@ -151,34 +171,20 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
           </div>
 
           <div className="border-t border-slate-200 pt-10">
-            <h2 className={primarySectionTitleClass}>Pipeline</h2>
-            <p className={`mt-1 ${metaClass}`}>Current-state opportunity and lead-stage data - what&apos;s open right now, not how it got there.</p>
+            <h2 className={primarySectionTitleClass}>Pipeline, conversion &amp; opportunities</h2>
+            <p className={`mt-1 ${metaClass}`}>Current-state opportunity and lead-stage data, movement through the lifecycle, and real, quoted work that may be slipping away - never guaranteed revenue or a close probability.</p>
             <div className="divide-y divide-slate-200">
               <LeadsPipelineSection snapshot={snapshot} />
-            </div>
-          </div>
-
-          <div className="border-t border-slate-200 pt-10">
-            <h2 className={primarySectionTitleClass}>Conversion</h2>
-            <p className={`mt-1 ${metaClass}`}>Movement through the lifecycle - both the current-state rate and, separately, real historical timing.</p>
-            <div className="divide-y divide-slate-200">
               <ConversionSection snapshot={snapshot} />
               <HistoricalFunnelSection snapshot={snapshot} />
-            </div>
-          </div>
-
-          <div className="border-t border-slate-200 pt-10">
-            <h2 className={primarySectionTitleClass}>Opportunities</h2>
-            <p className={`mt-1 ${metaClass}`}>Real, quoted work and stalled follow-up that may be slipping away - not guaranteed revenue or a close probability. Always current-state, not scoped to the period above.</p>
-            <div className="divide-y divide-slate-200">
               <RevenueOpportunitySection snapshot={snapshot} />
             </div>
           </div>
 
-          <div className="border-t border-slate-200 pt-10">
-            <h2 className={primarySectionTitleClass}>Trends &amp; supporting insights</h2>
+          <div className="border-t border-slate-200 pt-16">
+            <p className={sectionLabelClass}>Trends &amp; supporting insights</p>
             <p className={`mt-1 ${metaClass}`}>Scheduling, follow-up, communication, reviews, AI, and automation health for the period above. Repeat customers is the one exception - always all-time, since &ldquo;has this customer come back, ever&rdquo; isn&apos;t a date-range question.</p>
-            <div className="divide-y divide-slate-200">
+            <div className="mt-3 divide-y divide-slate-200">
               <AppointmentsSection snapshot={snapshot} />
               <FollowUpSection snapshot={snapshot} />
               <CommunicationSection snapshot={snapshot} />
@@ -197,7 +203,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/analyt
       </div>
 
       <div className="border-t border-slate-200 pt-8">
-        <h2 className={primarySectionTitleClass}>Activity timeline</h2>
+        <p className={sectionLabelClass}>Activity timeline</p>
         <p className={`mt-1 ${metaClass}`}>A history of important actions and events across your business.</p>
 
         <div className="mt-5">

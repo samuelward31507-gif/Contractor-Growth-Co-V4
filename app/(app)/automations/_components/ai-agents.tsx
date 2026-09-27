@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
 import { Badge } from "@/lib/ui/badge";
+import { Panel } from "@/lib/ui/section-card";
 import { AUTOMATION_STATUS_BADGE, formatCount, formatRelativeTime } from "./format";
 import type { AutomationDisplayStatus, AutomationSummary } from "@/lib/automation/queries";
 
@@ -96,7 +97,7 @@ export function AiAgents({ summaries }: { summaries: AutomationSummary[] }) {
   return (
     <div>
       <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">AI agents</p>
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <Panel className="overflow-hidden p-0">
         <ul className="divide-y divide-slate-100">
           {agents.map((agent) => {
             const Icon = agent.icon;
@@ -133,7 +134,7 @@ export function AiAgents({ summaries }: { summaries: AutomationSummary[] }) {
             );
           })}
         </ul>
-      </div>
+      </Panel>
     </div>
   );
 }

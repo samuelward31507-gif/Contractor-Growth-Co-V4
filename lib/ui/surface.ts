@@ -3,6 +3,7 @@
 // (which sits flush on the page canvas, structured by dividers and
 // typography instead). Reserve this for moments that genuinely warrant a
 // visually separated surface, e.g. a confirmed empty state. Separate from
-// lib/ui/card.ts, which is still used by pages not yet migrated.
+// lib/ui/section-card.tsx's SectionCard/Panel, the app's one bordered-
+// container primitive for actual grouped content.
 
 export const surfaceClass = "rounded-lg bg-slate-50";

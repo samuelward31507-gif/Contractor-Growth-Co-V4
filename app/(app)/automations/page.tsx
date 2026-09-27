@@ -90,6 +90,18 @@ export default async function AutomationsPage() {
         }
       />
 
+      {/*
+        Trackpr 2.0 UI optimization pass: three deliberate tiers instead of
+        six flush, equal-gap sections. Primary = automation health (the hero
+        box below already carries the real visual weight; nothing else on
+        this page competes with it). Secondary = the things a contractor
+        actively manages (AI agents, the full automation list, scheduled
+        liveness). Tertiary/reference = incidents and recent activity - the
+        health hero above already surfaces the incident COUNTS, so the full
+        incident list and activity feed are genuinely "check this after,"
+        not "check this first." No automation behavior, data, or query
+        changed - only grouping, order, and one spacing break.
+      */}
       <div className="flex flex-col gap-2">
         <p className={sectionLabelClass}>Overview</p>
         <HealthSummaryCards health={orgHealth} activeAutomationCount={activeAutomationCount} />
@@ -106,20 +118,22 @@ export default async function AutomationsPage() {
       <AiAgents summaries={summaries} />
 
       <div className="flex flex-col gap-2">
+        <p className={sectionLabelClass}>All automations</p>
+        <AutomationList summaries={summaries} healthByAutomationId={healthByAutomationId} />
+      </div>
+
+      <div className="flex flex-col gap-2">
         <p className={sectionLabelClass}>Scheduled automation liveness</p>
         <ScheduledLivenessList liveness={scheduledLiveness} />
       </div>
 
-      <IncidentList incidents={incidents} />
+      <div className="flex flex-col gap-6 border-t border-slate-200 pt-8">
+        <IncidentList incidents={incidents} />
 
-      <div className="flex flex-col gap-2">
-        <p className={sectionLabelClass}>Recent AI activity</p>
-        <AiActivityFeed executions={recentAiExecutions} />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <p className={sectionLabelClass}>All automations</p>
-        <AutomationList summaries={summaries} healthByAutomationId={healthByAutomationId} />
+        <div className="flex flex-col gap-2">
+          <p className={sectionLabelClass}>Recent AI activity</p>
+          <AiActivityFeed executions={recentAiExecutions} />
+        </div>
       </div>
     </div>
   );
