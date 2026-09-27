@@ -9,6 +9,7 @@ import { getDashboardBusinessMetrics, getCachedBusinessInsights } from "@/lib/da
 import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
 import { getLeads, summarizeLeads } from "@/lib/leads/queries";
 import { getAppointments, summarizeAppointments } from "@/lib/appointments/queries";
+import { getJobs } from "@/lib/jobs/queries";
 import { getContacts } from "@/lib/contacts/queries";
 import { isSameCalendarDay } from "@/lib/appointments/format";
 import { syncOpportunities } from "@/lib/opportunities/detect";
@@ -17,10 +18,10 @@ import { getRepeatCustomerSummaryResult, getDormantCustomersValueSummaryResult }
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
-import { Panel } from "@/lib/ui/section-card";
 import { AttentionPanel } from "./_components/attention-panel";
 import { PipelineRail } from "./_components/pipeline-rail";
 import { TodaysSchedule } from "./_components/todays-schedule";
+import { OperationalStrip } from "./_components/operational-strip";
 import { RecentActivity } from "./_components/recent-activity";
 import { BusinessGlance } from "./_components/business-glance";
 import { AiInsightsPanel } from "./_components/ai-insights-panel";
@@ -108,12 +109,19 @@ export default async function DashboardPage() {
   // Appointments pages already use for display - reused here so "today"
   // below is decided in the organization's own configured timezone rather
   // than the server's, instead of a second, divergent timezone mechanism.
-  const [data, businessMetrics, cachedInsights, leads, appointments, contacts, organizationTimezone, todaySnapshot, dailyBriefing, endOfDaySummary, openOpportunities] = await Promise.all([
+  const [data, businessMetrics, cachedInsights, leads, appointments, jobs, contacts, organizationTimezone, todaySnapshot, dailyBriefing, endOfDaySummary, openOpportunities] = await Promise.all([
     getDashboardData(supabase, membership.organizationId),
     getDashboardBusinessMetrics(supabase, membership.organizationId),
     getCachedBusinessInsights(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getAppointments(supabase, membership.organizationId),
+    // Usability audit fix (#3, Dashboard operational strip): the exact same
+    // getJobs() every other page (Customers, Work) already calls - reused
+    // here only to compute a live "active jobs" count (status in
+    // scheduled/in_progress), matching the same live-status-count shape
+    // OverviewMetrics.pendingEstimates already uses, rather than a 30-day
+    // range-scoped BI figure that would undercount an older still-active job.
+    getJobs(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
     getOrganizationTimezone(supabase, membership.organizationId),
     getBusinessMetricsSnapshot(supabase, membership.organizationId, "today"),
@@ -125,6 +133,7 @@ export default async function DashboardPage() {
     getOpenOpportunities(supabase, membership.organizationId),
   ]);
   const opportunitySummary = summarizeOpportunities(openOpportunities);
+  const activeJobsCount = jobs.filter((job) => job.status === "scheduled" || job.status === "in_progress").length;
 
   // Pass 4 P1-B: dormant contact ids come from the page's own already-fetched
   // openOpportunities - never a second detection pass. Both reads below are
@@ -243,89 +252,83 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Trackpr 2.0, Phase 2A: the locked dashboard hierarchy - Needs Your
-            Attention, then Today's Schedule, then Pipeline Snapshot, then
-            secondary/More - expressed directly as DOM order, identical on
-            every screen width. This replaces the previous mobile-only
-            "order" utility class overrides (which put System Status first on
-            mobile only, and Pipeline before Schedule everywhere) - a real,
-            audited mismatch with this same locked hierarchy. Real DOM order
-            needs no override classes to keep mobile and desktop in
-            agreement, so none remain. System Status itself is gone from this
-            page entirely - the top bar already shows system health globally
-            (see system-status.tsx's own header comment). */}
-        <div className="border-t border-slate-200 pt-8 lg:border-t-0 lg:pt-0">
-          <AttentionPanel items={data.attentionItems} />
+        {/* Usability audit fix (#3, Dashboard executive hierarchy): the
+            primary daily-operating story is now a real 2-column region -
+            Needs Your Attention (left) and Pipeline/business state (right) -
+            so Pipeline Value (in the header above) reads together with the
+            Pipeline stage rail directly below/beside it, instead of the
+            rail appearing as a disconnected full-width section several
+            scrolls down. Stacks to one column below `lg`, Attention first
+            (unchanged reading order on mobile). Same components, same data,
+            same hrefs - only the container changed from three stacked
+            full-width sections to one 2-column grid. */}
+        <div className="grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 lg:grid-cols-2 lg:border-t-0 lg:pt-0">
+          <div>
+            <AttentionPanel items={data.attentionItems} />
+          </div>
+          <div className="border-t border-slate-200 pt-8 lg:border-t-0 lg:pt-0">
+            <PipelineRail pipeline={data.pipeline} hasNeverHadLeads={leads.length === 0} />
+          </div>
         </div>
 
+        {/* Operational strip (#3/#4): "what's happening today," compact and
+            reference-tier - below the primary Attention/Pipeline story, above
+            the secondary More region. The detailed Today's Schedule list
+            (unchanged, same data) sits directly beneath the compact strip -
+            preserved in full, not replaced by the strip's three summary
+            numbers. */}
         <div className="border-t border-slate-200 pt-8">
-          <TodaysSchedule appointments={todaysAppointments} timeZone={organizationTimezone} />
-        </div>
-
-        <div className="border-t border-slate-200 pt-8">
-          <PipelineRail pipeline={data.pipeline} hasNeverHadLeads={leads.length === 0} />
+          <OperationalStrip todayCount={appointmentSummary.today} estimatesAwaitingCount={data.overview.pendingEstimates} activeJobsCount={activeJobsCount} />
+          <div className="mt-6">
+            <TodaysSchedule appointments={todaysAppointments} timeZone={organizationTimezone} />
+          </div>
         </div>
 
         {/* More / secondary information: everything real and useful that
-            isn't one of the three priority sections above - composed from
-            existing components only, no new visual system. A real <h2> so
-            it reads as its own labeled region, not an unlabeled continuation
-            of Pipeline Snapshot.
-            Trackpr 2.0, Phase 2B: What AI Handled moved to the front of this
-            region (previously between Briefing and Recent Activity/Business
-            Glance) - the audit's own product-completeness test found it was
-            the least likely section to be seen in a quick scan, despite
-            being one of the clearest expressions of Trackpr's own AI
-            differentiation. Same component, same data, no new query - only
-            its position within the unchanged 4-section top-level hierarchy
-            (Attention/Schedule/Pipeline/More) changed.
-            Trackpr 2.0, Phase 3B: every subsection is now wrapped in the
-            same bordered Panel container Business Glance already used on
-            its own - previously the only inconsistency in this region (four
-            subsections sat flush on the canvas, one sat in a card). Boxing
-            all of them gives "More" its own consistent, secondary-tier
-            visual identity (quieter, contained) versus Attention/Schedule/
-            Pipeline above (dominant, flush-on-canvas) - reinforcing the
-            existing primary/secondary hierarchy through container treatment,
-            not new sections or reordering. No collapsible interaction was
-            added - no existing pattern for it in this codebase, and adding
-            new client-side state for a foundation this narrow isn't
-            "extremely low-risk" per this phase's own instruction. */}
+            isn't part of the primary daily-operating story above - composed
+            from existing components only, no new visual system. A real <h2>
+            so it reads as its own labeled region.
+            Usability audit fix (#8): reduced from five individually
+            bordered/shadowed Panel containers to one flush, divider-
+            separated stack - the same divide-y convention already used
+            elsewhere on this exact page (AttentionPanel's own item rows) and
+            across the app (Growth, Analytics section groups), rather than a
+            new visual treatment. Every subsection keeps its own internal
+            heading (each already renders one), so removing the outer card
+            chrome loses no information - only the border/shadow weight. */}
         <section aria-labelledby="dashboard-more-heading" className="border-t border-slate-200 pt-8">
           <h2 id="dashboard-more-heading" className={sectionLabelClass}>
             More
           </h2>
 
-          <div className="mt-5 flex flex-col gap-6">
-            <Panel>
+          <div className="mt-5 divide-y divide-slate-200">
+            <div className="pb-8">
               <WhatAiHandled snapshot={todaySnapshot} />
-            </Panel>
+            </div>
 
-            <Panel>
+            <div className="py-8">
               <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
-            </Panel>
+            </div>
 
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <Panel className="min-w-0">
+            <div className="grid grid-cols-1 gap-6 py-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="min-w-0">
                 <RecentActivity items={data.recentActivity} />
-              </Panel>
+              </div>
               <div className="lg:sticky lg:top-6 lg:self-start">
-                <Panel>
-                  <BusinessGlance
-                    overview={data.overview}
-                    snapshot={businessMetrics}
-                    opportunitySummary={opportunitySummary}
-                    repeatCustomerSummary={repeatCustomerSummary}
-                    dormantCustomerCount={dormantContactIds.length}
-                    dormantCustomersValue={dormantCustomersValue}
-                  />
-                </Panel>
+                <BusinessGlance
+                  overview={data.overview}
+                  snapshot={businessMetrics}
+                  opportunitySummary={opportunitySummary}
+                  repeatCustomerSummary={repeatCustomerSummary}
+                  dormantCustomerCount={dormantContactIds.length}
+                  dormantCustomersValue={dormantCustomersValue}
+                />
               </div>
             </div>
 
-            <Panel>
+            <div className="pt-8">
               <AiInsightsPanel cached={cachedInsights} />
-            </Panel>
+            </div>
           </div>
         </section>
       </div>

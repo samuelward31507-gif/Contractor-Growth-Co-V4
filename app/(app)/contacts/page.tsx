@@ -4,6 +4,12 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { filterContacts, getContacts, type Contact } from "@/lib/contacts/queries";
+import { getLeads } from "@/lib/leads/queries";
+import { getEstimates } from "@/lib/estimates/queries";
+import { getJobs } from "@/lib/jobs/queries";
+import { getAppointments } from "@/lib/appointments/queries";
+import { getReviewRequests } from "@/lib/reviews-referrals/queries";
+import { deriveContactLifecycle, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
 import { PageHeader } from "@/lib/ui/page-header";
 import { Panel } from "@/lib/ui/section-card";
 import { AddContactButton } from "./_components/add-contact-button";
@@ -71,8 +77,24 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
     redirect("/onboarding");
   }
 
-  const allContacts = await getContacts(supabase, membership.organizationId);
+  const [allContacts, leads, estimates, jobs, appointments, reviewRequests] = await Promise.all([
+    getContacts(supabase, membership.organizationId),
+    getLeads(supabase, membership.organizationId),
+    getEstimates(supabase, membership.organizationId),
+    getJobs(supabase, membership.organizationId),
+    getAppointments(supabase, membership.organizationId),
+    getReviewRequests(supabase, membership.organizationId),
+  ]);
   const contacts = sortContacts(filterContacts(allContacts, query), sort);
+
+  // Usability audit fix (#2): one lifecycle badge per contact, derived from
+  // the exact signals already fetched above - no new query beyond the five
+  // already-existing org-scoped reads every other page (Dashboard, Jobs,
+  // Growth) already performs. See lib/customers/lifecycle-stage.ts for the
+  // priority order.
+  const lifecycleByContactId = new Map<string, ContactLifecycleStage>(
+    allContacts.map((contact) => [contact.id, deriveContactLifecycle(contact.id, { leads, estimates, jobs, appointments, reviewRequests })]),
+  );
 
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
@@ -120,7 +142,7 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
         <Panel>
           <ContactsSearch initialQuery={query} initialSort={sort} />
           <div className="mt-5">
-            <ContactsTable contacts={contacts} query={query} />
+            <ContactsTable contacts={contacts} query={query} lifecycleByContactId={lifecycleByContactId} />
           </div>
         </Panel>
       )}

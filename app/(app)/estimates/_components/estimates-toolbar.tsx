@@ -9,9 +9,12 @@ import { ESTIMATE_STATUSES } from "@/lib/estimates/queries";
 export function EstimatesToolbar({
   initialQuery,
   initialStatus,
+  extraParams,
 }: {
   initialQuery: string;
   initialStatus: string;
+  /** Usability audit fix (#5, Work real tabs): extra query params (e.g. `{ type: "estimates" }`) carried through every navigate/clear call so the active Work tab survives a search or status change instead of resetting to the default tab. Omitted (undefined) on the still-reachable legacy /estimates route, where behavior is unchanged. */
+  extraParams?: Record<string, string>;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [status, setStatus] = useState(initialStatus);
@@ -19,7 +22,7 @@ export function EstimatesToolbar({
   const pathname = usePathname();
 
   function navigate(nextQuery: string, nextStatus: string) {
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(extraParams);
     const trimmed = nextQuery.trim();
     if (trimmed) params.set("q", trimmed);
     if (nextStatus !== "all") params.set("status", nextStatus);
@@ -43,7 +46,9 @@ export function EstimatesToolbar({
   function clearAll() {
     setQuery("");
     setStatus("all");
-    router.replace(pathname);
+    const params = new URLSearchParams(extraParams);
+    const queryString = params.toString();
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname);
   }
 
   return (

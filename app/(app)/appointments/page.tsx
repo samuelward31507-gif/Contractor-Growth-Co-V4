@@ -13,13 +13,13 @@ import {
   type AppointmentView,
 } from "@/lib/appointments/queries";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
-import Link from "next/link";
 import { PageHeader } from "@/lib/ui/page-header";
 import { AddAppointmentButton } from "./_components/add-appointment-button";
 import { AppointmentsEmptyState } from "./_components/appointments-empty-state";
 import { AppointmentsList } from "./_components/appointments-list";
 import { AppointmentsSummary } from "./_components/appointments-summary";
 import { AppointmentsToolbar } from "./_components/appointments-toolbar";
+import { ScheduleViewSwitcher } from "../schedule/_components/schedule-view-switcher";
 
 const VALID_STATUSES = new Set<string>(["scheduled", "confirmed", "completed", "cancelled", "no_show"]);
 const VALID_VIEWS = new Set<string>(["upcoming", "today", "past"]);
@@ -79,19 +79,18 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
 
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      {/* Usability audit fix (#6): the old "List view" badge + plain
+          "Calendar view" text link are gone - the same ScheduleViewSwitcher
+          CalendarToolbar uses now sits here too, so Day/Week/Month/List
+          reads as one consistent control on both presentations of Schedule
+          rather than two different affordances for the same idea. */}
       <PageHeader
         eyebrow="Operate"
         title="Schedule"
         description="Keep every customer appointment organized and on schedule."
-        badge={<span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">List view</span>}
         action={
-          <div className="flex items-center gap-4">
-            <Link
-              href="/schedule"
-              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-            >
-              Calendar view
-            </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <ScheduleViewSwitcher active="list" hrefs={{ day: "/schedule?view=day", week: "/schedule?view=week", month: "/schedule?view=month", list: "/schedule?view=list" }} />
             <AddAppointmentButton contacts={contacts} leads={leads} />
           </div>
         }

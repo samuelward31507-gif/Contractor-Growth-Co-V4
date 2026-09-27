@@ -9,12 +9,7 @@ import { primaryButtonAutoClass, secondaryButtonAutoClass, ghostButtonClass } fr
 import { buildCalendarHref, type CalendarView } from "../_lib/date-range";
 import { AppointmentDialog } from "../../appointments/_components/appointment-dialog";
 import { BlockedTimeDialog } from "./blocked-time-dialog";
-
-const VIEWS: { value: CalendarView; label: string }[] = [
-  { value: "day", label: "Day" },
-  { value: "week", label: "Week" },
-  { value: "month", label: "Month" },
-];
+import { ScheduleViewSwitcher } from "../../schedule/_components/schedule-view-switcher";
 
 /**
  * Pass 2 (Native Calendar System): the calendar's own nav + primary actions
@@ -83,20 +78,15 @@ export function CalendarToolbar({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
-          {VIEWS.map((item) => (
-            <Link
-              key={item.value}
-              href={buildCalendarHref(item.value, activeDateStr)}
-              aria-pressed={view === item.value}
-              className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
-                view === item.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </div>
+        <ScheduleViewSwitcher
+          active={view}
+          hrefs={{
+            day: buildCalendarHref("day", activeDateStr),
+            week: buildCalendarHref("week", activeDateStr),
+            month: buildCalendarHref("month", activeDateStr),
+            list: "/schedule?view=list",
+          }}
+        />
 
         <button type="button" onClick={() => setBlockOpen(true)} className={secondaryButtonAutoClass}>
           <CalendarOff aria-hidden className="h-4 w-4" />

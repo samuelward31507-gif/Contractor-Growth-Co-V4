@@ -34,15 +34,23 @@ import { ReputationSection } from "./_components/reputation-section";
 import { ServiceAreasSection } from "./_components/service-areas-section";
 import { ServicesSection } from "./_components/services-section";
 import { SmsSummarySection } from "./_components/sms-summary-section";
+import { SettingsJumpNav } from "./_components/settings-jump-nav";
+
+/** Usability audit fix (#7): a stable slug per group label, used both as the section's scroll anchor and the jump nav's href - derived from the same label passed to SettingsGroup, never a second source of truth for section names. */
+function settingsGroupId(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
 
 function SettingsGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="border-t border-slate-200 pt-8 first:border-t-0 first:pt-0">
+    <div id={settingsGroupId(label)} className="scroll-mt-6 border-t border-slate-200 pt-8 first:border-t-0 first:pt-0">
       <p className={sectionLabelClass}>{label}</p>
       <div className="mt-5 space-y-10">{children}</div>
     </div>
   );
 }
+
+const SETTINGS_GROUP_LABELS = ["Business & Organization", "Automations", "Scheduling & Booking", "Communications & Notifications", "AI", "Reputation"];
 
 const CALENDAR_STATUS_MESSAGE: Record<string, string> = {
   connected: "Google Calendar connected.",
@@ -129,37 +137,46 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         ) : null}
       </div>
 
-      <div>
-        <SettingsGroup label="Business & Organization">
-          <BusinessProfileSection profile={profile} canEdit={canEdit} />
-        </SettingsGroup>
+      {/* Usability audit fix (#7): a sticky jump nav alongside the existing
+          form on desktop - the grid collapses to the plain single-column
+          form (unchanged) below `lg`, per the audit's own instruction to
+          preserve the existing vertical form on mobile rather than add a
+          second, compact mechanism. */}
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[180px_minmax(0,1fr)]">
+        <SettingsJumpNav groups={SETTINGS_GROUP_LABELS.map((label) => ({ id: settingsGroupId(label), label }))} />
 
-        <SettingsGroup label="Automations">
-          <AutomationModeSection mode={automationMode} canEdit={canEdit} />
-        </SettingsGroup>
+        <div className="min-w-0">
+          <SettingsGroup label="Business & Organization">
+            <BusinessProfileSection profile={profile} canEdit={canEdit} />
+          </SettingsGroup>
 
-        <SettingsGroup label="Scheduling & Booking">
-          <BusinessHoursSection hours={hours} timezone={profile.timezone} canEdit={canEdit} />
-          <ServicesSection services={services} canEdit={canEdit} />
-          <ServiceAreasSection areas={serviceAreas} canEdit={canEdit} />
-          <BookingSettingsSection settings={bookingSettings} canEdit={canEdit} />
-          <CalendarConnectionSection connection={calendarConnection} availableCalendars={availableCalendars} canEdit={canEdit} />
-          <OperationsDetailSection profile={profile} canEdit={canEdit} />
-        </SettingsGroup>
+          <SettingsGroup label="Automations">
+            <AutomationModeSection mode={automationMode} canEdit={canEdit} />
+          </SettingsGroup>
 
-        <SettingsGroup label="Communications & Notifications">
-          <SmsSummarySection smsPhoneNumber={smsPhoneNumber} />
-          <LeadCaptureSection intakeUrl={leadIntakeUrl} />
-          <NotificationSettingsSection settings={notificationSettings} canEdit={canEdit} />
-        </SettingsGroup>
+          <SettingsGroup label="Scheduling & Booking">
+            <BusinessHoursSection hours={hours} timezone={profile.timezone} canEdit={canEdit} />
+            <ServicesSection services={services} canEdit={canEdit} />
+            <ServiceAreasSection areas={serviceAreas} canEdit={canEdit} />
+            <BookingSettingsSection settings={bookingSettings} canEdit={canEdit} />
+            <CalendarConnectionSection connection={calendarConnection} availableCalendars={availableCalendars} canEdit={canEdit} />
+            <OperationsDetailSection profile={profile} canEdit={canEdit} />
+          </SettingsGroup>
 
-        <SettingsGroup label="AI">
-          <AiSettingsSection settings={aiSettings} canEdit={canEdit} />
-        </SettingsGroup>
+          <SettingsGroup label="Communications & Notifications">
+            <SmsSummarySection smsPhoneNumber={smsPhoneNumber} />
+            <LeadCaptureSection intakeUrl={leadIntakeUrl} />
+            <NotificationSettingsSection settings={notificationSettings} canEdit={canEdit} />
+          </SettingsGroup>
 
-        <SettingsGroup label="Reputation">
-          <ReputationSection profile={profile} canEdit={canEdit} />
-        </SettingsGroup>
+          <SettingsGroup label="AI">
+            <AiSettingsSection settings={aiSettings} canEdit={canEdit} />
+          </SettingsGroup>
+
+          <SettingsGroup label="Reputation">
+            <ReputationSection profile={profile} canEdit={canEdit} />
+          </SettingsGroup>
+        </div>
       </div>
     </div>
   );

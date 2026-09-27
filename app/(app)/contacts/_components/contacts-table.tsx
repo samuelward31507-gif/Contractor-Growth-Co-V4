@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { ChevronRight, Search, Phone, Mail, Building2 } from "lucide-react";
 import { EmptyState } from "@/lib/ui/empty-state";
+import { Badge } from "@/lib/ui/badge";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
 import type { Contact } from "@/lib/contacts/queries";
+import { CONTACT_LIFECYCLE_LABEL, CONTACT_LIFECYCLE_TONE, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
 
-const ROW_GRID = "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_96px_20px]";
+const ROW_GRID = "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_136px_96px_20px]";
 
 function secondaryLine(contact: Contact): string {
   return [contact.phone, contact.email].filter(Boolean).join(" · ") || "No details yet";
@@ -33,7 +35,16 @@ function ContactDetails({ contact }: { contact: Contact }) {
   );
 }
 
-export function ContactsTable({ contacts, query }: { contacts: Contact[]; query: string }) {
+export function ContactsTable({
+  contacts,
+  query,
+  lifecycleByContactId,
+}: {
+  contacts: Contact[];
+  query: string;
+  /** Usability audit fix (#2): one derived lifecycle stage per contact - see lib/customers/lifecycle-stage.ts. Optional so this component still type-checks anywhere it might be reused without the signal wired up; falls back to "new" (the same neutral tone a contact with no activity yet would resolve to anyway). */
+  lifecycleByContactId?: Map<string, ContactLifecycleStage>;
+}) {
   if (contacts.length === 0) {
     return (
       <EmptyState
@@ -50,65 +61,82 @@ export function ContactsTable({ contacts, query }: { contacts: Contact[]; query:
         <div className={`grid ${ROW_GRID} gap-6 border-b border-slate-200 px-2 pb-3`}>
           <span className="text-xs text-slate-400">Contact</span>
           <span className="text-xs text-slate-400">Details</span>
+          <span className="text-xs text-slate-400">Status</span>
           <span className="text-xs text-slate-400">Created</span>
           <span />
         </div>
         <div className="divide-y divide-slate-100">
-          {contacts.map((contact) => (
-            <Link
-              key={contact.id}
-              href={`/contacts/${contact.id}`}
-              className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset`}
-            >
-              <span className="flex min-w-0 items-center gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
-                  {contactInitials(contact)}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-slate-900">
-                    {contactDisplayName(contact)}
+          {contacts.map((contact) => {
+            const lifecycle = lifecycleByContactId?.get(contact.id) ?? "new";
+            return (
+              <Link
+                key={contact.id}
+                href={`/contacts/${contact.id}`}
+                className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset`}
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                    {contactInitials(contact)}
                   </span>
-                  {contact.company_name ? (
-                    <span className="flex items-center gap-1 truncate text-xs text-slate-500">
-                      <Building2 className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
-                      {contact.company_name}
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-slate-900">
+                      {contactDisplayName(contact)}
                     </span>
-                  ) : null}
+                    {contact.company_name ? (
+                      <span className="flex items-center gap-1 truncate text-xs text-slate-500">
+                        <Building2 className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+                        {contact.company_name}
+                      </span>
+                    ) : null}
+                  </span>
                 </span>
-              </span>
-              <ContactDetails contact={contact} />
-              <span className="text-xs tabular-nums text-slate-400">{formatContactDate(contact.created_at)}</span>
-              <ChevronRight
-                className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
-                aria-hidden
-              />
-            </Link>
-          ))}
+                <ContactDetails contact={contact} />
+                <span>
+                  <Badge tone={CONTACT_LIFECYCLE_TONE[lifecycle]} className={lifecycle === "lost" ? "opacity-70" : undefined}>
+                    {CONTACT_LIFECYCLE_LABEL[lifecycle]}
+                  </Badge>
+                </span>
+                <span className="text-xs tabular-nums text-slate-400">{formatContactDate(contact.created_at)}</span>
+                <ChevronRight
+                  className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
+                  aria-hidden
+                />
+              </Link>
+            );
+          })}
         </div>
       </div>
 
       <ul className="divide-y divide-slate-100 lg:hidden">
-        {contacts.map((contact) => (
-          <li key={contact.id}>
-            <Link
-              href={`/contacts/${contact.id}`}
-              className="flex items-center gap-3 px-2 py-3.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
-                {contactInitials(contact)}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-slate-900">
-                  {contactDisplayName(contact)}
+        {contacts.map((contact) => {
+          const lifecycle = lifecycleByContactId?.get(contact.id) ?? "new";
+          return (
+            <li key={contact.id}>
+              <Link
+                href={`/contacts/${contact.id}`}
+                className="flex items-center gap-3 px-2 py-3.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                  {contactInitials(contact)}
                 </span>
-                <span className="block truncate text-xs text-slate-500">
-                  {contact.company_name || secondaryLine(contact)}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-slate-900">
+                      {contactDisplayName(contact)}
+                    </span>
+                    <Badge tone={CONTACT_LIFECYCLE_TONE[lifecycle]} className={lifecycle === "lost" ? "opacity-70" : undefined}>
+                      {CONTACT_LIFECYCLE_LABEL[lifecycle]}
+                    </Badge>
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-slate-500">
+                    {contact.company_name || secondaryLine(contact)}
+                  </span>
                 </span>
-              </span>
-              <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
-            </Link>
-          </li>
-        ))}
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

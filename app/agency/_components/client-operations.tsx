@@ -2,11 +2,31 @@ import Link from "next/link";
 import { ChevronRight, Search } from "lucide-react";
 import { Badge, RAIL_TONE_CLASS, type BadgeTone } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
-import { formatRelativeTime } from "@/lib/dashboard/format";
+import { formatRelativeTime, formatCurrency } from "@/lib/dashboard/format";
 import { ONBOARDING_STAGE_LABEL, type OnboardingStage } from "@/lib/onboarding/checklist";
 import type { AgencyOrganizationSnapshot } from "@/lib/agency/queries";
 import type { AgencyOrganizationHealth } from "@/lib/agency/health";
 import { formatCount } from "./format";
+
+// Usability audit fix (#4, Agency Clients co-primary): "AUTOMATION" column -
+// derived straight from the existing health.automationPaused flag already
+// threaded onto every row (see lib/agency/health.ts's own
+// AgencyOrganizationHealth type) - no new automation state, no new query.
+function AutomationCell({ health }: { health: AgencyOrganizationHealth | undefined }) {
+  if (health?.automationPaused) {
+    return <Badge tone="neutral">Paused</Badge>;
+  }
+  return <span className="text-sm text-slate-500">On</span>;
+}
+
+// Usability audit fix (#4): "PIPELINE SIGNAL" column - the org's own open
+// pipeline value, already computed by the exact same BusinessMetricsSnapshot
+// every other agency page (Usage, Revenue) reads via
+// AgencyOrganizationSnapshot.metrics - no new query, no new pipeline engine.
+function pipelineSignal(organization: AgencyOrganizationSnapshot): string {
+  const value = organization.metrics.pipelineMetrics.pipelineValue;
+  return value > 0 ? formatCurrency(value) : "—";
+}
 
 const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
   new: "neutral",
@@ -16,13 +36,17 @@ const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
   live: "success",
 };
 
-// Two column counts, not one grid hidden down to fewer visible cells: a
-// fixed 9-track template with cells merely hidden below `xl` still
-// reserves those tracks' width, leaving dead gaps and misaligning the
-// remaining columns at 1024-1279px. The container's own template changes
-// column count at the breakpoint instead, matching how many cells are
-// actually rendered at each size.
-const ROW_GRID = "grid-cols-[minmax(0,1fr)_92px_92px_112px_20px] xl:grid-cols-[minmax(0,1.3fr)_92px_92px_52px_52px_52px_52px_60px_112px_20px]";
+// Usability audit fix (#4, Agency Clients co-primary): re-prioritized so the
+// four decision-relevant columns (Health, Automation, Pipeline, Next action)
+// never hide - only the least decision-relevant raw counts (Leads/Appts/
+// Jobs) move to the widest-screen-only tier. Two column counts, not one grid
+// hidden down to fewer visible cells: a fixed-track template with cells
+// merely hidden below `xl` still reserves those tracks' width, leaving dead
+// gaps and misaligning the remaining columns at 1024-1279px - the
+// container's own template changes column count at the breakpoint instead,
+// matching how many cells are actually rendered at each size.
+const ROW_GRID =
+  "grid-cols-[minmax(0,1fr)_84px_108px_88px_96px_92px_minmax(0,160px)_20px] xl:grid-cols-[minmax(0,1.1fr)_84px_108px_88px_96px_52px_52px_52px_92px_minmax(0,160px)_20px]";
 
 /**
  * Trackpr 2.0 Phase 6: the row's one "why" signal - a client can be flagged
@@ -63,6 +87,8 @@ export type ClientRow = {
   incompleteCount: number;
   lastActivityAt: string | null;
   escalationCount: number;
+  /** Usability audit fix (#4): "NEXT ACTION" column - reuses the same NeedsAttentionItem.why text app/agency/_components/needs-attention.tsx already shows for this org's most urgent open item (see agency/page.tsx's own nextActionByOrg map). Null when the org has no open attention item - never invented copy. */
+  nextAction: string | null;
 };
 
 /**
@@ -103,12 +129,13 @@ export function ClientOperations({ rows, totalCount }: { rows: ClientRow[]; tota
           <span className="text-xs text-slate-400">Client</span>
           <span className="text-xs text-slate-400">Status</span>
           <span className="text-xs text-slate-400">Health</span>
+          <span className="text-xs text-slate-400">Automation</span>
+          <span className="text-right text-xs text-slate-400">Pipeline</span>
           <span className="hidden text-right text-xs text-slate-400 xl:block">Leads</span>
           <span className="hidden text-right text-xs text-slate-400 xl:block">Appts</span>
           <span className="hidden text-right text-xs text-slate-400 xl:block">Jobs</span>
-          <span className="hidden text-right text-xs text-slate-400 xl:block">AI</span>
-          <span className="hidden text-right text-xs text-slate-400 xl:block">Issues</span>
           <span className="text-xs text-slate-400 whitespace-nowrap">Last activity</span>
+          <span className="text-xs text-slate-400">Next action</span>
           <span />
         </div>
         <div className="divide-y divide-slate-100">
@@ -156,26 +183,17 @@ function ClientRowDesktop({ row }: { row: ClientRow }) {
       <span>
         <HealthBadge health={health} />
       </span>
+      <span>
+        <AutomationCell health={health} />
+      </span>
+      <span className="text-right text-xs font-medium tabular-nums text-slate-700">{pipelineSignal(organization)}</span>
       <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.leadMetrics.totalLeads)}</span>
       <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.appointmentMetrics.totalAppointments)}</span>
       <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.jobMetrics.totalJobs)}</span>
-      <span className="hidden text-right text-xs tabular-nums xl:block">
-        {row.escalationCount > 0 ? (
-          <span className="font-medium text-amber-600">{formatCount(row.escalationCount)}</span>
-        ) : (
-          <span className="text-slate-300">—</span>
-        )}
-      </span>
-      <span className="hidden text-right text-xs tabular-nums xl:block">
-        {(health?.activeIncidentCount ?? 0) > 0 ? (
-          <span className="font-medium text-red-600">{formatCount(health!.activeIncidentCount)}</span>
-        ) : (
-          <span className="text-slate-300">—</span>
-        )}
-      </span>
       <span className="text-xs tabular-nums text-slate-400">
         {row.lastActivityAt ? formatRelativeTime(row.lastActivityAt) : "No activity yet"}
       </span>
+      <span className="truncate text-xs text-slate-500">{row.nextAction ?? "—"}</span>
       <ChevronRight className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
     </Link>
   );
@@ -210,10 +228,17 @@ function ClientRowMobile({ row }: { row: ClientRow }) {
               {row.lastActivityAt ? formatRelativeTime(row.lastActivityAt) : "—"}
             </span>
           </span>
-          <span className="mt-1 block text-xs tabular-nums text-slate-400">
+          <span className="mt-1 flex items-center gap-2 text-xs tabular-nums text-slate-400">
+            <AutomationCell health={health} />
+            <span>·</span>
+            <span className="font-medium text-slate-600">{pipelineSignal(organization)}</span>
+            <span>pipeline</span>
+          </span>
+          <span className="mt-0.5 block text-xs tabular-nums text-slate-400">
             {formatCount(m.leadMetrics.totalLeads)} leads · {formatCount(m.appointmentMetrics.totalAppointments)} appts · {formatCount(m.jobMetrics.totalJobs)} jobs
             {row.escalationCount > 0 ? <span className="font-medium text-amber-600"> · {formatCount(row.escalationCount)} AI escalation{row.escalationCount === 1 ? "" : "s"}</span> : null}
           </span>
+          {row.nextAction ? <span className="mt-0.5 block truncate text-xs text-slate-500">{row.nextAction}</span> : null}
         </span>
       </Link>
     </li>

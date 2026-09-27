@@ -7,7 +7,6 @@ import { getLeads } from "@/lib/leads/queries";
 import { getAppointmentsInRangeResult } from "@/lib/appointments/queries";
 import { getBlockedTimeInRange } from "@/lib/scheduling/blocked-time";
 import { getOrganizationTimezone, getBusinessHours, getBookingSettings } from "@/lib/settings/queries";
-import Link from "next/link";
 import { PageHeader } from "@/lib/ui/page-header";
 import {
   parseDateOnly,
@@ -139,18 +138,15 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
 
   return (
     <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      {/* Usability audit fix (#6): the old plain "List view" text link here is
+          gone - CalendarToolbar's ScheduleViewSwitcher just below now covers
+          Day/Week/Month/List as one segmented control, so this header no
+          longer needs a second, differently-styled way to reach the same
+          destination. */}
       <PageHeader
         eyebrow="Operate"
         title="Schedule"
         description="Your real-time scheduling command center - appointments, availability, and blocked time in one place."
-        action={
-          <Link
-            href="/schedule?view=list"
-            className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-          >
-            List view
-          </Link>
-        }
       />
 
       {appointmentsResult.failed ? (

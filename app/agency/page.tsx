@@ -101,6 +101,18 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
 
   const healthByOrg = new Map<string, AgencyOrganizationHealth>(health.organizations.map((org) => [org.organizationId, org]));
 
+  // Usability audit fix (#4, Agency Clients co-primary): the Clients table's
+  // new "Next action" column reuses NeedsAttention's own per-item `why` text
+  // - the first (most urgent, since needsAttention.items is already severity-
+  // then-recency ordered) open item per organization - never invented copy.
+  // An organization with no open item gets `null`, rendered as a plain dash.
+  const nextActionByOrg = new Map<string, string>();
+  for (const item of needsAttention.items) {
+    if (!nextActionByOrg.has(item.organizationId)) {
+      nextActionByOrg.set(item.organizationId, item.why);
+    }
+  }
+
   const allRows: ClientRow[] = metrics.organizations.map((org) => {
     const stageInfo = stages.stageByOrg.get(org.organizationId);
     return {
@@ -110,6 +122,7 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
       incompleteCount: stageInfo?.incompleteCount ?? 0,
       lastActivityAt: activity.lastActivityByOrg.get(org.organizationId) ?? null,
       escalationCount: escalations.countByOrg.get(org.organizationId) ?? 0,
+      nextAction: nextActionByOrg.get(org.organizationId) ?? null,
     };
   });
 
