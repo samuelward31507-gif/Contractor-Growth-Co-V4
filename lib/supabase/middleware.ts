@@ -42,8 +42,14 @@ export async function updateSession(request: NextRequest) {
   // callback) authenticate themselves - n8n never presents a Supabase
   // session, so redirecting them to /login would make those routes
   // unreachable by design rather than by any check they actually perform.
+  // /demo is the public, read-only interactive sales demo (app/demo/page.tsx)
+  // - a startsWith check like /auth and /api/, not a PUBLIC_MARKETING_PATHS
+  // entry, since it is its own self-contained public route family, not part
+  // of the marketing site. It requires no session, touches no backend/
+  // Supabase data, and must be reachable by a prospect who has never logged
+  // in - without this, every demo link would silently redirect to /login.
   const PUBLIC_MARKETING_PATHS = new Set(["/", "/how-it-works", "/services", "/get-started", "/privacy", "/terms", "/robots.txt", "/sitemap.xml"]);
-  if (PUBLIC_MARKETING_PATHS.has(pathname) || pathname.startsWith("/auth") || pathname.startsWith("/api/")) {
+  if (PUBLIC_MARKETING_PATHS.has(pathname) || pathname.startsWith("/auth") || pathname.startsWith("/api/") || pathname.startsWith("/demo")) {
     return supabaseResponse;
   }
 

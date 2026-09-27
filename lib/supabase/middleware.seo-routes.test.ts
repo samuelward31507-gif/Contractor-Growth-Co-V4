@@ -37,6 +37,9 @@ test("3. AUTH_PATHS is untouched by this change - /robots.txt and /sitemap.xml a
   assert.match(SOURCE, /const AUTH_PATHS = new Set\(\["\/login", "\/signup", "\/forgot-password"\]\);/);
 });
 
-test("4. the PUBLIC_MARKETING_PATHS check itself is unchanged in shape - still a single .has(pathname) short-circuit before any auth check runs, so an authenticated user hitting these routes is never redirected away either", () => {
-  assert.match(SOURCE, /if \(PUBLIC_MARKETING_PATHS\.has\(pathname\) \|\| pathname\.startsWith\("\/auth"\) \|\| pathname\.startsWith\("\/api\/"\)\) \{\s*\n\s*return supabaseResponse;\s*\n\s*\}/);
+test("4. the PUBLIC_MARKETING_PATHS check itself is unchanged in shape aside from the documented /demo addition - still a single short-circuit before any auth check runs, so an authenticated user hitting these routes is never redirected away either", () => {
+  assert.match(
+    SOURCE,
+    /if \(PUBLIC_MARKETING_PATHS\.has\(pathname\) \|\| pathname\.startsWith\("\/auth"\) \|\| pathname\.startsWith\("\/api\/"\) \|\| pathname\.startsWith\("\/demo"\)\) \{\s*\n\s*return supabaseResponse;\s*\n\s*\}/,
+  );
 });
