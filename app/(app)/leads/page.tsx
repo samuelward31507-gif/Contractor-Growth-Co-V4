@@ -12,13 +12,16 @@ import {
   type LeadStatus,
   type LeadTemperature,
 } from "@/lib/leads/queries";
+import { STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { PageHeader } from "@/lib/ui/page-header";
 import { Panel } from "@/lib/ui/section-card";
+import { Badge } from "@/lib/ui/badge";
 import { AddLeadButton } from "./_components/add-lead-button";
 import { LeadsEmptyState } from "./_components/leads-empty-state";
 import { LeadsSummary } from "./_components/leads-summary";
 import { LeadsTable } from "./_components/leads-table";
 import { LeadsToolbar } from "./_components/leads-toolbar";
+import { LEAD_STATUS_TONE, LEAD_TEMPERATURE_TONE } from "./_components/lead-status";
 
 const VALID_STATUSES = new Set<string>(["new", "contacted", "qualified", "appointment", "estimate", "won", "lost"]);
 const VALID_TEMPERATURES = new Set<string>(["cold", "warm", "hot"]);
@@ -65,7 +68,7 @@ function sortLeads(leads: Lead[], sort: LeadSort): Lead[] {
 }
 
 /**
- * Trackpr 2.0, Phase 3C: the header now reads "Customers" with an "Active
+ * Trackpr 2.0, Phase 3C: the header defaults to "Customers" with an "Active
  * leads" badge, rather than a standalone "Leads" identity - per the locked
  * product spec's own mental model ("Lead is a stage on a Customer, never a
  * merged entity" - see app/(app)/customers/[id]/page.tsx's own comment),
@@ -75,8 +78,19 @@ function sortLeads(leads: Lead[], sort: LeadSort): Lead[] {
  * to /customers?from=lead before Next.js would ever resolve this file
  * directly (see next.config.ts) - so there is no remaining real navigation
  * path where a user would see this under a bare "/leads" URL/context.
- * Only the header's copy changed - getLeads/filterLeads/sortLeads, the
- * leads table, and the underlying `leads` table itself are untouched.
+ *
+ * Usability audit fix: a link that adds a non-default `status`/`temperature`
+ * (e.g. Dashboard's "N hot leads" -> /leads?temperature=hot) used to land
+ * here under this exact same static "Customers / Active leads" header, with
+ * the applied filter visible nowhere except the Temperature <select>'s
+ * pre-set value. The header below is now derived from the already-parsed
+ * `status`/`temperature` params - reusing the exact label/tone maps
+ * LeadsTable itself already uses (lib/leads/format.ts, ./_components/
+ * lead-status.ts) - so e.g. a hot-filtered view reads "Hot Leads" with a
+ * danger-tone badge. The unfiltered default (bare /customers?from=lead)
+ * renders the exact same literal markup as before - only the filtered path
+ * is new. No new filter state, no new business logic: this only changes
+ * what the existing status/temperature values are presented as.
  */
 export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   const params = await searchParams;
@@ -110,13 +124,37 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   const filtered = sortLeads(filterLeads(allLeads, { query, status, temperature }), sort);
   const hasActiveFilters = Boolean(query.trim()) || status !== "all" || temperature !== "all";
 
+  // Usability audit fix: the header identity for a non-default status/
+  // temperature filter, built only from the already-parsed, already-
+  // validated `status`/`temperature` values above - never a new filter
+  // state. Temperature takes priority in the badge when both are set,
+  // since it's the more time-sensitive of the two signals (matches
+  // LeadsTable's own priority - see lead-status.ts's own comment).
+  const temperatureLabel = temperature !== "all" ? TEMPERATURE_LABELS[temperature] : null;
+  const statusLabel = status !== "all" ? STATUS_LABELS[status] : null;
+  const isFilteredView = temperatureLabel !== null || statusLabel !== null;
+  const filterWords = [temperatureLabel, statusLabel].filter((label): label is string => label !== null);
+  const filterTitle = `${filterWords.join(" ")} Leads`;
+  const filterBadgeLabel = temperatureLabel ?? statusLabel ?? "";
+  const filterBadgeTone = temperature !== "all" ? LEAD_TEMPERATURE_TONE[temperature] : LEAD_STATUS_TONE[status as LeadStatus];
+
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
         eyebrow="Operate"
-        title="Customers"
-        description="The customers currently in your active sales pipeline."
-        badge={<span className="inline-flex items-center rounded-full bg-warning-muted px-2.5 py-0.5 text-xs font-medium text-warning-text">Active leads</span>}
+        title={isFilteredView ? filterTitle : "Customers"}
+        description={
+          isFilteredView
+            ? `The ${filterWords.join(" ").toLowerCase()} leads in your active sales pipeline.`
+            : "The customers currently in your active sales pipeline."
+        }
+        badge={
+          isFilteredView ? (
+            <Badge tone={filterBadgeTone}>{filterBadgeLabel}</Badge>
+          ) : (
+            <span className="inline-flex items-center rounded-full bg-warning-muted px-2.5 py-0.5 text-xs font-medium text-warning-text">Active leads</span>
+          )
+        }
         action={
           <div className="flex items-center gap-4">
             {/* Trackpr 2.0, Phase 3C: the reverse of contacts/page.tsx's own
