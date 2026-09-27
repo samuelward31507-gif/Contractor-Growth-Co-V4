@@ -94,7 +94,7 @@ export function NeedsAttention({ items }: { items: NeedsAttentionItem[] }) {
             const categoryItems = byCategory.get(category)!;
             return (
               <div key={category}>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                <p className="text-[12.5px] font-medium text-slate-500">
                   {CATEGORY_LABEL[category]} <span className="text-slate-300">· {categoryItems.length}</span>
                 </p>
                 <div className="mt-1 divide-y divide-slate-100">

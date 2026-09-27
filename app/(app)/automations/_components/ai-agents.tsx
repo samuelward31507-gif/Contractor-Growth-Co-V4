@@ -96,7 +96,7 @@ export function AiAgents({ summaries }: { summaries: AutomationSummary[] }) {
 
   return (
     <div>
-      <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">AI agents</p>
+      <p className="mb-2 px-1 text-[12.5px] font-medium text-slate-500">AI agents</p>
       <Panel className="overflow-hidden p-0">
         <ul className="divide-y divide-slate-100">
           {agents.map((agent) => {

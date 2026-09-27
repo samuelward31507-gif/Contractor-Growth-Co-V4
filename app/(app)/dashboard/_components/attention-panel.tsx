@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { surfaceClass } from "@/lib/ui/surface";
-import { primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
+import { primarySectionTitleClass, metaClass, numericDisplayClass } from "@/lib/ui/typography";
 import { IncidentActions } from "@/app/(app)/automations/_components/incident-actions";
 import { DismissOpportunityButton } from "./dismiss-opportunity-button";
 import type { AttentionItem } from "@/lib/dashboard/queries";
@@ -46,22 +46,26 @@ const KIND_ICON: Record<AttentionItem["kind"], LucideIcon> = {
   completed_job_no_referral_request: Share2,
 };
 
+// Trackpr 2.0 full redesign: routed through the shared semantic tokens
+// (globals.css) instead of raw Tailwind color literals - these move
+// automatically if the palette is ever retuned again, and match the same
+// muted register as Badge/HeroStatRow/every other status surface in the app.
 const KIND_STYLE: Record<AttentionItem["kind"], string> = {
-  overdue_appointment: "bg-amber-50 text-amber-600",
-  hot_lead: "bg-red-50 text-red-600",
-  high_value_lead: "bg-emerald-50 text-emerald-600",
-  pending_estimate: "bg-blue-50 text-blue-600",
-  calendar_disconnected: "bg-red-50 text-red-600",
-  human_escalation: "bg-red-50 text-red-600",
-  awaiting_reply: "bg-blue-50 text-blue-600",
-  stale_estimate: "bg-amber-50 text-amber-600",
+  overdue_appointment: "bg-warning-muted text-warning-text",
+  hot_lead: "bg-danger-muted text-danger-text",
+  high_value_lead: "bg-accent-muted text-accent-text",
+  pending_estimate: "bg-info-muted text-info-text",
+  calendar_disconnected: "bg-danger-muted text-danger-text",
+  human_escalation: "bg-danger-muted text-danger-text",
+  awaiting_reply: "bg-info-muted text-info-text",
+  stale_estimate: "bg-warning-muted text-warning-text",
   dormant_customer: "bg-slate-100 text-slate-600",
-  no_show: "bg-amber-50 text-amber-600",
-  awaiting_confirmation: "bg-blue-50 text-blue-600",
+  no_show: "bg-warning-muted text-warning-text",
+  awaiting_confirmation: "bg-info-muted text-info-text",
   abandoned_conversation: "bg-slate-100 text-slate-600",
-  accepted_estimate_no_job: "bg-emerald-50 text-emerald-600",
-  uncontacted_lead: "bg-red-50 text-red-600",
-  cancelled_appointment_no_rebooking: "bg-amber-50 text-amber-600",
+  accepted_estimate_no_job: "bg-accent-muted text-accent-text",
+  uncontacted_lead: "bg-danger-muted text-danger-text",
+  cancelled_appointment_no_rebooking: "bg-warning-muted text-warning-text",
   completed_job_no_review_request: "bg-slate-100 text-slate-600",
   completed_job_no_referral_request: "bg-slate-100 text-slate-600",
 };
@@ -126,7 +130,7 @@ export function AttentionPanel({ items }: { items: AttentionItem[] }) {
               <div
                 key={item.id}
                 className={`group -mx-2 flex items-center gap-3 border-l-2 py-3 pl-2.5 pr-2 transition-colors hover:bg-slate-50 ${
-                  isUrgent ? "border-l-red-300" : "border-l-transparent"
+                  isUrgent ? "border-l-danger/50" : "border-l-transparent"
                 }`}
               >
                 <Link
@@ -141,7 +145,7 @@ export function AttentionPanel({ items }: { items: AttentionItem[] }) {
                     <span className="block truncate text-xs text-slate-500">{item.detail}</span>
                   </span>
                   {item.value ? (
-                    <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-700">{item.value}</span>
+                    <span className={`shrink-0 text-sm font-semibold text-slate-700 ${numericDisplayClass}`}>{item.value}</span>
                   ) : null}
                   {!isEscalation && !isOpportunity ? (
                     <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />

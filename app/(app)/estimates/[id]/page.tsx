@@ -86,7 +86,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
         action={<EstimateActions estimate={estimate} contacts={contacts} leads={leads} />}
         meta={
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Amount</p>
+            <p className="text-[12.5px] font-medium text-slate-500">Amount</p>
             <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
               {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
             </p>

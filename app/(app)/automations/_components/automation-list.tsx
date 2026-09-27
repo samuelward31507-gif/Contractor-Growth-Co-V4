@@ -75,7 +75,7 @@ export function AutomationList({ summaries, healthByAutomationId }: { summaries:
         if (items.length === 0) return null;
         return (
           <div key={group.label}>
-            <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            <p className="mb-2 px-1 text-[12.5px] font-medium text-slate-500">
               {group.label} <span className="text-slate-300">· {items.length}</span>
             </p>
             <Panel className="overflow-hidden p-0">

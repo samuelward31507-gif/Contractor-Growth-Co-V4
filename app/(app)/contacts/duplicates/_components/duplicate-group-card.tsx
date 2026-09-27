@@ -10,7 +10,7 @@ import type { DuplicateMatchReason, ContactRelationshipCounts } from "@/lib/cont
 import { mergeContacts } from "../actions";
 
 const secondaryBtn =
-  "inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
 
 const REASON_LABEL: Record<DuplicateMatchReason, string> = {
   phone: "Same phone number",

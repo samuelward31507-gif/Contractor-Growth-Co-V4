@@ -17,7 +17,7 @@ import { getOpenOpportunities, summarizeOpportunities } from "@/lib/opportunitie
 import { getRepeatCustomerSummaryResult, getDormantCustomersValueSummaryResult } from "@/lib/customers/lifecycle";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
+import { pageTitleClass, pageDescriptionClass, sectionLabelClass, metaClass, numericDisplayClass } from "@/lib/ui/typography";
 import { AttentionPanel } from "./_components/attention-panel";
 import { PipelineRail } from "./_components/pipeline-rail";
 import { TodaysSchedule } from "./_components/todays-schedule";
@@ -203,49 +203,49 @@ export default async function DashboardPage() {
           </div>
         ) : null}
 
-        {/* Trackpr 2.0, Phase 3B: the header redesign - same greeting/status
-            data as before, now with a real date line (purely presentational,
-            formatted from the same `now` already computed below for the
-            timezone-aware schedule filter - no new clock, no new data), and
-            Pipeline Value promoted from a bare right-aligned number to a
-            tone-tinted callout so it reads as the page's one primary
-            business metric, not a stat competing quietly with everything
-            else. The exact calculation, currency handling, and the two
-            hot/today links (same hrefs, same summarize functions) are
-            completely unchanged. */}
+        {/* Trackpr 2.0 full redesign: the approved concept's header - a
+            plain date line (no boxed eyebrow), the greeting, and Pipeline
+            Value as large typographic display (no bordered/tinted callout
+            box - the "giant colored KPI tile" the redesign brief called out
+            to avoid) sitting directly above the hot-leads/today line it
+            explains, right-aligned so it reads together with the Pipeline
+            section below it rather than as a competing card. Exact
+            calculation, currency handling, and the two hot/today links
+            (same hrefs, same summarize functions) are unchanged - only the
+            presentation. */}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className={sectionLabelClass}>Dashboard · {formattedDate(now)}</p>
+            <p className={metaClass}>{formattedDate(now)}</p>
             <h1 className={`mt-1.5 ${pageTitleClass}`}>
               {greeting()}, {businessName}.
             </h1>
             <p className={`mt-1.5 ${pageDescriptionClass}`}>{statusLine(data.attentionItems.length)}</p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-            <div className="rounded-xl border border-accent-border bg-accent-muted/60 px-5 py-4 sm:min-w-[240px]">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-accent-text/70">Pipeline value</p>
-              <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-accent-text">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="sm:text-right">
+              <p className="text-[12.5px] font-medium text-slate-500">Pipeline value</p>
+              <p className={`mt-1 text-[32px] font-semibold tracking-tight text-slate-900 ${numericDisplayClass}`}>
                 {formatCurrency(businessMetrics.pipelineMetrics.pipelineValue)}
               </p>
               {/* Real breakdown, not a fabricated one - the same two counts
                   a contractor opens the dashboard to check, reused from
                   Leads/Appointments' own summarize functions rather than two
                   large cards competing with Needs Attention below. */}
-              <p className="mt-2 text-sm text-accent-text/80">
+              <p className="mt-1 text-sm text-slate-500">
                 <Link
                   href="/leads?temperature=hot"
-                  className={leadSummary.hotCount > 0 ? "font-semibold text-red-600 hover:underline" : "hover:underline"}
+                  className={leadSummary.hotCount > 0 ? "font-semibold text-danger hover:underline" : "hover:underline"}
                 >
                   {leadSummary.hotCount} hot {leadSummary.hotCount === 1 ? "lead" : "leads"}
                 </Link>
-                <span className="mx-1.5 text-accent-text/30">·</span>
-                <Link href="/appointments?view=today" className={appointmentSummary.today > 0 ? "font-semibold hover:underline" : "hover:underline"}>
+                <span className="mx-1.5 text-slate-300">·</span>
+                <Link href="/appointments?view=today" className={appointmentSummary.today > 0 ? "font-semibold text-slate-900 hover:underline" : "hover:underline"}>
                   {appointmentSummary.today} today
                 </Link>
               </p>
             </div>
             {contacts.length > 0 ? (
-              <div className="shrink-0 sm:pt-1">
+              <div className="shrink-0">
                 <AddLeadButton contacts={contacts} />
               </div>
             ) : null}

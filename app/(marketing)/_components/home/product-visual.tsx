@@ -66,7 +66,7 @@ export function ProductVisual() {
             Trackpr isn&apos;t sold to you as standalone software to configure yourself. It&apos;s the system we
             build, connect, and manage as part of your Contractor Growth Co. service.
           </p>
-          <p className="mt-6 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <p className="mt-6 text-xs font-semibold text-slate-500">
             Powered by Trackpr. Managed by Contractor Growth Co.
           </p>
         </div>
@@ -98,7 +98,7 @@ export function ProductVisual() {
 
             <div className="min-w-0 flex-1 p-5">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Pipeline</p>
+                <p className="text-xs font-semibold text-slate-500">Pipeline</p>
                 <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-400">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
                   Automations active
@@ -128,7 +128,7 @@ export function ProductVisual() {
                 ))}
               </div>
 
-              <p className="mt-6 text-xs font-semibold uppercase tracking-wider text-slate-500">Recent activity</p>
+              <p className="mt-6 text-xs font-semibold text-slate-500">Recent activity</p>
               <div className="mt-3 flex flex-col gap-2.5">
                 {[1, 2, 3].map((row) => (
                   <div key={row} className="flex items-center gap-3">

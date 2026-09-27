@@ -34,7 +34,7 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        {eyebrow ? <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">{eyebrow}</p> : null}
+        {eyebrow ? <p className="mb-1.5 text-[12.5px] font-medium text-accent-text">{eyebrow}</p> : null}
         <div className="flex items-center gap-2.5">
           <h1 className={pageTitleClass}>{title}</h1>
           {badge}

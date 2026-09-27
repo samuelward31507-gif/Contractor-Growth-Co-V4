@@ -22,7 +22,7 @@ export default function AutomationsLoading() {
         ))}
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="divide-y divide-slate-100">
           {ROWS.map((_, i) => (
             <div key={i} className="flex items-center gap-3 px-4 py-3.5">

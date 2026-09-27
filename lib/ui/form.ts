@@ -4,7 +4,7 @@
 // cursor never met the brand color, in a product whose buttons, active nav
 // state, and hero glow all do.
 export const inputClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  "w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
 export const labelClass = "text-sm font-medium text-slate-700";
 
@@ -28,13 +28,13 @@ export const labelClass = "text-sm font-medium text-slate-700";
 // varies by browser and is easy to miss against a colored button fill.
 // Ring color matches each tier's own semantic color.
 export const primaryButtonClass =
-  "inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground shadow-sm transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
+  "inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
 
 // Same treatment as primaryButtonClass without the forced full width, for
 // buttons placed inline (e.g. a right-aligned section "Save" action) rather
 // than filling a dialog.
 export const primaryButtonAutoClass =
-  "inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground shadow-sm transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
+  "inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
 
 export const errorBannerClass =
   "rounded-lg border border-danger-border bg-danger-muted px-3.5 py-2.5 text-sm text-danger-text";
@@ -46,7 +46,7 @@ export const successBannerClass =
 // accent tier (see that constant's comment) - kept so any existing import
 // keeps working unchanged. Prefer primaryButtonAutoClass in new code.
 export const accentButtonAutoClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground shadow-sm transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
+  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
 
 // Premium-polish pass: the button hierarchy every route should reach for
 // instead of hand-rolling its own "secondary"/"destructive" button classes
@@ -66,7 +66,7 @@ export const ghostButtonClass =
   "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 
 export const destructiveButtonAutoClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-danger px-4 py-2.5 text-sm font-semibold text-danger-foreground shadow-sm transition-colors hover:bg-danger-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-red-300";
+  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-danger px-4 py-2.5 text-sm font-semibold text-danger-foreground transition-colors hover:bg-danger-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-red-300";
 
 export const destructiveGhostButtonAutoClass =
   "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
@@ -74,7 +74,7 @@ export const destructiveGhostButtonAutoClass =
 // Compact variants for dense inline contexts (a detail-page action row, a
 // table row's actions) where the full py-2.5 buttons above are too tall.
 export const primaryButtonSmallClass =
-  "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground shadow-sm transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
+  "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
 
 export const secondaryButtonSmallClass =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";

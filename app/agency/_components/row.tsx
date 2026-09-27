@@ -27,7 +27,7 @@ export function Row({ label, value, tone = "default", description }: { label: st
 export function RowGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-[12.5px] font-medium text-slate-500">{label}</p>
       <div className="mt-1.5 divide-y divide-slate-100">{children}</div>
     </div>
   );

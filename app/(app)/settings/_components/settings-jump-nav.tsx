@@ -11,7 +11,7 @@
 export function SettingsJumpNav({ groups }: { groups: { id: string; label: string }[] }) {
   return (
     <nav aria-label="Settings sections" className="hidden lg:block lg:sticky lg:top-6 lg:self-start">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Settings</p>
+      <p className="text-[12.5px] font-medium text-slate-500">Settings</p>
       <ul className="mt-3 space-y-0.5 border-l border-slate-200">
         {groups.map((group) => (
           <li key={group.id}>

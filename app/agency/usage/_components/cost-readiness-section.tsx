@@ -77,7 +77,7 @@ export function CostReadinessSection({ clients }: { clients: CostReadinessSummar
       )}
 
       <div className="mt-6 rounded-lg bg-slate-50 px-5 py-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">About cost data</p>
+        <p className="text-xs font-semibold text-slate-500">About cost data</p>
         <p className="mt-1.5 text-xs text-slate-500">
           Trackpr currently tracks real platform usage — messaging, AI, automation, and missed calls — for every managed client. It does not yet have configured provider
           pricing (Twilio, Anthropic, or automation costs) or client revenue data from Stripe, so no dollar cost, revenue, or margin figure is shown. Usage above is real;

@@ -50,7 +50,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     // of <main>, never inside it - simply never move. The bounded height
     // this produces is also what the Conversations route's own
     // internally-scrolling message thread relies on (see its layout.tsx).
-    <div className="flex h-dvh overflow-hidden bg-white">
+    <div className="flex h-dvh overflow-hidden bg-canvas">
       <Sidebar
         organizationName={organizationName}
         userEmail={user.email ?? ""}

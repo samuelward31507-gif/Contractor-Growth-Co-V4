@@ -7,6 +7,17 @@
  * is the deliberate "container" tier of the app's radius scale - one step
  * up from the `rounded-lg` used by inputs/buttons/small controls, so a
  * panel always reads as a level "above" the controls inside it.
+ *
+ * Trackpr 2.0 full redesign: this is "Level 3" of the app's three-level
+ * containment model (page canvas -> flush/divider grouping -> Panel) -
+ * reserved for content that genuinely benefits from a contained surface
+ * (a form, a table with its own toolbar), never the default wrapper for
+ * "a section." `shadow-sm` is gone: the app shell's canvas background
+ * (--canvas, globals.css) now sits one step off this component's white, so
+ * a Panel already reads as a lifted surface through that background
+ * contrast plus its hairline border - a drop shadow on top of that read as
+ * exactly the "generic dashboard template" look the redesign brief called
+ * out to avoid.
  */
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -27,7 +38,7 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 ${className}`}>
+    <section className={`rounded-xl border border-slate-200 bg-white p-4 sm:p-5 ${className}`}>
       {title ? (
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -51,5 +62,5 @@ export function SectionCard({
 
 /** A bare bordered container with no header - for content that builds its own heading (e.g. a page section that already has an <h2> above it via primarySectionTitleClass). */
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 ${className}`}>{children}</div>;
+  return <div className={`rounded-xl border border-slate-200 bg-white p-4 sm:p-5 ${className}`}>{children}</div>;
 }

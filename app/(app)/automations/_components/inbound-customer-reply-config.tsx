@@ -103,7 +103,7 @@ export function InboundCustomerReplyConfigForm({
           }}
           disabled={isPending}
           aria-label="Recent message context, in messages"
-          className="w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm transition-colors focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 transition-colors focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-60"
         />
         <span className="text-sm text-slate-700">messages</span>
       </div>

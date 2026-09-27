@@ -8,7 +8,7 @@ import { SectionCard } from "@/lib/ui/section-card";
 import { primaryButtonAutoClass } from "@/lib/ui/form";
 
 const numberFieldClass =
-  "w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 shadow-sm transition-colors focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-60";
+  "w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 transition-colors focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-60";
 
 /**
  * Automation Configuration V4 - only ever rendered for org admins, same
@@ -78,7 +78,7 @@ export function LeadReactivationConfigForm({
     <SectionCard title="Reactivation touch timing" icon={Settings}>
       <div className="flex flex-col gap-3">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">First reactivation touch</p>
+          <p className="text-xs font-medium text-slate-500">First reactivation touch</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <input
               type="number"
@@ -96,7 +96,7 @@ export function LeadReactivationConfigForm({
           </div>
         </div>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Second reactivation touch</p>
+          <p className="text-xs font-medium text-slate-500">Second reactivation touch</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <input
               type="number"

@@ -16,17 +16,17 @@ export default function AutomationDetailLoading() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 lg:col-span-1">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 lg:col-span-1">
           <div className="h-3 w-16 animate-pulse rounded bg-slate-100" />
           <div className="mt-3 h-4 w-full animate-pulse rounded bg-slate-100" />
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 lg:col-span-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 lg:col-span-2">
           <div className="h-3 w-24 animate-pulse rounded bg-slate-100" />
           <div className="mt-3 h-32 animate-pulse rounded bg-slate-100" />
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
         <div className="h-3 w-32 animate-pulse rounded bg-slate-100" />
         <div className="mt-3 h-40 animate-pulse rounded-lg bg-slate-100" />
       </div>

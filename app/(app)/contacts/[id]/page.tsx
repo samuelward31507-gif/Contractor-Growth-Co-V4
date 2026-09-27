@@ -214,7 +214,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
               { label: "Jobs", value: String(relationshipCounts.jobs), icon: Briefcase },
             ].map((stat) => (
               <div key={stat.label}>
-                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
                   <stat.icon className="h-3 w-3 shrink-0" aria-hidden />
                   {stat.label}
                 </p>

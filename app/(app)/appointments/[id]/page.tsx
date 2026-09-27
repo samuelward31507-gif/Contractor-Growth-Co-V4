@@ -87,14 +87,14 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
         meta={
           <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
             <div>
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
                 <CalendarClock className="h-3 w-3 shrink-0" aria-hidden />
                 Date
               </p>
               <p className="mt-1 text-lg font-semibold text-slate-900">{formatAppointmentDate(appointment.start_at, timeZone)}</p>
             </div>
             <div>
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
                 <Clock3 className="h-3 w-3 shrink-0" aria-hidden />
                 Time
               </p>
@@ -103,7 +103,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
               </p>
             </div>
             <div>
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
                 <Timer className="h-3 w-3 shrink-0" aria-hidden />
                 Duration
               </p>

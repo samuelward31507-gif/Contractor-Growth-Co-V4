@@ -7,7 +7,7 @@ import { getAgencyHealth, type AgencyOrganizationHealth } from "@/lib/agency/hea
 import { getAgencyOnboardingStages, getAgencyRecentActivity, getAgencyOperationsToday } from "@/lib/agency/operations";
 import { getAgencyEscalatedConversations } from "@/lib/agency/communication";
 import { getAgencyNeedsAttentionItems } from "@/lib/agency/needs-attention";
-import { sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
+import { sectionLabelClass, primarySectionTitleClass, metaClass, numericDisplayClass } from "@/lib/ui/typography";
 import { PageHeader } from "@/lib/ui/page-header";
 import type { OnboardingStage } from "@/lib/onboarding/checklist";
 import { UnauthorizedState } from "./_components/unauthorized-state";
@@ -146,36 +146,24 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
       {/*
-        Trackpr Phase 5 UI polish: adopts the shared PageHeader primitive
-        (already used by /analytics, /automations, and every top-level
-        client route) instead of hand-rolling the eyebrow/title/description
-        markup - same content as before, now consistent with the rest of
-        Trackpr's own header convention. The `action` slot carries the one
-        agency-level hero metric (Needs attention), mirroring
-        app/(app)/dashboard/page.tsx's own primary-metric callout treatment
-        exactly (tone-tinted rounded-xl border box, eyebrow label, large
-        bold number) - reusing the same accent/danger design tokens already
-        defined in globals.css, never a new color or component. This is the
-        one number this page now makes visually dominant, so the flat
-        reference strip below it never has to repeat it at equal weight.
+        Trackpr 2.0 full redesign: the "Needs attention" hero used to sit in
+        a tone-tinted, bordered box - the same "giant colored KPI tile" the
+        redesign brief called out to avoid, now matching Dashboard's own
+        unboxed Pipeline Value treatment (plain typographic display, right-
+        aligned in the PageHeader's action slot) instead. Same accent/danger
+        tokens, same data, no new component - only the container is gone.
       */}
       <PageHeader
         eyebrow="Overview"
         title="Agency Command Center"
         description={`Contractor Growth Co. · ${formatCount(metrics.organizations.length)} client organization${metrics.organizations.length === 1 ? "" : "s"}`}
         action={
-          <div
-            className={`rounded-xl border px-5 py-4 sm:min-w-[220px] ${
-              hasAttentionItems ? "border-danger-border bg-danger-muted" : "border-accent-border bg-accent-muted/60"
-            }`}
-          >
-            <p className={`text-[11px] font-semibold uppercase tracking-wider ${hasAttentionItems ? "text-danger-text/80" : "text-accent-text/70"}`}>
-              Needs attention
-            </p>
-            <p className={`mt-1 text-3xl font-bold tracking-tight tabular-nums ${hasAttentionItems ? "text-danger-text" : "text-accent-text"}`}>
+          <div className="sm:text-right">
+            <p className="text-[12.5px] font-medium text-slate-500">Needs attention</p>
+            <p className={`mt-1 text-[32px] font-semibold tracking-tight ${numericDisplayClass} ${hasAttentionItems ? "text-danger-text" : "text-accent-text"}`}>
               {formatCount(needsAttention.items.length)}
             </p>
-            <p className={`mt-1 text-xs ${hasAttentionItems ? "text-danger-text/70" : "text-accent-text/70"}`}>
+            <p className="mt-1 text-xs text-slate-500">
               {hasAttentionItems ? `client${needsAttention.items.length === 1 ? "" : "s"} to review` : "All clients operating normally"}
             </p>
           </div>

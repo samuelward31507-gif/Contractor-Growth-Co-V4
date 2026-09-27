@@ -83,7 +83,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
         action={<JobActions job={job} />}
         meta={
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Amount</p>
+            <p className="text-[12.5px] font-medium text-slate-500">Amount</p>
             <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
               {job.amount != null ? formatCurrency(job.amount) : "—"}
             </p>

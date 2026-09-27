@@ -1,25 +1,18 @@
 import Link from "next/link";
-import { Inbox, PhoneCall, ListChecks, CalendarCheck2, FileCheck2, Trophy, type LucideIcon } from "lucide-react";
-import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { sectionLabelClass, metaClass, numericDisplayClass } from "@/lib/ui/typography";
 import { PIPELINE_STAGES, type PipelineCounts } from "@/lib/dashboard/queries";
 
-const STAGE_ICON: Record<string, LucideIcon> = {
-  new: Inbox,
-  contacted: PhoneCall,
-  qualified: ListChecks,
-  appointment: CalendarCheck2,
-  estimate: FileCheck2,
-  won: Trophy,
-};
-
 /**
- * The dashboard's pipeline, presented as a single connected sequence - the
- * same "line running through opaque-background nodes" construction the
- * Contractor Growth Co. marketing site uses for its own system diagrams
- * (see app/(marketing)/_components/system-rail.tsx) - not six disconnected
- * StatCards. A stage lights up emerald only when it actually holds at least
- * one real lead right now; every count is read straight from PipelineCounts
- * (lib/dashboard/queries.ts), nothing here is estimated or invented.
+ * Trackpr 2.0 full redesign: the pipeline used to render as a bordered,
+ * horizontal "node rail" (icon circles connected by a line, requiring
+ * horizontal scroll below ~560px). The approved concept replaced it with a
+ * flush, divider-separated list - a colored dot instead of an icon chip, a
+ * label, and a tabular-numeral count - matching the rest of the app's
+ * "Level 1/2" containment (no card) and reading naturally at any width with
+ * no horizontal scroll needed. A stage lights up only when it actually
+ * holds at least one real lead right now; every count is read straight from
+ * PipelineCounts (lib/dashboard/queries.ts), nothing here is estimated or
+ * invented.
  */
 export function PipelineRail({ pipeline, hasNeverHadLeads }: { pipeline: PipelineCounts; hasNeverHadLeads?: boolean }) {
   const total = PIPELINE_STAGES.reduce((sum, { stage }) => sum + pipeline[stage], 0);
@@ -27,12 +20,6 @@ export function PipelineRail({ pipeline, hasNeverHadLeads }: { pipeline: Pipelin
   return (
     <div>
       <h2 className={sectionLabelClass}>Pipeline</h2>
-      {/* Trackpr 2.0, Phase 2B: the one line connecting this section back to
-          the header's own Pipeline Value figure - the audit's own finding
-          was that the two are real, related numbers with no on-page cue
-          that they're related at all. Only shown once real stage data
-          exists; the two empty-state messages below already explain
-          themselves and don't need it. */}
       {total > 0 ? <p className={`mt-1 ${metaClass}`}>Current stage counts for the pipeline value shown above.</p> : null}
       {total === 0 ? (
         hasNeverHadLeads ? (
@@ -47,32 +34,21 @@ export function PipelineRail({ pipeline, hasNeverHadLeads }: { pipeline: Pipelin
           <p className="mt-3 text-sm text-slate-500">Your pipeline will appear here once leads start coming in.</p>
         )
       ) : (
-        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white px-6 py-8 sm:px-10">
-          <ol className="relative flex min-w-[560px] items-start justify-between">
-            <span aria-hidden className="absolute left-0 right-0 top-[22px] h-px bg-slate-200" />
-            {PIPELINE_STAGES.map(({ stage, label }) => {
-              const count = pipeline[stage];
-              const Icon = STAGE_ICON[stage] ?? Inbox;
-              const isPopulated = count > 0;
-              return (
-                <li key={stage} className="relative flex flex-1 flex-col items-center gap-3 text-center">
-                  <span
-                    className={`relative z-10 flex h-12 w-12 items-center justify-center rounded-full border bg-white transition-colors ${
-                      isPopulated ? "border-emerald-500/40 bg-emerald-50 text-emerald-600 ring-4 ring-emerald-50/60" : "border-slate-200 text-slate-400"
-                    }`}
-                  >
-                    <Icon className="h-[18px] w-[18px]" aria-hidden />
-                  </span>
-                  <span>
-                    <span className={`block text-2xl font-bold tabular-nums ${isPopulated ? "text-slate-900" : "text-slate-300"}`}>
-                      {count}
-                    </span>
-                    <span className="mt-0.5 block text-xs font-medium text-slate-500">{label}</span>
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
+        <div className="mt-5 flex flex-col">
+          {PIPELINE_STAGES.map(({ stage, label }, index) => {
+            const count = pipeline[stage];
+            const isPopulated = count > 0;
+            return (
+              <div
+                key={stage}
+                className={`flex items-center gap-3.5 py-2.5 border-t border-slate-200 ${index === PIPELINE_STAGES.length - 1 ? "border-b" : ""}`}
+              >
+                <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${isPopulated ? "bg-accent" : "bg-slate-200"}`} aria-hidden />
+                <span className={`flex-1 text-sm ${isPopulated ? "font-medium text-slate-900" : "text-slate-500"}`}>{label}</span>
+                <span className={`text-[15px] font-semibold ${numericDisplayClass} ${isPopulated ? "text-slate-900" : "text-slate-300"}`}>{count}</span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

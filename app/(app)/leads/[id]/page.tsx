@@ -295,7 +295,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
         action={<LeadActions lead={lead} contacts={contacts} vertical={membership.vertical} />}
         meta={
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Estimated value</p>
+            <p className="text-[12.5px] font-medium text-slate-500">Estimated value</p>
             <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
               {lead.estimated_value != null ? formatCurrency(lead.estimated_value) : "—"}
             </p>
@@ -310,7 +310,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
         {nextStep ? (
           <div
             className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-5 py-4 ${
-              nextStep.attention ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white shadow-sm"
+              nextStep.attention ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"
             }`}
           >
             <div className="flex items-center gap-3">
@@ -322,7 +322,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                 {nextStep.attention ? <AlertCircle className="h-4 w-4" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
               </span>
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">What happens next</p>
+                <p className="text-[12.5px] font-medium text-slate-500">What happens next</p>
                 <p className="text-sm font-semibold text-slate-900">{nextStep.label}</p>
                 {nextStep.detail ? <p className="text-xs text-slate-500">{nextStep.detail}</p> : null}
               </div>

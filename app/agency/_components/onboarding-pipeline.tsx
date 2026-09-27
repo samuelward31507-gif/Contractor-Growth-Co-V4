@@ -37,7 +37,7 @@ export function OnboardingPipeline({ byStage }: { byStage: Record<OnboardingStag
         return (
           <div key={stage}>
             <div className="flex items-baseline justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{ONBOARDING_STAGE_LABEL[stage]}</p>
+              <p className="text-[12.5px] font-medium text-slate-500">{ONBOARDING_STAGE_LABEL[stage]}</p>
               <span className={metaClass}>{clients.length}</span>
             </div>
             <ul className="mt-1.5 divide-y divide-slate-100">

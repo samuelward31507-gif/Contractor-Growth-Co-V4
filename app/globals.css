@@ -2,63 +2,65 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #14151a;
 
-  /* Final visual polish pass: a restrained emerald accent layered on the
-     existing white/charcoal/slate workspace - semantic tokens, not a new
-     theme. These exist for the ~10-15% of the UI that should read as
-     positive/active/healthy/money (primary CTAs, healthy/success states,
-     accepted/won/completed badges, small accent indicators) - never a
-     page-section background or a decorative fill. The app's dominant
-     palette stays neutral slate/white/charcoal. */
-  --accent: #16a34a; /* emerald-600 */
-  --accent-strong: #15803d; /* emerald-700 - hover/pressed */
+  /* Trackpr 2.0 redesign (design-tokens pass): the page canvas sits one
+     step off pure white - a cool, barely-there neutral - so a white Panel
+     (--background) reads as a lifted surface through background contrast
+     alone, without a drop shadow. Used on the authenticated app shell's
+     main content area only (app/(app)/layout.tsx) - never on body, so the
+     marketing site and auth screens are unaffected. */
+  --canvas: #f5f6f8;
+
+  /* Trackpr 2.0 redesign: the accent moves from a bright emerald to a
+     deeper, more restrained pine green - same role as before (the ~10-15%
+     of the UI that should read as positive/active/healthy/money: primary
+     CTAs, healthy/success states, accepted/won/completed badges), same
+     6-property shape, just a more considered shade befitting a premium
+     managed platform rather than a bright startup accent. Every existing
+     consumer (primaryButtonClass, Badge's "success" tone, PipelineRail's
+     populated-stage ring, etc.) inherits this automatically - no per-usage
+     change needed. */
+  --accent: #146356;
+  --accent-strong: #0f4a40; /* hover/pressed */
   --accent-foreground: #ffffff;
-  --accent-muted: #f0fdf4; /* emerald-50 - subtle tinted backgrounds */
-  --accent-border: #bbf7d0; /* emerald-200 */
-  --accent-text: #166534; /* emerald-800 - text on accent-muted backgrounds */
+  --accent-muted: #e7f2ef; /* subtle tinted backgrounds */
+  --accent-border: #bfddd5;
+  --accent-text: #0f4a40; /* text on accent-muted backgrounds */
 
   /*
-   * Trackpr 2.0, Phase 3A: warning/danger/info as real semantic tokens,
-   * mirroring --accent's own 6-property shape exactly (base/strong/
-   * foreground/muted/border/text) - previously these three statuses existed
-   * only as scattered literal Tailwind classes (bg-amber-50 text-amber-700,
-   * bg-red-50 text-red-700, bg-blue-50 text-blue-700) repeated across
-   * lib/ui/badge.tsx, lib/ui/form.ts, and individual pages, with no single
-   * named source of truth the way "success" (--accent) already had. Values
-   * below are the exact same colors those literals already used - this
-   * establishes the token, it does not change any rendered color. Wired
-   * into lib/ui/badge.tsx (the one shared semantic-status primitive) as
-   * part of this same pass; the many pre-existing page-level literal usages
-   * are a separate, deliberately deferred migration (see the Phase 3A
-   * report's own scope note) - not touched here to avoid page-specific
-   * changes in what is meant to be a shell/token foundation pass.
+   * Trackpr 2.0 redesign: warning/danger/info muted to match the new
+   * accent's register - same 6-property shape as before (Phase 3A), same
+   * role (a real operational signal, never decoration), just desaturated
+   * so no status color reads as "bright dashboard alert" next to the new
+   * restrained accent.
    */
-  --warning: #d97706; /* amber-600 */
-  --warning-strong: #b45309; /* amber-700 - hover/pressed */
+  --warning: #a66a1e;
+  --warning-strong: #8a5416;
   --warning-foreground: #ffffff;
-  --warning-muted: #fffbeb; /* amber-50 */
-  --warning-border: #fde68a; /* amber-200 */
-  --warning-text: #b45309; /* amber-700 - matches every existing warning-badge usage exactly */
+  --warning-muted: #fbf1e2;
+  --warning-border: #e8d2ac;
+  --warning-text: #8a5416;
 
-  --danger: #dc2626; /* red-600 */
-  --danger-strong: #b91c1c; /* red-700 - hover/pressed */
+  --danger: #c4432b;
+  --danger-strong: #a5361f;
   --danger-foreground: #ffffff;
-  --danger-muted: #fef2f2; /* red-50 */
-  --danger-border: #fecaca; /* red-200 */
-  --danger-text: #b91c1c; /* red-700 - matches every existing danger-badge/error-banner usage exactly */
+  --danger-muted: #fbeae6;
+  --danger-border: #eec4b7;
+  --danger-text: #a5361f;
 
-  --info: #2563eb; /* blue-600 */
-  --info-strong: #1d4ed8; /* blue-700 - hover/pressed */
+  --info: #2b5fa6;
+  --info-strong: #224c87;
   --info-foreground: #ffffff;
-  --info-muted: #eff6ff; /* blue-50 */
-  --info-border: #bfdbfe; /* blue-200 */
-  --info-text: #1d4ed8; /* blue-700 - matches every existing info-badge usage exactly */
+  --info-muted: #e9f0fa;
+  --info-border: #c3d6ee;
+  --info-text: #224c87;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-canvas: var(--canvas);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-foreground: var(--accent-foreground);
