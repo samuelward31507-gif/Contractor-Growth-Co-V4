@@ -70,7 +70,7 @@ export async function updateSession(request: NextRequest) {
 
   if (AUTH_PATHS.has(pathname)) {
     const url = request.nextUrl.clone();
-    url.pathname = membership ? "/dashboard" : "/onboarding";
+    url.pathname = membership ? "/today" : "/onboarding";
     return NextResponse.redirect(url);
   }
 

@@ -47,11 +47,21 @@ const nextConfig: NextConfig = {
   agentRules: false,
   async redirects() {
     return [
-      // --- Customers (Leads + Contacts merge) ---
+      // --- Customers (Leads + Contacts merge), now further consolidated
+      // into People (IA consolidation pass) ---
+      // The [id] rules still route through /customers/:id (the dispatcher
+      // in app/(app)/customers/[id]/page.tsx), which now itself redirects
+      // on to /people/:id - a lead id needs a real contact_id lookup
+      // (different primary keys - see that dispatcher's own comment), which
+      // next.config's static redirects cannot perform, so that one hop
+      // through the dispatcher is kept rather than duplicated here.
       { source: "/leads/:id", destination: "/customers/:id?from=lead", permanent: true },
-      { source: "/leads", destination: "/customers?from=lead", permanent: true },
+      // /leads' own real value was never the list itself (identical rows to
+      // Contacts) but the hot/warm/cold filter - see people/page.tsx's own
+      // comment on the `temperature` param this now lands on.
+      { source: "/leads", destination: "/people?temperature=hot", permanent: true },
       { source: "/contacts/:id", destination: "/customers/:id?from=contact", permanent: true },
-      { source: "/contacts", destination: "/customers?from=contact", permanent: true },
+      { source: "/contacts", destination: "/people", permanent: true },
 
       // --- Schedule (Calendar + Appointments merge) ---
       // Calendar's own `view` (day/week/month) and `date` params are already
@@ -83,8 +93,8 @@ const nextConfig: NextConfig = {
       // (not in scope - only the /appointments LIST route merges below) -
       // historical notifyFounder detailPath links to /appointments/${id}
       // therefore need no redirect at all; that route is untouched.
-      { source: "/estimates", destination: "/work?type=estimates", permanent: true },
-      { source: "/jobs", destination: "/work?type=jobs", permanent: true },
+      { source: "/estimates", destination: "/money?browse=estimates", permanent: true },
+      { source: "/jobs", destination: "/money?browse=jobs", permanent: true },
     ];
   },
 };

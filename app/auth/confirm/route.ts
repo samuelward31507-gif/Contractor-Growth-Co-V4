@@ -67,5 +67,5 @@ async function redirectAfterConfirmation(supabase: SupabaseClient, userId: strin
   }
 
   const membership = await getUserOrganization(supabase, userId);
-  redirect(membership ? "/dashboard" : "/onboarding");
+  redirect(membership ? "/today" : "/onboarding");
 }

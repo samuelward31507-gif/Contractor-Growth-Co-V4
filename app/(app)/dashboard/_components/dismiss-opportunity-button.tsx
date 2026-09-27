@@ -10,7 +10,7 @@ import { dismissOpportunity } from "../actions";
  * server action directly (not a form/useActionState), shows a static label
  * once acted on rather than removing itself from the list immediately (the
  * row itself disappears on the next dashboard load, once
- * dismissOpportunity's own revalidatePath("/dashboard") takes effect).
+ * dismissOpportunity's own revalidatePath("/today") takes effect).
  */
 export function DismissOpportunityButton({ opportunityId }: { opportunityId: string }) {
   const [isPending, startTransition] = useTransition();

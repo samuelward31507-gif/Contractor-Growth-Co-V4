@@ -267,7 +267,7 @@ export async function createAppointment(
   }
 
   revalidatePath("/appointments");
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   revalidatePath("/calendar");
   return { success: true, warning };
 }
@@ -299,7 +299,7 @@ export async function updateAppointment(
 
   revalidatePath("/appointments");
   revalidatePath(`/appointments/${id}`);
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   revalidatePath("/calendar");
   return { success: true, warning: result.warning };
 }
@@ -483,7 +483,7 @@ export async function updateAppointmentStatus(id: string, status: AppointmentSta
 
   revalidatePath("/appointments");
   revalidatePath(`/appointments/${id}`);
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   revalidatePath("/calendar");
   return {};
 }
@@ -549,7 +549,7 @@ export async function rescheduleAppointmentTime(id: string, date: string, startT
 
   revalidatePath("/appointments");
   revalidatePath(`/appointments/${id}`);
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   revalidatePath("/calendar");
   return {};
 }
@@ -602,7 +602,7 @@ export async function deleteAppointment(
   }
 
   revalidatePath("/appointments");
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   revalidatePath("/calendar");
   redirect("/appointments");
 }

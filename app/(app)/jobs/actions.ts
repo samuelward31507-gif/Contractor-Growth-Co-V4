@@ -136,7 +136,7 @@ export async function createJob(_prevState: CreateJobFormState, formData: FormDa
 
   await emitJobCreatedEvent(supabase, organizationId, created.id, null);
 
-  revalidatePath("/jobs");
+  revalidatePath("/money");
   return { success: true, id: created.id };
 }
 
@@ -164,7 +164,7 @@ export async function markJobStarted(jobId: string): Promise<JobActionResult> {
   if (error) return { ok: false, error: "We couldn't update this job." };
   if (!data) return { ok: false, error: "This job could not be found or is not in an eligible state." };
 
-  revalidatePath("/jobs");
+  revalidatePath("/money");
   revalidatePath(`/jobs/${jobId}`);
   return { ok: true, id: data.id };
 }
@@ -203,7 +203,7 @@ async function transitionJob(
     await emitJobLifecycleEvent(supabase, jobId, "job.cancelled");
   }
 
-  revalidatePath("/jobs");
+  revalidatePath("/money");
   revalidatePath(`/jobs/${jobId}`);
   return { ok: true, id: data.id };
 }
@@ -503,6 +503,6 @@ export async function createLeadFromReferralForOrganization(
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/leads");
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   return { ok: true, id: lead.id };
 }

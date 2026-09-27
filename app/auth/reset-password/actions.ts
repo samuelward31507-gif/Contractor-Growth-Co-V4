@@ -56,5 +56,5 @@ export async function resetPassword(
   // fully authenticated with their new password, so send them straight
   // into the app rather than back to a redundant login form.
   const membership = await getUserOrganization(supabase, user.id);
-  redirect(membership ? "/dashboard" : "/onboarding");
+  redirect(membership ? "/today" : "/onboarding");
 }

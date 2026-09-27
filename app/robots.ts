@@ -10,9 +10,17 @@ export default function robots(): MetadataRoute.Robots {
       // The authenticated Trackpr application and its APIs are not part of
       // the public marketing site and should never be indexed.
       disallow: [
+        "/today",
+        "/people",
+        "/money",
+        "/schedule",
+        "/insights",
         "/dashboard",
+        "/customers",
         "/leads",
         "/contacts",
+        "/work",
+        "/opportunities",
         "/conversations",
         "/appointments",
         "/estimates",

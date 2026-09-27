@@ -121,7 +121,7 @@ export async function createEstimate(_prevState: EstimateFormState, formData: Fo
 
   if (insertError || !data) return { error: "We couldn't create this estimate. Please try again." };
 
-  revalidatePath("/estimates");
+  revalidatePath("/money");
   return { success: true, id: data.id };
 }
 
@@ -162,7 +162,7 @@ export async function updateEstimate(_prevState: EstimateFormState, formData: Fo
   if (updateError) return { error: "We couldn't update this estimate." };
   if (!data) return { error: "This estimate could not be found or is no longer a draft." };
 
-  revalidatePath("/estimates");
+  revalidatePath("/money");
   revalidatePath(`/estimates/${id}`);
   return { success: true, id: data.id };
 }
@@ -192,7 +192,7 @@ export async function sendEstimate(estimateId: string): Promise<EstimateActionRe
 
   await emitEstimateSent(supabase, estimateId);
 
-  revalidatePath("/estimates");
+  revalidatePath("/money");
   revalidatePath(`/estimates/${estimateId}`);
   return { ok: true, id: data.id };
 }
@@ -226,14 +226,14 @@ async function transitionEstimate(
     // Phase 4.6: estimate accepted is the sole job-creation trigger, per
     // explicit decision. Idempotent - see emitJobCreatedFromEstimate.
     await emitJobCreatedFromEstimate(supabase, organizationId, estimateId);
-    revalidatePath("/jobs");
+    revalidatePath("/money");
   } else if (toStatus === "declined") {
     await emitEstimateLifecycleEvent(supabase, estimateId, "estimate.declined");
   }
   // cancelled: no dedicated automation event (not in the Phase 4.5 Events
   // list) - leaving 'sent' is what blocks future follow-ups.
 
-  revalidatePath("/estimates");
+  revalidatePath("/money");
   revalidatePath(`/estimates/${estimateId}`);
   return { ok: true, id: data.id };
 }

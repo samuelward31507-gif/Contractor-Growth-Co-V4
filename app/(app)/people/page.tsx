@@ -8,9 +8,11 @@ import { getJobs } from "@/lib/jobs/queries";
 import { getAppointments } from "@/lib/appointments/queries";
 import { getReviewRequests } from "@/lib/reviews-referrals/queries";
 import { deriveContactLifecycle, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
+import Link from "next/link";
 import { PageHeader } from "@/lib/ui/page-header";
 import { Panel } from "@/lib/ui/section-card";
 import { AddContactButton } from "@/app/(app)/contacts/_components/add-contact-button";
+import { TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { PeopleEmptyState } from "./_components/people-empty-state";
 import { PeopleSearch } from "./_components/people-search";
 import { PeopleTable } from "./_components/people-table";
@@ -18,9 +20,14 @@ import { PeopleTable } from "./_components/people-table";
 export type PersonSort = "newest" | "oldest" | "name_asc";
 const VALID_SORTS = new Set<string>(["newest", "oldest", "name_asc"]);
 const OPEN_LEAD_STATUSES = new Set<Lead["status"]>(["new", "contacted", "qualified", "appointment", "estimate"]);
+const VALID_TEMPERATURES = new Set<string>(["hot", "warm", "cold"]);
 
 function normalizeSort(value: string | undefined): PersonSort {
   return value && VALID_SORTS.has(value) ? (value as PersonSort) : "newest";
+}
+
+function normalizeTemperature(value: string | undefined): LeadTemperature | "all" {
+  return value && VALID_TEMPERATURES.has(value) ? (value as LeadTemperature) : "all";
 }
 
 function personSortName(contact: Contact): string {
@@ -52,12 +59,22 @@ function sortContacts(contacts: Contact[], sort: PersonSort): Contact[] {
  * one presentation-only derivation on top: each contact's still-open lead's
  * temperature (most recently created, if more than one is open), the same
  * hot/warm signal the old /leads list surfaced, so it isn't lost by merging
- * into one view. /contacts and /leads themselves are completely untouched.
+ * into one view.
+ *
+ * IA consolidation pass: /customers, /leads, and /contacts now all redirect
+ * here (see their own page.tsx files) - this is the one real list for the
+ * "who am I working with" question. The `temperature` filter below is what
+ * makes that a safe consolidation for /leads specifically: its own real
+ * value was never the list itself (identical rows to Contacts) but the
+ * hot/warm/cold filter, which Today's own "N hot leads" link
+ * (/people?temperature=hot) and this page's own filter chip now both read
+ * from the exact same already-computed temperatureByContactId map.
  */
 export default async function PeoplePage({ searchParams }: PageProps<"/people">) {
   const params = await searchParams;
   const query = typeof params.q === "string" ? params.q : "";
   const sort = normalizeSort(typeof params.sort === "string" ? params.sort : undefined);
+  const temperature = normalizeTemperature(typeof params.temperature === "string" ? params.temperature : undefined);
 
   const supabase = await createClient();
 
@@ -82,8 +99,6 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     getAppointments(supabase, membership.organizationId),
     getReviewRequests(supabase, membership.organizationId),
   ]);
-  const contacts = sortContacts(filterContacts(allContacts, query), sort);
-
   const lifecycleByContactId = new Map<string, ContactLifecycleStage>(
     allContacts.map((contact) => [contact.id, deriveContactLifecycle(contact.id, { leads, estimates, jobs, appointments, reviewRequests })]),
   );
@@ -98,6 +113,9 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     }
   }
 
+  const temperatureFiltered = temperature === "all" ? allContacts : allContacts.filter((contact) => temperatureByContactId.get(contact.id) === temperature);
+  const contacts = sortContacts(filterContacts(temperatureFiltered, query), sort);
+
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
@@ -111,14 +129,33 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
             </span>
           ) : undefined
         }
-        action={allContacts.length > 0 ? <AddContactButton /> : undefined}
+        action={
+          <div className="flex items-center gap-4">
+            <Link
+              href="/contacts/duplicates"
+              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              Review duplicates
+            </Link>
+            {allContacts.length > 0 ? <AddContactButton /> : null}
+          </div>
+        }
       />
+
+      {temperature !== "all" ? (
+        <p className="text-sm text-slate-500">
+          Showing {TEMPERATURE_LABELS[temperature].toLowerCase()} leads only ({contacts.length}) ·{" "}
+          <Link href="/people" className="font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900">
+            View everyone
+          </Link>
+        </p>
+      ) : null}
 
       {allContacts.length === 0 ? (
         <PeopleEmptyState />
       ) : (
         <Panel>
-          <PeopleSearch initialQuery={query} initialSort={sort} />
+          <PeopleSearch initialQuery={query} initialSort={sort} initialTemperature={temperature !== "all" ? temperature : undefined} />
           <div className="mt-5">
             <PeopleTable contacts={contacts} query={query} lifecycleByContactId={lifecycleByContactId} temperatureByContactId={temperatureByContactId} />
           </div>

@@ -111,7 +111,7 @@ export async function updateBusinessProfile(
   }
 
   revalidatePath("/settings");
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   return { success: true };
 }
 

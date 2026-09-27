@@ -63,8 +63,8 @@ export default async function GrowthPage() {
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
-        eyebrow="Growth"
-        title="Growth"
+        eyebrow="Operate"
+        title="Reviews & Referrals"
         description="Turn completed jobs into reviews, referrals, and repeat business."
         badge={
           needsAttentionCount > 0 ? (

@@ -51,7 +51,7 @@ export async function generateDashboardInsights(
     return { error: "We couldn't generate insights right now. Please try again shortly." };
   }
 
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   return {};
 }
 
@@ -109,6 +109,6 @@ export async function dismissOpportunity(opportunityId: string): Promise<Dismiss
     return { ok: false, error: "We couldn't dismiss that opportunity right now. Please try again." };
   }
 
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   return { ok: true };
 }

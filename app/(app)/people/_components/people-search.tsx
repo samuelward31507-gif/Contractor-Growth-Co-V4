@@ -12,13 +12,29 @@ const SORT_OPTIONS: { value: PersonSort; label: string }[] = [
   { value: "name_asc", label: "Name (A–Z)" },
 ];
 
-/** Adapted 1:1 from contacts-search.tsx - same debounced-URL-param pattern, just pointed at PersonSort/the /people route instead of ContactSort/../contacts. */
+/**
+ * Adapted 1:1 from contacts-search.tsx - same debounced-URL-param pattern,
+ * just pointed at PersonSort/the /people route instead of ContactSort/
+ * ../contacts.
+ *
+ * Bug found during the IA consolidation pass' own live verification: the
+ * debounced effect below fires once on mount regardless of whether `value`
+ * actually changed, and `navigate` used to rebuild the URL from only q/sort
+ * - so landing on /people?temperature=hot (Today's own "N hot leads" link)
+ * had its `temperature` param silently stripped ~300ms after the page
+ * loaded, dropping the visitor back to the unfiltered list with no user
+ * action at all. `initialTemperature` is now threaded through and always
+ * re-included, exactly like q/sort, so this component can never again
+ * discard a filter it doesn't itself know how to set.
+ */
 export function PeopleSearch({
   initialQuery,
   initialSort,
+  initialTemperature,
 }: {
   initialQuery: string;
   initialSort: PersonSort;
+  initialTemperature?: string;
 }) {
   const [value, setValue] = useState(initialQuery);
   const [sort, setSort] = useState<PersonSort>(initialSort);
@@ -30,6 +46,7 @@ export function PeopleSearch({
     const trimmed = nextQuery.trim();
     if (trimmed) params.set("q", trimmed);
     if (nextSort !== "newest") params.set("sort", nextSort);
+    if (initialTemperature) params.set("temperature", initialTemperature);
     const queryString = params.toString();
     router.replace(queryString ? `${pathname}?${queryString}` : pathname);
   }

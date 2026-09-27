@@ -44,11 +44,11 @@ export default async function ContactDuplicatesPage() {
   return (
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <Link
-        href="/contacts"
+        href="/people"
         className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
-        Back to Contacts
+        Back to People
       </Link>
 
       <div>

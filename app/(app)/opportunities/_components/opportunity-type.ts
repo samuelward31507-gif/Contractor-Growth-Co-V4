@@ -102,16 +102,16 @@ export function opportunityActionHref(opportunity: Opportunity): string {
   switch (opportunity.type) {
     case "uncontacted_lead":
     case "qualified_lead_unbooked":
-      return "/customers?from=lead";
+      return opportunity.contactId ? `/people/${opportunity.contactId}` : "/people";
     case "accepted_estimate_no_job":
     case "stale_estimate":
     case "completed_appointment_no_estimate":
-      return "/work";
+      return "/money";
     case "no_show":
     case "cancelled_appointment_no_rebooking":
       return "/schedule?view=list";
     case "dormant_customer":
-      return opportunity.contactId ? `/customers/${opportunity.contactId}` : "/customers";
+      return opportunity.contactId ? `/people/${opportunity.contactId}` : "/people";
     case "completed_job_no_review_request":
     case "completed_job_no_referral_request":
       return `/jobs/${opportunity.sourceEntityId}`;

@@ -87,7 +87,7 @@ export function AgencySidebarContent({
       <nav className="relative flex-1 space-y-6 overflow-y-auto px-3 pb-4">
         <div className="space-y-0.5">
           <Link
-            href="/dashboard"
+            href="/today"
             onClick={onNavigate}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white"
           >

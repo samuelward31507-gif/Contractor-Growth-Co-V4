@@ -20,7 +20,7 @@ export function JobsEmptyState({ contacts, leads }: { contacts: Contact[]; leads
       action={
         <div className="flex flex-wrap items-center justify-center gap-2.5">
           <AddJobButton contacts={contacts} leads={leads} />
-          <Link href="/work" className={secondaryButtonAutoClass}>
+          <Link href="/money?browse=estimates" className={secondaryButtonAutoClass}>
             Go to Estimates
           </Link>
         </div>

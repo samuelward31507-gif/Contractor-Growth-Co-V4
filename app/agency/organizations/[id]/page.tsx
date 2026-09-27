@@ -171,7 +171,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           Agency Command Center
         </Link>
         <span className="text-xs text-slate-300">·</span>
-        <Link href="/dashboard" className="text-xs font-medium text-slate-500 hover:text-slate-700">
+        <Link href="/today" className="text-xs font-medium text-slate-500 hover:text-slate-700">
           Back to Trackpr
         </Link>
       </div>

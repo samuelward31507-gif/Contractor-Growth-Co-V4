@@ -32,5 +32,5 @@ export async function login(
   }
 
   const membership = await getUserOrganization(supabase, data.user.id);
-  redirect(membership ? "/dashboard" : "/onboarding");
+  redirect(membership ? "/today" : "/onboarding");
 }

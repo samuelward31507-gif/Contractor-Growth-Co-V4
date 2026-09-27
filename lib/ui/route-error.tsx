@@ -28,7 +28,7 @@ import { primaryButtonAutoClass, secondaryButtonAutoClass } from "./form";
 export function RouteError({
   error,
   reset,
-  homeHref = "/dashboard",
+  homeHref = "/today",
   homeLabel = "Back to Dashboard",
 }: {
   error: Error & { digest?: string };

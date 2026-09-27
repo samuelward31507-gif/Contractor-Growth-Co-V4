@@ -3,14 +3,11 @@
 // and a LucideIcon component reference can't be serialized across that
 // boundary. NavLink owns the actual name -> component lookup.
 export type NavIconName =
-  | "LayoutDashboard"
   | "Sparkles"
   | "Users"
   | "Wallet"
   | "MessageSquare"
   | "CalendarClock"
-  | "Briefcase"
-  | "TrendingUp"
   | "Star"
   | "Workflow"
   | "BarChart3"
@@ -30,23 +27,26 @@ export type NavItem = {
 export type NavGroup = { label: string | null; items: NavItem[] };
 
 /**
- * Trackpr 2.0, Phase 5 (nav/IA): the locked Phase 5 information architecture
- * - four primary, ungrouped destinations (Today, People, Money, Schedule),
- * then everything else folded into one collapsible More group, rather than
- * the four WORK/GROWTH/INTELLIGENCE/SYSTEM groups Phase 1 introduced. Every
- * primary href points at a Phase 2-4 destination (/today, /people, /money)
- * or the unchanged /schedule - never at a route this same plan superseded
- * (/dashboard, /customers, /work), which remain real, unmodified, and still
- * reachable (via More, or directly by URL for the Dashboard-vs-Today
- * comparison week the plan calls for), never as a second, competing primary
- * navigation destination for the same concept.
+ * IA consolidation pass: the redesign audit found five things wrong with
+ * the Phase 5 nav - Dashboard and Today both claiming to be the "what needs
+ * you" screen (different counts, same underlying data), Opportunities
+ * duplicating Today's own queue under a different visual, Customers and
+ * People showing the identical 37 rows, Work and Money reading the same
+ * estimates/jobs tables, and three pages (Automations, Analytics, Growth)
+ * whose own H1 disagreed with their nav label. This nav is the result of
+ * consolidating all five: Dashboard and Opportunities are gone from
+ * navigation entirely (both fully absorbed into /today - see its own header
+ * comment for exactly what moved), Customers/Leads/Contacts/Work are gone
+ * (absorbed into /people and /money respectively), and every remaining
+ * item's nav label now matches its own page H1 exactly. Four primary,
+ * ungrouped destinations (Today, People, Money, Schedule), everything else
+ * folded into one collapsible More group.
  *
- * Inbox, Opportunities, Reviews & Referrals, Automations ("Auto follow-up"),
- * Analytics ("Numbers"), and Settings all move into More - the plan's own
- * summary only named Automations/Analytics/Settings explicitly, so the
- * other three (plus Dashboard, for the comparison week) join them there
- * rather than disappearing from navigation entirely; nothing that was
- * reachable before Phase 5 becomes unreachable after it.
+ * Every legacy route this consolidation retires (/dashboard, /customers,
+ * /leads, /contacts, /work, /estimates, /jobs, /opportunities, /analytics)
+ * still resolves - each is now a redirect to its real destination (see each
+ * route's own page.tsx) - never a second, competing navigation destination
+ * for the same concept.
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -61,12 +61,10 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "More",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
       { href: "/inbox", label: "Inbox", icon: "MessageSquare" },
-      { href: "/opportunities", label: "Opportunities", icon: "TrendingUp" },
       { href: "/growth", label: "Reviews & Referrals", icon: "Star" },
-      { href: "/automations", label: "Auto follow-up", icon: "Workflow" },
-      { href: "/analytics", label: "Numbers", icon: "BarChart3" },
+      { href: "/automations", label: "Automations", icon: "Workflow" },
+      { href: "/insights", label: "Insights", icon: "BarChart3" },
       { href: "/settings", label: "Settings", icon: "Settings" },
     ],
   },

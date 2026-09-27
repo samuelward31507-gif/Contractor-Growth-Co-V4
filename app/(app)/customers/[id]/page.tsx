@@ -1,32 +1,54 @@
-import LeadDetailPage from "../../leads/[id]/page";
-import ContactDetailPage from "../../contacts/[id]/page";
+import { redirect } from "next/navigation";
+import { getUserOrganization } from "@/lib/auth/organization";
+import { createClient } from "@/lib/supabase/server";
+import { getLead } from "@/lib/leads/queries";
 
 /**
- * Trackpr 2.0, Phase 0: the smallest safe migration target for
- * /customers/[id] (see ../page.tsx's own header comment for the full
- * rationale - identical reasoning applies here). Dispatches, unchanged, to
- * the real LeadDetailPage or ContactDetailPage component.
+ * IA consolidation pass: /customers/[id] no longer renders LeadDetailPage
+ * or ContactDetailPage - both were superseded by /people/[id] (Phase 3's
+ * unified detail page, verified field-by-field against both of these at the
+ * time). This is now a redirect, not a dispatcher - LeadDetailPage/
+ * ContactDetailPage and their own _components stay in the repository
+ * unmodified (several of their pieces - ContactActions, the lead status/
+ * temperature tone maps - are still live imports of /people/[id] itself),
+ * they're just no longer reachable through this route.
  *
  * `leads.id` and `contacts.id` are different primary keys of different
- * tables (see the Master Product Specification's own Part 3 - Lead is a
- * stage on a Customer, never a merged entity) - a bare :id segment cannot
- * be resolved to the right table without knowing which one it came from.
- * The `from` marker set by next.config.ts's redirect rules
- * (/leads/:id -> /customers/:id?from=lead,
- * /contacts/:id -> /customers/:id?from=contact) carries exactly that fact
- * through, so this never guesses or performs a lookup against both tables.
- * A direct, un-marked visit falls back to ContactDetailPage, matching the
- * list page's own default.
+ * tables (Lead is a stage on a Customer, never a merged entity) - a bare
+ * :id segment from the `from=lead` case cannot be resolved to a /people/:id
+ * (a CONTACT id) without a real lookup, which next.config.ts's static
+ * redirects cannot perform - hence this one dynamic hop. The `from=contact`
+ * case needs no lookup at all: a contact's own id is already the id
+ * /people/[id] expects.
  */
-export default async function CustomerDetailPage(props: {
+export default async function CustomerDetailRedirect(props: {
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const params = await props.searchParams;
-  const from = typeof params.from === "string" ? params.from : undefined;
+  const { id } = await props.params;
+  const searchParams = await props.searchParams;
+  const from = typeof searchParams.from === "string" ? searchParams.from : undefined;
 
   if (from === "lead") {
-    return LeadDetailPage(props as Parameters<typeof LeadDetailPage>[0]);
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      const membership = await getUserOrganization(supabase, user.id);
+      if (membership) {
+        const lead = await getLead(supabase, membership.organizationId, id);
+        if (lead?.contact_id) {
+          redirect(`/people/${lead.contact_id}`);
+        }
+      }
+    }
+    // No resolvable contact (deleted lead, no org, or unauthenticated - the
+    // page-level auth check on /people itself handles login/onboarding
+    // redirects properly) - land on the list rather than a broken link.
+    redirect("/people");
   }
-  return ContactDetailPage(props as Parameters<typeof ContactDetailPage>[0]);
+
+  redirect(`/people/${id}`);
 }

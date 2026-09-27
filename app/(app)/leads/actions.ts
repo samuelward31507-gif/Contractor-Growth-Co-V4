@@ -163,7 +163,7 @@ export async function createLead(_prevState: LeadFormState, formData: FormData):
   });
 
   revalidatePath("/leads");
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   return { success: true };
 }
 
@@ -223,7 +223,7 @@ export async function updateLead(_prevState: LeadFormState, formData: FormData):
 
   revalidatePath("/leads");
   revalidatePath(`/leads/${id}`);
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   return { success: true };
 }
 
@@ -257,7 +257,7 @@ export async function deleteLead(_prevState: DeleteLeadState, formData: FormData
   }
 
   revalidatePath("/leads");
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   redirect("/leads");
 }
 
@@ -292,6 +292,6 @@ export async function convertLeadToMembership(_prevState: ConvertLeadState, form
 
   revalidatePath("/leads");
   revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/dashboard");
+  revalidatePath("/today");
   return { success: true, alreadyMember: result.alreadyMember };
 }

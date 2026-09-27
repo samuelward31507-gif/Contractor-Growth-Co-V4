@@ -57,10 +57,10 @@ function OpportunityRow({ opportunity }: { opportunity: Opportunity }) {
             )}
             {opportunity.contactId ? (
               <Link
-                href={`/customers/${opportunity.contactId}`}
+                href={`/people/${opportunity.contactId}`}
                 className="rounded text-xs font-medium text-slate-500 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
               >
-                View customer
+                View person
               </Link>
             ) : null}
           </div>
