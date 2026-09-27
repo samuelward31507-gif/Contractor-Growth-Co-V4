@@ -73,7 +73,7 @@ export function AgencySidebarContent({
         </span>
         <div className="min-w-0">
           <span className="block text-[15px] font-semibold leading-tight tracking-tight text-white">Trackpr</span>
-          <p className="truncate text-[9.5px] font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
+          <p className="truncate text-[12px] font-semibold uppercase tracking-[0.02em] text-emerald-400/80">
             Contractor Growth Co.
           </p>
         </div>
@@ -89,7 +89,7 @@ export function AgencySidebarContent({
           <Link
             href="/dashboard"
             onClick={onNavigate}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white"
           >
             <ArrowLeft className="h-[18px] w-[18px] shrink-0 text-slate-500" aria-hidden />
             <span className="truncate">Back to Trackpr</span>
@@ -105,7 +105,7 @@ export function AgencySidebarContent({
                 href={href}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors ${
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
                   active
                     ? "bg-emerald-500/[0.14] font-semibold text-white ring-1 ring-inset ring-emerald-500/25"
                     : "text-slate-400 hover:bg-white/[0.05] hover:text-white"

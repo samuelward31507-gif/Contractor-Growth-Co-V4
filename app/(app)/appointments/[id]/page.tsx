@@ -146,7 +146,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
                 </div>
                 <div>
                   <dt className={detailLabelClass}>Estimated value</dt>
-                  <dd className={detailValueClass}>
+                  <dd className={`${detailValueClass} tabular-nums`}>
                     {appointment.lead.estimated_value != null ? formatCurrency(appointment.lead.estimated_value) : "—"}
                   </dd>
                 </div>

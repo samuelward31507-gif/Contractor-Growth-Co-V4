@@ -87,7 +87,7 @@ function MessageRow({ message }: { message: Message }) {
     return (
       <div className="flex justify-start gap-2" aria-label={`${SENDER_LABELS[message.sender_type]} at ${time}`}>
         <span
-          className={`mt-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ${SENDER_AVATAR_CLASS[message.sender_type]}`}
+          className={`mt-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white ${SENDER_AVATAR_CLASS[message.sender_type]}`}
           aria-hidden
         >
           {SENDER_INITIALS[message.sender_type]}

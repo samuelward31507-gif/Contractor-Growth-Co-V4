@@ -82,7 +82,7 @@ export function AppointmentsToolbar({
             <span className="inline-flex items-center gap-1.5">
               {item.label}
               {item.value === "today" && todayCount ? (
-                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-slate-900 px-1 text-[10px] font-semibold text-white">
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-slate-900 px-1 text-[12px] font-semibold text-white">
                   {todayCount}
                 </span>
               ) : null}

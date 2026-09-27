@@ -109,7 +109,7 @@ export function ConversationContext({
             </div>
             <div>
               <dt className={detailLabelClass}>Estimated value</dt>
-              <dd className={detailValueClass}>
+              <dd className={`${detailValueClass} tabular-nums`}>
                 {conversation.lead.estimated_value != null ? formatCurrency(conversation.lead.estimated_value) : "—"}
               </dd>
             </div>

@@ -36,7 +36,7 @@ function BrandLockup() {
       </span>
       <div className="min-w-0">
         <span className="block text-[15px] font-semibold leading-tight tracking-tight text-white">Trackpr</span>
-        <p className="truncate text-[9.5px] font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
+        <p className="truncate text-[12px] font-semibold uppercase tracking-[0.02em] text-emerald-400/80">
           Contractor Growth Co.
         </p>
       </div>
@@ -75,7 +75,7 @@ function DemoContent({ activeView, onNavigate }: { activeView: DemoView; onNavig
               type="button"
               onClick={() => onNavigate(item.view)}
               aria-current={active ? "page" : undefined}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 ${
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 ${
                 active
                   ? "bg-emerald-500/[0.14] font-semibold text-white ring-1 ring-inset ring-emerald-500/25"
                   : "text-slate-400 hover:bg-white/[0.05] hover:text-white"
@@ -127,7 +127,7 @@ export function DemoMobileNav({ activeView, onNavigate }: { activeView: DemoView
           </span>
           <span className="min-w-0">
             <span className="block text-[15px] font-semibold leading-tight tracking-tight text-white">Trackpr</span>
-            <span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Interactive demo</span>
+            <span className="block text-[12px] font-semibold uppercase tracking-[0.02em] text-emerald-400/80">Interactive demo</span>
           </span>
         </span>
         <button

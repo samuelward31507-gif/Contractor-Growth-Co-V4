@@ -79,7 +79,7 @@ export function NavLink({ item, onNavigate, collapsed }: { item: NavItem; onNavi
       href={item.href}
       onClick={onNavigate}
       aria-current={isActive ? "page" : undefined}
-      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a120f] ${
+      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a120f] ${
         isActive
           ? "bg-emerald-500/[0.14] font-semibold text-white ring-1 ring-inset ring-emerald-500/25"
           : "font-medium text-slate-400 hover:bg-white/[0.05] hover:text-slate-100"

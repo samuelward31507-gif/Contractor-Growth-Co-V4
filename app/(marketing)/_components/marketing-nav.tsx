@@ -119,7 +119,7 @@ export function MarketingNav() {
                 href={link.href}
                 tabIndex={open ? 0 : -1}
                 onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-3.5 text-[17px] font-medium text-slate-800 transition-colors hover:bg-slate-50"
+                className="rounded-lg px-3 py-3.5 text-[18px] font-medium text-slate-800 transition-colors hover:bg-slate-50"
               >
                 {link.label}
               </Link>
@@ -128,7 +128,7 @@ export function MarketingNav() {
               href="/login"
               tabIndex={open ? 0 : -1}
               onClick={() => setOpen(false)}
-              className="rounded-lg px-3 py-3.5 text-[17px] font-medium text-slate-800 transition-colors hover:bg-slate-50"
+              className="rounded-lg px-3 py-3.5 text-[18px] font-medium text-slate-800 transition-colors hover:bg-slate-50"
             >
               Login
             </Link>

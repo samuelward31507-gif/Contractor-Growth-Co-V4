@@ -121,7 +121,7 @@ export function ProductVisual() {
                     >
                       <stage.icon className="h-3.5 w-3.5" aria-hidden />
                     </span>
-                    <span className={`text-[9px] font-medium ${stage.populated ? "text-slate-300" : "text-slate-600"}`}>
+                    <span className={`text-[12px] font-medium ${stage.populated ? "text-slate-300" : "text-slate-600"}`}>
                       {stage.label}
                     </span>
                   </div>

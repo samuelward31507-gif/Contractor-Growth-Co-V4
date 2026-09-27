@@ -116,7 +116,7 @@ export function SidebarContent({
         {isRail ? null : (
           <div className="min-w-0">
             <span className="block text-[15px] font-semibold leading-tight tracking-tight text-white">Trackpr</span>
-            <p className="truncate text-[9.5px] font-semibold uppercase tracking-[0.16em] text-emerald-400/80">
+            <p className="truncate text-[12px] font-semibold uppercase tracking-[0.02em] text-emerald-400/80">
               Contractor Growth Co.
             </p>
           </div>
@@ -162,7 +162,7 @@ export function SidebarContent({
                   type="button"
                   onClick={() => toggleGroup(group.label as string)}
                   aria-expanded={isOpen}
-                  className="mb-1.5 flex w-full items-center justify-between rounded px-3 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500 transition-colors hover:text-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                  className="mb-1.5 flex w-full items-center justify-between rounded px-3 py-0.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-slate-500 transition-colors hover:text-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                 >
                   {group.label}
                   <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-150 ${isOpen ? "" : "-rotate-90"}`} aria-hidden />

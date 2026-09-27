@@ -5,12 +5,37 @@
   --foreground: #14151a;
 
   /* Trackpr 2.0 redesign (design-tokens pass): the page canvas sits one
-     step off pure white - a cool, barely-there neutral - so a white Panel
+     step off pure white - a barely-there neutral - so a white Panel
      (--background) reads as a lifted surface through background contrast
      alone, without a drop shadow. Used on the authenticated app shell's
      main content area only (app/(app)/layout.tsx) - never on body, so the
-     marketing site and auth screens are unaffected. */
-  --canvas: #f5f6f8;
+     marketing site and auth screens are unaffected.
+     Phase 0 (foundations pass): retoned from a cool #f5f6f8 to a warm
+     #F6F4F0 - this is the plan's "--paper," reusing the already-wired
+     --canvas variable/bg-canvas class rather than introducing a second,
+     parallel token for the same role. */
+  --canvas: #f6f4f0;
+  /* Card/panel surface - equals --background, given an explicit name for
+     contexts (the new typography/status/card primitives) that want to talk
+     about "the surface a card sits on" rather than "the page background." */
+  --surface: #ffffff;
+  /* Muted fill - a tone between --surface and --line, for filled (not
+     bordered) low-emphasis regions. No consumer yet in this pass. */
+  --inset: #efebe4;
+  /* Hairline border/divider color, warmer than the app's existing
+     slate-200 borders - not yet swept in; existing border-slate-200
+     usages are unchanged by this pass. */
+  --line: #e0dad1;
+
+  /* Phase 0 (foundations pass): the new 3-step text scale lib/ui/
+     typography.ts's rungs are built on. Distinct from --foreground (which
+     still drives the raw `body` rule below) - --foreground and --ink are
+     near-identical near-blacks by design, not a conflict, just two tokens
+     serving two different layers (bare body vs. the new typography
+     component scale). */
+  --ink: #17191a; /* 16.5:1 on --canvas - headings, primary text */
+  --ink-2: #4c5154; /* 7.5:1 - body copy */
+  --ink-3: #6b7175; /* 4.6:1 - meta/labels, the contrast floor */
 
   /* Trackpr 2.0 redesign: the accent moves from a bright emerald to a
      deeper, more restrained pine green - same role as before (the ~10-15%
@@ -61,6 +86,12 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-inset: var(--inset);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-foreground: var(--accent-foreground);
@@ -87,6 +118,7 @@
   --color-info-text: var(--info-text);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-rubik), var(--font-geist-sans);
 }
 
 /*

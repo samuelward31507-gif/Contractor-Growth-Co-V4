@@ -39,16 +39,16 @@ export function ClientRevenueTable({ clients }: { clients: ClientRevenueSummary[
               ) : (
                 <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs">
                   <span className="text-slate-500">
-                    Collected <span className="ml-1 font-medium text-slate-800">{formatCurrencyAmounts(client.totals.collected)}</span>
+                    Collected <span className="ml-1 font-medium tabular-nums text-slate-800">{formatCurrencyAmounts(client.totals.collected)}</span>
                   </span>
                   <span className="text-slate-500">
-                    Refunded <span className="ml-1 font-medium text-slate-800">{formatCurrencyAmounts(client.totals.refunded)}</span>
+                    Refunded <span className="ml-1 font-medium tabular-nums text-slate-800">{formatCurrencyAmounts(client.totals.refunded)}</span>
                   </span>
                   <span className="text-slate-500">
-                    Net <span className="ml-1 font-medium text-slate-800">{formatCurrencyAmounts(client.totals.netCollected)}</span>
+                    Net <span className="ml-1 font-medium tabular-nums text-slate-800">{formatCurrencyAmounts(client.totals.netCollected)}</span>
                   </span>
                   <span className="text-slate-500">
-                    Failed attempts <span className="ml-1 font-medium text-slate-800">{formatCurrencyAmounts(client.totals.failedAttempted)}</span>
+                    Failed attempts <span className="ml-1 font-medium tabular-nums text-slate-800">{formatCurrencyAmounts(client.totals.failedAttempted)}</span>
                   </span>
                 </div>
               )}

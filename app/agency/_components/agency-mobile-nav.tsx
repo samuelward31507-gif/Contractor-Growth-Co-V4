@@ -20,7 +20,7 @@ export function AgencyMobileNav({ userEmail, isAdmin }: { userEmail: string; isA
           </span>
           <span className="min-w-0">
             <span className="block text-[15px] font-semibold leading-tight tracking-tight text-white">Agency Command Center</span>
-            <span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Contractor Growth Co.</span>
+            <span className="block text-[12px] font-semibold uppercase tracking-[0.02em] text-emerald-400/80">Contractor Growth Co.</span>
           </span>
         </span>
         <button
