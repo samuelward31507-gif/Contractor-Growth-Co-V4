@@ -399,7 +399,13 @@ export async function getDashboardData(
       title: contactName(lead.contacts) ?? lead.service ?? "Hot lead",
       detail: "Hot lead - follow up soon",
       value: lead.estimated_value != null ? formatCurrency(Number(lead.estimated_value)) : null,
-      href: "/leads",
+      // Usability fix: this row names one specific lead - it must open that
+      // lead, not the generic Active Leads list (the previous `href: "/leads"`
+      // sent every hot lead's row to the same unfiltered destination,
+      // discarding exactly which lead the user clicked). /leads/${id} is the
+      // same existing, already-redirected destination awaiting_confirmation/
+      // human_escalation above already use for their own per-record links.
+      href: `/leads/${lead.id}`,
     }));
 
   // Q7: a lead the AI never flagged "hot" can still be a large deal sitting
@@ -415,7 +421,9 @@ export async function getDashboardData(
       title: contactName(lead.contacts) ?? lead.service ?? "High-value lead",
       detail: "High-value opportunity - follow up soon",
       value: formatCurrency(Number(lead.estimated_value)),
-      href: "/leads",
+      // Usability fix: same reasoning as hotLeads above - this row names one
+      // specific lead and must open that lead, not the generic list.
+      href: `/leads/${lead.id}`,
     }));
 
   // Trackpr 2.0, Phase 2A: the uncontacted_lead opportunity (below) and
