@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Phone } from "lucide-react";
 import { cardTitleClass } from "./typography";
 import { STATUS_STYLES, type StatusTone } from "./status";
-import { secondaryButtonSmallClass } from "./form";
+import { secondaryButtonSmallClass, primaryButtonAutoClass } from "./form";
 
 // Not composed from primaryButtonAutoClass/primaryButtonSmallClass: those
 // tiers each carry their own min-height (52px mobile-only, 44px always,
@@ -43,8 +43,14 @@ export function QueueCard({
   tone: StatusTone;
   /** The problem, named in plain English - "Quote going cold," never the machine kind. */
   problemLabel: string;
-  /** How long this has been true - "9 days ago." */
-  age: string;
+  /**
+   * How long this has been true - "9 days ago." Optional: not every
+   * source this card is built from carries a real, structured timestamp
+   * (an AttentionItem's own `detail` is a display string, not a parseable
+   * date) - the band shows the problem alone rather than a guessed or
+   * duplicated age when this is absent.
+   */
+  age?: string;
   personName: string;
   personHref: string;
   /** Formatted currency string, e.g. "$12,400" - omitted when no dollar figure applies. */
@@ -64,7 +70,7 @@ export function QueueCard({
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className={`flex items-center justify-between gap-3 px-4 py-2 text-sm font-medium ${isSolidBand ? style.bandClass : `${style.tintClass}`}`}>
         <span>{problemLabel}</span>
-        <span className={isSolidBand ? "text-white/80" : "opacity-70"}>{age}</span>
+        {age ? <span className={isSolidBand ? "text-white/80" : "opacity-70"}>{age}</span> : null}
       </div>
 
       <div className="p-5">
@@ -91,7 +97,12 @@ export function QueueCard({
               </a>
             ) : null}
             {secondaryHref && secondaryLabel ? (
-              <Link href={secondaryHref} className={secondaryButtonSmallClass}>
+              // No phone number available for this item (see the caller's
+              // own comment on why - not every source this card is built
+              // from carries a contact reference) - promoted to the primary
+              // tier so the card never leaves a single available action
+              // under-emphasized next to an absent one.
+              <Link href={secondaryHref} className={phone ? secondaryButtonSmallClass : `${primaryButtonAutoClass} flex-1 sm:flex-none`}>
                 {secondaryLabel}
               </Link>
             ) : null}
