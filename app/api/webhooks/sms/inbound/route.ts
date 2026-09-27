@@ -10,6 +10,7 @@ import { recordRequestResponses, classifyAndEscalateReviewReply } from "@/lib/re
 import { classifyAndProcessEstimateReply } from "@/lib/automation/estimate-reply";
 import { classifyAndProcessBookingReply } from "@/lib/automation/booking-reply";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
+import { recordSmsCostEventForMessage } from "@/lib/costs/sms-cost-events";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
@@ -131,15 +132,19 @@ export async function POST(request: NextRequest) {
     return twiml();
   }
 
-  const { error: insertError } = await service.from("messages").insert({
-    organization_id: organization.id,
-    conversation_id: conversation.id,
-    direction: "inbound",
-    sender_type: "customer",
-    body,
-    status: "received",
-    provider_message_id: messageSid,
-  });
+  const { data: insertedMessage, error: insertError } = await service
+    .from("messages")
+    .insert({
+      organization_id: organization.id,
+      conversation_id: conversation.id,
+      direction: "inbound",
+      sender_type: "customer",
+      body,
+      status: "received",
+      provider_message_id: messageSid,
+    })
+    .select("id")
+    .single();
 
   // Production-readiness audit fix: the SELECT-then-INSERT check above is
   // only a fast path, not a transactional guarantee - Twilio retrying this
@@ -157,6 +162,41 @@ export async function POST(request: NextRequest) {
 
   if (insertError) {
     console.error("[sms][inbound] failed to record message", { organizationId: organization.id, error: insertError.message });
+  }
+
+  // Phase 5D-4: best-effort SMS cost capture for the just-inserted inbound
+  // message, additive only - inbound SMS is genuinely billed by Twilio
+  // (confirmed by the Phase 5D-4 audit) and this message row already has a
+  // real provider SID and organization attribution the instant it exists,
+  // unlike outbound (which waits for the delivery-status webhook's terminal
+  // transition - see app/api/webhooks/sms/status/route.ts). Never affects
+  // this route's own response, the message row itself, opt-in/out handling,
+  // or any automation dispatch below - wrapped so a Twilio/network failure
+  // here can never break the inbound webhook. If Twilio's price isn't
+  // finalized yet at this exact moment, no cost event is written and none
+  // will be attempted again by this route (automatic delayed-price
+  // reconciliation is explicitly deferred to a future phase).
+  if (!insertError && insertedMessage) {
+    try {
+      const costResult = await recordSmsCostEventForMessage(service, {
+        organizationId: organization.id,
+        sourceMessageId: insertedMessage.id,
+        providerMessageId: messageSid,
+        direction: "inbound",
+      });
+      if (costResult.outcome === "error" || costResult.outcome === "fetch_failed") {
+        console.error("[sms][inbound] failed to capture SMS cost", {
+          messageId: insertedMessage.id,
+          outcome: costResult.outcome,
+          reason: "error" in costResult ? costResult.error : undefined,
+        });
+      }
+    } catch (error) {
+      console.error("[sms][inbound] unexpected error during SMS cost capture", {
+        messageId: insertedMessage.id,
+        error: error instanceof Error ? error.message : "unknown error",
+      });
+    }
   }
 
   // STOP/START/HELP are compliance keywords, not conversational content -

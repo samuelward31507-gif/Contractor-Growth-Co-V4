@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { recordAiCostEventForInteraction, resolveTrustedAiProvider, isValidTokenCount } from "@/lib/costs/ai-cost-events";
 import type {
   BusinessMetricsSnapshot,
   BusinessMetricsComparisons,
@@ -48,6 +49,16 @@ import type {
  *    `sendSmsFn`): `callClaudeFn` lets a test supply a deterministic fake
  *    instead of hitting the real API, so the validation/business logic can
  *    be tested without spending API credits or risking a real call.
+ *
+ * Phase 5D-2 (telemetry persistence only - no change to the above): the real
+ * Anthropic response's `usage` (input_tokens/output_tokens) is now captured
+ * and persisted alongside the existing business_insights ai_interactions
+ * row, and an ai_cost_events row is opportunistically recorded from it (see
+ * lib/costs/ai-cost-events.ts). This never affects the model call itself,
+ * the prompt, response parsing, or the returned BusinessInsightsReport - a
+ * `callClaudeFn`-injected test double still has no usage to report (real
+ * usage only exists on a real API response), which correctly persists as
+ * unknown, exactly like any other missing/malformed usage case.
  */
 
 // ---------------------------------------------------------------------------
@@ -221,7 +232,35 @@ Return between 0 and 8 insights. Aim for 3-6 when the data supports meaningful o
 // Claude call (production path)
 // ---------------------------------------------------------------------------
 
-async function defaultCallClaude(systemPrompt: string, userPrompt: string): Promise<string> {
+/** The exact model this file has always hardcoded (unchanged) - also the one value lib/costs/ai-cost-events.ts's trust boundary is entitled to trust for this interaction_type, since it is set here, by Trackpr's own code, never self-reported by an external system. */
+const CLAUDE_MODEL = "claude-sonnet-5";
+
+export type AiUsageTelemetry = { inputTokens: number | null; outputTokens: number | null; totalTokens: number | null };
+
+/**
+ * Phase 5D-2: reads the real Anthropic response's own `usage` block - always
+ * present on a successful response per the SDK's type (input_tokens/
+ * output_tokens are non-optional numbers), but validated defensively rather
+ * than trusted blindly, matching this codebase's standing "never assume,
+ * always check the shape" discipline. total_tokens is a real derived sum of
+ * two real observed numbers (never invented, never substituted for a
+ * missing value) - null whenever either input or output is itself not a
+ * valid number.
+ */
+export function extractUsageFromMessage(message: Pick<Anthropic.Message, "usage">): AiUsageTelemetry {
+  const usage = message.usage;
+  const inputTokens = isValidTokenCount(usage?.input_tokens) ? usage.input_tokens : null;
+  const outputTokens = isValidTokenCount(usage?.output_tokens) ? usage.output_tokens : null;
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null,
+  };
+}
+
+type ClaudeCallWithUsage = { text: string; usage: AiUsageTelemetry };
+
+async function defaultCallClaudeWithUsage(systemPrompt: string, userPrompt: string): Promise<ClaudeCallWithUsage> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error("AI insights are not configured for this environment.");
@@ -229,7 +268,7 @@ async function defaultCallClaude(systemPrompt: string, userPrompt: string): Prom
 
   const client = new Anthropic({ apiKey });
   const message = await client.messages.create({
-    model: "claude-sonnet-5",
+    model: CLAUDE_MODEL,
     max_tokens: 2000,
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
@@ -239,7 +278,7 @@ async function defaultCallClaude(systemPrompt: string, userPrompt: string): Prom
   if (!textBlock) {
     throw new Error("Claude returned no text content.");
   }
-  return textBlock.text;
+  return { text: textBlock.text, usage: extractUsageFromMessage(message) };
 }
 
 // ---------------------------------------------------------------------------
@@ -434,11 +473,12 @@ export function validateInsightsReport(raw: unknown, aiInput: AiInsightsInput): 
 // Persistence (opt-in only - see GenerateInsightsOptions.supabase)
 // ---------------------------------------------------------------------------
 
-async function persistInsightsInteraction(
+export async function persistInsightsInteraction(
   supabase: SupabaseClient,
   organizationId: string,
   input: AiInsightsInput,
   report: BusinessInsightsReport,
+  usage: AiUsageTelemetry | null,
 ): Promise<string | null> {
   // Best-effort, matching every other AI/automation persistence write in
   // this codebase (e.g. the n8n callback route's ai_interactions upsert) -
@@ -446,22 +486,61 @@ async function persistInsightsInteraction(
   // lead/contact/conversation/workflow_execution linkage applies here (this
   // is an organization-level aggregate insight, not tied to any single
   // entity or automation dispatch), so those columns are left null.
+  //
+  // Phase 5D-2: `output` gains a sibling `usage` field alongside the
+  // existing report fields - the exact same shape convention n8n-driven
+  // interactions already use (output.usage.input_tokens/output_tokens/
+  // total_tokens, see app/api/automation/n8n-callback/route.ts), so
+  // lib/agency/cost-readiness.ts's existing extractAiTokenUsage() picks it
+  // up automatically with no change to that file. The report returned to
+  // this function's own caller (generateBusinessInsights) is never
+  // mutated - only what gets written to the database gains this field, so
+  // the dashboard's rendered insights are completely unaffected.
+  // `tokens_used` is populated the same way the n8n path already does:
+  // only when a real total is known, left null (never 0) otherwise.
   const { data, error } = await supabase
     .from("ai_interactions")
     .insert({
       organization_id: organizationId,
       interaction_type: "business_insights",
       input,
-      output: report,
-      model: "claude-sonnet-5",
+      output: usage ? { ...report, usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens, total_tokens: usage.totalTokens } } : report,
+      model: CLAUDE_MODEL,
+      tokens_used: usage?.totalTokens ?? null,
     })
-    .select("id")
+    .select("id, created_at")
     .single();
 
   if (error) {
     console.error("[bi] failed to persist business_insights ai_interaction", { organizationId, error: error.message });
     return null;
   }
+
+  // Phase 5D-2: opportunistic AI cost-event creation - best-effort, never
+  // affects insight generation's own success/failure. "business_insights" is
+  // the one interaction_type lib/costs/ai-cost-events.ts's trust boundary
+  // recognizes (Trackpr's own code set both provider and model here, never
+  // an n8n self-report) - see that file's own header comment for why every
+  // other interaction_type is intentionally excluded. Missing/malformed
+  // usage or a missing rate card both resolve to a real, non-crashing
+  // "unpriced"/"unknown" outcome - this call's result is never surfaced to
+  // the insight-generation caller, only logged, matching the same
+  // best-effort discipline as the insert above.
+  const trustedProvider = resolveTrustedAiProvider("business_insights");
+  if (trustedProvider && usage) {
+    const result = await recordAiCostEventForInteraction(supabase, {
+      organizationId,
+      sourceInteractionId: data.id as string,
+      provider: trustedProvider,
+      model: CLAUDE_MODEL,
+      usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
+      occurredAt: data.created_at as string,
+    });
+    if (result.outcome === "error") {
+      console.error("[bi] failed to record ai_cost_event for business_insights interaction", { organizationId, interactionId: data.id, error: result.error });
+    }
+  }
+
   return data.id as string;
 }
 
@@ -484,11 +563,21 @@ export async function generateBusinessInsights(
   options: GenerateInsightsOptions = {},
 ): Promise<GenerateInsightsResult> {
   const aiInput = buildAiInsightsInput(snapshot);
-  const callClaude = options.callClaudeFn ?? defaultCallClaude;
 
   let rawText: string;
+  // Phase 5D-2: usage is only ever real for the actual default (production)
+  // Claude call - a test-injected callClaudeFn returns text only, so usage
+  // correctly stays null for that path (there is no real API response to
+  // read it from), never fabricated.
+  let usage: AiUsageTelemetry | null = null;
   try {
-    rawText = await callClaude(SYSTEM_PROMPT, JSON.stringify(aiInput));
+    if (options.callClaudeFn) {
+      rawText = await options.callClaudeFn(SYSTEM_PROMPT, JSON.stringify(aiInput));
+    } else {
+      const result = await defaultCallClaudeWithUsage(SYSTEM_PROMPT, JSON.stringify(aiInput));
+      rawText = result.text;
+      usage = result.usage;
+    }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Claude call failed." };
   }
@@ -501,7 +590,7 @@ export async function generateBusinessInsights(
 
   let interactionId: string | null = null;
   if (options.supabase) {
-    interactionId = await persistInsightsInteraction(options.supabase, snapshot.organizationId, aiInput, validated.report);
+    interactionId = await persistInsightsInteraction(options.supabase, snapshot.organizationId, aiInput, validated.report, usage);
   }
 
   return { ok: true, report: validated.report, interactionId };

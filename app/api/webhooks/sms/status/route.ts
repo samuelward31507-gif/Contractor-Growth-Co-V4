@@ -4,6 +4,10 @@ import { isValidTwilioSignature } from "@/lib/messaging/twilio-signature";
 import { applyDeliveryStatusUpdate } from "@/lib/messaging/delivery-status";
 import { recordAutomationHealthSignal } from "@/lib/automation-health/service";
 import { getAutomationForWorkflowName } from "@/lib/automation/catalog";
+import { recordSmsCostEventForMessage } from "@/lib/costs/sms-cost-events";
+
+/** Trackpr's own terminal delivery statuses - matches lib/messaging/delivery-status.ts's own isTerminalRank(rank >= 2) set exactly (delivered/failed/undelivered). Duplicated here as a small literal set rather than importing a shared constant, since delivery-status.ts intentionally exposes no such export and this phase must not restructure that file's own ranking/idempotency logic. */
+const TERMINAL_DELIVERY_STATUSES = new Set(["delivered", "failed", "undelivered"]);
 
 /**
  * Twilio's outbound message delivery-status callback. Registered as the
@@ -28,6 +32,19 @@ import { getAutomationForWorkflowName } from "@/lib/automation/catalog";
  * -> 401, invalid signature -> 401. No authenticated user session is
  * required or checked - Twilio has no Trackpr session, and the signature
  * itself is the only authentication this route has or needs.
+ *
+ * Phase 5D-4 (additive only - the delivery-status logic above is completely
+ * unchanged): once a message reaches one of Trackpr's three terminal
+ * statuses (delivered/failed/undelivered), a single best-effort Twilio
+ * Message-resource fetch is attempted to capture its authoritative cost
+ * (see lib/costs/sms-cost-events.ts). This never blocks or changes this
+ * route's own response, never touches messages.status/status_reason, and
+ * never retries automatically - if Twilio's price isn't finalized yet at
+ * this exact moment, no cost event is written and none will be attempted
+ * again by this route (automatic delayed-price reconciliation is explicitly
+ * deferred to a future phase). A failed/undelivered message still gets a
+ * real fetch attempt - its provider_status is stored verbatim, but status
+ * is never used to guess whether Twilio actually billed it.
  */
 export async function POST(request: NextRequest) {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -120,6 +137,43 @@ export async function POST(request: NextRequest) {
         automationId: automation?.id ?? null,
         workflowExecutionId: result.workflowExecutionId,
       });
+    }
+
+    // Phase 5D-4: best-effort SMS cost capture, additive only. Gated on
+    // outcome==="updated" (a genuine forward transition, per
+    // applyDeliveryStatusUpdate's own idempotent rank check above) rather
+    // than on every raw webhook delivery - a Twilio redelivery of an
+    // already-applied terminal status resolves to "no_change"/
+    // "ignored_downgrade" above and never reaches here at all. This route
+    // never calls applyDeliveryStatusUpdate for a non-outbound message (see
+    // that function's own "not_outbound" outcome), so direction is always
+    // "outbound" here. The database's own UNIQUE(source_message_id)
+    // constraint on sms_cost_events - not this gate - is what actually
+    // guarantees at most one cost event even under a genuine concurrent
+    // race (two simultaneous callbacks both reading pre-update state).
+    // Wrapped so a Twilio/network failure here can never fail this
+    // webhook's own 200 response.
+    if (TERMINAL_DELIVERY_STATUSES.has(result.toStatus)) {
+      try {
+        const costResult = await recordSmsCostEventForMessage(service, {
+          organizationId: result.organizationId,
+          sourceMessageId: result.messageId,
+          providerMessageId: messageSid,
+          direction: "outbound",
+        });
+        if (costResult.outcome === "error" || costResult.outcome === "fetch_failed") {
+          console.error("[sms][status] failed to capture SMS cost", {
+            messageId: result.messageId,
+            outcome: costResult.outcome,
+            reason: "error" in costResult ? costResult.error : undefined,
+          });
+        }
+      } catch (error) {
+        console.error("[sms][status] unexpected error during SMS cost capture", {
+          messageId: result.messageId,
+          error: error instanceof Error ? error.message : "unknown error",
+        });
+      }
     }
   }
 

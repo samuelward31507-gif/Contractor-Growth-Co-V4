@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, LayoutDashboard, TrendingUp, Activity, DollarSign, LogOut } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, TrendingUp, Activity, DollarSign, Receipt, LogOut } from "lucide-react";
 import { logout } from "@/app/(app)/actions";
 
 /**
@@ -36,12 +36,17 @@ import { logout } from "@/app/(app)/actions";
  * the same way - without a nav entry the page would exist but be
  * unreachable from the Agency shell, which the task's own UI requirement
  * ("a real, reachable page") depends on.
+ *
+ * Trackpr Phase 5D-2: a fifth destination (Costs, /agency/costs) added the
+ * same minimal way, for the same reachability reason - no other change to
+ * this file.
  */
 const NAV_ITEMS = [
   { href: "/agency", label: "Overview", icon: LayoutDashboard },
   { href: "/agency/expansion", label: "Expansion", icon: TrendingUp },
   { href: "/agency/usage", label: "Usage", icon: Activity },
   { href: "/agency/revenue", label: "Revenue", icon: DollarSign },
+  { href: "/agency/costs", label: "Costs", icon: Receipt },
 ] as const;
 
 export function AgencySidebarContent({
