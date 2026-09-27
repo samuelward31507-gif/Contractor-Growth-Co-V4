@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, LayoutDashboard, TrendingUp, Activity, LogOut } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, TrendingUp, Activity, DollarSign, LogOut } from "lucide-react";
 import { logout } from "@/app/(app)/actions";
 
 /**
@@ -31,11 +31,17 @@ import { logout } from "@/app/(app)/actions";
  * Trackpr Phase 5B: a third destination (Client Usage, /agency/usage) added
  * the same way - no new logic, just one more entry in the same list the
  * active-route detection below already handles generically.
+ *
+ * Trackpr Phase 5D-1: a fourth destination (Revenue, /agency/revenue) added
+ * the same way - without a nav entry the page would exist but be
+ * unreachable from the Agency shell, which the task's own UI requirement
+ * ("a real, reachable page") depends on.
  */
 const NAV_ITEMS = [
   { href: "/agency", label: "Overview", icon: LayoutDashboard },
   { href: "/agency/expansion", label: "Expansion", icon: TrendingUp },
   { href: "/agency/usage", label: "Usage", icon: Activity },
+  { href: "/agency/revenue", label: "Revenue", icon: DollarSign },
 ] as const;
 
 export function AgencySidebarContent({

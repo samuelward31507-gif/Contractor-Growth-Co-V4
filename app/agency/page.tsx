@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertCircle, ChevronRight, Activity } from "lucide-react";
+import { AlertCircle, ChevronRight, Activity, DollarSign } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
@@ -167,16 +167,17 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
       </div>
 
       {/*
-        Trackpr Phase 5A/5B: minimal navigation entries to the Expansion and
-        Usage pages - deliberately NOT live summaries with their own numbers.
-        Computing those here would mean this already-heavy overview page (7
-        parallel agency reads on every load) runs each page's own full
-        per-organization fan-out a second time, for numbers whose only real
-        destination is that dedicated page. A plain link keeps this page's
-        existing query cost unchanged; the real numbers live on
-        /agency/expansion and /agency/usage, each fetched exactly once.
+        Trackpr Phase 5A/5B/5D-1: minimal navigation entries to the
+        Expansion, Usage, and Revenue pages - deliberately NOT live summaries
+        with their own numbers. Computing those here would mean this
+        already-heavy overview page (7 parallel agency reads on every load)
+        runs each page's own full per-organization fan-out a second time, for
+        numbers whose only real destination is that dedicated page. A plain
+        link keeps this page's existing query cost unchanged; the real
+        numbers live on /agency/expansion, /agency/usage, and
+        /agency/revenue, each fetched exactly once.
       */}
-      <div className="mt-8 grid grid-cols-1 gap-4 border-t border-slate-200 pt-8 sm:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 gap-4 border-t border-slate-200 pt-8 sm:grid-cols-2 lg:grid-cols-3">
         <Link
           href="/agency/expansion"
           className="group flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-5 py-4 transition-colors hover:border-slate-300 hover:bg-slate-50"
@@ -198,6 +199,20 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
           </div>
           <span className="flex shrink-0 items-center gap-2">
             <Activity className="h-4 w-4 text-accent-text" aria-hidden />
+            <ChevronRight className="h-4 w-4 text-accent-text transition-transform group-hover:translate-x-0.5" aria-hidden />
+          </span>
+        </Link>
+
+        <Link
+          href="/agency/revenue"
+          className="group flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-5 py-4 transition-colors hover:border-slate-300 hover:bg-slate-50"
+        >
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Revenue</p>
+            <p className="mt-0.5 text-xs text-slate-500">Contractor Growth Co.&rsquo;s own revenue from managed clients, recorded from real Stripe events.</p>
+          </div>
+          <span className="flex shrink-0 items-center gap-2">
+            <DollarSign className="h-4 w-4 text-accent-text" aria-hidden />
             <ChevronRight className="h-4 w-4 text-accent-text transition-transform group-hover:translate-x-0.5" aria-hidden />
           </span>
         </Link>
