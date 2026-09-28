@@ -1,8 +1,9 @@
 -- Trackpr Phase 1B - Invoice Foundation GRANT NARROWING (follow-up).
 --
--- STATUS: PENDING. Standalone follow-up to invoice_foundation (production
--- ledger version 20260928162500). Applied deliberately, by a person, via the
--- same mechanism; never by db push.
+-- STATUS: APPLIED to production on 2026-09-28 via the Supabase MCP
+-- apply_migration mechanism, recorded in the ledger as version
+-- 20260928163516 (this filename). Standalone follow-up to
+-- 20260928162500_invoice_foundation.sql. Never re-run via db push.
 --
 -- Why: invoice_foundation's GRANT statements were additive on top of this
 -- project's default privileges (pg_default_acl grants arwdDxtm - every table

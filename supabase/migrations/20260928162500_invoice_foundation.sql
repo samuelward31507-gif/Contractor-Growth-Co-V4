@@ -1,11 +1,15 @@
 -- Trackpr Phase 1B - Invoice Foundation + Manual Customer Payments.
 --
--- STATUS: PENDING. Lives in supabase/pending/ on purpose. It has NOT been
--- applied to production and must not be applied by tooling (no db push - the
--- production migration ledger does not match local filenames, see the
--- Phase 1B audit, section E). It is applied deliberately, by a human, as one
--- transaction, and only then moved into supabase/migrations/ under the
--- version the ledger recorded for it (the Phase 1A precedent).
+-- STATUS: APPLIED to production on 2026-09-28 via the Supabase MCP
+-- apply_migration mechanism, recorded in the ledger as version
+-- 20260928162500 (this filename). It was applied as one transaction WITHOUT
+-- the explicit begin;/commit; lines at the bottom of this file - the
+-- mechanism supplies the transaction and records the ledger entry inside
+-- it; every other statement was byte-identical. Function, constraint and
+-- index definitions produced by this file were fingerprinted (md5) against
+-- production before the file was moved here from supabase/pending/ and all
+-- 35 matched. Do not re-run it through db push: the ledger predates the
+-- filename convention for most entries (see supabase/pending/README.md).
 --
 -- What it adds (all additive; the only existing object it touches is the
 -- merge_contacts function, re-created from the body captured verbatim from

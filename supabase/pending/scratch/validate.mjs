@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pending = path.resolve(here, "..");
-const forward = readFileSync(path.join(pending, "invoice_foundation.sql"), "utf8");
+const forward = readFileSync(path.join(pending, "..", "migrations", "20260928162500_invoice_foundation.sql"), "utf8");
 const rollback = readFileSync(path.join(pending, "invoice_foundation_rollback.sql"), "utf8");
 const captured = readFileSync(path.join(pending, "reference", "merge_contacts.production.sql"), "utf8");
 const capturedBody = captured.slice(captured.indexOf("CREATE OR REPLACE FUNCTION public.merge_contacts"));

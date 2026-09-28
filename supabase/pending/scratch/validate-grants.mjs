@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pending = path.resolve(here, "..");
-const forward = readFileSync(path.join(pending, "invoice_foundation_grants.sql"), "utf8");
+const forward = readFileSync(path.join(pending, "..", "migrations", "20260928163516_invoice_foundation_grants.sql"), "utf8");
 const rollback = readFileSync(path.join(pending, "invoice_foundation_grants_rollback.sql"), "utf8");
 
 const db = new PGlite();
