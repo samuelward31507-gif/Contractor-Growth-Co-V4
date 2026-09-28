@@ -28,9 +28,10 @@ import {
  * the session client means RLS (is_org_member + the payment-active
  * restrictive policy) re-verifies every read and write at the database.
  *
- * Deliberately absent: any outbound message, automation event, n8n dispatch
- * or Stripe call. Issuing an invoice in Phase 1B changes its status and
- * nothing else leaves the system.
+ * Deliberately absent: any outbound message, n8n dispatch or Stripe call.
+ * Phase 1B-5 adds internal lifecycle markers only (invoice.issued/.paid/
+ * .voided, payment.recorded on automation_events - see
+ * lib/automation/invoices.ts); issuing an invoice still sends nothing.
  */
 
 async function requireOrganization() {

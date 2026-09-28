@@ -87,6 +87,8 @@ const ACTION_SENTENCE: Partial<Record<RecommendedAction, string>> = {
   request_review: "Ask for a review.",
   request_referral: "Ask for a referral.",
   follow_up: "Follow up.",
+  create_invoice: "Create the invoice.",
+  collect_payment: "Collect the payment.",
 };
 
 function buildSentence(primaryReason: string, supportingSignals: string[], counterSignals: string[], recommendedAction: RecommendedAction): string {

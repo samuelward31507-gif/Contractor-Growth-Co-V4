@@ -14,6 +14,7 @@ import {
   type PaymentMethod,
 } from "./domain";
 import { getCustomerPayment, getCustomerPaymentByClientKey, getInvoice, getInvoicePayments, getLiveInvoiceForJob, type CustomerPayment, type Invoice } from "./queries";
+import { emitInvoiceLifecycleEvent, type EmitInvoiceLifecycleEvent } from "@/lib/automation/invoices";
 
 /**
  * Phase 1B-2 (Close the Money Loop): the testable core behind
@@ -33,7 +34,17 @@ import { getCustomerPayment, getCustomerPaymentByClientKey, getInvoice, getInvoi
  *     without a round trip when the outcome is already knowable, and
  * (3) maps the database's own rejections into the same plain language
  *     rather than swallowing them. It never recomputes money.
+ *
+ * Phase 1B-5: after each committed transition the matching lifecycle marker
+ * is recorded on automation_events (lib/automation/invoices.ts) - invoice
+ * .issued / .voided / .paid and payment.recorded. Internal signals only:
+ * nothing is dispatched, drafted or sent. `hooks.emitLifecycleEvent` is the
+ * one injectable seam (the codebase's sendSmsFn/callClaudeFn convention) so
+ * tests can observe exactly what would be recorded without the real
+ * automation RPCs; production callers never pass it.
  */
+
+export type InvoiceServiceHooks = { emitLifecycleEvent?: EmitInvoiceLifecycleEvent };
 
 export type InvoiceServiceResult<T> = { ok: true; data: T; error?: undefined } | { ok: false; error: string; data?: undefined };
 
@@ -206,6 +217,7 @@ export async function issueInvoiceForOrganization(
   organizationId: string,
   invoiceId: string,
   options: { dueDate?: string | null } = {},
+  hooks: InvoiceServiceHooks = {},
 ): Promise<InvoiceServiceResult<IssuedInvoice>> {
   const invoice = await getInvoice(supabase, organizationId, invoiceId);
   if (!invoice) return { ok: false, error: "This invoice could not be found." };
@@ -234,6 +246,11 @@ export async function issueInvoiceForOrganization(
   if (!data) return { ok: false, error: "This invoice is no longer a draft." };
 
   await recordAudit(supabase, organizationId, "invoice_issued", "invoice", invoiceId, { number: invoice.number, total: invoice.total, due_date: data.due_date });
+  await (hooks.emitLifecycleEvent ?? emitInvoiceLifecycleEvent)(supabase, {
+    eventType: "invoice.issued",
+    invoiceId,
+    payload: { invoice_id: invoiceId, number: invoice.number, job_id: invoice.job_id, contact_id: invoice.contact_id, total: invoice.total, issued_at: data.issued_at, due_date: data.due_date },
+  });
 
   return { ok: true, data: { id: data.id, status: "sent", issuedAt: data.issued_at, dueDate: data.due_date } };
 }
@@ -247,6 +264,7 @@ export async function voidInvoiceForOrganization(
   organizationId: string,
   invoiceId: string,
   reason?: string | null,
+  hooks: InvoiceServiceHooks = {},
 ): Promise<InvoiceServiceResult<{ id: string; status: "void" }>> {
   const invoice = await getInvoice(supabase, organizationId, invoiceId);
   if (!invoice) return { ok: false, error: "This invoice could not be found." };
@@ -271,6 +289,13 @@ export async function voidInvoiceForOrganization(
   if (!data) return { ok: false, error: "This invoice can no longer be voided." };
 
   await recordAudit(supabase, organizationId, "invoice_voided", "invoice", invoiceId, { number: invoice.number, total: invoice.total, previous_status: invoice.status, reason: voidReason });
+  // The reason is internal (it may name a person or a mistake) - it stays
+  // in the audit metadata and never enters the lifecycle payload.
+  await (hooks.emitLifecycleEvent ?? emitInvoiceLifecycleEvent)(supabase, {
+    eventType: "invoice.voided",
+    invoiceId,
+    payload: { invoice_id: invoiceId, number: invoice.number, job_id: invoice.job_id, contact_id: invoice.contact_id, total: invoice.total, previous_status: invoice.status },
+  });
 
   return { ok: true, data: { id: data.id, status: "void" } };
 }
@@ -313,6 +338,7 @@ export async function recordCustomerPaymentForOrganization(
   organizationId: string,
   userId: string,
   input: RecordCustomerPaymentInput,
+  hooks: InvoiceServiceHooks = {},
 ): Promise<InvoiceServiceResult<RecordedPayment>> {
   const invoiceId = typeof input.invoiceId === "string" ? input.invoiceId.trim() : "";
   if (!invoiceId) return { ok: false, error: "Missing invoice." };
@@ -390,6 +416,34 @@ export async function recordCustomerPaymentForOrganization(
     invoice_status_after: after.status,
     amount_paid_after: after.amount_paid,
   });
+
+  const emit = hooks.emitLifecycleEvent ?? emitInvoiceLifecycleEvent;
+  await emit(supabase, {
+    eventType: "payment.recorded",
+    paymentId: data.id,
+    payload: {
+      payment_id: data.id,
+      invoice_id: invoiceId,
+      number: invoice.number,
+      job_id: invoice.job_id,
+      contact_id: invoice.contact_id,
+      amount: parsed.amount,
+      method,
+      received_at: receivedAt ?? new Date().toISOString(),
+      invoice_status_after: after.status,
+      amount_paid_after: after.amount_paid,
+    },
+  });
+  // The database decided whether this payment settled the invoice; the
+  // marker is keyed by the payment that did it (see lib/automation/invoices.ts).
+  if (after.status === "paid") {
+    await emit(supabase, {
+      eventType: "invoice.paid",
+      invoiceId,
+      completingPaymentId: data.id,
+      payload: { invoice_id: invoiceId, number: invoice.number, job_id: invoice.job_id, contact_id: invoice.contact_id, total: invoice.total, amount_paid: after.amount_paid, paid_at: after.paid_at, completing_payment_id: data.id },
+    });
+  }
 
   return { ok: true, data: { paymentId: data.id, invoice: { id: after.id, status: after.status, amount_paid: after.amount_paid, balance_due: after.balance_due, paid_at: after.paid_at }, replayed: false } };
 }

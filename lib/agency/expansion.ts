@@ -56,6 +56,11 @@ export const OPPORTUNITY_TYPE_TO_SERVICE: Record<OpportunityType, string> = {
   // closest sibling type.
   active_lead_signal: "Lead Response / Booking Assist",
   pending_estimate: "Estimate Recovery",
+  // Phase 1B-5: invoice/payment follow-through. Not an existing service
+  // line - grouped with Estimate Recovery (the money-loop sibling) rather
+  // than inventing a service nobody has decided to sell yet.
+  completed_job_not_invoiced: "Estimate Recovery",
+  invoice_overdue: "Estimate Recovery",
 };
 
 /**

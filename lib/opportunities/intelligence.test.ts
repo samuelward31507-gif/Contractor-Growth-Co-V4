@@ -242,9 +242,9 @@ test("buildPriorityQueue: within the same tier, an unknown-value opportunity ran
   assert.deepEqual(queue.map((item) => item.key), ["opportunity:known", "opportunity:older", "opportunity:newer"]);
 });
 
-test("buildPriorityQueue: TIER_BY_TYPE covers all 12 opportunity types exhaustively and every value is a real TIER_ORDER member", () => {
+test("buildPriorityQueue: TIER_BY_TYPE covers all 14 opportunity types exhaustively and every value is a real TIER_ORDER member", () => {
   const types = Object.keys(TIER_BY_TYPE) as OpportunityType[];
-  assert.equal(types.length, 12);
+  assert.equal(types.length, 14);
   for (const type of types) {
     assert.ok(TIER_ORDER.includes(TIER_BY_TYPE[type]), `${type}'s tier must be a real, named tier`);
   }
@@ -342,4 +342,30 @@ test("getConversationSignals and getOperationalExceptions never overlap - every 
   for (const kind of signalKinds) {
     assert.ok(!exceptionKinds.has(kind), `${kind} must not be claimed by both getConversationSignals and getOperationalExceptions`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1B-5: completed_job_not_invoiced / invoice_overdue
+// ---------------------------------------------------------------------------
+
+test("Phase 1B-5: both invoice types sit in committed_revenue_at_risk - money for work already done", () => {
+  assert.equal(TIER_BY_TYPE.completed_job_not_invoiced, "committed_revenue_at_risk");
+  assert.equal(TIER_BY_TYPE.invoice_overdue, "committed_revenue_at_risk");
+  for (const type of Object.keys(TIER_BY_TYPE) as OpportunityType[]) {
+    assert.ok(TIER_ORDER.includes(TIER_BY_TYPE[type]), `${type} maps to a real tier`);
+  }
+});
+
+test("Phase 1B-5: value state is known from the stored figure (jobs.amount / invoices.balance_due) and unknown when absent - never not_applicable", () => {
+  assert.equal(deriveValueState(makeOpportunity({ type: "completed_job_not_invoiced", sourceEntityType: "job", estimatedValue: 1300.25, valueBasis: "jobs.amount" })), "known");
+  assert.equal(deriveValueState(makeOpportunity({ type: "completed_job_not_invoiced", sourceEntityType: "job", estimatedValue: null })), "unknown");
+  assert.equal(deriveValueState(makeOpportunity({ type: "invoice_overdue", sourceEntityType: "job", estimatedValue: 450.5, valueBasis: "invoices.balance_due" })), "known");
+});
+
+test("Phase 1B-5: recommended actions are create_invoice / collect_payment, never automatable (no catalog automation acts on either), unaffected by phone availability", () => {
+  const enabled = new Map<string, boolean>();
+  const notInvoiced = resolveActionability(makeOpportunity({ type: "completed_job_not_invoiced", sourceEntityType: "job" }), null, enabled, true);
+  assert.deepEqual(notInvoiced, { recommendedAction: "create_invoice", automatable: false });
+  const overdue = resolveActionability(makeOpportunity({ type: "invoice_overdue", sourceEntityType: "job" }), { phone: null, smsOptOut: true }, enabled, true);
+  assert.deepEqual(overdue, { recommendedAction: "collect_payment", automatable: false });
 });

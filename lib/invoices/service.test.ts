@@ -25,14 +25,20 @@ import { createRequire } from "node:module";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const require = createRequire(import.meta.url);
-const {
-  createInvoiceFromJobForOrganization,
-  describeDatabaseError,
-  issueInvoiceForOrganization,
-  recordCustomerPaymentForOrganization,
-  reverseCustomerPaymentForOrganization,
-  voidInvoiceForOrganization,
-}: typeof import("./service") = require("./service.ts");
+const service: typeof import("./service") = require("./service.ts");
+const { createInvoiceFromJobForOrganization, describeDatabaseError, reverseCustomerPaymentForOrganization } = service;
+
+// Phase 1B-5: the existing tests below are about reads, writes, pre-checks
+// and error mapping; the lifecycle markers each transition now records are
+// proven separately (the "lifecycle" tests at the end of this file) through
+// the injectable hook, so here they are silenced with a no-op.
+const NOOP_HOOKS = { emitLifecycleEvent: async () => {} };
+const issueInvoiceForOrganization: typeof service.issueInvoiceForOrganization = (supabase, organizationId, invoiceId, options = {}, hooks = NOOP_HOOKS) =>
+  service.issueInvoiceForOrganization(supabase, organizationId, invoiceId, options, hooks);
+const voidInvoiceForOrganization: typeof service.voidInvoiceForOrganization = (supabase, organizationId, invoiceId, reason, hooks = NOOP_HOOKS) =>
+  service.voidInvoiceForOrganization(supabase, organizationId, invoiceId, reason, hooks);
+const recordCustomerPaymentForOrganization: typeof service.recordCustomerPaymentForOrganization = (supabase, organizationId, userId, input, hooks = NOOP_HOOKS) =>
+  service.recordCustomerPaymentForOrganization(supabase, organizationId, userId, input, hooks);
 
 // ---------------------------------------------------------------------------
 // Fake Supabase client: in-memory tables, simple filters, call recording,
@@ -125,11 +131,22 @@ function makeFakeSupabase(tables: Record<string, Row[]>, options: FakeOptions = 
     return b;
   }
 
+  // Phase 1B-5: the automation RPCs the lifecycle emitter calls when no hook
+  // is injected. Shapes are the minimum lib/automation/events.ts and
+  // executions.ts read back; every call is recorded in rpcCalls.
+  function rpcResponse(fn: string, args: Row): { data: unknown; error: DbError | null } {
+    if (options.rpcError) return { data: null, error: options.rpcError };
+    if (fn === "create_automation_event") return { data: { id: `evt-${rpcCalls.length}`, organization_id: ORG_A, event_type: args.p_event_type, entity_type: args.p_entity_type, entity_id: args.p_entity_id, status: "pending", payload: args.p_payload, is_duplicate: false }, error: null };
+    if (fn === "start_workflow_execution" || fn === "complete_workflow_execution") return { data: { id: `exec-${rpcCalls.length}`, organization_id: ORG_A, workflow_name: args.p_workflow_name ?? "lifecycle", attempt: 1, status: fn === "start_workflow_execution" ? "running" : "completed" }, error: null };
+    return { data: {}, error: null };
+  }
   const client = {
+    auth: { getUser: async () => ({ data: { user: { id: USER_A } }, error: null }) },
     from: builder,
-    rpc: async (fn: string, args: Row) => {
+    rpc: (fn: string, args: Row) => {
       rpcCalls.push({ fn, args });
-      return options.rpcError ? { data: null, error: options.rpcError } : { data: {}, error: null };
+      const result = rpcResponse(fn, args);
+      return { single: () => Promise.resolve(result), then: (resolve: (value: unknown) => void) => resolve(result) };
     },
   } as unknown as SupabaseClient;
 
@@ -751,4 +768,149 @@ test("record: a malformed client key is rejected before any read or write; an ab
 
 test("describeDatabaseError maps the client-key unique violation to the sanctioned wording", () => {
   assert.equal(describeDatabaseError({ code: "23505", message: 'duplicate key value violates unique constraint "customer_payments_org_client_key_unique"' }, "x"), "This payment was already recorded. Refresh to see it.");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1B-5: lifecycle markers (invoice.issued / .voided / .paid,
+// payment.recorded) - observed through the injectable hook, then once
+// through the real emitter to prove the default wiring.
+// ---------------------------------------------------------------------------
+
+type LifecycleInput = import("@/lib/automation/invoices").InvoiceLifecycleEventInput;
+
+function recorder() {
+  const events: LifecycleInput[] = [];
+  return { events, hooks: { emitLifecycleEvent: async (_supabase: SupabaseClient, input: LifecycleInput) => void events.push(input) } };
+}
+
+test("lifecycle: issuing a draft records invoice.issued with ids, number, total and the database's dates - nothing internal", async () => {
+  const { events, hooks } = recorder();
+  const fake = makeFakeSupabase({ invoices: [invoice({ status: "draft", issued_at: null, sent_at: null, due_date: null, notes: "internal note" })] }, { updateError: () => null });
+  // emulate the trigger stamping the dates
+  const inv = fake.tables.invoices[0];
+  const originalFrom = fake.client.from.bind(fake.client);
+  void originalFrom;
+  const result = await service.issueInvoiceForOrganization(fake.client, ORG_A, "inv-1", { dueDate: "2026-10-30" }, hooks);
+  assert.equal(result.ok, true, result.ok ? "" : result.error);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, "invoice.issued");
+  assert.deepEqual(events[0].payload, { invoice_id: "inv-1", number: 7, job_id: "job-1", contact_id: "contact-1", total: 1300.25, issued_at: inv.issued_at ?? null, due_date: "2026-10-30" });
+  assert.equal(JSON.stringify(events[0]).includes("internal note"), false, "notes never enter a lifecycle payload");
+});
+
+test("lifecycle: a failed or refused issue records nothing", async () => {
+  const { events, hooks } = recorder();
+  const sent = makeFakeSupabase({ invoices: [invoice({ status: "sent" })] });
+  assert.equal((await service.issueInvoiceForOrganization(sent.client, ORG_A, "inv-1", {}, hooks)).ok, false);
+  const lost = makeFakeSupabase({ invoices: [invoice({ status: "draft" })] }, { updateError: () => ({ code: "P0001", message: "invalid invoice status transition" }) });
+  assert.equal((await service.issueInvoiceForOrganization(lost.client, ORG_A, "inv-1", {}, hooks)).ok, false);
+  const other = makeFakeSupabase({ invoices: [invoice({ status: "draft", organization_id: ORG_B })] });
+  assert.equal((await service.issueInvoiceForOrganization(other.client, ORG_A, "inv-1", {}, hooks)).ok, false);
+  assert.equal(events.length, 0);
+});
+
+test("lifecycle: voiding records invoice.voided with the previous status and WITHOUT the void reason", async () => {
+  const { events, hooks } = recorder();
+  const fake = makeFakeSupabase({ invoices: [invoice({ status: "sent" })] });
+  const result = await service.voidInvoiceForOrganization(fake.client, ORG_A, "inv-1", "customer disputed - Ann called", hooks);
+  assert.equal(result.ok, true);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, "invoice.voided");
+  assert.deepEqual(events[0].payload, { invoice_id: "inv-1", number: 7, job_id: "job-1", contact_id: "contact-1", total: 1300.25, previous_status: "sent" });
+  assert.equal(JSON.stringify(events[0]).includes("Ann called"), false);
+});
+
+test("lifecycle: a partial payment records payment.recorded only; the payment that settles the invoice also records invoice.paid keyed by that payment", async () => {
+  const { events, hooks } = recorder();
+  // The fake applies the ledger inside the insert, the way the database's
+  // customer_payments_apply trigger does, so the service's re-read sees the
+  // settled state.
+  const fake = makeFakeSupabase({ invoices: [invoice()], customer_payments: [] }, {
+    onInsert: (table, row) => {
+      if (table === "customer_payments") {
+        const inv = fake.tables.invoices[0];
+        inv.status = "partially_paid";
+        inv.amount_paid = 300.25;
+        inv.balance_due = 1000;
+      }
+      return row;
+    },
+  });
+  const first = await service.recordCustomerPaymentForOrganization(fake.client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 300.25, method: "check", receivedAt: "2026-10-02T00:00:00.000Z", notes: "private", clientKey: "lifecycle-key-0001" }, hooks);
+  assert.equal(first.ok, true, first.ok ? "" : first.error);
+  assert.deepEqual(events.map((event) => event.eventType), ["payment.recorded"]);
+  const recorded = events[0] as Extract<LifecycleInput, { eventType: "payment.recorded" }>;
+  assert.equal(recorded.paymentId, first.data?.paymentId);
+  assert.equal(recorded.payload.amount, 300.25);
+  assert.equal(recorded.payload.method, "check");
+  assert.equal(recorded.payload.received_at, "2026-10-02T00:00:00.000Z");
+  assert.equal(recorded.payload.invoice_status_after, "partially_paid");
+  assert.equal(JSON.stringify(recorded).includes("private"), false, "notes never enter a lifecycle payload");
+
+  // The fake's ledger apply runs after the service re-reads, so emulate the
+  // settled state the trigger would have produced before the final call.
+  const settling = makeFakeSupabase({ invoices: [invoice({ status: "partially_paid", amount_paid: 300.25, balance_due: 1000 })], customer_payments: [] }, {
+    onInsert: (table, row) => {
+      if (table === "customer_payments") {
+        const inv = settling.tables.invoices[0];
+        inv.status = "paid";
+        inv.amount_paid = 1300.25;
+        inv.balance_due = 0;
+        inv.paid_at = "2026-10-05T00:00:00.000Z";
+      }
+      return row;
+    },
+  });
+  const { events: events2, hooks: hooks2 } = recorder();
+  const final = await service.recordCustomerPaymentForOrganization(settling.client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 1000, method: "cash", clientKey: "lifecycle-key-0002" }, hooks2);
+  assert.equal(final.ok, true, final.ok ? "" : final.error);
+  assert.deepEqual(events2.map((event) => event.eventType), ["payment.recorded", "invoice.paid"]);
+  const paid = events2[1] as Extract<LifecycleInput, { eventType: "invoice.paid" }>;
+  assert.equal(paid.completingPaymentId, final.data?.paymentId);
+  assert.deepEqual(paid.payload, { invoice_id: "inv-1", number: 7, job_id: "job-1", contact_id: "contact-1", total: 1300.25, amount_paid: 1300.25, paid_at: "2026-10-05T00:00:00.000Z", completing_payment_id: final.data?.paymentId });
+});
+
+test("lifecycle: a replayed submission and a rejected payment record nothing", async () => {
+  const { events, hooks } = recorder();
+  const fake = makeFakeSupabase({ invoices: [invoice()], customer_payments: [payment({ id: "pay-existing", client_key: "lifecycle-key-0003" })] });
+  const replay = await service.recordCustomerPaymentForOrganization(fake.client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 300.25, method: "check", clientKey: "lifecycle-key-0003" }, hooks);
+  assert.equal(replay.ok, true);
+  assert.equal(replay.data?.replayed, true);
+  const rejected = await service.recordCustomerPaymentForOrganization(fake.client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 99999, method: "cash" }, hooks);
+  assert.equal(rejected.ok, false);
+  assert.equal(events.length, 0);
+});
+
+test("lifecycle: with no hook injected, the real emitter records the marker through the session automation RPCs - created, started, completed as lifecycle_only - and nothing leaves the process", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetches = 0;
+  globalThis.fetch = (async () => {
+    fetches += 1;
+    throw new Error("no network allowed");
+  }) as typeof fetch;
+  try {
+    const fake = makeFakeSupabase({ invoices: [invoice({ status: "draft", issued_at: null, sent_at: null, due_date: null })] });
+    const result = await service.issueInvoiceForOrganization(fake.client, ORG_A, "inv-1");
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+    const fns = fake.rpcCalls.map((call) => call.fn);
+    assert.deepEqual(fns, ["create_invoice_audit_event", "create_automation_event", "start_workflow_execution", "complete_workflow_execution", "resolve_automation_incidents_by_fingerprint"]);
+    const created = fake.rpcCalls[1].args;
+    assert.equal(created.p_event_type, "invoice.issued");
+    assert.equal(created.p_entity_type, "invoice");
+    assert.equal(created.p_entity_id, "inv-1");
+    assert.equal(created.p_idempotency_key, "invoice.issued:inv-1");
+    assert.equal("p_organization_id" in created, false, "session path: the RPC resolves the organization from auth.uid(), never from the caller");
+    assert.equal(fake.rpcCalls[2].args.p_workflow_name, "invoice_issued_lifecycle");
+    assert.deepEqual(fake.rpcCalls[3].args.p_metadata, { lifecycle_only: true, invoice_id: "inv-1" });
+    assert.equal(fetches, 0, "no n8n dispatch, no SMS, no email - nothing was fetched");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("lifecycle: an automation RPC failure is logged and never turns a committed transition into an error", async () => {
+  const fake = makeFakeSupabase({ invoices: [invoice({ status: "sent" })] }, { rpcError: { code: "P0001", message: "Not authorized" } });
+  const result = await service.voidInvoiceForOrganization(fake.client, ORG_A, "inv-1", null);
+  assert.equal(result.ok, true);
+  assert.equal(fake.tables.invoices[0].status, "void");
 });
