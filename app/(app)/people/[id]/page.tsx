@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Phone, MessageCircle, Briefcase, CalendarClock, FileSearch, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles, ArrowRight, AlertCircle, FileX2 } from "lucide-react";
+import { Phone, MessageCircle, Briefcase, CalendarClock, FileSearch, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles, ArrowRight, AlertCircle, FileX2, Receipt } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContact, getContacts } from "@/lib/contacts/queries";
@@ -11,6 +11,8 @@ import { getAppointments } from "@/lib/appointments/queries";
 import { getEstimates } from "@/lib/estimates/queries";
 import { getConversations, getMessages, CONVERSATION_CHANNELS } from "@/lib/conversations/queries";
 import { getJobs } from "@/lib/jobs/queries";
+import { getContactInvoices } from "@/lib/invoices/queries";
+import { calendarDateInTimeZone, formatInvoiceNumber, formatMoney, isOverdue } from "@/lib/invoices/domain";
 import { getCustomerLifecycle } from "@/lib/customers/lifecycle";
 import { getOpenOpportunities } from "@/lib/opportunities/queries";
 import { getReviewRequestForJob, getReferralRequestForJob, getReviewRequestsForJobs, getReferralRequestsForJobs } from "@/lib/reviews-referrals/queries";
@@ -35,6 +37,7 @@ import { ContactActions } from "../../contacts/[id]/_components/contact-actions"
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointments/_components/status";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
+import { INVOICE_STATUS_TONE, INVOICE_STATUS_ICON, INVOICE_STATUS_LABELS } from "../../invoices/_components/status";
 import { buildPersonTimeline } from "@/lib/people/timeline";
 import { findPersonNextStep } from "@/lib/people/next-step";
 import { CreateEstimateButton } from "./_components/create-estimate-button";
@@ -86,7 +89,7 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
     redirect("/onboarding");
   }
 
-  const [contact, contacts, relationshipCounts, allLeads, allAppointments, allEstimates, allConversations, allJobs, lifecycle, allOpenOpportunities, timeZone] =
+  const [contact, contacts, relationshipCounts, allLeads, allAppointments, allEstimates, allConversations, allJobs, lifecycle, allOpenOpportunities, timeZone, invoices] =
     await Promise.all([
       getContact(supabase, membership.organizationId, id),
       // Final Major Product Build: full org contact list, needed only for
@@ -103,6 +106,10 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
       getCustomerLifecycle(supabase, membership.organizationId, id),
       getOpenOpportunities(supabase, membership.organizationId),
       getOrganizationTimezone(supabase, membership.organizationId),
+      // Phase 1B-4: this person's own invoices (a real contact-scoped read,
+      // mirroring getContactEstimates) - number, status, balance due and
+      // overdue only; notes and internal ids are never rendered here.
+      getContactInvoices(supabase, membership.organizationId, id),
     ]);
 
   if (!contact) {
@@ -166,7 +173,8 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
   const messages = conversationMessages.flat();
 
   const timeline = buildPersonTimeline({ leads, stageHistoryByLeadId, appointments, estimates, jobs, messages, reviewRequests, referralRequests, timeZone });
-  const nextStep = findPersonNextStep({ leads, appointments, estimates, jobs, conversations, timeZone });
+  const nextStep = findPersonNextStep({ leads, appointments, estimates, jobs, conversations, invoices, timeZone });
+  const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
 
   const openLeadCount = leads.filter((lead) => lead.status !== "won" && lead.status !== "lost").length;
   // Finalization pass, money-truth audit: this header stat used to sum
@@ -483,6 +491,48 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                         </span>
                       </li>
                     ))}
+                  </ul>
+                )}
+              </section>
+
+              {/* Phase 1B-4: invoices for this person - the same figures the
+                  Money Invoices tab shows per row (number, status, balance
+                  due, overdue), each linking to the invoice page. Balance
+                  is the database's own balance_due; overdue is derived
+                  against today in the organization's timezone. */}
+              <section className="pt-6">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <Receipt className="h-4 w-4 text-slate-400" aria-hidden />
+                  Invoices
+                </h2>
+                {invoices.length === 0 ? (
+                  <p className="mt-2 text-sm text-slate-500">No invoices for this person yet.</p>
+                ) : (
+                  <ul className="mt-1 divide-y divide-slate-100">
+                    {invoices.map((invoice) => {
+                      const overdue = isOverdue({ status: invoice.status, dueDate: invoice.due_date }, today);
+                      return (
+                        <li key={invoice.id}>
+                          <Link href={`/invoices/${invoice.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900">
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium text-slate-900">
+                                <span className="text-slate-500">{formatInvoiceNumber(invoice.number)}</span> · {invoice.title}
+                              </span>
+                              <span className="block text-xs text-slate-500">
+                                {invoice.status === "void" ? formatMoney(invoice.total) : `${formatMoney(invoice.balance_due)} due`}
+                                {invoice.due_date && invoice.status !== "void" && invoice.status !== "paid" ? ` · due ${formatContactDate(`${invoice.due_date}T12:00:00Z`)}` : ""}
+                              </span>
+                            </span>
+                            <span className="flex shrink-0 items-center gap-2">
+                              {overdue ? <Badge tone="danger">Overdue</Badge> : null}
+                              <Badge tone={INVOICE_STATUS_TONE[invoice.status]} icon={INVOICE_STATUS_ICON[invoice.status]}>
+                                {INVOICE_STATUS_LABELS[invoice.status]}
+                              </Badge>
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </section>

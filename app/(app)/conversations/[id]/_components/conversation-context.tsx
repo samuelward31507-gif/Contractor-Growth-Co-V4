@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, AlertCircle, Briefcase, CalendarClock, FileSearch, Phone, ShieldOff, User, Wallet, Zap } from "lucide-react";
+import { ArrowRight, AlertCircle, Briefcase, CalendarClock, FileSearch, Phone, Receipt, ShieldOff, User, Wallet, Zap } from "lucide-react";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import {
   formatAppointmentDate,
@@ -11,6 +11,9 @@ import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format"
 import { CONTACT_LIFECYCLE_LABEL, CONTACT_LIFECYCLE_TONE, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
 import type { NextStep } from "@/lib/people/next-step";
 import type { Estimate } from "@/lib/estimates/queries";
+import type { Invoice } from "@/lib/invoices/queries";
+import { formatInvoiceNumber, formatMoney, isOverdue } from "@/lib/invoices/domain";
+import { INVOICE_STATUS_TONE, INVOICE_STATUS_ICON, INVOICE_STATUS_LABELS } from "@/app/(app)/invoices/_components/status";
 import { detailLabelClass, detailValueClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
 import { SectionCard } from "@/lib/ui/section-card";
@@ -27,6 +30,8 @@ export function ConversationContext({
   conversation,
   relevantAppointment,
   relevantEstimate,
+  relevantInvoice,
+  today,
   lifecycleStage,
   openLeadValueDisplay,
   nextStep,
@@ -38,6 +43,10 @@ export function ConversationContext({
   relevantAppointment: RelevantAppointment | null;
   /** The most relevant real estimate for this contact (sent, else accepted, else most recent) - never a fabricated placeholder. Null when this contact has no estimates at all. */
   relevantEstimate: Estimate | null;
+  /** Phase 1B-4: this contact's most relevant live invoice (open balance first, else most recent) - number, status, balance due and overdue only; never notes or ids. Null when there is none. */
+  relevantInvoice: Invoice | null;
+  /** Today's calendar date in the organization's timezone - what "overdue" is judged against. */
+  today: string;
   /** Derived from this contact's own real leads/estimates/jobs/appointments/review-requests (deriveContactLifecycle) - null only when the conversation has no linked contact at all. */
   lifecycleStage: ContactLifecycleStage | null;
   /** Pre-formatted via formatOpenLeadValueDisplay, already excluding won/lost leads - null when there is no open opportunity for this contact. */
@@ -193,6 +202,31 @@ export function ConversationContext({
             {formatAppointmentDate(relevantAppointment.start_at, timeZone)} · {formatAppointmentTime(relevantAppointment.start_at, timeZone)}
           </p>
           <p className="mt-1 text-xs text-slate-400">{APPOINTMENT_STATUS_LABELS[relevantAppointment.status]}</p>
+        </SectionCard>
+      ) : null}
+
+      {relevantInvoice ? (
+        <SectionCard
+          title="Invoice"
+          icon={Receipt}
+          action={
+            <Link href={`/invoices/${relevantInvoice.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+              View
+            </Link>
+          }
+        >
+          <p className="text-sm font-medium text-slate-900">
+            <span className="text-slate-500">{formatInvoiceNumber(relevantInvoice.number)}</span> · {relevantInvoice.title}
+          </p>
+          <p className="mt-0.5 text-sm font-medium tabular-nums text-slate-700">
+            {relevantInvoice.status === "paid" ? `${formatMoney(relevantInvoice.total)} paid` : `${formatMoney(relevantInvoice.balance_due)} due`}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <Badge tone={INVOICE_STATUS_TONE[relevantInvoice.status]} icon={INVOICE_STATUS_ICON[relevantInvoice.status]}>
+              {INVOICE_STATUS_LABELS[relevantInvoice.status]}
+            </Badge>
+            {isOverdue({ status: relevantInvoice.status, dueDate: relevantInvoice.due_date }, today) ? <Badge tone="danger">Overdue</Badge> : null}
+          </div>
         </SectionCard>
       ) : null}
 

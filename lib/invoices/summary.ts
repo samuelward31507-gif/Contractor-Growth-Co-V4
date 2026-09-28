@@ -14,10 +14,38 @@ import { fromCents, isOverdue, toCents, type InvoiceStatus } from "./domain";
  *   overdue       the subset of outstanding whose due_date is before today
  *                 (in the organization's timezone), derived, never stored
  *   notYetInvoiced completed jobs with no live invoice - contracted work
- *                 that has not been billed
+ *                 that has not been billed - excluding legacy jobs (see
+ *                 INVOICING_LIVE_AT / isLegacyCompletedJob below)
  *
  * All arithmetic is cent-exact through lib/invoices/domain.ts.
  */
+
+/**
+ * Phase 1B-4: the instant Trackpr invoicing went live in production - the
+ * `invoice_foundation` migration's ledger version, 20260928162500
+ * (supabase_migrations.schema_migrations; the file lives at
+ * supabase/migrations/20260928162500_invoice_foundation.sql). No invoice
+ * could exist before this moment, so a job completed earlier was never
+ * "not yet invoiced" in any meaningful sense - it predates the feature.
+ *
+ * Legacy rule (approved): a completed job is legacy when
+ * coalesce(completed_at, created_at) < INVOICING_LIVE_AT. created_at is the
+ * fallback rather than updated_at because it is immutable - a later edit to
+ * a legacy job must never move it past the cutoff. Legacy jobs are excluded
+ * from "Not yet invoiced" (Money, Dashboard) and from the "Create invoice"
+ * next step; nothing stops a member from invoicing one manually from the
+ * job page. No schema change - a documented application constant only.
+ */
+export const INVOICING_LIVE_AT = "2026-09-28T16:25:00.000Z";
+
+export type LegacyCheckJob = { status: string; completed_at?: string | null; created_at: string };
+
+/** True for a completed job whose completion (or, when unrecorded, creation) predates INVOICING_LIVE_AT. Never true for a non-completed job. */
+export function isLegacyCompletedJob(job: LegacyCheckJob, liveAt: string = INVOICING_LIVE_AT): boolean {
+  if (job.status !== "completed") return false;
+  const reference = job.completed_at ?? job.created_at;
+  return new Date(reference).getTime() < new Date(liveAt).getTime();
+}
 
 export type SummaryInvoice = {
   id: string;
@@ -31,7 +59,7 @@ export type SummaryInvoice = {
 
 export type SummaryPayment = { amount: number };
 
-export type SummaryJob = { id: string; status: string; amount: number | null };
+export type SummaryJob = { id: string; status: string; amount: number | null; completed_at?: string | null; created_at: string };
 
 export type InvoiceMoneySummary = {
   invoiced: number;
@@ -64,7 +92,7 @@ export function summarizeInvoiceMoney(params: { invoices: SummaryInvoice[]; paym
   const overdue = open.filter((invoice) => isOverdue({ status: invoice.status, dueDate: invoice.due_date }, today));
 
   const liveJobIds = new Set(invoices.filter((invoice) => invoice.status !== "void").map((invoice) => invoice.job_id));
-  const notYetInvoiced = jobs.filter((job) => job.status === "completed" && !liveJobIds.has(job.id));
+  const notYetInvoiced = jobs.filter((job) => job.status === "completed" && !liveJobIds.has(job.id) && !isLegacyCompletedJob(job));
   const knownValues = notYetInvoiced.map((job) => job.amount).filter((amount): amount is number => amount != null);
 
   return {

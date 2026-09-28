@@ -9,6 +9,7 @@ import { getAppointment } from "@/lib/appointments/queries";
 import { getContactAppointments, getContactConversations } from "@/lib/conversations/queries";
 import { getContactEstimates } from "@/lib/estimates/queries";
 import { getContactJobs } from "@/lib/jobs/queries";
+import { getContactInvoices } from "@/lib/invoices/queries";
 import { findPersonNextStep } from "@/lib/people/next-step";
 import { contactDisplayName, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
@@ -62,18 +63,20 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
   // estimates/jobs, so this surfaces the contact's own real next step
   // rather than claiming a specific estimate/job "came from" this
   // appointment).
-  const [contactLeads, contactEstimates, contactJobs, contactAppointments, contactConversations] = appointment?.contact_id
+  const [contactLeads, contactEstimates, contactJobs, contactAppointments, contactConversations, contactInvoices] = appointment?.contact_id
     ? await Promise.all([
         getContactLeads(supabase, membership.organizationId, appointment.contact_id),
         getContactEstimates(supabase, membership.organizationId, appointment.contact_id),
         getContactJobs(supabase, membership.organizationId, appointment.contact_id),
         getContactAppointments(supabase, membership.organizationId, appointment.contact_id),
         getContactConversations(supabase, membership.organizationId, appointment.contact_id),
+        // Phase 1B-4: the next step reads a completed job's live invoice.
+        getContactInvoices(supabase, membership.organizationId, appointment.contact_id),
       ])
-    : [[], [], [], [], []];
+    : [[], [], [], [], [], []];
 
   const nextStep = appointment?.contact_id
-    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: contactConversations, timeZone })
+    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: contactConversations, invoices: contactInvoices, timeZone })
     : null;
   const mostRecentOpenConversation = contactConversations.find((conversation) => conversation.status === "open") ?? contactConversations[0] ?? null;
 

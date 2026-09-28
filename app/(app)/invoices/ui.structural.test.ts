@@ -24,6 +24,14 @@ const invoiceSection = read("app/(app)/jobs/[id]/_components/invoice-section.tsx
 const createDialog = read("app/(app)/jobs/[id]/_components/create-invoice-dialog.tsx");
 const moneyPage = read("app/(app)/money/page.tsx");
 const summaryCards = read("app/(app)/invoices/_components/invoice-money-summary.tsx");
+const todayPage = read("app/(app)/today/page.tsx");
+const insightsPage = read("app/(app)/insights/page.tsx");
+const insightsSections = read("app/(app)/insights/_components/business-metrics-sections.tsx");
+const personPage = read("app/(app)/people/[id]/page.tsx");
+const peoplePage = read("app/(app)/people/page.tsx");
+const conversationPage = read("app/(app)/conversations/[id]/page.tsx");
+const conversationContext = read("app/(app)/conversations/[id]/_components/conversation-context.tsx");
+const appointmentPage = read("app/(app)/appointments/[id]/page.tsx");
 
 test("payment history offers no edit or delete control - only Reverse, submitted through the server action", () => {
   assert.doesNotMatch(paymentHistory, /\b(Edit|Delete|Remove)\b/);
@@ -94,4 +102,53 @@ test("Money's invoice figures keep the terminology line: only Collected is money
   assert.doesNotMatch(summaryCards, /revenue/i, "no invoice figure is ever called revenue");
   assert.match(moneyPage, /browse === "invoices"/);
   assert.match(moneyPage, /getCustomerPaymentsResult/);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1B-4: Financial Visibility
+// ---------------------------------------------------------------------------
+
+test("Dashboard's money row reads the same ledger queries and the same summarizeInvoiceMoney computation as Money, judged against the organization's calendar date", () => {
+  assert.match(todayPage, /getInvoicesResult\(supabase, membership\.organizationId\)/);
+  assert.match(todayPage, /getCustomerPaymentsResult\(supabase, membership\.organizationId\)/);
+  assert.match(todayPage, /summarizeInvoiceMoney\(\{ invoices: invoicesResult\.data, payments: paymentsResult\.data, jobs: jobsResult\.data, today \}\)/);
+  assert.match(todayPage, /calendarDateInTimeZone\(new Date\(\), timeZone \?\? "UTC"\)/);
+  assert.match(todayPage, /<InvoiceMoneySummaryCards summary=\{invoiceSummary\} variant="dashboard" \/>/);
+  assert.match(todayPage, /invoicesResult\.failed \|\| paymentsResult\.failed/, "a failed ledger read is disclosed, never rendered as a clean $0");
+  assert.match(summaryCards, /variant === "dashboard" \? null : \(/, "the dashboard variant drops only Not yet invoiced");
+  assert.match(summaryCards, /INVOICING_LIVE_AT/, "the legacy cutoff is documented where Not yet invoiced is rendered");
+});
+
+test("Insights reads billing from the BI snapshot only, shows the sanctioned definition, and no longer claims that no payment ledger exists", () => {
+  assert.match(insightsSections, /snapshot\.billingMetrics|const \{ billingMetrics, comparisons, dataQuality \} = snapshot/);
+  assert.match(insightsSections, /SANCTIONED_COLLECTED_REVENUE_DEFINITION/);
+  assert.match(insightsSections, /label="Collected"/);
+  assert.match(insightsSections, /as of today/, "Outstanding/Overdue are labeled as balances as of today, not period totals");
+  assert.match(insightsSections, /Based on \$\{count\(billingMetrics\.invoicesPaid/, "days to payment is never shown without its population");
+  assert.match(insightsSections, /already subtracted from Collected/, "reversals stay visible separately");
+  assert.doesNotMatch(insightsSections, /supabase|\.from\(/, "the section calculates nothing and queries nothing itself");
+  for (const source of [insightsPage, insightsSections]) {
+    assert.doesNotMatch(source, /no payment ledger exists|no payment infrastructure/i);
+  }
+  assert.match(insightsPage, /<BillingSection snapshot=\{snapshot\} \/>/);
+});
+
+test("People and Inbox show invoice number, status, balance due and overdue to members - never notes, ids or tokens", () => {
+  assert.match(peoplePage, /getInvoices\(supabase, membership\.organizationId\)/);
+  assert.match(peoplePage, /invoices: invoicesByContactId\.get\(contact\.id\) \?\? \[\]/);
+  assert.match(personPage, /getContactInvoices\(supabase, membership\.organizationId, id\)/);
+  assert.match(personPage, /findPersonNextStep\(\{ leads, appointments, estimates, jobs, conversations, invoices, timeZone \}\)/);
+  assert.match(personPage, /formatInvoiceNumber\(invoice\.number\)/);
+  assert.match(personPage, /INVOICE_STATUS_LABELS\[invoice\.status\]/);
+  assert.match(personPage, /formatMoney\(invoice\.balance_due\)/);
+  assert.match(personPage, /<Badge tone="danger">Overdue<\/Badge>/);
+  assert.match(conversationPage, /getContactInvoices\(supabase, membership\.organizationId, conversation\.contact_id\)/);
+  assert.match(conversationPage, /invoices: contactInvoices, timeZone/);
+  assert.match(conversationContext, /title="Invoice"/);
+  assert.match(conversationContext, /formatInvoiceNumber\(relevantInvoice\.number\)/);
+  assert.match(conversationContext, /formatMoney\(relevantInvoice\.balance_due\)/);
+  assert.match(appointmentPage, /invoices: contactInvoices, timeZone/);
+  for (const source of [personPage, conversationContext, conversationPage]) {
+    assert.doesNotMatch(source, /invoice\.notes|relevantInvoice\.notes|approval_token|>\{invoice\.id\}<|>\{relevantInvoice\.id\}</);
+  }
 });

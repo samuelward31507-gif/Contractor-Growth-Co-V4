@@ -6,7 +6,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { filterInvoices, summarizeInvoiceMoney, type FilterableInvoice, type SummaryInvoice } from "./summary";
+import { filterInvoices, isLegacyCompletedJob, INVOICING_LIVE_AT, summarizeInvoiceMoney, type FilterableInvoice, type SummaryInvoice } from "./summary";
+
+/** A job completed well after invoicing went live - the default for every job in these tests. */
+const AFTER_LIVE = "2026-10-01T12:00:00.000Z";
 
 const inv = (overrides: Partial<SummaryInvoice> & { id: string }): SummaryInvoice => ({
   job_id: `job-${overrides.id}`,
@@ -65,10 +68,10 @@ test("not yet invoiced is completed jobs with no live invoice; unknown amounts a
     invoices: [inv({ id: "a", job_id: "job-1", status: "sent" }), inv({ id: "b", job_id: "job-2", status: "void" })],
     payments: [],
     jobs: [
-      { id: "job-1", status: "completed", amount: 100 },
-      { id: "job-2", status: "completed", amount: 200 },
-      { id: "job-3", status: "completed", amount: null },
-      { id: "job-4", status: "in_progress", amount: 300 },
+      { id: "job-1", status: "completed", amount: 100, completed_at: AFTER_LIVE, created_at: AFTER_LIVE },
+      { id: "job-2", status: "completed", amount: 200, completed_at: AFTER_LIVE, created_at: AFTER_LIVE },
+      { id: "job-3", status: "completed", amount: null, completed_at: AFTER_LIVE, created_at: AFTER_LIVE },
+      { id: "job-4", status: "in_progress", amount: 300, completed_at: null, created_at: AFTER_LIVE },
     ],
     today: "2026-10-10",
   });
@@ -89,4 +92,30 @@ test("filterInvoices matches number, title and contact, and treats overdue as a 
   assert.deepEqual(filterInvoices(rows, { status: "overdue" }, "2026-10-10").map((r) => r.id), ["a"]);
   assert.deepEqual(filterInvoices(rows, { status: "overdue" }, "2026-09-30").map((r) => r.id), []);
   assert.equal(filterInvoices(rows, { status: "all" }, "2026-10-10").length, 2);
+});
+
+test("legacy completed jobs (before INVOICING_LIVE_AT) are excluded from not yet invoiced; created_at is the fallback when completed_at is null", () => {
+  assert.equal(INVOICING_LIVE_AT, "2026-09-28T16:25:00.000Z", "the invoice_foundation ledger version 20260928162500, documented in summary.ts");
+
+  const beforeLive = "2026-09-28T16:02:03.000Z";
+  const summary = summarizeInvoiceMoney({
+    invoices: [],
+    payments: [],
+    jobs: [
+      { id: "legacy-completed", status: "completed", amount: 5000, completed_at: beforeLive, created_at: "2026-09-01T00:00:00.000Z" },
+      { id: "legacy-null-completed-at", status: "completed", amount: 7000, completed_at: null, created_at: beforeLive },
+      { id: "legacy-edited-later", status: "completed", amount: 9000, completed_at: null, created_at: beforeLive },
+      { id: "exactly-at-cutoff", status: "completed", amount: 100, completed_at: INVOICING_LIVE_AT, created_at: "2026-09-01T00:00:00.000Z" },
+      { id: "after-live", status: "completed", amount: 250, completed_at: AFTER_LIVE, created_at: AFTER_LIVE },
+      { id: "created-before-completed-after", status: "completed", amount: 300, completed_at: AFTER_LIVE, created_at: "2026-09-01T00:00:00.000Z" },
+    ],
+    today: "2026-10-10",
+  });
+  assert.equal(summary.notYetInvoicedCount, 3, "the cutoff instant itself is not legacy (strict <); completion after go-live counts even when the job was created earlier");
+  assert.equal(summary.notYetInvoicedKnownValue, 650);
+  assert.equal(summary.notYetInvoicedUnknownCount, 0);
+
+  assert.equal(isLegacyCompletedJob({ status: "in_progress", completed_at: null, created_at: "2026-01-01T00:00:00.000Z" }), false, "never legacy unless completed");
+  assert.equal(isLegacyCompletedJob({ status: "completed", completed_at: null, created_at: beforeLive }), true);
+  assert.equal(isLegacyCompletedJob({ status: "completed", completed_at: AFTER_LIVE, created_at: beforeLive }), false);
 });

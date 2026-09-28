@@ -12,6 +12,8 @@ import {
 import { getContactLeads } from "@/lib/leads/queries";
 import { getContactEstimates } from "@/lib/estimates/queries";
 import { getContactJobs } from "@/lib/jobs/queries";
+import { getContactInvoices } from "@/lib/invoices/queries";
+import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { getReviewRequestsForJobs } from "@/lib/reviews-referrals/queries";
 import { deriveContactLifecycle } from "@/lib/customers/lifecycle-stage";
 import { findPersonNextStep } from "@/lib/people/next-step";
@@ -66,7 +68,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     );
   }
 
-  const [messages, contactAppointments, contactLeads, contactEstimates, contactJobs, contactOptOut, timeZone] = await Promise.all([
+  const [messages, contactAppointments, contactLeads, contactEstimates, contactJobs, contactOptOut, timeZone, contactInvoices] = await Promise.all([
     getMessages(supabase, membership.organizationId, conversation.id),
     conversation.contact_id
       ? getContactAppointments(supabase, membership.organizationId, conversation.contact_id)
@@ -98,6 +100,9 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     // organization's real timezone, or they silently fall back to the
     // server runtime's default (UTC).
     getOrganizationTimezone(supabase, membership.organizationId),
+    // Phase 1B-4: this contact's invoices, the same scoped-read shape as
+    // getContactEstimates above - feeds the Invoice card and the next step.
+    conversation.contact_id ? getContactInvoices(supabase, membership.organizationId, conversation.contact_id) : Promise.resolve([]),
   ]);
 
   // review_requests are read after contactJobs resolves (needs its own job
@@ -133,8 +138,18 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
   // one thread. Every other branch (appointment/estimate/lead) reads this
   // contact's full, real history exactly like the Person page does.
   const nextStep = conversation.contact_id
-    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: [conversation], timeZone })
+    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: [conversation], invoices: contactInvoices, timeZone })
     : null;
+
+  // Phase 1B-4: the one invoice worth showing next to the thread - an open
+  // balance first (sent, then partially paid), else the most recent live
+  // invoice; a void-only history shows nothing. Same "most relevant real
+  // record" rule as relevantEstimate below.
+  const relevantInvoice =
+    contactInvoices.find((invoice) => invoice.status === "sent" || invoice.status === "partially_paid") ??
+    contactInvoices.find((invoice) => invoice.status !== "void") ??
+    null;
+  const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
 
   const relevantEstimate =
     contactEstimates.find((estimate) => estimate.status === "sent") ??
@@ -202,6 +217,8 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
               conversation={conversation}
               relevantAppointment={relevantAppointment}
               relevantEstimate={relevantEstimate}
+              relevantInvoice={relevantInvoice}
+              today={today}
               lifecycleStage={lifecycleStage}
               openLeadValueDisplay={openLeadCount > 0 ? openLeadValueDisplay : null}
               nextStep={nextStep}
@@ -217,6 +234,8 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
             conversation={conversation}
             relevantAppointment={relevantAppointment}
             relevantEstimate={relevantEstimate}
+            relevantInvoice={relevantInvoice}
+            today={today}
             lifecycleStage={lifecycleStage}
             openLeadValueDisplay={openLeadCount > 0 ? openLeadValueDisplay : null}
             nextStep={nextStep}

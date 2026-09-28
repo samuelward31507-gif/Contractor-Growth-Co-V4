@@ -11,6 +11,9 @@ import {
   getReviewReferralMetrics,
 } from "./queries";
 import { hasAnyLeadStageHistory, getLeadsForRangeResult, getLeadStageTransitionMetrics, getLeadStageTimingMetrics, getLeadResponseTimeMetrics } from "./funnel";
+import { computeBillingMetrics, getBillingRowsResult, SANCTIONED_COLLECTED_REVENUE_DEFINITION, type BiBillingMetrics } from "./billing";
+import { calendarDateInTimeZone } from "@/lib/invoices/domain";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 import type {
   DateRangeInput,
   ResolvedDateRange,
@@ -536,10 +539,15 @@ async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, 
  * states that explicitly, using the real counts already computed by
  * getLeadStageTimingMetrics for this same snapshot.
  */
-function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics): BiDataQuality {
+function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean): BiDataQuality {
   const aiTokenUsageUnavailable = aiUsage.interactionsWithUsageData === 0;
+  // Phase 1B-4: the payment ledger exists now. The first note states the one
+  // sanctioned definition of collected revenue and keeps every quoted/
+  // contracted figure on the other side of that line.
   const notes = [
-    "No payment/invoicing infrastructure exists - pipelineValue, estimateValue, and contractedJobValue are quoted/contracted figures, never collected revenue.",
+    collectedRevenueUnavailable
+      ? "The invoice and payment ledger could not be read for this snapshot - collected revenue is unavailable here, and billingMetrics is zeroed, not measured. pipelineValue, estimateValue, and contractedJobValue remain quoted/contracted figures, never collected revenue."
+      : `${SANCTIONED_COLLECTED_REVENUE_DEFINITION} Only billingMetrics.collectedValue is collected revenue; pipelineValue, estimateValue, contractedJobValue, and invoicedValue are quoted, contracted, or invoiced figures, never collected revenue.`,
     "leads.source is nullable and not standardized - sourceCounts is exposed for transparency only, never as a performance ranking.",
   ];
   notes.push(
@@ -554,7 +562,7 @@ function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean
   );
 
   return {
-    collectedRevenueUnavailable: true,
+    collectedRevenueUnavailable,
     sourceAttributionLimited: true,
     stageHistoryUnavailable,
     aiTokenUsageUnavailable,
@@ -596,6 +604,8 @@ export async function getBusinessMetricsSnapshot(
     { leads: sharedLeads, failed: sharedLeadsFailed },
     transitionMetrics,
     previousTotals,
+    billingRows,
+    timeZone,
   ] =
     await Promise.all([
       buildLeadMetrics(supabase, organizationId, range),
@@ -628,9 +638,22 @@ export async function getBusinessMetricsSnapshot(
             getLeadsForRangeResult(supabase, organizationId, previousRange),
           ])
         : Promise.resolve(null),
+      // Phase 1B-4: one unbounded read of the invoice/payment ledger feeds
+      // the period-scoped, previous-period and current-state billing
+      // figures below - see lib/bi/billing.ts.
+      getBillingRowsResult(supabase, organizationId),
+      // "Overdue" is judged against today's calendar date in the
+      // organization's own timezone, the same calendar the issue trigger
+      // used for the default due date (lib/invoices/queries.ts's
+      // getInvoiceWithContext does exactly this).
+      getOrganizationTimezone(supabase, organizationId),
     ]);
 
   estimateMetrics.estimateToJobRate = rate(jobMetrics.totalJobs, estimateMetrics.acceptedEstimates);
+
+  const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
+  const billingMetrics: BiBillingMetrics = computeBillingMetrics({ invoices: billingRows.invoices, payments: billingRows.payments, range, today });
+  const previousBilling = previousRange ? computeBillingMetrics({ invoices: billingRows.invoices, payments: billingRows.payments, range: previousRange, today }) : null;
 
   const revenueOpportunity = await buildRevenueOpportunity(supabase, organizationId);
 
@@ -652,6 +675,8 @@ export async function getBusinessMetricsSnapshot(
         leadsTransitionedToQualified: computeComparison(transitionMetrics.leadsTransitionedToQualified, previousTotals[3].leadsTransitionedToQualified),
         leadsTransitionedToWon: computeComparison(transitionMetrics.leadsTransitionedToWon, previousTotals[3].leadsTransitionedToWon),
         leadsContacted: computeComparison(responseTimeMetrics.leadsContacted, previousResponseTimeMetrics!.leadsContacted),
+        invoicedValue: computeComparison(billingMetrics.invoicedValue, previousBilling!.invoicedValue),
+        collectedValue: computeComparison(billingMetrics.collectedValue, previousBilling!.collectedValue),
       }
     : {
         leadCount: computeComparison(lead.totalLeads, null),
@@ -660,6 +685,8 @@ export async function getBusinessMetricsSnapshot(
         leadsTransitionedToQualified: computeComparison(transitionMetrics.leadsTransitionedToQualified, null),
         leadsTransitionedToWon: computeComparison(transitionMetrics.leadsTransitionedToWon, null),
         leadsContacted: computeComparison(responseTimeMetrics.leadsContacted, null),
+        invoicedValue: computeComparison(billingMetrics.invoicedValue, null),
+        collectedValue: computeComparison(billingMetrics.collectedValue, null),
       };
 
   // Trackpr 2.0, Phase 4B (P1 #2): true only when one of this function's own
@@ -677,7 +704,10 @@ export async function getBusinessMetricsSnapshot(
   // response-time metrics) - a failure there would otherwise silently render
   // as an empty/zeroed "Historical funnel"/"Time to first response" section
   // on Analytics, indistinguishable from a genuinely quiet period.
-  const partialDataSourceCount = [leadFailed, estimatesFailed, jobsFailed, appointmentsFailed, aiFailed, sharedLeadsFailed, transitionMetrics.failed, timingMetrics.failed, responseTimeMetrics.failed].filter(
+  //
+  // Phase 1B-4: also covers the billing ledger read - a failure there would
+  // otherwise render as a false "$0 collected."
+  const partialDataSourceCount = [leadFailed, estimatesFailed, jobsFailed, appointmentsFailed, aiFailed, sharedLeadsFailed, transitionMetrics.failed, timingMetrics.failed, responseTimeMetrics.failed, billingRows.failed].filter(
     Boolean,
   ).length;
   const partialData = partialDataSourceCount > 0;
@@ -695,11 +725,12 @@ export async function getBusinessMetricsSnapshot(
     automationMetrics: automation,
     aiMetrics,
     followUpMetrics: followUp,
+    billingMetrics,
     revenueOpportunity,
     reviewReferralMetrics,
     leadStageFunnel: { transitions: transitionMetrics, timing: timingMetrics },
     responseTime: responseTimeMetrics,
-    dataQuality: buildDataQuality(aiMetrics, !stageHistoryExists, timingMetrics),
+    dataQuality: buildDataQuality(aiMetrics, !stageHistoryExists, timingMetrics, billingRows.failed),
     partialData,
     partialDataSourceCount,
     generatedAt: new Date().toISOString(),

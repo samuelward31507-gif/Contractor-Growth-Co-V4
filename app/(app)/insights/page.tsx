@@ -22,6 +22,7 @@ import { RangeTabs } from "./_components/range-tabs";
 import { TrendSection } from "./_components/trend-section";
 import {
   BusinessAtAGlance,
+  BillingSection,
   LeadsPipelineSection,
   EstimatesSection,
   JobsSection,
@@ -176,12 +177,17 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
         <div className="mt-8 flex flex-col gap-10">
           <div>
             <h2 className={primarySectionTitleClass}>Revenue &amp; performance</h2>
-            <p className={`mt-1 ${metaClass}`}>How the business is doing, and where quoted/contracted value is coming from - never collected revenue, since no payment ledger exists.</p>
+            {/* Phase 1B-4: the payment ledger exists now - "Collected" below
+                is customer payments recorded in Trackpr, net of recorded
+                reversals; every other value figure is still quoted,
+                contracted or invoiced, never collected. */}
+            <p className={`mt-1 ${metaClass}`}>How the business is doing: what customers actually paid, and where quoted/contracted value is coming from. Only Collected is money received.</p>
             <div className="mt-3">
               <BusinessAtAGlance snapshot={snapshot} />
             </div>
             <TrendSection series={leadSeries.data} failed={leadSeries.failed} isFallbackWindow={chartRangeIsFallback} />
             <div className="mt-6 divide-y divide-slate-200">
+              <BillingSection snapshot={snapshot} />
               <EstimatesSection snapshot={snapshot} />
               <JobsSection snapshot={snapshot} />
             </div>
