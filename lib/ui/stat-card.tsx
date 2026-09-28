@@ -18,6 +18,7 @@
  * card's background or the value text itself - only the small icon chip.
  */
 import type { ReactNode } from "react";
+import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import type { BadgeTone } from "./badge";
 import { kpiLabelClass, kpiValueClass, kpiDescriptionClass } from "./typography";
@@ -64,6 +65,7 @@ export function StatCard({
   description,
   tone = "neutral",
   icon: Icon,
+  href,
 }: {
   label: string;
   value: ReactNode;
@@ -71,11 +73,13 @@ export function StatCard({
   /** Drives only the small icon chip (see TONE_ICON_CLASS) - the card itself never changes background/border by tone. */
   tone?: BadgeTone;
   icon?: LucideIcon;
+  /** Nav-restructure pass: when present, the whole card becomes a real link to a real filtered destination (e.g. a Dashboard snapshot card linking to /estimates?status=sent) - never a decorative click target with nowhere to go. */
+  href?: string;
 }) {
   const isLongTextValue = typeof value === "string" && value.length > 10;
 
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5">
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <p className={kpiLabelClass}>{label}</p>
         {Icon ? (
@@ -86,6 +90,19 @@ export function StatCard({
       </div>
       <p className={isLongTextValue ? LONG_TEXT_VALUE_CLASS : kpiValueClass}>{value}</p>
       {description ? <p className={kpiDescriptionClass}>{description}</p> : null}
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block rounded-xl border border-slate-200 bg-white p-5 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return <div className="rounded-xl border border-slate-200 bg-white p-5">{content}</div>;
 }

@@ -2,8 +2,10 @@
  * Pure, dependency-free tests of the nav-filtering foundation. Originally
  * Gym Foundation Phase 1, Section 6; rewritten for the IA consolidation
  * pass that retired Dashboard, Customers/Leads/Contacts, Work, Opportunities,
- * and Analytics as separate nav destinations (all absorbed into Today,
- * People, Money, and Insights respectively). Run with:
+ * and Analytics as separate nav destinations; rewritten again for the
+ * nav-restructure pass that un-merges Money back into Jobs and Estimates
+ * and relabels Today's own nav entry "Dashboard" - see nav-items.ts's own
+ * header comment for the full reasoning. Run with:
  *
  *   node --import ./lib/automation/test-loader.mjs --test "app/(app)/_components/nav-items.test.ts"
  */
@@ -28,7 +30,7 @@ function hrefsOf(groups: ReturnType<typeof getNavGroupsForVertical>) {
 
 test("A. every locked canonical destination is present in the unfiltered nav", () => {
   const hrefs = flatten(NAV_GROUPS).map((entry) => entry.split(":")[0]);
-  for (const href of ["/today", "/people", "/money", "/schedule", "/inbox", "/growth", "/automations", "/insights", "/settings"]) {
+  for (const href of ["/today", "/people", "/jobs", "/estimates", "/schedule", "/inbox", "/growth", "/automations", "/insights", "/settings"]) {
     assert.ok(hrefs.includes(href), `expected canonical destination ${href} to be present`);
   }
 });
@@ -45,13 +47,22 @@ test("A2. Inbox nav href is exactly /inbox, and no nav item points to /conversat
 // ===========================================================================
 
 test("B. no legacy or IA-consolidation-superseded route appears anywhere in navigation, for either vertical, with or without the agency link", () => {
-  const legacy = ["/leads", "/contacts", "/calendar", "/appointments", "/estimates", "/jobs", "/customers", "/work", "/dashboard", "/opportunities", "/analytics"];
+  const legacy = ["/leads", "/contacts", "/calendar", "/appointments", "/customers", "/work", "/dashboard", "/opportunities", "/analytics"];
   for (const vertical of ["contractor", "gym"] as const) {
     for (const showAgencyLink of [true, false]) {
       const hrefs = hrefsOf(getNavGroupsForVertical(vertical, showAgencyLink));
       for (const legacyHref of legacy) {
         assert.ok(!hrefs.includes(legacyHref), `${legacyHref} must never appear in navigation (vertical=${vertical}, agency=${showAgencyLink})`);
       }
+    }
+  }
+});
+
+test("B2. /money does not appear in navigation - it is un-linked, not deleted (the page itself remains fully reachable by URL)", () => {
+  for (const vertical of ["contractor", "gym"] as const) {
+    for (const showAgencyLink of [true, false]) {
+      const hrefs = hrefsOf(getNavGroupsForVertical(vertical, showAgencyLink));
+      assert.ok(!hrefs.includes("/money"), `/money must not appear in navigation (vertical=${vertical}, agency=${showAgencyLink})`);
     }
   }
 });
@@ -64,9 +75,10 @@ test("B. no legacy or IA-consolidation-superseded route appears anywhere in navi
 test("C. every locked label renders exactly as specified, for a contractor", () => {
   const entries = flatten(getNavGroupsForVertical("contractor", false));
   const expected = [
-    "/today:Today",
+    "/today:Dashboard",
     "/people:People",
-    "/money:Money",
+    "/jobs:Jobs",
+    "/estimates:Estimates",
     "/schedule:Schedule",
     "/inbox:Inbox",
     "/growth:Reviews & Referrals",
@@ -95,16 +107,16 @@ test("D. the locked group structure exists in the exact order: (ungrouped primar
   assert.deepEqual(labels, [null, "More"]);
 });
 
-test("D2. the primary group contains exactly Today, People, Money, Schedule (for a contractor, in order)", () => {
+test("D2. the primary group contains exactly Dashboard, People, Jobs, Estimates, Schedule (for a contractor, in order)", () => {
   const primaryGroup = getNavGroupsForVertical("contractor", false).find((g) => g.label === null);
   assert.ok(primaryGroup);
   assert.deepEqual(
     primaryGroup!.items.map((i) => i.href),
-    ["/today", "/people", "/money", "/schedule"],
+    ["/today", "/people", "/jobs", "/estimates", "/schedule"],
   );
 });
 
-test("D3. More contains exactly Inbox, Reviews & Referrals, Automations, Insights, Settings (for a contractor) - Dashboard and Opportunities are gone entirely, fully absorbed into Today", () => {
+test("D3. More contains exactly Inbox, Reviews & Referrals, Automations, Insights, Settings (for a contractor) - Dashboard's own screen and Opportunities are absorbed into /today, not listed a second time", () => {
   const moreGroup = getNavGroupsForVertical("contractor", false).find((g) => g.label === "More");
   assert.ok(moreGroup);
   assert.deepEqual(
@@ -136,17 +148,19 @@ test("D6. Agency Command Center appears inside the existing More group, never as
 });
 
 // ===========================================================================
-// Vertical filtering (unchanged behavior, retargeted to /money)
+// Vertical filtering (retargeted to /jobs and /estimates)
 // ===========================================================================
 
-test("contractor nav still includes Money (/money)", () => {
+test("contractor nav still includes Jobs (/jobs) and Estimates (/estimates)", () => {
   const hrefs = hrefsOf(getNavGroupsForVertical("contractor", false));
-  assert.ok(hrefs.includes("/money"));
+  assert.ok(hrefs.includes("/jobs"));
+  assert.ok(hrefs.includes("/estimates"));
 });
 
-test("gym nav excludes Money (/money)", () => {
+test("gym nav excludes Jobs (/jobs) and Estimates (/estimates)", () => {
   const hrefs = hrefsOf(getNavGroupsForVertical("gym", false));
-  assert.ok(!hrefs.includes("/money"));
+  assert.ok(!hrefs.includes("/jobs"));
+  assert.ok(!hrefs.includes("/estimates"));
 });
 
 test("gym nav still includes every vertical-neutral item", () => {
@@ -187,9 +201,10 @@ test("I2. there is no competing pair of destinations for the same merged concept
     ["/people", "/customers"],
     ["/schedule", "/calendar"],
     ["/schedule", "/appointments"],
-    ["/money", "/work"],
-    ["/money", "/estimates"],
-    ["/money", "/jobs"],
+    ["/jobs", "/money"],
+    ["/estimates", "/money"],
+    ["/jobs", "/work"],
+    ["/estimates", "/work"],
     ["/today", "/dashboard"],
     ["/today", "/opportunities"],
     ["/insights", "/analytics"],
@@ -199,7 +214,7 @@ test("I2. there is no competing pair of destinations for the same merged concept
   }
 });
 
-test("I3. Dashboard and Opportunities are not reachable from navigation at all (fully absorbed into Today, not merely deprioritized)", () => {
+test("I3. Dashboard's own historical route and Opportunities are not reachable from navigation at all (Today's nav entry is relabeled Dashboard, but its href stays /today)", () => {
   const groups = getNavGroupsForVertical("contractor", true);
   const hrefs = hrefsOf(groups);
   assert.ok(!hrefs.includes("/dashboard"));

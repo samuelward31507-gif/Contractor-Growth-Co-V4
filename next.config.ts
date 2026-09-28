@@ -17,17 +17,19 @@ import type { NextConfig } from "next";
  * authentication" requirement.
  *
  * Every legacy route (`/leads`, `/contacts`, `/calendar`, `/appointments`,
- * `/estimates`, `/jobs`, and their `[id]` children) remains fully present
- * and unmodified in the repository - only NEW requests to the old URLs are
- * redirected; nothing about the old pages' own implementation changed.
+ * and their `[id]` children) remains fully present and unmodified in the
+ * repository - only NEW requests to the old URLs are redirected; nothing
+ * about the old pages' own implementation changed. `/estimates` and `/jobs`
+ * used to be in this same retired-route list too; the nav-restructure pass
+ * un-redirected both back to real nav destinations in their own right - see
+ * app/(app)/_components/nav-items.ts's own header comment.
  *
  * Query parameters not referenced by name in `destination` are passed
  * through unchanged automatically (Next's own documented redirects()
  * behavior) - this is what preserves `/leads?temperature=hot`,
- * `/leads?status=...`, `/contacts?sort=...`, `/estimates?status=...`,
- * `/jobs?status=...`, and calendar's own `date`/`view` (day/week/month,
- * already compatible with the Trackpr 2.0 `view` vocabulary) without this
- * file needing to enumerate them.
+ * `/leads?status=...`, `/contacts?sort=...`, and calendar's own `date`/
+ * `view` (day/week/month, already compatible with the Trackpr 2.0 `view`
+ * vocabulary) without this file needing to enumerate them.
  *
  * The one genuine collision: /appointments' own `view` query parameter
  * (upcoming/today/past - see app/(app)/appointments/page.tsx's own
@@ -102,21 +104,14 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
 
-      // --- Estimates & Jobs merge ---
-      // Only the LIST routes are in scope for Phase 0's locked route
-      // decisions - /estimates/[id] and /jobs/[id] are not merged/renamed
-      // anywhere in the spec, so they are deliberately left with no
-      // redirect rule at all here: they remain fully reachable at their
-      // existing URLs, unmodified, exactly as "old routes must not be
-      // deleted" requires. The same reasoning applies to /appointments/[id]
-      // (not in scope - only the /appointments LIST route merges below) -
-      // historical notifyFounder detailPath links to /appointments/${id}
-      // therefore need no redirect at all; that route is untouched.
-      // permanent: false for the same reason as /leads/contacts above -
-      // these two destinations also changed this session (were
-      // /work?type=...).
-      { source: "/estimates", destination: "/money?browse=estimates", permanent: false },
-      { source: "/jobs", destination: "/money?browse=jobs", permanent: false },
+      // --- Estimates & Jobs ---
+      // Nav-restructure pass: /estimates and /jobs are real, independent nav
+      // destinations again (see app/(app)/_components/nav-items.ts's own
+      // header comment) - un-redirected back to their own real, unmodified
+      // page.tsx files, which were never deleted through any of the earlier
+      // consolidation passes. /money itself is untouched and still fully
+      // reachable by URL; it's simply no longer linked from navigation, so
+      // it needs no redirect rule of its own here.
     ];
   },
 };

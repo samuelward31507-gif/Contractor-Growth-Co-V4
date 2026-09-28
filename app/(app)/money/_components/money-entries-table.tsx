@@ -1,18 +1,14 @@
 import Link from "next/link";
 import { Table, TableHeadCell, TableBody, TableRow, TableCell } from "@/lib/ui/table";
 import { surfaceClass } from "@/lib/ui/surface";
+import type { MoneyEntry } from "@/lib/money/snapshot";
 import type { StatusTone } from "@/lib/ui/status";
 
-export type MoneyTableEntry = {
-  key: string;
-  tone: StatusTone;
-  personName: string;
-  personHref: string;
-  money?: string;
-  status: string;
-  age: string;
-  nextStep: string;
-};
+/** Nav-restructure pass: re-exported from the shared snapshot type (now also
+ * consumed by Dashboard's own compact snapshot) rather than defined here -
+ * this table's own props never needed the `amount` field the shared type
+ * carries, but accepting the superset keeps one real type instead of two. */
+export type MoneyTableEntry = MoneyEntry;
 
 // Same fix as PeopleTable's own ROW_GRID: Next step is always a short,
 // fixed-feeling verb phrase ("Follow up," "Schedule job") - giving it an

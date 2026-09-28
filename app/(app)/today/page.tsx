@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Wallet, CalendarClock, Hammer, TrendingUp } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getDashboardData } from "@/lib/dashboard/queries";
@@ -22,9 +22,13 @@ import {
 } from "@/lib/opportunities/intelligence";
 import { OPPORTUNITY_TYPE_LABEL, opportunityActionHref, OPPORTUNITY_ACTION_LABEL } from "../opportunities/_components/opportunity-type";
 import { getContacts } from "@/lib/contacts/queries";
+import { getEstimatesResult } from "@/lib/estimates/queries";
+import { getJobsResult } from "@/lib/jobs/queries";
+import { computeMoneySnapshot } from "@/lib/money/snapshot";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
-import { pageTitleClass, pageDescriptionClass, numericDisplayClass } from "@/lib/ui/typography";
+import { pageTitleClass, pageDescriptionClass, numericDisplayClass, sectionLabelClass } from "@/lib/ui/typography";
 import { QueueRow } from "@/lib/ui/queue-row";
+import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { surfaceClass } from "@/lib/ui/surface";
 import { ATTENTION_COPY } from "@/lib/today/copy";
 import type { StatusTone } from "@/lib/ui/status";
@@ -179,7 +183,21 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   // to avoid racing a freshly-detected opportunity on first render.
   await syncOpportunities(supabase, membership.organizationId);
 
-  const [data, businessMetrics, cachedInsights, hotLeadCount, appointments, contacts, todaySnapshot, dailyBriefing, endOfDaySummary, opportunitiesResult, prioritizedOpportunities] = await Promise.all([
+  const [
+    data,
+    businessMetrics,
+    cachedInsights,
+    hotLeadCount,
+    appointments,
+    contacts,
+    todaySnapshot,
+    dailyBriefing,
+    endOfDaySummary,
+    opportunitiesResult,
+    prioritizedOpportunities,
+    estimatesResult,
+    jobsResult,
+  ] = await Promise.all([
     getDashboardData(supabase, membership.organizationId),
     getDashboardBusinessMetrics(supabase, membership.organizationId),
     getCachedBusinessInsights(supabase, membership.organizationId),
@@ -199,11 +217,20 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     // attention" now shares - see lib/opportunities/intelligence.ts's own
     // header comment.
     getPrioritizedOpportunities(supabase, membership.organizationId),
+    // Nav-restructure pass: Money is no longer its own nav destination -
+    // Estimates and Jobs are - so Dashboard now carries the one real
+    // cross-entity financial snapshot itself (see lib/money/snapshot.ts's
+    // own header comment for why this is the exact same computation Money's
+    // own detailed page uses, not a second version of it).
+    getEstimatesResult(supabase, membership.organizationId),
+    getJobsResult(supabase, membership.organizationId),
   ]);
 
   const openOpportunities = opportunitiesResult.data;
   const appointmentSummary = summarizeAppointments(appointments);
   const businessName = membership.organizationName ?? "there";
+  const moneySnapshot = computeMoneySnapshot(estimatesResult.data, jobsResult.data);
+  const moneyDataFailed = estimatesResult.failed || jobsResult.failed;
 
   // Canonical Opportunity Intelligence Layer: getConversationSignals/
   // getOperationalExceptions extract, never re-detect, the Attention Engine
@@ -229,7 +256,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
           dailyBriefing, endOfDaySummary); repeatCustomerSummary/
           dormantCustomersValue aren't read here at all (they fed
           Dashboard's own BusinessGlance, which moved to Insights). */}
-      {data.partialData || businessMetrics.partialData || dailyBriefing.partialData || endOfDaySummary.partialData ? (
+      {data.partialData || businessMetrics.partialData || dailyBriefing.partialData || endOfDaySummary.partialData || moneyDataFailed ? (
         <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>
@@ -244,6 +271,13 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
         <div>
+          {/* Nav-restructure pass: this page's own sidebar/nav label is now
+              "Dashboard" (see nav-items.ts) - Today's own headline stays the
+              dynamic, computed sentence it's always been ("29 things need
+              you"), so this eyebrow is the one static anchor tying the two
+              together, matching every other page's own eyebrow-over-title
+              convention (PageHeader's own "Operate"/"Automate"/etc). */}
+          <p className="mb-1.5 text-[12.5px] font-medium text-accent-text">Dashboard</p>
           <h1 className={pageTitleClass}>
             {totalNeedingAttention === 0 ? "Nothing needs you" : `${totalNeedingAttention} thing${totalNeedingAttention === 1 ? "" : "s"} need${totalNeedingAttention === 1 ? "s" : ""} you`}
           </h1>
@@ -332,6 +366,52 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
             <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
           </div>
         )}
+      </div>
+
+      {/* Nav-restructure pass: Money's own real cross-entity snapshot
+          (Quotes out / Ready to schedule / Jobs in progress / Known
+          opportunity value), relocated here now that Money is no longer its
+          own nav destination - Estimates and Jobs are. Every card links to
+          the exact real, already-supported filter on the page that owns
+          that data; "Known opportunity value" is a pure metric with nowhere
+          more precise to send someone, so it stays unlinked. See
+          lib/money/snapshot.ts for the shared computation this and Money's
+          own detailed page both read from. */}
+      <div className="border-t border-slate-200 pt-8">
+        <p className={sectionLabelClass}>Money at a glance</p>
+        <div className="mt-3">
+          <StatGrid columns={4}>
+            <StatCard
+              label="Quotes out"
+              value={moneySnapshot.quotesOut.length}
+              description={moneySnapshot.quotesOut.length > 0 ? "Awaiting a decision" : "Nothing out right now"}
+              icon={Wallet}
+              href="/estimates?status=sent"
+            />
+            <StatCard
+              label="Ready to schedule"
+              value={moneySnapshot.readyToSchedule.length}
+              description={moneySnapshot.readyToSchedule.length > 0 ? "Accepted, no job yet" : "Nothing waiting"}
+              tone="danger"
+              icon={CalendarClock}
+              href="/estimates?status=accepted"
+            />
+            <StatCard
+              label="Jobs in progress"
+              value={moneySnapshot.wonNotFinished.length}
+              description={moneySnapshot.wonNotFinished.length > 0 ? "Scheduled or underway" : "Nothing in progress"}
+              tone="success"
+              icon={Hammer}
+              href="/jobs?status=in_progress"
+            />
+            <StatCard
+              label="Known opportunity value"
+              value={formatCurrency(moneySnapshot.knownOpportunityValue)}
+              description="Across every quote, accepted job, and job in progress"
+              icon={TrendingUp}
+            />
+          </StatGrid>
+        </div>
       </div>
 
       {/* What Trackpr did today - Dashboard's own Act 3, moved here

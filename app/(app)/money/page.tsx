@@ -4,13 +4,12 @@ import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
-import { filterEstimates, getEstimatesResult, summarizeEstimates, ESTIMATE_STATUSES, type Estimate, type EstimateStatus } from "@/lib/estimates/queries";
-import { filterJobs, getJobsResult, summarizeJobs, JOB_STATUSES, type Job, type JobStatus } from "@/lib/jobs/queries";
-import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
-import { contactDisplayName } from "@/lib/contacts/format";
-import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
+import { filterEstimates, getEstimatesResult, summarizeEstimates, ESTIMATE_STATUSES, type EstimateStatus } from "@/lib/estimates/queries";
+import { filterJobs, getJobsResult, summarizeJobs, JOB_STATUSES, type JobStatus } from "@/lib/jobs/queries";
+import { formatCurrency } from "@/lib/dashboard/format";
+import { computeMoneySnapshot, type MoneyEntry } from "@/lib/money/snapshot";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
-import { MoneyEntriesTable, type MoneyTableEntry } from "./_components/money-entries-table";
+import { MoneyEntriesTable } from "./_components/money-entries-table";
 import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { Panel } from "@/lib/ui/section-card";
 import { Wallet, CalendarClock, Hammer, TrendingUp } from "lucide-react";
@@ -25,8 +24,6 @@ import { JobsSummary } from "../jobs/_components/jobs-summary";
 import { JobsTable } from "../jobs/_components/jobs-table";
 import { JobsToolbar } from "../jobs/_components/jobs-toolbar";
 import { MoneyTabs, type MoneyTab } from "./_components/money-tabs";
-
-type MoneyEntry = MoneyTableEntry & { amount: number };
 
 function totalsLine(entries: MoneyEntry[]): string {
   if (entries.length === 0) return "";
@@ -102,56 +99,7 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
   const allJobs = jobsResult.data;
   const failed = estimatesResult.failed || jobsResult.failed;
 
-  const jobEstimateIds = new Set(allJobs.filter((job) => job.estimate_id).map((job) => job.estimate_id as string));
-
-  const quotesOut: MoneyEntry[] = allEstimates
-    .filter((estimate: Estimate) => estimate.status === "sent")
-    .map((estimate) => ({
-      key: `estimate:${estimate.id}`,
-      tone: "soon" as const,
-      status: "Quote sent",
-      age: estimate.sent_at ? formatRelativeTime(estimate.sent_at) : formatRelativeTime(estimate.created_at),
-      personName: estimate.contact ? contactDisplayName(estimate.contact) : estimate.title,
-      personHref: estimate.contact ? `/people/${estimate.contact.id}` : `/estimates/${estimate.id}`,
-      money: estimate.amount != null ? formatCurrency(estimate.amount) : undefined,
-      nextStep: "Follow up",
-      amount: estimate.amount ?? 0,
-    }))
-    .sort((a, b) => b.amount - a.amount);
-
-  // The one real "Needs to move" signal Money's original two groups didn't
-  // cover - a customer already said yes, but there's no job for it yet.
-  const readyToSchedule: MoneyEntry[] = allEstimates
-    .filter((estimate: Estimate) => estimate.status === "accepted" && !jobEstimateIds.has(estimate.id))
-    .map((estimate) => ({
-      key: `ready:${estimate.id}`,
-      tone: "urgent" as const,
-      status: "Accepted, not scheduled",
-      age: formatRelativeTime(estimate.responded_at ?? estimate.updated_at),
-      personName: estimate.contact ? contactDisplayName(estimate.contact) : estimate.title,
-      personHref: estimate.contact ? `/people/${estimate.contact.id}` : `/estimates/${estimate.id}`,
-      money: estimate.amount != null ? formatCurrency(estimate.amount) : undefined,
-      nextStep: "Schedule job",
-      amount: estimate.amount ?? 0,
-    }))
-    .sort((a, b) => b.amount - a.amount);
-
-  const wonNotFinished: MoneyEntry[] = allJobs
-    .filter((job: Job) => job.status === "scheduled" || job.status === "in_progress")
-    .map((job) => ({
-      key: `job:${job.id}`,
-      tone: "good" as const,
-      status: JOB_STATUS_LABELS[job.status],
-      age: formatRelativeTime(job.started_at ?? job.created_at),
-      personName: job.contact ? contactDisplayName(job.contact) : job.title,
-      personHref: job.contact ? `/people/${job.contact.id}` : `/jobs/${job.id}`,
-      money: job.amount != null ? formatCurrency(job.amount) : undefined,
-      nextStep: job.status === "scheduled" ? "Start job" : "Mark complete",
-      amount: job.amount ?? 0,
-    }))
-    .sort((a, b) => b.amount - a.amount);
-
-  const knownOpportunityValue = [...quotesOut, ...readyToSchedule, ...wonNotFinished].reduce((sum, entry) => sum + entry.amount, 0);
+  const { quotesOut, readyToSchedule, wonNotFinished, knownOpportunityValue } = computeMoneySnapshot(allEstimates, allJobs);
 
   const estimateSummary = summarizeEstimates(allEstimates);
   const jobSummary = summarizeJobs(allJobs);
