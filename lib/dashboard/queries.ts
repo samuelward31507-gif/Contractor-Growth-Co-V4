@@ -586,7 +586,7 @@ export async function getDashboardData(
       // Deliberately never a value - dormant/repeat-customer opportunities
       // never get a fabricated future-service estimate (Pass 3's own rule).
       value: null,
-      href: opportunity.contactId ? `/contacts/${opportunity.contactId}` : "/contacts",
+      href: opportunity.contactId ? `/people/${opportunity.contactId}` : "/people",
       opportunityId: opportunity.id,
     }));
 

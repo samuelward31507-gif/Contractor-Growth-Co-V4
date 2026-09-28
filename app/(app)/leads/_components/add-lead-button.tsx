@@ -22,7 +22,7 @@ export function AddLeadButton({ contacts }: { contacts: Contact[] }) {
 
   if (contacts.length === 0) {
     return (
-      <Link href="/contacts" className={secondaryButtonAutoClass}>
+      <Link href="/people" className={secondaryButtonAutoClass}>
         Add a contact first
       </Link>
     );

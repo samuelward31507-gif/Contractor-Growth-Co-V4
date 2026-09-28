@@ -82,10 +82,8 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
   // chart's own bounded window differs from it in that one case.
   const resolvedRange = resolveDateRange(range);
   const fallbackRange = resolveDateRange("last30Days");
-  const chartRange =
-    resolvedRange.from && resolvedRange.to
-      ? { from: resolvedRange.from, to: resolvedRange.to }
-      : { from: fallbackRange.from!, to: fallbackRange.to! };
+  const chartRangeIsFallback = !(resolvedRange.from && resolvedRange.to);
+  const chartRange = chartRangeIsFallback ? { from: fallbackRange.from!, to: fallbackRange.to! } : { from: resolvedRange.from!, to: resolvedRange.to! };
 
   const [summary, activityPage, snapshot, repeatCustomerSummary, leadSeries] = await Promise.all([
     getActivitySummary(supabase, membership.organizationId),
@@ -182,7 +180,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
             <div className="mt-3">
               <BusinessAtAGlance snapshot={snapshot} />
             </div>
-            <TrendSection series={leadSeries.data} failed={leadSeries.failed} />
+            <TrendSection series={leadSeries.data} failed={leadSeries.failed} isFallbackWindow={chartRangeIsFallback} />
             <div className="mt-6 divide-y divide-slate-200">
               <EstimatesSection snapshot={snapshot} />
               <JobsSection snapshot={snapshot} />

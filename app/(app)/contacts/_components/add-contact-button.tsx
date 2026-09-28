@@ -8,8 +8,9 @@ import { ContactDialog } from "./contact-dialog";
 
 /**
  * `?new=contact` opens this dialog on load - the hook the command menu's
- * "Add contact" action navigates to (`/contacts?new=contact`), so that
- * action is real navigation to this real creation flow, not a stub.
+ * "Add contact" action navigates to (`/people?new=contact`, since this
+ * button is reused as-is on /people), so that action is real navigation to
+ * this real creation flow, not a stub.
  */
 export function AddContactButton() {
   const router = useRouter();

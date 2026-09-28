@@ -14,7 +14,7 @@ export function AddJobButton({ contacts, leads }: { contacts: Contact[]; leads: 
 
   if (contacts.length === 0) {
     return (
-      <Link href="/contacts" className={secondaryButtonAutoClass}>
+      <Link href="/people" className={secondaryButtonAutoClass}>
         Add a contact first
       </Link>
     );

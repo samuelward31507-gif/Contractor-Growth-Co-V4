@@ -33,7 +33,7 @@ function ReviewRowItem({ row }: { row: ReviewRow }) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-slate-900">
             {job?.contact ? (
-              <Link href={`/customers/${job.contact.id}`} className="rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
+              <Link href={`/people/${job.contact.id}`} className="rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
                 {contactName}
               </Link>
             ) : (

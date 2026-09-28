@@ -32,7 +32,7 @@ export function AddEstimateButton({ contacts, leads }: { contacts: Contact[]; le
 
   if (contacts.length === 0) {
     return (
-      <Link href="/contacts" className={secondaryButtonAutoClass}>
+      <Link href="/people" className={secondaryButtonAutoClass}>
         Add a contact first
       </Link>
     );

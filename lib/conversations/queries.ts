@@ -132,6 +132,26 @@ export async function getConversations(supabase: SupabaseClient, organizationId:
 }
 
 /**
+ * Final Major Product Build: contact-scoped conversations for surfaces that
+ * only ever need one person's own conversations (the Appointment detail
+ * page's "what happens next"/"conversation" context) - a real,
+ * org+contact-filtered query at the database level, not a full
+ * getConversations() fetch filtered client-side. Mirrors
+ * getContactAppointments's exact contract.
+ */
+export async function getContactConversations(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Conversation[]> {
+  const { data } = await supabase
+    .from("conversations")
+    .select(CONVERSATION_COLUMNS)
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .order("updated_at", { ascending: false })
+    .limit(50);
+
+  return ((data ?? []) as RawConversationRow[]).map(normalizeConversation);
+}
+
+/**
  * Trackpr 2.0, Phase 4B (P1 #4): same read as getLastMessagesByConversation
  * below, but distinguishes genuine emptiness from a real Postgrest error -
  * see getConversationsResult's own comment for the full discipline and why
