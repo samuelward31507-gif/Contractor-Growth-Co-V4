@@ -111,8 +111,18 @@ export function CalendarGrid({
         const dayBlocks = blockedByDay.get(key) ?? [];
         const isToday = key === todayKey;
 
+        // Final visual acceptance pass: 160px x 7 columns + the 64px hour
+        // gutter needed just over 1180px, which didn't fit inside a 1440px
+        // window's own content area (sidebar + page padding already claim a
+        // few hundred px) - Saturday's header clipped at the viewport edge
+        // with no visible affordance that more columns existed off-screen
+        // (the grid's own overflow-x-auto is real, but undiscoverable when
+        // the cut column gives no hint there's more). 140px keeps every real
+        // appointment block (time + name) exactly as legible - this is a
+        // pure width number, no grid/date logic touched - and lets a full
+        // week fit on one common laptop width without scrolling.
         return (
-          <div key={key} className="min-w-[160px] flex-1 border-r border-slate-100 last:border-r-0">
+          <div key={key} className="min-w-[140px] flex-1 border-r border-slate-100 last:border-r-0">
             <div className={`flex h-10 items-center justify-center border-b border-slate-100 text-sm font-medium ${isToday ? "text-accent-text" : "text-slate-600"}`}>
               {new Intl.DateTimeFormat("en-US", { timeZone, weekday: days.length > 1 ? "short" : "long", month: "short", day: "numeric" }).format(
                 new Date(Date.UTC(date.year, date.month - 1, date.day, 12)),

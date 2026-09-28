@@ -72,7 +72,11 @@ test("5. a failed updateUser call is mapped through the existing mapAuthError ut
 });
 
 test("6. a successful update redirects through the exact same membership-aware pattern login() uses", () => {
-  assert.match(ACTIONS_SOURCE, /const membership = await getUserOrganization\(supabase, user\.id\);\s*\n\s*redirect\(membership \? "\/dashboard" : "\/onboarding"\);/);
+  // Trackpr 2.0 IA consolidation renamed this destination from /dashboard to
+  // /today (Dashboard's own content was absorbed into Today - see
+  // app/(app)/today/page.tsx's own header comment); this assertion is
+  // updated to match, not a behavior change.
+  assert.match(ACTIONS_SOURCE, /const membership = await getUserOrganization\(supabase, user\.id\);\s*\n\s*redirect\(membership \? "\/today" : "\/onboarding"\);/);
 });
 
 // ===========================================================================

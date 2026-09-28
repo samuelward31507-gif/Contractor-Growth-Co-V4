@@ -7,7 +7,10 @@ import { getEstimates } from "@/lib/estimates/queries";
 import { getJobs } from "@/lib/jobs/queries";
 import { getAppointments } from "@/lib/appointments/queries";
 import { getReviewRequests } from "@/lib/reviews-referrals/queries";
+import { getConversations } from "@/lib/conversations/queries";
 import { deriveContactLifecycle, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
+import { summarizeOpenLeadValue } from "@/lib/contacts/open-lead-value";
+import { findPersonNextStep, type NextStep } from "@/lib/people/next-step";
 import Link from "next/link";
 import { PageHeader } from "@/lib/ui/page-header";
 import { Panel } from "@/lib/ui/section-card";
@@ -16,6 +19,17 @@ import { TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { PeopleEmptyState } from "./_components/people-empty-state";
 import { PeopleSearch } from "./_components/people-search";
 import { PeopleTable } from "./_components/people-table";
+
+function groupByContactId<T extends { contact_id: string | null }>(records: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const record of records) {
+    if (!record.contact_id) continue;
+    const bucket = map.get(record.contact_id);
+    if (bucket) bucket.push(record);
+    else map.set(record.contact_id, [record]);
+  }
+  return map;
+}
 
 export type PersonSort = "newest" | "oldest" | "name_asc";
 const VALID_SORTS = new Set<string>(["newest", "oldest", "name_asc"]);
@@ -91,26 +105,54 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     redirect("/onboarding");
   }
 
-  const [allContacts, leads, estimates, jobs, appointments, reviewRequests] = await Promise.all([
+  const [allContacts, leads, estimates, jobs, appointments, reviewRequests, conversations] = await Promise.all([
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getEstimates(supabase, membership.organizationId),
     getJobs(supabase, membership.organizationId),
     getAppointments(supabase, membership.organizationId),
     getReviewRequests(supabase, membership.organizationId),
+    getConversations(supabase, membership.organizationId),
   ]);
   const lifecycleByContactId = new Map<string, ContactLifecycleStage>(
     allContacts.map((contact) => [contact.id, deriveContactLifecycle(contact.id, { leads, estimates, jobs, appointments, reviewRequests })]),
   );
 
   const temperatureByContactId = new Map<string, LeadTemperature>();
+  const leadsByContactId = groupByContactId(leads);
   for (const contact of allContacts) {
-    const openLeads = leads
-      .filter((lead) => lead.contact_id === contact.id && OPEN_LEAD_STATUSES.has(lead.status))
+    const openLeads = (leadsByContactId.get(contact.id) ?? [])
+      .filter((lead) => OPEN_LEAD_STATUSES.has(lead.status))
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     if (openLeads.length > 0) {
       temperatureByContactId.set(contact.id, openLeads[0].temperature);
     }
+  }
+
+  // Value and next-step reuse the exact same per-record buckets - each
+  // is real, already-established logic (open-lead-value.ts backs the
+  // contact detail page's own "Open opportunity value" stat; next-step.ts
+  // backs /people/[id]'s own "What happens next") applied per-row instead
+  // of to one contact at a time.
+  const estimatesByContactId = groupByContactId(estimates);
+  const jobsByContactId = groupByContactId(jobs);
+  const appointmentsByContactId = groupByContactId(appointments);
+  const conversationsByContactId = groupByContactId(conversations);
+
+  const valueByContactId = new Map<string, ReturnType<typeof summarizeOpenLeadValue>>();
+  const nextStepByContactId = new Map<string, NextStep | null>();
+  for (const contact of allContacts) {
+    valueByContactId.set(contact.id, summarizeOpenLeadValue(leadsByContactId.get(contact.id) ?? []));
+    nextStepByContactId.set(
+      contact.id,
+      findPersonNextStep({
+        leads: leadsByContactId.get(contact.id) ?? [],
+        appointments: appointmentsByContactId.get(contact.id) ?? [],
+        estimates: estimatesByContactId.get(contact.id) ?? [],
+        jobs: jobsByContactId.get(contact.id) ?? [],
+        conversations: conversationsByContactId.get(contact.id) ?? [],
+      }),
+    );
   }
 
   const temperatureFiltered = temperature === "all" ? allContacts : allContacts.filter((contact) => temperatureByContactId.get(contact.id) === temperature);
@@ -157,7 +199,14 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
         <Panel>
           <PeopleSearch initialQuery={query} initialSort={sort} initialTemperature={temperature !== "all" ? temperature : undefined} />
           <div className="mt-5">
-            <PeopleTable contacts={contacts} query={query} lifecycleByContactId={lifecycleByContactId} temperatureByContactId={temperatureByContactId} />
+            <PeopleTable
+              contacts={contacts}
+              query={query}
+              lifecycleByContactId={lifecycleByContactId}
+              temperatureByContactId={temperatureByContactId}
+              valueByContactId={valueByContactId}
+              nextStepByContactId={nextStepByContactId}
+            />
           </div>
         </Panel>
       )}

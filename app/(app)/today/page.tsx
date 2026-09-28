@@ -24,7 +24,7 @@ import { OPPORTUNITY_TYPE_LABEL, opportunityActionHref, OPPORTUNITY_ACTION_LABEL
 import { getContacts } from "@/lib/contacts/queries";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass, numericDisplayClass } from "@/lib/ui/typography";
-import { QueueCard } from "@/lib/ui/queue-card";
+import { QueueRow } from "@/lib/ui/queue-row";
 import { surfaceClass } from "@/lib/ui/surface";
 import { ATTENTION_COPY } from "@/lib/today/copy";
 import type { StatusTone } from "@/lib/ui/status";
@@ -61,8 +61,8 @@ const TONE_BY_TIER: Record<PriorityTier, StatusTone> = {
 
 /**
  * Short imperative phrase appended to the explanation sentence for actions
- * with no dedicated button on the card. "call"/"text" are deliberately
- * omitted - QueueCard already renders a real "Call" button whenever a valid
+ * with no dedicated button on the row. "call"/"text" are deliberately
+ * omitted - QueueRow already renders a real "Call" button whenever a valid
  * phone is present, and repeating "Give them a call" in the sentence next to
  * that button would be redundant. "monitor"/"no_action" are also omitted -
  * there is nothing to instruct.
@@ -286,9 +286,9 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
                 issues with no revenue framing, never tiered or scored
                 alongside opportunities (§8/§13 of the approved design). */}
             {operationalExceptions.length > 0 ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
                 {operationalExceptions.map((exception) => (
-                  <QueueCard
+                  <QueueRow
                     key={exception.incidentId ?? `${exception.kind}-${exception.href}`}
                     tone="urgent"
                     problemLabel={ATTENTION_COPY[exception.kind].label}
@@ -308,9 +308,9 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
                 <p className="mt-1.5 text-sm text-slate-500">You&apos;re clear.</p>
               </div>
             ) : queue.length > 0 ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
                 {queue.map((entry) => (
-                  <QueueCard
+                  <QueueRow
                     key={entry.key}
                     tone={entry.tone}
                     problemLabel={entry.problemLabel}

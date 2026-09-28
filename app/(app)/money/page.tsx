@@ -10,9 +10,10 @@ import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
 import { contactDisplayName } from "@/lib/contacts/format";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
-import { QueueCard } from "@/lib/ui/queue-card";
-import { surfaceClass } from "@/lib/ui/surface";
+import { MoneyEntriesTable, type MoneyTableEntry } from "./_components/money-entries-table";
+import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { Panel } from "@/lib/ui/section-card";
+import { Wallet, CalendarClock, Hammer, TrendingUp } from "lucide-react";
 import { AddEstimateButton } from "../estimates/_components/add-estimate-button";
 import { EstimatesEmptyState } from "../estimates/_components/estimates-empty-state";
 import { EstimatesSummary } from "../estimates/_components/estimates-summary";
@@ -25,19 +26,7 @@ import { JobsTable } from "../jobs/_components/jobs-table";
 import { JobsToolbar } from "../jobs/_components/jobs-toolbar";
 import { MoneyTabs, type MoneyTab } from "./_components/money-tabs";
 
-type MoneyEntry = {
-  key: string;
-  problemLabel: string;
-  age: string;
-  personName: string;
-  personHref: string;
-  money?: string;
-  jobType: string;
-  sentence: string;
-  phone: string | null;
-  secondaryHref: string;
-  amount: number;
-};
+type MoneyEntry = MoneyTableEntry & { amount: number };
 
 function totalsLine(entries: MoneyEntry[]): string {
   if (entries.length === 0) return "";
@@ -119,15 +108,13 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
     .filter((estimate: Estimate) => estimate.status === "sent")
     .map((estimate) => ({
       key: `estimate:${estimate.id}`,
-      problemLabel: "Quote sent",
+      tone: "soon" as const,
+      status: "Quote sent",
       age: estimate.sent_at ? formatRelativeTime(estimate.sent_at) : formatRelativeTime(estimate.created_at),
       personName: estimate.contact ? contactDisplayName(estimate.contact) : estimate.title,
       personHref: estimate.contact ? `/people/${estimate.contact.id}` : `/estimates/${estimate.id}`,
       money: estimate.amount != null ? formatCurrency(estimate.amount) : undefined,
-      jobType: estimate.title,
-      sentence: estimate.notes ?? "Waiting on a decision.",
-      phone: estimate.contact?.phone ?? null,
-      secondaryHref: `/estimates/${estimate.id}`,
+      nextStep: "Follow up",
       amount: estimate.amount ?? 0,
     }))
     .sort((a, b) => b.amount - a.amount);
@@ -138,15 +125,13 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
     .filter((estimate: Estimate) => estimate.status === "accepted" && !jobEstimateIds.has(estimate.id))
     .map((estimate) => ({
       key: `ready:${estimate.id}`,
-      problemLabel: "Accepted - not scheduled",
+      tone: "urgent" as const,
+      status: "Accepted, not scheduled",
       age: formatRelativeTime(estimate.responded_at ?? estimate.updated_at),
       personName: estimate.contact ? contactDisplayName(estimate.contact) : estimate.title,
       personHref: estimate.contact ? `/people/${estimate.contact.id}` : `/estimates/${estimate.id}`,
       money: estimate.amount != null ? formatCurrency(estimate.amount) : undefined,
-      jobType: estimate.title,
-      sentence: estimate.notes ?? "Customer accepted - schedule the job.",
-      phone: estimate.contact?.phone ?? null,
-      secondaryHref: `/estimates/${estimate.id}`,
+      nextStep: "Schedule job",
       amount: estimate.amount ?? 0,
     }))
     .sort((a, b) => b.amount - a.amount);
@@ -155,18 +140,18 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
     .filter((job: Job) => job.status === "scheduled" || job.status === "in_progress")
     .map((job) => ({
       key: `job:${job.id}`,
-      problemLabel: JOB_STATUS_LABELS[job.status],
+      tone: "good" as const,
+      status: JOB_STATUS_LABELS[job.status],
       age: formatRelativeTime(job.started_at ?? job.created_at),
       personName: job.contact ? contactDisplayName(job.contact) : job.title,
       personHref: job.contact ? `/people/${job.contact.id}` : `/jobs/${job.id}`,
       money: job.amount != null ? formatCurrency(job.amount) : undefined,
-      jobType: job.title,
-      sentence: job.notes ?? "Job is underway, not yet marked complete.",
-      phone: job.contact?.phone ?? null,
-      secondaryHref: `/jobs/${job.id}`,
+      nextStep: job.status === "scheduled" ? "Start job" : "Mark complete",
       amount: job.amount ?? 0,
     }))
     .sort((a, b) => b.amount - a.amount);
+
+  const knownOpportunityValue = [...quotesOut, ...readyToSchedule, ...wonNotFinished].reduce((sum, entry) => sum + entry.amount, 0);
 
   const estimateSummary = summarizeEstimates(allEstimates);
   const jobSummary = summarizeJobs(allJobs);
@@ -200,97 +185,26 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
 
       {browse === "money" ? (
         <>
+          <StatGrid columns={4}>
+            <StatCard label="Quotes out" value={quotesOut.length} description={totalsLine(quotesOut) || "Nothing out right now"} icon={Wallet} />
+            <StatCard label="Ready to schedule" value={readyToSchedule.length} description={totalsLine(readyToSchedule) || "Nothing waiting"} tone="danger" icon={CalendarClock} />
+            <StatCard label="Jobs in progress" value={wonNotFinished.length} description={totalsLine(wonNotFinished) || "Nothing in progress"} tone="success" icon={Hammer} />
+            <StatCard label="Known opportunity value" value={formatCurrency(knownOpportunityValue)} description="Across every quote, accepted job, and job in progress" icon={TrendingUp} />
+          </StatGrid>
+
           <div>
-            <div className="flex items-baseline justify-between gap-3">
-              <p className={sectionLabelClass}>Quotes out</p>
-              <p className="text-xs text-ink-3">{totalsLine(quotesOut)}</p>
-            </div>
-            {quotesOut.length === 0 ? (
-              <div className={`mt-3 ${surfaceClass} px-6 py-10 text-center`}>
-                <p className="text-sm text-slate-500">No quotes are out right now.</p>
-              </div>
-            ) : (
-              <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {quotesOut.map((entry) => (
-                  <QueueCard
-                    key={entry.key}
-                    tone="soon"
-                    problemLabel={entry.problemLabel}
-                    age={entry.age}
-                    personName={entry.personName}
-                    personHref={entry.personHref}
-                    money={entry.money}
-                    jobType={entry.jobType}
-                    sentence={entry.sentence}
-                    phone={entry.phone}
-                    secondaryHref={entry.secondaryHref}
-                    secondaryLabel="View"
-                  />
-                ))}
-              </div>
-            )}
+            <p className={sectionLabelClass}>Quotes out</p>
+            <MoneyEntriesTable entries={quotesOut} emptyMessage="No quotes are out right now." />
           </div>
 
           <div>
-            <div className="flex items-baseline justify-between gap-3">
-              <p className={sectionLabelClass}>Ready to schedule</p>
-              <p className="text-xs text-ink-3">{totalsLine(readyToSchedule)}</p>
-            </div>
-            {readyToSchedule.length === 0 ? (
-              <div className={`mt-3 ${surfaceClass} px-6 py-10 text-center`}>
-                <p className="text-sm text-slate-500">Nothing accepted and waiting on a job.</p>
-              </div>
-            ) : (
-              <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {readyToSchedule.map((entry) => (
-                  <QueueCard
-                    key={entry.key}
-                    tone="urgent"
-                    problemLabel={entry.problemLabel}
-                    age={entry.age}
-                    personName={entry.personName}
-                    personHref={entry.personHref}
-                    money={entry.money}
-                    jobType={entry.jobType}
-                    sentence={entry.sentence}
-                    phone={entry.phone}
-                    secondaryHref={entry.secondaryHref}
-                    secondaryLabel="View"
-                  />
-                ))}
-              </div>
-            )}
+            <p className={sectionLabelClass}>Ready to schedule</p>
+            <MoneyEntriesTable entries={readyToSchedule} emptyMessage="Nothing accepted and waiting on a job." />
           </div>
 
           <div>
-            <div className="flex items-baseline justify-between gap-3">
-              <p className={sectionLabelClass}>Won, not finished</p>
-              <p className="text-xs text-ink-3">{totalsLine(wonNotFinished)}</p>
-            </div>
-            {wonNotFinished.length === 0 ? (
-              <div className={`mt-3 ${surfaceClass} px-6 py-10 text-center`}>
-                <p className="text-sm text-slate-500">No jobs in progress right now.</p>
-              </div>
-            ) : (
-              <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {wonNotFinished.map((entry) => (
-                  <QueueCard
-                    key={entry.key}
-                    tone="good"
-                    problemLabel={entry.problemLabel}
-                    age={entry.age}
-                    personName={entry.personName}
-                    personHref={entry.personHref}
-                    money={entry.money}
-                    jobType={entry.jobType}
-                    sentence={entry.sentence}
-                    phone={entry.phone}
-                    secondaryHref={entry.secondaryHref}
-                    secondaryLabel="View"
-                  />
-                ))}
-              </div>
-            )}
+            <p className={sectionLabelClass}>Won, not finished</p>
+            <MoneyEntriesTable entries={wonNotFinished} emptyMessage="No jobs in progress right now." />
           </div>
         </>
       ) : null}

@@ -2,6 +2,7 @@ import { CheckCircle2, XCircle, Loader2, CircleSlash, Bot } from "lucide-react";
 import { getAutomationForWorkflowName } from "@/lib/automation/catalog";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
+import { Panel } from "@/lib/ui/section-card";
 import { formatRelativeTime } from "./format";
 import type { AutomationExecutionRow, WorkflowExecutionStatus } from "@/lib/automation/queries";
 
@@ -37,22 +38,24 @@ export function AiActivityFeed({ executions }: { executions: AutomationExecution
   }
 
   return (
-    <ul className="divide-y divide-slate-100">
-      {executions.map((execution) => {
-        const definition = getAutomationForWorkflowName(execution.workflowName);
-        const statusBadge = STATUS_BADGE[execution.status];
-        return (
-          <li key={execution.id} className="flex items-center justify-between gap-4 py-2.5">
-            <span className="min-w-0 truncate text-sm text-slate-700">{definition?.name ?? execution.workflowName}</span>
-            <span className="flex shrink-0 items-center gap-3">
-              <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
-                {statusBadge.label}
-              </Badge>
-              <span className="text-xs tabular-nums text-slate-400">{formatRelativeTime(execution.startedAt)}</span>
-            </span>
-          </li>
-        );
-      })}
-    </ul>
+    <Panel className="overflow-hidden p-0">
+      <ul className="divide-y divide-slate-100">
+        {executions.map((execution) => {
+          const definition = getAutomationForWorkflowName(execution.workflowName);
+          const statusBadge = STATUS_BADGE[execution.status];
+          return (
+            <li key={execution.id} className="flex items-center justify-between gap-4 px-4 py-2.5">
+              <span className="min-w-0 truncate text-sm text-slate-700">{definition?.name ?? execution.workflowName}</span>
+              <span className="flex shrink-0 items-center gap-3">
+                <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
+                  {statusBadge.label}
+                </Badge>
+                <span className="text-xs tabular-nums text-slate-400">{formatRelativeTime(execution.startedAt)}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </Panel>
   );
 }

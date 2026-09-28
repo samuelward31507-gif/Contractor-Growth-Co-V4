@@ -49,6 +49,15 @@ export function StatGrid({
   return <div className={`grid grid-cols-1 gap-4 ${COLS[columns]} ${className}`}>{children}</div>;
 }
 
+// A genuine headline figure ("$63,950", "12", "69%") reads fine at
+// kpiValueClass's full 28px - a text fallback sentence ("Not enough data
+// yet") does not: it wraps inside a StatCard's quarter-width column and, at
+// full KPI size, reads as a chunky, mismatched line next to its numeric
+// siblings in the same StatGrid row. Long string values step down one size
+// instead - still clearly the card's own headline, just sized for prose
+// rather than a number.
+const LONG_TEXT_VALUE_CLASS = "mt-2 text-lg font-semibold leading-snug text-slate-700";
+
 export function StatCard({
   label,
   value,
@@ -63,6 +72,8 @@ export function StatCard({
   tone?: BadgeTone;
   icon?: LucideIcon;
 }) {
+  const isLongTextValue = typeof value === "string" && value.length > 10;
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5">
       <div className="flex items-start justify-between gap-3">
@@ -73,7 +84,7 @@ export function StatCard({
           </span>
         ) : null}
       </div>
-      <p className={kpiValueClass}>{value}</p>
+      <p className={isLongTextValue ? LONG_TEXT_VALUE_CLASS : kpiValueClass}>{value}</p>
       {description ? <p className={kpiDescriptionClass}>{description}</p> : null}
     </div>
   );
