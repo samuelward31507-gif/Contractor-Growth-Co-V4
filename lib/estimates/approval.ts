@@ -42,7 +42,6 @@ export type PublicEstimate = {
   title: string;
   amount: number | null;
   status: "draft" | "sent" | "accepted" | "declined" | "cancelled" | "expired";
-  notes: string | null;
   sentAt: string | null;
   respondedAt: string | null;
   expiresAt: string | null;
@@ -50,8 +49,14 @@ export type PublicEstimate = {
   organizationPhone: string | null;
 };
 
+// Phase 1A review: `notes` is deliberately NOT selected here. The estimate
+// form labels that field "Internal notes about this estimate" and the
+// contractor's own detail page files it under Notes - it was never written
+// for the customer, so the public page must never read it. The customer
+// sees title, amount, sent/expiry dates, the business name and phone, and
+// nothing else.
 const PUBLIC_ESTIMATE_COLUMNS =
-  "id, organization_id, title, amount, status, notes, sent_at, responded_at, expires_at, organization:organizations(name, sms_phone_number)";
+  "id, organization_id, title, amount, status, sent_at, responded_at, expires_at, organization:organizations(name, sms_phone_number)";
 
 type RawRow = {
   id: string;
@@ -59,7 +64,6 @@ type RawRow = {
   title: string;
   amount: number | null;
   status: PublicEstimate["status"];
-  notes: string | null;
   sent_at: string | null;
   responded_at: string | null;
   expires_at: string | null;
@@ -96,7 +100,6 @@ export async function getEstimateByApprovalToken(service: SupabaseClient, token:
     title: data.title,
     amount: data.amount,
     status: data.status,
-    notes: data.notes,
     sentAt: data.sent_at,
     respondedAt: data.responded_at,
     expiresAt: data.expires_at,

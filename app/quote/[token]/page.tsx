@@ -1,8 +1,24 @@
 import type { Metadata } from "next";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getEstimateByApprovalToken, markApprovalViewed, type PublicEstimate } from "@/lib/estimates/approval";
-import { formatCurrency } from "@/lib/dashboard/format";
 import { RespondPanel } from "./_components/respond-panel";
+
+/**
+ * Phase 1A review: the customer is approving an exact figure, so cents are
+ * shown whenever the quote has them ($1,234.56) and omitted when it doesn't
+ * ($12,400). The app's own formatCurrency (lib/dashboard/format.ts) rounds
+ * to whole dollars, which is right for dashboards and lists but would ask a
+ * customer to approve a number that differs from the quoted amount.
+ */
+function formatQuoteAmount(value: number): string {
+  const hasCents = Math.round(value * 100) % 100 !== 0;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: hasCents ? 2 : 0,
+  }).format(value);
+}
 
 /**
  * Quote Approval Links (V1): the public, customer-facing page a follow-up
@@ -35,8 +51,6 @@ const DEMO_ESTIMATE: PublicEstimate = {
   title: "Roof replacement — 1140 Alki Ave SW",
   amount: 12400,
   status: "sent",
-  notes:
-    "Tear-off and full replacement, architectural shingles (Weathered Wood), new synthetic underlayment, ice and water shield at eaves and valleys, ridge vent, haul-away and magnetic nail sweep included.",
   sentAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
   respondedAt: null,
   expiresAt: new Date(Date.now() + 25 * 24 * 60 * 60 * 1000).toISOString(),
@@ -116,7 +130,7 @@ export default async function QuoteApprovalPage({ params }: { params: Promise<{ 
             </h1>
             {estimate.amount != null ? (
               <p className="mt-4 font-display text-[44px] font-bold leading-none tracking-[-0.026em] tabular-nums text-ink">
-                {formatCurrency(estimate.amount)}
+                {formatQuoteAmount(estimate.amount)}
               </p>
             ) : null}
             {estimate.sentAt ? (
@@ -124,12 +138,9 @@ export default async function QuoteApprovalPage({ params }: { params: Promise<{ 
             ) : null}
           </div>
 
-          {estimate.notes ? (
-            <div className="border-t border-inset px-6 py-5">
-              <p className="text-[11px] font-bold uppercase tracking-[0.09em] text-ink-3">What&rsquo;s included</p>
-              <p className="mt-2 whitespace-pre-line text-[15px] leading-relaxed text-ink-2">{estimate.notes}</p>
-            </div>
-          ) : null}
+          {/* Phase 1A review: no notes block here on purpose - estimates.notes
+              is the contractor's internal field (labeled "Internal notes" in
+              the estimate form) and is never selected for the public page. */}
 
           <div className="border-t border-inset px-6 py-6">
             {estimate.status === "accepted" ? (
@@ -155,7 +166,7 @@ export default async function QuoteApprovalPage({ params }: { params: Promise<{ 
               <RespondPanel
                 token={token}
                 organizationName={estimate.organizationName}
-                amountLabel={estimate.amount != null ? formatCurrency(estimate.amount) : null}
+                amountLabel={estimate.amount != null ? formatQuoteAmount(estimate.amount) : null}
                 isDemo={token === "demo"}
               />
             )}
