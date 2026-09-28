@@ -1,11 +1,12 @@
 import type { LucideIcon } from "lucide-react";
-import { CalendarClock, UserPlus, Send, MessageCircle, ArrowRightLeft, Briefcase, Ban } from "lucide-react";
+import { CalendarClock, UserPlus, Send, MessageCircle, ArrowRightLeft, Briefcase, Ban, CalendarCheck2, CalendarX2, PlayCircle, Star, Share2 } from "lucide-react";
 import type { Lead, LeadStatus } from "@/lib/leads/queries";
 import type { Appointment } from "@/lib/appointments/queries";
 import type { Estimate } from "@/lib/estimates/queries";
 import type { Job } from "@/lib/jobs/queries";
 import type { Message } from "@/lib/conversations/queries";
 import type { LeadStageHistoryEntry } from "@/lib/automation/lead-stage-history";
+import type { ReviewRequest, ReferralRequest } from "@/lib/reviews-referrals/queries";
 import { formatAppointmentDate } from "@/lib/appointments/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS } from "@/lib/leads/format";
@@ -48,9 +49,12 @@ export function buildPersonTimeline(params: {
   estimates: Estimate[];
   jobs: Job[];
   messages: Message[];
+  /** This person's completed-job review requests only (caller filters by job_id, matching every other array here) - see reviewRequests/referralRequests below for why requested_at/resolved_at are the real timestamps used, never invented. */
+  reviewRequests?: ReviewRequest[];
+  referralRequests?: ReferralRequest[];
   timeZone?: string;
 }): TimelineEvent[] {
-  const { leads, stageHistoryByLeadId, appointments, estimates, jobs, messages, timeZone } = params;
+  const { leads, stageHistoryByLeadId, appointments, estimates, jobs, messages, reviewRequests = [], referralRequests = [], timeZone } = params;
 
   const events: TimelineEvent[] = [
     ...leads.map((lead) => ({
@@ -112,6 +116,83 @@ export function buildPersonTimeline(params: {
       label: "Job created",
       detail: job.title,
     })),
+
+    // Final Major Product Build: job.started_at/completed_at are real,
+    // already-set timestamps (lib/jobs/queries.ts) written by the exact same
+    // markJobStarted/markJobCompleted actions that already drive the Jobs
+    // list and Job detail page - not a second, inferred notion of "when did
+    // this job move" the way the appointment terminal-state events below
+    // have to fall back to updated_at.
+    ...jobs.flatMap((job) => {
+      const jobEvents: TimelineEvent[] = [];
+      if (job.started_at) {
+        jobEvents.push({ id: `job-started-${job.id}`, at: job.started_at, icon: PlayCircle, label: "Job started", detail: job.title });
+      }
+      if (job.completed_at) {
+        jobEvents.push({
+          id: `job-completed-${job.id}`,
+          at: job.completed_at,
+          icon: CalendarCheck2,
+          label: "Job completed",
+          detail: job.amount != null ? `${job.title} · ${formatCurrency(job.amount)}` : job.title,
+        });
+      }
+      return jobEvents;
+    }),
+
+    // Final Major Product Build: appointments carry no dedicated
+    // completed_at/no_show_at/cancelled_at column (unlike jobs above), so a
+    // terminal-state event uses the row's own real updated_at as the closest
+    // honest timestamp for "when this appointment last changed" - the same
+    // real field the rest of this codebase already treats as authoritative
+    // for "last touched" (e.g. the Person page's own "Last updated" line),
+    // never a fabricated or estimated time.
+    ...appointments.flatMap((appointment) => {
+      if (appointment.status === "completed") {
+        return [{ id: `apt-completed-${appointment.id}`, at: appointment.updated_at, icon: CalendarCheck2, label: "Appointment completed", detail: appointment.title }];
+      }
+      if (appointment.status === "no_show") {
+        return [{ id: `apt-noshow-${appointment.id}`, at: appointment.updated_at, icon: CalendarX2, label: "Missed appointment", detail: appointment.title }];
+      }
+      if (appointment.status === "cancelled") {
+        return [{ id: `apt-cancelled-${appointment.id}`, at: appointment.updated_at, icon: Ban, label: "Appointment cancelled", detail: appointment.title }];
+      }
+      return [];
+    }),
+
+    // Review/referral requests are keyed by job_id, not contact_id directly -
+    // the caller filters to this person's own completed jobs' requests
+    // before passing them in, the same "caller filters, this function only
+    // merges" contract every other array parameter here already follows.
+    ...reviewRequests.flatMap((request) => {
+      const events: TimelineEvent[] = [];
+      if (request.requested_at) events.push({ id: `review-requested-${request.id}`, at: request.requested_at, icon: Star, label: "Review requested", detail: undefined });
+      if (request.resolved_at && (request.status === "completed" || request.status === "declined")) {
+        events.push({
+          id: `review-resolved-${request.id}`,
+          at: request.resolved_at,
+          icon: Star,
+          label: request.status === "completed" ? "Review received" : "Review declined",
+          detail: undefined,
+        });
+      }
+      return events;
+    }),
+
+    ...referralRequests.flatMap((request) => {
+      const events: TimelineEvent[] = [];
+      if (request.requested_at) events.push({ id: `referral-requested-${request.id}`, at: request.requested_at, icon: Share2, label: "Referral requested", detail: undefined });
+      if (request.resolved_at && (request.status === "converted" || request.status === "declined")) {
+        events.push({
+          id: `referral-resolved-${request.id}`,
+          at: request.resolved_at,
+          icon: Share2,
+          label: request.status === "converted" ? "Referral converted" : "Referral declined",
+          detail: undefined,
+        });
+      }
+      return events;
+    }),
 
     ...messages.map((message) => ({
       id: `msg-${message.id}`,

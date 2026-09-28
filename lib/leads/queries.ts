@@ -95,6 +95,25 @@ export async function getLeads(supabase: SupabaseClient, organizationId: string)
  * Never used for anything requiring the actual lead records - if a caller
  * needs more than the count, getLeads/getLeadsResult remain the right call.
  */
+/**
+ * Final Major Product Build: contact-scoped leads for surfaces that only
+ * ever need one person's own leads (the Inbox context panel) - a real,
+ * org+contact-filtered query at the database level, not a full getLeads()
+ * fetch filtered client-side. Mirrors getContactAppointments's exact
+ * contract (lib/conversations/queries.ts).
+ */
+export async function getContactLeads(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Lead[]> {
+  const { data } = await supabase
+    .from("leads")
+    .select(LEAD_COLUMNS)
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  return ((data ?? []) as RawLeadRow[]).map(normalizeLead);
+}
+
 export async function getHotLeadCount(supabase: SupabaseClient, organizationId: string): Promise<number> {
   const { count } = await supabase
     .from("leads")

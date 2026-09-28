@@ -34,8 +34,12 @@ test("4. PUBLIC_MARKETING_PATHS is untouched by this change - no /forgot-passwor
   assert.doesNotMatch(SOURCE, /const PUBLIC_MARKETING_PATHS = new Set\([^)]*"\/forgot-password"[^)]*\);/);
 });
 
-test("5. AUTH_PATHS still redirects an authenticated user away to dashboard/onboarding (unchanged) - the same bounce /login and /signup already had now also applies correctly to /forgot-password", () => {
+test("5. AUTH_PATHS still redirects an authenticated user away to today/onboarding (unchanged) - the same bounce /login and /signup already had now also applies correctly to /forgot-password", () => {
   const occurrences = (SOURCE.match(/AUTH_PATHS\.has\(pathname\)/g) ?? []).length;
   assert.equal(occurrences, 2, "expected two AUTH_PATHS.has(pathname) checks - one for the unauthenticated branch, one for the authenticated branch");
-  assert.match(SOURCE, /url\.pathname = membership \? "\/dashboard" : "\/onboarding";/);
+  // Trackpr 2.0 IA consolidation renamed this destination from /dashboard to
+  // /today (Dashboard's own content was absorbed into Today - see
+  // app/(app)/today/page.tsx's own header comment); this assertion is
+  // updated to match, not a behavior change.
+  assert.match(SOURCE, /url\.pathname = membership \? "\/today" : "\/onboarding";/);
 });

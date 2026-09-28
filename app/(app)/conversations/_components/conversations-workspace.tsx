@@ -51,18 +51,32 @@ export function ConversationsWorkspace({
           message thread only ~80px tall (everything else - mobile nav, top
           bar, this header, the composer, the details disclosure - ate the
           rest of the viewport), so the last message rendered almost
-          entirely clipped above the conversation's own header. Hidden here
-          on the same activeId signal the list pane below already uses;
-          list and thread (and so this header) are always both visible at
-          the lg breakpoint and above. */}
-      <div className={activeId ? "hidden lg:block" : "block"}>
+          entirely clipped above the conversation's own header.
+          Final visual polish pass: this now hides at every breakpoint, not
+          just below `lg`, on the same activeId signal - list and thread stay
+          exactly as visible as before (that split was never breakpoint-
+          gated), but reading/replying to a real conversation on desktop no
+          longer sits under ~300px of list-level header the active thread has
+          no use for; the thread itself is the dominant surface once one is
+          open, matching the workspace's own three-pane intent. */}
+      <div className={activeId ? "hidden" : "block"}>
         <PageHeader eyebrow="Operate" title="Inbox" description="Every customer conversation in one place, organized by activity." />
-        <div className="mt-6">
+        {/* Final visual acceptance pass: measured on a real small-phone
+            viewport (390-530px), this summary block alone was over 300px
+            tall, leaving the actual list+thread workspace below it only
+            ~60px of the visible viewport before any scrolling - the list a
+            contractor actually came to this page for was reduced to a
+            sliver under its own header. The 4-stat overview is real,
+            useful reference info, but it's exactly that: reference, not the
+            task - it recedes below `lg` (where the workspace's own two-pane
+            split already sits comfortably beside it) rather than starving
+            the one thing every visit to this page needs room for. */}
+        <div className="mt-6 hidden lg:block">
           <ConversationsSummary summary={summary} />
         </div>
       </div>
 
-      <div className="mt-6 min-h-0 flex-1 border-t border-slate-200">
+      <div className={`min-h-0 flex-1 border-t border-slate-200 ${activeId ? "" : "mt-6"}`}>
         <div className="flex h-full min-h-0">
           <div
             className={`min-h-0 flex-col overflow-hidden border-r border-slate-200 lg:flex lg:w-[340px] lg:shrink-0 ${

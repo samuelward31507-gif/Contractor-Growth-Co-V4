@@ -87,7 +87,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
       <PageHeader
         eyebrow="Operate"
         title="Schedule"
-        description="Keep every customer appointment organized and on schedule."
+        description="Your real-time scheduling command center - appointments, availability, and blocked time in one place."
         action={
           <div className="flex flex-wrap items-center gap-3">
             <ScheduleViewSwitcher active="list" hrefs={{ day: "/schedule?view=day", week: "/schedule?view=week", month: "/schedule?view=month", list: "/schedule?view=list" }} />

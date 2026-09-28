@@ -18,7 +18,7 @@ const ENTITY_ICONS: Record<string, LucideIcon> = {
 };
 
 const ENTITY_ROUTES: Record<string, (id: string) => string> = {
-  contact: (id) => `/contacts/${id}`,
+  contact: (id) => `/people/${id}`,
   lead: (id) => `/leads/${id}`,
   appointment: (id) => `/appointments/${id}`,
   conversation: (id) => `/conversations/${id}`,

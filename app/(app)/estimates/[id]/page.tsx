@@ -168,7 +168,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
             <SectionCard
               title="Customer"
               action={
-                <Link href={`/contacts/${estimate.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/people/${estimate.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
                   View contact
                 </Link>
               }

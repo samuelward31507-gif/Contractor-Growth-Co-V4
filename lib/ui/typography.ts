@@ -19,15 +19,20 @@
  */
 export const heroClass = "font-display text-[42px] font-bold tracking-[-0.026em] text-ink";
 
-// Final visual polish pass: page titles bumped from text-2xl (24px) to
-// text-3xl (30px, within the requested 28-32px range) so the page-level
-// heading reads with real authority against the larger KPI-card numbers
-// introduced alongside it - a single change here cascades to every route.
-// Phase 0 (foundations pass): bumped again to 34px and moved onto the new
-// Rubik display face (font-display, 22px+ only per that font's own usage
-// rule) and the new --ink token - same cascade-on-import effect as the
-// original bump.
-export const pageTitleClass = "font-display text-[34px] font-bold tracking-[-0.024em] text-ink";
+// Trackpr final visual polish pass: page titles brought back down from 34px/
+// font-bold to 24px/font-semibold. The 30px-then-34px escalation across two
+// earlier passes was chasing "authority," but next to real KPI numbers
+// (StatCard's own 28px kpiValueClass, a table's tabular figures) a 34px bold
+// display-face H1 read as the loudest, heaviest thing on every single page -
+// a marketing headline sitting on top of an operating tool, and the single
+// biggest reason the product still read as "template" rather than
+// Linear/Stripe/Ramp-restrained. A page title's job is orientation, not
+// competing with the page's own numbers for attention - 24px keeps it on the
+// Rubik display face (still clears that font's own 22px+ usage floor) while
+// letting every real metric on the page carry the actual visual weight.
+// Tracking eased from -0.024em to -0.015em to match: very tight negative
+// tracking reads as considered at 34px+ but starts to look cramped at 24px.
+export const pageTitleClass = "font-display text-[24px] font-semibold tracking-[-0.015em] text-ink";
 export const pageDescriptionClass = "text-sm text-slate-500";
 
 /**

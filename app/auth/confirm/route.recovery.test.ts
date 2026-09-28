@@ -45,10 +45,14 @@ test("3. within the shared redirectAfterConfirmation helper, the recovery redire
 });
 
 test("4. normal signup confirmation (either path, isRecovery false) still redirects based on membership, exactly as before - the destination logic exists exactly once, never duplicated between the two verification paths", () => {
-  assert.match(ROUTE_SOURCE, /const membership = await getUserOrganization\(supabase, userId\);\s*\n\s*redirect\(membership \? "\/dashboard" : "\/onboarding"\);/);
+  // Trackpr 2.0 IA consolidation renamed this destination from /dashboard to
+  // /today (Dashboard's own content was absorbed into Today - see
+  // app/(app)/today/page.tsx's own header comment); this assertion is
+  // updated to match, not a behavior change.
+  assert.match(ROUTE_SOURCE, /const membership = await getUserOrganization\(supabase, userId\);\s*\n\s*redirect\(membership \? "\/today" : "\/onboarding"\);/);
   // Only one such block exists in the whole file - both verification paths
   // above call the same shared helper rather than each having their own copy.
-  const matches = ROUTE_SOURCE.match(/redirect\(membership \? "\/dashboard" : "\/onboarding"\);/g) ?? [];
+  const matches = ROUTE_SOURCE.match(/redirect\(membership \? "\/today" : "\/onboarding"\);/g) ?? [];
   assert.equal(matches.length, 1);
 });
 

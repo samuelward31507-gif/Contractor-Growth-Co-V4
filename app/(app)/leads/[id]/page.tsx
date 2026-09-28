@@ -510,7 +510,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
               <SectionCard
                 title="Contact"
                 action={
-                  <Link href={`/contacts/${lead.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  <Link href={`/people/${lead.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
                     View contact
                   </Link>
                 }

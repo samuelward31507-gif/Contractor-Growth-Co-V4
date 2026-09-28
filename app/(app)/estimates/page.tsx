@@ -21,16 +21,14 @@ function normalizeStatus(value: string | undefined): EstimateStatus | "all" {
 }
 
 /**
- * Trackpr 2.0, Phase 3E: the header now reads "Estimates & Jobs" with an
- * "Estimates" badge, rather than a standalone "Estimates" identity - the
- * literal /estimates URL permanently redirects to /work?type=estimates
- * (next.config.ts) before Next.js would ever resolve this file directly, so
- * this component is only ever rendered through the /work dispatcher now
- * (same reasoning as Phase 3C/3D's own retitles). Estimates and Jobs remain
- * genuinely distinct data (unlike Schedule's Calendar/Appointments, which
- * showed identical data two ways) - so, like Customers, this reads as one
- * named lifecycle view of the shared "Estimates & Jobs" surface, with a
- * plain link to the other view, not a merged list.
+ * Nav-restructure pass: Estimates is a real, independent nav destination
+ * again (see app/(app)/_components/nav-items.ts's own header comment) - the
+ * literal /estimates URL is no longer redirected anywhere, so this file
+ * renders directly, under its own name, matching its own nav label exactly
+ * (the same "nav label matches page H1" discipline this codebase has used
+ * throughout). Estimates and Jobs remain genuinely distinct data, so the
+ * cross-link to Jobs stays a plain link to that page's own real URL, not a
+ * merged list.
  */
 export default async function EstimatesPage({ searchParams }: PageProps<"/estimates">) {
   const params = await searchParams;
@@ -67,13 +65,12 @@ export default async function EstimatesPage({ searchParams }: PageProps<"/estima
     <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
       <PageHeader
         eyebrow="Operate"
-        title="Estimates & Jobs"
+        title="Estimates"
         description="Create, send, and track project estimates."
-        badge={<span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">Estimates</span>}
         action={
           <div className="flex items-center gap-4">
             <Link
-              href="/work?type=jobs"
+              href="/jobs"
               className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               View jobs

@@ -31,14 +31,28 @@ export function AppointmentsToolbar({
   const router = useRouter();
   const pathname = usePathname();
 
+  // Redesign pass bug fix: this toolbar is now only ever rendered through
+  // the /schedule dispatcher (next.config.ts permanently redirects the
+  // legacy /appointments route to /schedule?view=list - see its own header
+  // comment), so `pathname` here is always "/schedule", where the URL key
+  // "view" already belongs to the schedule-level day/week/month/list
+  // selector. This function used to write its own Upcoming/Today/Past
+  // selection to that same "view" key and never set "list" itself - the
+  // very first debounced call (the mount-time effect below fires even with
+  // no user interaction) silently overwrote "?view=list" with "?view=upcoming"
+  // or a bare path, bouncing the page back to the Week calendar grid a
+  // moment after landing on List. Fixed by always keeping "view=list" and
+  // writing the appointments-internal selection under "apptView" instead -
+  // the exact key SchedulePage's own dispatcher already reads back out for
+  // this (see app/(app)/schedule/page.tsx).
   function navigate(nextQuery: string, nextStatus: string, nextView: AppointmentView) {
     const params = new URLSearchParams();
     const trimmed = nextQuery.trim();
     if (trimmed) params.set("q", trimmed);
     if (nextStatus !== "all") params.set("status", nextStatus);
-    if (nextView !== "upcoming") params.set("view", nextView);
-    const queryString = params.toString();
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname);
+    params.set("view", "list");
+    if (nextView !== "upcoming") params.set("apptView", nextView);
+    router.replace(`${pathname}?${params.toString()}`);
   }
 
   useEffect(() => {

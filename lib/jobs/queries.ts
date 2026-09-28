@@ -138,6 +138,25 @@ export async function getJobByEstimateId(
   return normalizeJob(data as RawJobRow);
 }
 
+/**
+ * Final Major Product Build: contact-scoped jobs for surfaces that only ever
+ * need one person's own jobs (the Inbox context panel) - a real,
+ * org+contact-filtered query at the database level, not a full getJobs()
+ * fetch filtered client-side. Mirrors getContactAppointments's exact
+ * contract (lib/conversations/queries.ts).
+ */
+export async function getContactJobs(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Job[]> {
+  const { data } = await supabase
+    .from("jobs")
+    .select(JOB_COLUMNS)
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  return ((data ?? []) as RawJobRow[]).map(normalizeJob);
+}
+
 export type JobFilters = {
   query?: string;
   status?: JobStatus | "all";

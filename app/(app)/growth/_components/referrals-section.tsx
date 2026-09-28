@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, Share2 } from "lucide-react";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { Badge, RAIL_TONE_CLASS } from "@/lib/ui/badge";
+import { Panel } from "@/lib/ui/section-card";
 import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { contactDisplayName } from "@/lib/contacts/format";
 import { REFERRAL_STATUS_LABELS } from "@/lib/reviews-referrals/format";
@@ -27,7 +28,7 @@ function ReferralRowItem({ row }: { row: ReferralRow }) {
   const contactName = job?.contact ? contactDisplayName(job.contact) : "Unknown customer";
 
   return (
-    <li className={`flex flex-col gap-3 border-l-2 py-4 pl-3 pr-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4 ${RAIL_TONE_CLASS[tone]}`}>
+    <li className={`flex flex-col gap-3 border-l-2 py-4 pl-4 pr-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4 ${RAIL_TONE_CLASS[tone]}`}>
       <div className="flex min-w-0 flex-1 items-start gap-3">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${TONE_CHIP_STYLE[tone]}`}>
           <Icon className="h-4 w-4" aria-hidden />
@@ -35,7 +36,7 @@ function ReferralRowItem({ row }: { row: ReferralRow }) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-slate-900">
             {job?.contact ? (
-              <Link href={`/customers/${job.contact.id}`} className="rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
+              <Link href={`/people/${job.contact.id}`} className="rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
                 {contactName}
               </Link>
             ) : (
@@ -94,11 +95,13 @@ export function ReferralsSection({ rows, failed }: { rows: ReferralRow[]; failed
         ) : rows.length === 0 ? (
           <EmptyState icon={Share2} title="No referral activity yet." description="Referral requests will appear here once Trackpr sends one after a completed job." />
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {rows.map((row) => (
-              <ReferralRowItem key={row.request.id} row={row} />
-            ))}
-          </ul>
+          <Panel className="overflow-hidden p-0">
+            <ul className="divide-y divide-slate-100">
+              {rows.map((row) => (
+                <ReferralRowItem key={row.request.id} row={row} />
+              ))}
+            </ul>
+          </Panel>
         )}
       </div>
     </div>

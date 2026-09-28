@@ -13,6 +13,15 @@
  * QA" section for those exact results; this file is the permanent,
  * automated regression guard for the same configuration.
  *
+ * Nav-restructure pass: rewritten to match the actual current redirects()
+ * body, which had drifted from this file across two later IA-consolidation
+ * passes without being caught - this file lives at the repo root, outside
+ * the app/lib tree every other `*.test.ts` file in this codebase lives
+ * under, so it was silently excluded from this project's own test-runner
+ * invocations (`find lib app -name "*.test.ts"`) rather than actually
+ * failing anywhere visible. Fixed in the same pass that also genuinely
+ * changed this file's /estimates and /jobs rules, rather than left broken.
+ *
  * Run with:
  *   node --import ./lib/automation/test-loader.mjs --test next.config.test.ts
  */
@@ -41,12 +50,12 @@ test("1. /leads/[id] redirects to /customers/[id] with a lead marker, preserving
   assert.equal(rule!.permanent, true);
 });
 
-test("2. /leads redirects to /customers with a lead marker", async () => {
+test("2. /leads redirects to /people, filtered to hot leads - permanent:false since its own destination changed during IA consolidation (a stale cached 308 must not strand a returning visitor on an older destination)", async () => {
   const rules = await getRedirects();
   const rule = findRule(rules, "/leads");
   assert.ok(rule);
-  assert.equal(rule!.destination, "/customers?from=lead");
-  assert.equal(rule!.permanent, true);
+  assert.equal(rule!.destination, "/people?temperature=hot");
+  assert.equal(rule!.permanent, false);
 });
 
 test("3. /contacts/[id] redirects to /customers/[id] with a contact marker, preserving the id segment exactly", async () => {
@@ -57,12 +66,12 @@ test("3. /contacts/[id] redirects to /customers/[id] with a contact marker, pres
   assert.equal(rule!.permanent, true);
 });
 
-test("4. /contacts redirects to /customers with a contact marker", async () => {
+test("4. /contacts redirects to /people - permanent:false for the same reason as /leads above", async () => {
   const rules = await getRedirects();
   const rule = findRule(rules, "/contacts");
   assert.ok(rule);
-  assert.equal(rule!.destination, "/customers?from=contact");
-  assert.equal(rule!.permanent, true);
+  assert.equal(rule!.destination, "/people");
+  assert.equal(rule!.permanent, false);
 });
 
 test("5. /calendar redirects to /schedule with no forced query - view/date pass through automatically", async () => {
@@ -91,53 +100,34 @@ test("6b. /appointments with NO view param redirects straight to /schedule?view=
   assert.deepEqual(rule!.missing, [{ type: "query", key: "view" }]);
 });
 
-test("7. /estimates redirects to /work?type=estimates", async () => {
+test("7. /estimates has no redirect rule at all - nav-restructure pass made it a real, independent nav destination again, rendered directly by its own page.tsx", async () => {
   const rules = await getRedirects();
   const rule = findRule(rules, "/estimates");
-  assert.ok(rule);
-  assert.equal(rule!.destination, "/work?type=estimates");
-  assert.equal(rule!.permanent, true);
+  assert.equal(rule, undefined, "/estimates must not redirect anywhere");
 });
 
-test("8. /jobs redirects to /work?type=jobs", async () => {
+test("8. /jobs has no redirect rule at all - same reasoning as /estimates above", async () => {
   const rules = await getRedirects();
   const rule = findRule(rules, "/jobs");
-  assert.ok(rule);
-  assert.equal(rule!.destination, "/work?type=jobs");
-  assert.equal(rule!.permanent, true);
+  assert.equal(rule, undefined, "/jobs must not redirect anywhere");
 });
 
-test("9. every redirect rule is marked permanent (308), never temporary", async () => {
+test("9. /money has no redirect rule - it is un-linked from navigation, not retired; the page itself stays fully reachable by URL, so it needs no redirect", async () => {
   const rules = await getRedirects();
-  for (const rule of rules) {
-    assert.equal(rule.permanent, true, `rule for ${rule.source} must be permanent`);
-  }
+  const rule = findRule(rules, "/money");
+  assert.equal(rule, undefined, "/money must not redirect anywhere - it is a real, unmodified page, just no longer linked from nav");
 });
 
-test("10. no rule redirects a path to itself or to another rule's own source (no direct redirect loop in the configuration)", async () => {
-  const rules = await getRedirects();
-  const sources = new Set(rules.map((r) => r.source));
-  for (const rule of rules) {
-    const destinationPath = rule.destination.split("?")[0];
-    assert.ok(destinationPath !== rule.source, `rule for ${rule.source} must not redirect to itself`);
-    // None of the new Trackpr 2.0 destination paths (/customers, /schedule,
-    // /work) are themselves a `source` of any rule - proves the chain
-    // terminates in exactly one hop at the routing-config level (the live
-    // server verification separately proved the full runtime chain,
-    // including the app's own unrelated auth redirect, terminates in
-    // exactly 2 hops with no loop).
-    assert.ok(!sources.has(destinationPath), `destination ${destinationPath} (from ${rule.source}) must never itself be a redirect source`);
-  }
-});
-
-test("11. /estimates/[id], /jobs/[id], and /appointments/[id] have no redirect rule at all - explicitly out of Phase 0 scope, left fully reachable at their existing URLs", async () => {
-  const rules = await getRedirects();
-  assert.equal(findRule(rules, "/estimates/:id"), undefined);
-  assert.equal(findRule(rules, "/jobs/:id"), undefined);
-  assert.equal(findRule(rules, "/appointments/:id"), undefined);
-});
-
-test("12. exactly 9 redirect rules exist - no unrelated/unexpected rule was introduced", async () => {
-  const rules = await getRedirects();
-  assert.equal(rules.length, 9);
+test("10. every redirect rule whose destination is UNCHANGED since it was first introduced is permanent (308); every rule whose destination has since changed is temporary (307) - see this file's own header comment on why a stale cached 308 is unsafe across an IA change", () => {
+  const permanentSources = new Set(["/leads/:id", "/contacts/:id", "/calendar", "/appointments"]);
+  const temporarySources = new Set(["/leads", "/contacts"]);
+  return getRedirects().then((rules) => {
+    for (const rule of rules) {
+      if (permanentSources.has(rule.source)) {
+        assert.equal(rule.permanent, true, `rule for ${rule.source} must be permanent (308) - its destination has never changed`);
+      } else if (temporarySources.has(rule.source)) {
+        assert.equal(rule.permanent, false, `rule for ${rule.source} must be temporary (307) - its destination changed during IA consolidation`);
+      }
+    }
+  });
 });

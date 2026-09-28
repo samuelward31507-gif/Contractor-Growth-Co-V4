@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Briefcase, CalendarClock, ShieldOff, User, Zap } from "lucide-react";
+import { ArrowRight, AlertCircle, Briefcase, CalendarClock, FileSearch, Phone, ShieldOff, User, Wallet, Zap } from "lucide-react";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import {
   formatAppointmentDate,
@@ -7,9 +7,14 @@ import {
   STATUS_LABELS as APPOINTMENT_STATUS_LABELS,
 } from "@/lib/appointments/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
+import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
+import { CONTACT_LIFECYCLE_LABEL, CONTACT_LIFECYCLE_TONE, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
+import type { NextStep } from "@/lib/people/next-step";
+import type { Estimate } from "@/lib/estimates/queries";
 import { detailLabelClass, detailValueClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
 import { SectionCard } from "@/lib/ui/section-card";
+import { secondaryButtonAutoClass } from "@/lib/ui/form";
 import type { Conversation, RelevantAppointment } from "@/lib/conversations/queries";
 
 export type AutomationActivity = {
@@ -21,12 +26,24 @@ export type AutomationActivity = {
 export function ConversationContext({
   conversation,
   relevantAppointment,
+  relevantEstimate,
+  lifecycleStage,
+  openLeadValueDisplay,
+  nextStep,
   smsOptOut,
   automationActivity,
   timeZone,
 }: {
   conversation: Conversation;
   relevantAppointment: RelevantAppointment | null;
+  /** The most relevant real estimate for this contact (sent, else accepted, else most recent) - never a fabricated placeholder. Null when this contact has no estimates at all. */
+  relevantEstimate: Estimate | null;
+  /** Derived from this contact's own real leads/estimates/jobs/appointments/review-requests (deriveContactLifecycle) - null only when the conversation has no linked contact at all. */
+  lifecycleStage: ContactLifecycleStage | null;
+  /** Pre-formatted via formatOpenLeadValueDisplay, already excluding won/lost leads - null when there is no open opportunity for this contact. */
+  openLeadValueDisplay: string | null;
+  /** The same real next-step computation the Person page uses (findPersonNextStep), scoped to this contact - null when there's nothing outstanding. */
+  nextStep: NextStep | null;
   smsOptOut: boolean;
   automationActivity: AutomationActivity;
   /** Trackpr 2.0, Launch Certification QA fix: the organization's real IANA timezone - without it, formatAppointmentDate/formatAppointmentTime below silently fall back to the server runtime's default (UTC). */
@@ -38,20 +55,61 @@ export function ConversationContext({
   return (
     <div className="space-y-4 p-4 sm:p-6 xl:p-4">
       {contact ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {contact.phone ? (
+            <a href={`tel:${contact.phone}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
+              <Phone className="h-4 w-4" aria-hidden />
+              Call
+            </a>
+          ) : null}
+          <Link href={`/estimates?new=estimate&contactId=${contact.id}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
+            <FileSearch className="h-4 w-4" aria-hidden />
+            Create Estimate
+          </Link>
+        </div>
+      ) : null}
+
+      {nextStep ? (
+        <div className={`rounded-xl border px-4 py-3 ${nextStep.attention ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}>
+          <div className="flex items-start gap-2.5">
+            <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${nextStep.attention ? "bg-amber-100 text-amber-700" : "bg-accent-muted text-accent-text"}`}>
+              {nextStep.attention ? <AlertCircle className="h-3.5 w-3.5" aria-hidden /> : <ArrowRight className="h-3.5 w-3.5" aria-hidden />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] font-medium text-slate-500">What happens next</p>
+              <p className="text-sm font-semibold text-slate-900">{nextStep.label}</p>
+              {nextStep.detail ? <p className="text-xs text-slate-500">{nextStep.detail}</p> : null}
+              <Link href={nextStep.href} className="mt-1 inline-block text-xs font-medium text-slate-900 hover:underline">
+                View
+              </Link>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {contact ? (
         <SectionCard
           title="Contact"
           icon={User}
           action={
-            <Link href={`/contacts/${contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+            <Link href={`/people/${contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
               View
             </Link>
           }
         >
-          {smsOptOut ? (
-            <div className="mb-3">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {lifecycleStage ? <Badge tone={CONTACT_LIFECYCLE_TONE[lifecycleStage]}>{CONTACT_LIFECYCLE_LABEL[lifecycleStage]}</Badge> : null}
+            {smsOptOut ? (
               <Badge tone="warning" icon={ShieldOff}>
                 Opted out of SMS
               </Badge>
+            ) : null}
+          </div>
+          {openLeadValueDisplay ? (
+            <div className="mb-3 flex items-center gap-1.5 text-sm text-slate-700">
+              <Wallet className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+              <span className="font-medium tabular-nums">{openLeadValueDisplay}</span>
+              <span className="text-slate-400">open opportunity</span>
             </div>
           ) : null}
           {hasContactDetails ? (
@@ -135,6 +193,22 @@ export function ConversationContext({
             {formatAppointmentDate(relevantAppointment.start_at, timeZone)} · {formatAppointmentTime(relevantAppointment.start_at, timeZone)}
           </p>
           <p className="mt-1 text-xs text-slate-400">{APPOINTMENT_STATUS_LABELS[relevantAppointment.status]}</p>
+        </SectionCard>
+      ) : null}
+
+      {relevantEstimate ? (
+        <SectionCard
+          title="Estimate"
+          icon={FileSearch}
+          action={
+            <Link href={`/estimates/${relevantEstimate.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+              View
+            </Link>
+          }
+        >
+          <p className="text-sm font-medium text-slate-900">{relevantEstimate.title}</p>
+          <p className="mt-0.5 text-sm font-medium tabular-nums text-slate-700">{relevantEstimate.amount != null ? formatCurrency(relevantEstimate.amount) : "—"}</p>
+          <p className="mt-1 text-xs text-slate-400">{ESTIMATE_STATUS_LABELS[relevantEstimate.status]}</p>
         </SectionCard>
       ) : null}
 

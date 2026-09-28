@@ -1,11 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarClock, Clock3, Timer } from "lucide-react";
+import { AlertCircle, ArrowRight, CalendarClock, Clock3, MessageCircle, Phone, Timer } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
-import { getLeads } from "@/lib/leads/queries";
+import { getContactLeads, getLeads } from "@/lib/leads/queries";
 import { getAppointment } from "@/lib/appointments/queries";
+import { getContactAppointments, getContactConversations } from "@/lib/conversations/queries";
+import { getContactEstimates } from "@/lib/estimates/queries";
+import { getContactJobs } from "@/lib/jobs/queries";
+import { findPersonNextStep } from "@/lib/people/next-step";
 import { contactDisplayName, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { formatCurrency } from "@/lib/dashboard/format";
@@ -20,6 +24,7 @@ import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/
 import { Badge } from "@/lib/ui/badge";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
 import { DetailHeader } from "@/lib/ui/detail-header";
+import { primaryButtonAutoClass, secondaryButtonAutoClass } from "@/lib/ui/form";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../_components/status";
 import { AppointmentActions } from "./_components/appointment-actions";
 
@@ -47,6 +52,30 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
     getLeads(supabase, membership.organizationId),
     getOrganizationTimezone(supabase, membership.organizationId),
   ]);
+
+  // Final Major Product Build: "what happens next" for this appointment's
+  // own contact, scoped via the same targeted contact-id queries the Inbox
+  // context panel uses (never a full org fetch) - satisfies the product
+  // brief's "clicking an appointment should make it easy to understand
+  // Customer, Job, Estimate, Conversation, Next step" without fabricating a
+  // relationship the schema doesn't have (there is no appointment_id FK on
+  // estimates/jobs, so this surfaces the contact's own real next step
+  // rather than claiming a specific estimate/job "came from" this
+  // appointment).
+  const [contactLeads, contactEstimates, contactJobs, contactAppointments, contactConversations] = appointment?.contact_id
+    ? await Promise.all([
+        getContactLeads(supabase, membership.organizationId, appointment.contact_id),
+        getContactEstimates(supabase, membership.organizationId, appointment.contact_id),
+        getContactJobs(supabase, membership.organizationId, appointment.contact_id),
+        getContactAppointments(supabase, membership.organizationId, appointment.contact_id),
+        getContactConversations(supabase, membership.organizationId, appointment.contact_id),
+      ])
+    : [[], [], [], [], []];
+
+  const nextStep = appointment?.contact_id
+    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: contactConversations, timeZone })
+    : null;
+  const mostRecentOpenConversation = contactConversations.find((conversation) => conversation.status === "open") ?? contactConversations[0] ?? null;
 
   if (!appointment) {
     return (
@@ -114,6 +143,31 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
       />
 
       <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      {nextStep ? (
+        <div
+          className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-5 py-4 ${
+            nextStep.attention ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                nextStep.attention ? "bg-amber-100 text-amber-700" : "bg-accent-muted text-accent-text"
+              }`}
+            >
+              {nextStep.attention ? <AlertCircle className="h-4 w-4" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
+            </span>
+            <div>
+              <p className="text-[12.5px] font-medium text-slate-500">What happens next</p>
+              <p className="text-sm font-semibold text-slate-900">{nextStep.label}</p>
+              {nextStep.detail ? <p className="text-xs text-slate-500">{nextStep.detail}</p> : null}
+            </div>
+          </div>
+          <Link href={nextStep.href} className="shrink-0 text-sm font-medium text-slate-900 hover:underline">
+            View
+          </Link>
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
         <div className="flex flex-col gap-6 lg:col-span-2">
           {appointment.notes ? (
@@ -160,7 +214,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
             <SectionCard
               title="Customer"
               action={
-                <Link href={`/contacts/${appointment.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/people/${appointment.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
                   View contact
                 </Link>
               }
@@ -183,6 +237,20 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
                   </div>
                 ) : null}
               </dl>
+              <div className="mt-4 flex items-center gap-2">
+                {appointment.contact.phone ? (
+                  <a href={`tel:${appointment.contact.phone}`} className={`${primaryButtonAutoClass} gap-1.5`}>
+                    <Phone className="h-4 w-4" aria-hidden />
+                    Call
+                  </a>
+                ) : null}
+                {mostRecentOpenConversation ? (
+                  <Link href={`/conversations/${mostRecentOpenConversation.id}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
+                    <MessageCircle className="h-4 w-4" aria-hidden />
+                    Text
+                  </Link>
+                ) : null}
+              </div>
             </SectionCard>
           ) : null}
 

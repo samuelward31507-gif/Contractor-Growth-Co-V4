@@ -20,7 +20,13 @@ export type NextStep = { label: string; detail?: string; href: string; attention
  */
 export function findPersonNextStep(params: {
   leads: Lead[];
-  appointments: Appointment[];
+  // Final Major Product Build: loosened from Appointment[] to the exact
+  // fields this function reads, matching ContactLifecycleSignals's own
+  // Pick<...> convention (lib/customers/lifecycle-stage.ts) - lets the Inbox
+  // context panel reuse this function with its own lighter
+  // RelevantAppointment[] (lib/conversations/queries.ts) instead of a full
+  // Appointment[] fetch it doesn't otherwise need.
+  appointments: Pick<Appointment, "id" | "start_at" | "end_at" | "status">[];
   estimates: Estimate[];
   jobs: Job[];
   conversations: Conversation[];

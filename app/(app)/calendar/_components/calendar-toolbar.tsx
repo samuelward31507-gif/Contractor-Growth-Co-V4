@@ -94,7 +94,7 @@ export function CalendarToolbar({
         </button>
 
         {contacts.length === 0 ? (
-          <Link href="/contacts" className={secondaryButtonAutoClass}>
+          <Link href="/people" className={secondaryButtonAutoClass}>
             Add a contact first
           </Link>
         ) : (

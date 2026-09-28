@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Sparkles, Users, Wallet, MessageSquare, CalendarClock, Star, Workflow, BarChart3, Building2, Settings } from "lucide-react";
+import { Sparkles, Users, Wallet, MessageSquare, CalendarClock, Star, Workflow, BarChart3, Building2, Settings, Hammer, FileText } from "lucide-react";
 import type { NavIconName } from "./nav-items";
 
 /**
@@ -20,4 +20,6 @@ export const NAV_ICONS: Record<NavIconName, LucideIcon> = {
   BarChart3,
   Building2,
   Settings,
+  Hammer,
+  FileText,
 };

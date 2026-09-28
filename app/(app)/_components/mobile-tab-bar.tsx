@@ -12,14 +12,14 @@ import { logout } from "../actions";
 
 /**
  * Phase 5 (nav and mobile pass): replaces the old hamburger-drawer pattern
- * on mobile with a persistent bottom tab bar - the four primary
- * destinations (Today/People/Money/Schedule, per vertical filtering) always
- * one tap away, never behind a menu. Everything else (Dashboard, Inbox,
- * Opportunities, Reviews & Referrals, Auto follow-up, Numbers, Settings,
- * Agency Command Center when authorized) lives behind the fifth "More" tab,
- * which opens a bottom sheet rather than a second navigation surface -
- * reuses NavLink and getNavGroupsForVertical exactly as the desktop sidebar
- * does, so the two surfaces can never drift out of sync with each other.
+ * on mobile with a persistent bottom tab bar - the primary destinations
+ * (Dashboard/People/Jobs/Estimates/Schedule, per vertical filtering) always
+ * one tap away, never behind a menu. Everything else (Inbox, Reviews &
+ * Referrals, Automations, Insights, Settings, Agency Command Center when
+ * authorized) lives behind the trailing "More" tab, which opens a bottom
+ * sheet rather than a second navigation surface - reuses NavLink and
+ * getNavGroupsForVertical exactly as the desktop sidebar does, so the two
+ * surfaces can never drift out of sync with each other.
  */
 export function MobileTabBar({
   vertical,

@@ -13,7 +13,7 @@ export function AddAppointmentButton({ contacts, leads }: { contacts: Contact[];
 
   if (contacts.length === 0) {
     return (
-      <Link href="/contacts" className={secondaryButtonAutoClass}>
+      <Link href="/people" className={secondaryButtonAutoClass}>
         Add a contact first
       </Link>
     );

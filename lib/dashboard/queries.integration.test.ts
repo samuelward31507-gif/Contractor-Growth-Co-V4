@@ -343,7 +343,7 @@ test("18. dormant_customer: an old completed job with no active engagement, once
   const item = data.attentionItems.find((i) => i.kind === "dormant_customer");
   assert.ok(item, "expected a dormant_customer attention item");
   assert.equal(item!.value, null, "dormant/repeat-customer opportunities must never carry a fabricated future-service value");
-  assert.equal(item!.href, `/contacts/${contact!.id}`, "must deep-link to the real contact");
+  assert.equal(item!.href, `/people/${contact!.id}`, "must deep-link to the real contact");
   assert.ok(item!.opportunityId);
 
   const { data: oppRow } = await service.from("opportunities").select("source_entity_id, contact_id, type").eq("id", item!.opportunityId!).single();

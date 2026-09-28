@@ -7,6 +7,8 @@ import { MobileNav } from "./_components/mobile-nav";
 import { MobileTabBar } from "./_components/mobile-tab-bar";
 import { Sidebar } from "./_components/sidebar";
 import { TopBar } from "./_components/top-bar";
+import { getNavGroupsForVertical } from "./_components/nav-items";
+import { CommandMenu } from "@/lib/ui/command-menu";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const supabase = await createClient();
@@ -69,6 +71,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
         <MobileTabBar vertical={membership.vertical} showAgencyLink={showAgencyLink} userEmail={user.email ?? ""} />
       </div>
+      <CommandMenu navGroups={getNavGroupsForVertical(membership.vertical, showAgencyLink)} />
     </div>
   );
 }

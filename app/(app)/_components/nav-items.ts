@@ -12,7 +12,9 @@ export type NavIconName =
   | "Workflow"
   | "BarChart3"
   | "Building2"
-  | "Settings";
+  | "Settings"
+  | "Hammer"
+  | "FileText";
 
 import type { OrganizationVertical } from "@/lib/auth/organization";
 import { getTerminology } from "@/lib/verticals/terminology";
@@ -21,40 +23,45 @@ export type NavItem = {
   href: string;
   label: string;
   icon: NavIconName;
-  /** Omitted = visible to every vertical. Only Money (the merged /work destination) is contractor-specific today - everything else is vertical-neutral per the Gym Trackpr audit, unchanged by the Trackpr 2.0 IA work. */
+  /** Omitted = visible to every vertical. Jobs and Estimates (like Money before them) are contractor-specific - everything else is vertical-neutral per the Gym Trackpr audit, unchanged by the Trackpr 2.0 IA work. */
   verticals?: OrganizationVertical[];
 };
 export type NavGroup = { label: string | null; items: NavItem[] };
 
 /**
- * IA consolidation pass: the redesign audit found five things wrong with
- * the Phase 5 nav - Dashboard and Today both claiming to be the "what needs
- * you" screen (different counts, same underlying data), Opportunities
- * duplicating Today's own queue under a different visual, Customers and
- * People showing the identical 37 rows, Work and Money reading the same
- * estimates/jobs tables, and three pages (Automations, Analytics, Growth)
- * whose own H1 disagreed with their nav label. This nav is the result of
- * consolidating all five: Dashboard and Opportunities are gone from
- * navigation entirely (both fully absorbed into /today - see its own header
- * comment for exactly what moved), Customers/Leads/Contacts/Work are gone
- * (absorbed into /people and /money respectively), and every remaining
- * item's nav label now matches its own page H1 exactly. Four primary,
- * ungrouped destinations (Today, People, Money, Schedule), everything else
- * folded into one collapsible More group.
+ * Nav-restructure pass: un-merges Money back into its own two real
+ * destinations - Estimates and Jobs were always genuinely distinct data
+ * (never the "same 37 rows twice" problem the original IA consolidation
+ * pass fixed for Customers/People or Calendar/Appointments), and a
+ * contractor asked for the more granular, GHL-style breadth back:
+ * separately browsable Jobs and Estimates tabs rather than one merged
+ * Money view behind a tab switcher. Money's own page (app/(app)/money/
+ * page.tsx) is untouched and still fully reachable by URL - nothing it
+ * could do is lost - it's just no longer linked from navigation, the same
+ * "old routes remain, only the nav entry moves" pattern this codebase
+ * already uses everywhere else. The one real thing Money's own default tab
+ * showed that neither Estimates nor Jobs alone could - the cross-entity
+ * "what's in motion financially" snapshot - now lives on Dashboard instead
+ * (see lib/money/snapshot.ts and today/page.tsx's own "Money at a glance"
+ * section), so nothing behind that view was dropped either.
  *
- * Every legacy route this consolidation retires (/dashboard, /customers,
- * /leads, /contacts, /work, /estimates, /jobs, /opportunities, /analytics)
- * still resolves - each is now a redirect to its real destination (see each
- * route's own page.tsx) - never a second, competing navigation destination
- * for the same concept.
+ * "Today" is relabeled "Dashboard" in this list only - its href, page, and
+ * dynamic headline are all unchanged; this is the exact same screen, given
+ * back its familiar name as one more of the terms the contractor originally
+ * asked to restore, right alongside Jobs and Estimates.
+ *
+ * Five primary, ungrouped destinations now (Dashboard, People, Jobs,
+ * Estimates, Schedule), everything else still folded into one collapsible
+ * More group exactly as before.
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: null,
     items: [
-      { href: "/today", label: "Today", icon: "Sparkles" },
+      { href: "/today", label: "Dashboard", icon: "Sparkles" },
       { href: "/people", label: "People", icon: "Users" },
-      { href: "/money", label: "Money", icon: "Wallet", verticals: ["contractor"] },
+      { href: "/jobs", label: "Jobs", icon: "Hammer", verticals: ["contractor"] },
+      { href: "/estimates", label: "Estimates", icon: "FileText", verticals: ["contractor"] },
       { href: "/schedule", label: "Schedule", icon: "CalendarClock" },
     ],
   },

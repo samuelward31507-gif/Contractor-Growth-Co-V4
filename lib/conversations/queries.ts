@@ -132,6 +132,26 @@ export async function getConversations(supabase: SupabaseClient, organizationId:
 }
 
 /**
+ * Final Major Product Build: contact-scoped conversations for surfaces that
+ * only ever need one person's own conversations (the Appointment detail
+ * page's "what happens next"/"conversation" context) - a real,
+ * org+contact-filtered query at the database level, not a full
+ * getConversations() fetch filtered client-side. Mirrors
+ * getContactAppointments's exact contract.
+ */
+export async function getContactConversations(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Conversation[]> {
+  const { data } = await supabase
+    .from("conversations")
+    .select(CONVERSATION_COLUMNS)
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .order("updated_at", { ascending: false })
+    .limit(50);
+
+  return ((data ?? []) as RawConversationRow[]).map(normalizeConversation);
+}
+
+/**
  * Trackpr 2.0, Phase 4B (P1 #4): same read as getLastMessagesByConversation
  * below, but distinguishes genuine emptiness from a real Postgrest error -
  * see getConversationsResult's own comment for the full discipline and why
@@ -282,8 +302,10 @@ export function filterConversations(
 
 export type RelevantAppointment = {
   id: string;
+  contact_id: string | null;
   title: string;
   start_at: string;
+  end_at: string;
   status: AppointmentStatus;
 };
 
@@ -291,6 +313,15 @@ export type RelevantAppointment = {
  * Loads the contact's appointments (existing `appointments.contact_id` FK -
  * no new relationship) so the conversation context panel can surface the
  * most relevant one without a dedicated conversations<->appointments link.
+ *
+ * Final Major Product Build: contact_id/end_at added (both real columns
+ * already selected elsewhere, e.g. lib/appointments/queries.ts's own
+ * APPOINTMENT_COLUMNS) so this same scoped fetch can also feed
+ * findPersonNextStep/deriveContactLifecycle in the Inbox context panel -
+ * both need contact_id to satisfy their own Pick<Appointment, ...> input
+ * types, and end_at to render a real time range, not just a start time.
+ * Every existing consumer only ever destructures the original four fields,
+ * so this is a pure additive widening, not a breaking change.
  */
 export async function getContactAppointments(
   supabase: SupabaseClient,
@@ -299,7 +330,7 @@ export async function getContactAppointments(
 ): Promise<RelevantAppointment[]> {
   const { data } = await supabase
     .from("appointments")
-    .select("id, title, start_at, status")
+    .select("id, contact_id, title, start_at, end_at, status")
     .eq("organization_id", organizationId)
     .eq("contact_id", contactId)
     .order("start_at", { ascending: true })

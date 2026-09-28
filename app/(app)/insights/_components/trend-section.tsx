@@ -22,12 +22,21 @@ function formatDayLabel(dateKey: string): string {
  * scopes it to "reads BusinessMetricsSnapshot and calculates nothing
  * itself").
  */
-export function TrendSection({ series, failed }: { series: DailyCount[]; failed: boolean }) {
+export function TrendSection({
+  series,
+  failed,
+  isFallbackWindow,
+}: {
+  series: DailyCount[];
+  failed: boolean;
+  /** Final acceptance pass: true when the page's own selected range (e.g. "All time") has no concrete bounds for this day-bucketed chart to use, so it silently fell back to the last 30 days (see insights/page.tsx's own comment on chartRange). Without disclosing that here, "All time: 30 leads" above next to "0 new leads over this period" below reads as a contradiction on the same page, not two different, correctly-scoped numbers. */
+  isFallbackWindow: boolean;
+}) {
   const total = series.reduce((sum, point) => sum + point.count, 0);
 
   return (
     <div className="mt-6">
-      <p className={sectionLabelClass}>Leads, day by day</p>
+      <p className={sectionLabelClass}>Leads, day by day{isFallbackWindow ? " (last 30 days)" : ""}</p>
       <div className="mt-3">
         {failed ? (
           <p className="text-sm text-slate-500">Some information is temporarily unavailable. Please try again.</p>
@@ -37,6 +46,7 @@ export function TrendSection({ series, failed }: { series: DailyCount[]; failed:
       </div>
       <p className={`mt-3 ${metaClass}`}>
         {total} new lead{total === 1 ? "" : "s"} over this period, by the day they were created.
+        {isFallbackWindow ? " This chart always shows the last 30 days, even when a wider range is selected above." : ""}
       </p>
     </div>
   );
