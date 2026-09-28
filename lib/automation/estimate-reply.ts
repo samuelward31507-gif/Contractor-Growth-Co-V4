@@ -5,7 +5,7 @@ import { evaluateOutboundGate } from "./outbound-gate";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { recordAutomationHealthSignal } from "../automation-health/service";
 import { emitEstimateLifecycleEventAsService } from "./estimates";
-import { emitJobCreatedFromEstimate } from "./jobs";
+import { emitJobCreatedFromEstimateAsService } from "./jobs";
 import { notifyFounder } from "@/lib/notifications/founder";
 import type { SendSmsInput, SendSmsResult } from "./sms";
 
@@ -147,27 +147,14 @@ export async function classifyAndProcessEstimateReply(
 
   if (!transitioned) return;
 
-  // KNOWN, ACCEPTED LIMITATION: emitJobCreatedFromEstimate (lib/automation/jobs.ts)
-  // is documented as session-only ("always has an authenticated user
-  // session, hence the plain (non-service) event/execution helpers") - it
-  // still correctly creates the job row and syncs leads.status to 'won'
-  // when called with a service-role client (both are plain table writes,
-  // not session-gated), but its own internal job.created/lead-stage-history
-  // event emission silently no-ops ("Not authenticated.", caught and
-  // logged, never thrown) since those sub-calls require a real auth.uid().
-  // The practical effect: the job/lead-won side of estimate acceptance is
-  // fully correct via this path, but the separate, optional "AI-drafted job
-  // kickoff" notification (job-created-followup) does not fire for a job
-  // created this way - not a regression (nothing called this function with
-  // a service-role client before), and not user-visible data loss (this
-  // function's own confirmation SMS below already tells the customer their
-  // estimate was accepted). Left as-is rather than modifying
-  // emitJobCreatedFromEstimate itself, to avoid touching a shared,
-  // already-tested function's contract for every other caller - a
-  // dedicated *AsService variant would be the correct follow-up if the job
-  // kickoff notification is wanted for this specific path.
+  // Phase 1B-5 (approved option 2): this path has no auth session, so it
+  // uses the service-role variant, which creates the job, syncs the lead to
+  // won, and records lead.stage_changed and a lifecycle-only job.created
+  // marker. It deliberately does NOT dispatch the job_created_followup
+  // kickoff workflow (no n8n, no SMS from that step); the confirmation SMS
+  // below is this function's own, pre-existing behavior.
   await emitEstimateLifecycleEventAsService(supabase, organizationId, activeEstimate.id, "estimate.accepted");
-  await emitJobCreatedFromEstimate(supabase, organizationId, activeEstimate.id);
+  await emitJobCreatedFromEstimateAsService(supabase, organizationId, activeEstimate.id);
 
   const eventResult = await createAutomationEventAsService(supabase, organizationId, {
     eventType: "estimate.accepted_via_reply",

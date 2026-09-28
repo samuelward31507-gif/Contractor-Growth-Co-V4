@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
@@ -24,6 +25,13 @@ import { JobsSummary } from "../jobs/_components/jobs-summary";
 import { JobsTable } from "../jobs/_components/jobs-table";
 import { JobsToolbar } from "../jobs/_components/jobs-toolbar";
 import { MoneyTabs, type MoneyTab } from "./_components/money-tabs";
+import { getInvoicesResult, getCustomerPaymentsResult } from "@/lib/invoices/queries";
+import { filterInvoices, summarizeInvoiceMoney } from "@/lib/invoices/summary";
+import { calendarDateInTimeZone, INVOICE_STATUSES, type InvoiceStatus } from "@/lib/invoices/domain";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
+import { InvoiceMoneySummaryCards } from "../invoices/_components/invoice-money-summary";
+import { InvoicesTable } from "../invoices/_components/invoices-table";
+import { InvoicesToolbar } from "../invoices/_components/invoices-toolbar";
 
 function totalsLine(entries: MoneyEntry[]): string {
   if (entries.length === 0) return "";
@@ -39,7 +47,13 @@ function totalsLine(entries: MoneyEntry[]): string {
 function normalizeBrowse(value: string | undefined): MoneyTab {
   if (value === "estimates") return "estimates";
   if (value === "jobs") return "jobs";
+  if (value === "invoices") return "invoices";
   return "money";
+}
+
+function normalizeInvoiceStatus(value: string | undefined): InvoiceStatus | "all" | "overdue" {
+  if (value === "overdue") return "overdue";
+  return value && (INVOICE_STATUSES as readonly string[]).includes(value) ? (value as InvoiceStatus) : "all";
 }
 
 function normalizeEstimateStatus(value: string | undefined): EstimateStatus | "all" {
@@ -73,6 +87,7 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
   const query = typeof params.q === "string" ? params.q : "";
   const estimateStatus = normalizeEstimateStatus(typeof params.status === "string" ? params.status : undefined);
   const jobStatus = normalizeJobStatus(typeof params.status === "string" ? params.status : undefined);
+  const invoiceStatus = normalizeInvoiceStatus(typeof params.status === "string" ? params.status : undefined);
 
   const supabase = await createClient();
 
@@ -89,15 +104,25 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
     redirect("/onboarding");
   }
 
-  const [estimatesResult, jobsResult, contacts, leads] = await Promise.all([
+  const [estimatesResult, jobsResult, contacts, leads, invoicesResult, paymentsResult, timeZone] = await Promise.all([
     getEstimatesResult(supabase, membership.organizationId),
     getJobsResult(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
+    // Phase 1B-3: invoices and the customer_payments ledger, the only
+    // source "Collected" may ever be computed from.
+    getInvoicesResult(supabase, membership.organizationId),
+    getCustomerPaymentsResult(supabase, membership.organizationId),
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
   const allEstimates = estimatesResult.data;
   const allJobs = jobsResult.data;
-  const failed = estimatesResult.failed || jobsResult.failed;
+  const allInvoices = invoicesResult.data;
+  const failed = estimatesResult.failed || jobsResult.failed || invoicesResult.failed || paymentsResult.failed;
+  const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
+  const invoiceSummary = summarizeInvoiceMoney({ invoices: allInvoices, payments: paymentsResult.data, jobs: allJobs, today });
+  const filteredInvoices = filterInvoices(allInvoices, { query, status: invoiceStatus }, today);
+  const hasActiveInvoiceFilters = Boolean(query.trim()) || invoiceStatus !== "all";
 
   const { quotesOut, readyToSchedule, wonNotFinished, knownOpportunityValue } = computeMoneySnapshot(allEstimates, allJobs);
 
@@ -114,10 +139,14 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
         <div>
           <h1 className={pageTitleClass}>Money</h1>
           <p className={`mt-1.5 ${pageDescriptionClass}`}>
-            {browse === "money" ? "What's out for a decision, what's ready to schedule, and what's already won but not finished." : "Every estimate and job, searchable and filterable."}
+            {browse === "money"
+              ? "What's out for a decision, what's ready to schedule, what's already won but not finished, and what's been billed and collected."
+              : browse === "invoices"
+                ? "Every invoice, with what has been collected against it. Invoices are created from a job."
+                : "Every estimate and job, searchable and filterable."}
           </p>
         </div>
-        {browse !== "money" ? (
+        {browse === "jobs" || browse === "estimates" ? (
           <div className="shrink-0">{browse === "jobs" ? <AddJobButton contacts={contacts} leads={leads} /> : <AddEstimateButton contacts={contacts} leads={leads} />}</div>
         ) : null}
       </div>
@@ -141,6 +170,14 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
           </StatGrid>
 
           <div>
+            <p className={sectionLabelClass}>Invoices &amp; payments</p>
+            <p className="mt-1 text-xs text-slate-500">Invoiced and outstanding are amounts asked for. Collected is money actually received - the only figure here that is.</p>
+            <div className="mt-3">
+              <InvoiceMoneySummaryCards summary={invoiceSummary} />
+            </div>
+          </div>
+
+          <div>
             <p className={sectionLabelClass}>Quotes out</p>
             <MoneyEntriesTable entries={quotesOut} emptyMessage="No quotes are out right now." />
           </div>
@@ -154,6 +191,28 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
             <p className={sectionLabelClass}>Won, not finished</p>
             <MoneyEntriesTable entries={wonNotFinished} emptyMessage="No jobs in progress right now." />
           </div>
+        </>
+      ) : null}
+
+      {browse === "invoices" ? (
+        <>
+          <InvoiceMoneySummaryCards summary={invoiceSummary} />
+          {allInvoices.length === 0 ? (
+            <Panel>
+              <p className="text-sm font-semibold text-slate-900">No invoices yet</p>
+              <p className="mt-1 text-sm text-slate-500">Open a job and choose Create invoice. It starts as a draft you can review before issuing.</p>
+              <Link href="/money?browse=jobs&status=completed" className="mt-3 inline-block text-sm font-medium text-slate-900 hover:underline">
+                See completed jobs
+              </Link>
+            </Panel>
+          ) : (
+            <Panel>
+              <InvoicesToolbar initialQuery={query} initialStatus={invoiceStatus} extraParams={{ browse: "invoices" }} />
+              <div className="mt-5">
+                <InvoicesTable invoices={filteredInvoices} hasActiveFilters={hasActiveInvoiceFilters} today={today} />
+              </div>
+            </Panel>
+          )}
         </>
       ) : null}
 

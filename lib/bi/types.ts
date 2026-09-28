@@ -3,6 +3,7 @@ import type { EstimateStatus } from "@/lib/estimates/queries";
 import type { JobStatus } from "@/lib/jobs/queries";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { ConversationChannel, MessageStatus } from "@/lib/conversations/queries";
+import type { BiBillingMetrics } from "./billing";
 
 /**
  * Phase 5.1 - canonical BI metric types. These are the ONLY shapes the
@@ -10,12 +11,18 @@ import type { ConversationChannel, MessageStatus } from "@/lib/conversations/que
  * business metrics from - no page or feature should recompute any of these
  * numbers itself. See lib/bi/queries.ts for the single implementation.
  *
- * Naming discipline (per the Phase 5.1 audit): this codebase has no payment
- * infrastructure. Nothing here is ever called "revenue" - `estimated_value`,
+ * Naming discipline (per the Phase 5.1 audit): `estimated_value`,
  * `estimates.amount`, and `jobs.amount` are all quoted/contracted figures,
  * never confirmed collected money. Field names spell this out explicitly
  * (`pipelineValue`, `estimateValue`, `contractedJobValue`, ...) specifically
  * so a future caller cannot accidentally treat one of these as revenue.
+ *
+ * Phase 1B-4 (Close the Money Loop): a payment ledger now exists
+ * (public.invoices / public.customer_payments, see lib/bi/billing.ts). The
+ * ONE figure that may be called collected revenue is
+ * BiBillingMetrics.collectedValue - "Collected revenue = customer payments
+ * recorded in Trackpr, net of recorded reversals." Every quoted/contracted
+ * figure above keeps its name and its "never revenue" rule.
  */
 
 // ---------------------------------------------------------------------------
@@ -354,6 +361,15 @@ export type BusinessMetricsComparisons = {
    * compares a rate across periods - see this field's own Batch 3B audit).
    */
   leadsContacted: PeriodComparison;
+  /**
+   * Phase 1B-4: SUM(invoices.total) issued in the current vs. previous
+   * period (BiBillingMetrics.invoicedValue) - the same open-ended-range and
+   * zero-previous rules as every count above, applied to a dollar sum. Money
+   * asked for, never revenue.
+   */
+  invoicedValue: PeriodComparison;
+  /** Phase 1B-4: BiBillingMetrics.collectedValue, current vs. previous period - net customer payments, the one figure that is money received. */
+  collectedValue: PeriodComparison;
 };
 
 export type BiLeadMetrics = {
@@ -587,8 +603,15 @@ export type BiRevenueOpportunity = {
  * "do not overbuild a data-quality framework" instruction.
  */
 export type BiDataQuality = {
-  /** No payment/invoicing infrastructure exists anywhere in this codebase - every "value" figure is quoted/contracted, never confirmed collected money. */
-  collectedRevenueUnavailable: true;
+  /**
+   * Phase 1B-4: previously a hardcoded `true` (no payment ledger existed).
+   * Now computed per snapshot: `false` whenever the invoices and
+   * customer_payments ledger was read successfully - collected revenue is
+   * then BiBillingMetrics.collectedValue and nothing else; `true` only when
+   * that read failed, in which case billingMetrics is zeroed and disclosed
+   * via partialData, never presented as a real "$0 collected."
+   */
+  collectedRevenueUnavailable: boolean;
   /** leads.source is nullable, free-text, and not standardized - source counts are exposed but never ranked or labeled as "best"/"worst"/"highest converting". */
   sourceAttributionLimited: true;
   /**
@@ -637,6 +660,13 @@ export type BusinessMetricsSnapshot = {
   automationMetrics: BiAutomationMetrics;
   aiMetrics: BiAiMetrics;
   followUpMetrics: BiFollowUpMetrics;
+  /**
+   * Phase 1B-4: invoices issued / payments collected in `period` (scoped by
+   * issued_at and received_at respectively, the half-open convention), plus
+   * the current-state outstanding/overdue balances as of today in the
+   * organization's timezone. See lib/bi/billing.ts for every definition.
+   */
+  billingMetrics: BiBillingMetrics;
   /**
    * Pass 3 (Revenue Intelligence Foundation): unlike every other group in
    * this snapshot, revenueOpportunity is deliberately NEVER scoped by
@@ -695,7 +725,7 @@ export type BusinessMetricsSnapshot = {
    * one bounded, non-identifying number this exposes.
    */
   partialData: boolean;
-  /** Count (0-5) of which of this snapshot's own 5 tracked reads failed - bounded, non-identifying, for future debugging only. Never rendered to the end user as a specific number. */
+  /** Count of which of this snapshot's own tracked reads failed (the five Phase 4B core reads, the funnel reads, and Phase 1B-4's billing ledger read) - bounded, non-identifying, for future debugging only. Never rendered to the end user as a specific number. */
   partialDataSourceCount: number;
   /** Wall-clock time this snapshot was computed - not a business timestamp. */
   generatedAt: string;

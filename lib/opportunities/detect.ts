@@ -9,6 +9,9 @@ import {
 import { getAutomationConfigByOrganization, readCustomerReactivationConfig, getAutomationEnabled } from "@/lib/automation/settings";
 import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
 import { HIGH_VALUE_THRESHOLD } from "@/lib/dashboard/queries";
+import { calendarDateInTimeZone, formatInvoiceNumber, formatMoney, isOverdue, type InvoiceStatus } from "@/lib/invoices/domain";
+import { isLegacyCompletedJob } from "@/lib/invoices/summary";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { getOpportunityById, type OpportunityType, type OpportunityStatus, type OpportunityResolutionReason } from "./queries";
 
 /**
@@ -148,6 +151,38 @@ import { getOpportunityById, type OpportunityType, type OpportunityStatus, type 
  *                                        contract, or a future acceptance
  *                                        path this file doesn't know
  *                                        about) - never a claim about why.
+ *
+ *   completed_job_not_invoiced        - Phase 1B-5 (Close the Money Loop). A
+ *                                        jobs.status='completed' job with no
+ *                                        live (non-void) invoices row, for
+ *                                        jobs completed since Trackpr
+ *                                        invoicing went live - legacy jobs
+ *                                        are excluded by the exact same
+ *                                        documented cutoff Money and the
+ *                                        next-step logic already use
+ *                                        (lib/invoices/summary.ts's
+ *                                        INVOICING_LIVE_AT /
+ *                                        isLegacyCompletedJob). No waiting
+ *                                        window: Money's own "Not yet
+ *                                        invoiced" figure surfaces the same
+ *                                        job immediately, and a second,
+ *                                        different definition here would
+ *                                        recreate the "which number do I
+ *                                        trust" problem.
+ *   invoice_overdue                   - Phase 1B-5. An invoices row with
+ *                                        status sent/partially_paid whose
+ *                                        due_date is before today in the
+ *                                        organization's own timezone - the
+ *                                        identical read-time derivation
+ *                                        (lib/invoices/domain.ts's isOverdue)
+ *                                        the invoice page, Money and Insights
+ *                                        use; never a stored status. Sourced
+ *                                        from the JOB (invoices_one_live_per_
+ *                                        job makes the job id the stable
+ *                                        dedup key across void-and-reissue);
+ *                                        the invoice id travels in
+ *                                        metadata.invoice_id, the
+ *                                        pending_estimate convention.
  *
  * Deliberately NOT implemented (each would need either new structured data
  * this schema doesn't have, or a data path too ambiguous to safely
@@ -939,6 +974,89 @@ async function detectPendingEstimates(supabase: SupabaseClient, organizationId: 
   }));
 }
 
+// ---------------------------------------------------------------------------
+// M. completed_job_not_invoiced (Phase 1B-5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Two bounded, org-scoped reads (completed jobs, then this org's non-void
+ * invoices) aggregated in memory - the same shape every other detector here
+ * uses. The value shown is jobs.amount, the contracted figure for the work
+ * already done and not yet billed - labeled by its basis, never called
+ * collected or revenue. Null when the job has no amount; never coerced.
+ */
+export async function detectCompletedJobsNotInvoiced(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
+  const { data: jobRows } = await supabase
+    .from("jobs")
+    .select("id, contact_id, title, amount, completed_at, created_at, contacts(id, first_name, last_name, company_name)")
+    .eq("organization_id", organizationId)
+    .eq("status", "completed")
+    .limit(MAX_ROWS);
+
+  const jobs = ((jobRows ?? []) as { id: string; contact_id: string | null; title: string; amount: number | null; completed_at: string | null; created_at: string; contacts: ContactRef }[]).filter(
+    (job) => !isLegacyCompletedJob({ status: "completed", completed_at: job.completed_at, created_at: job.created_at }),
+  );
+  if (jobs.length === 0) return [];
+
+  const { data: invoiceRows } = await supabase.from("invoices").select("job_id").eq("organization_id", organizationId).neq("status", "void").limit(MAX_ROWS);
+  const invoicedJobIds = new Set(((invoiceRows ?? []) as { job_id: string }[]).map((row) => row.job_id));
+
+  return jobs
+    .filter((job) => !invoicedJobIds.has(job.id))
+    .map((job) => ({
+      type: "completed_job_not_invoiced" as const,
+      sourceEntityType: "job" as const,
+      sourceEntityId: job.id,
+      contactId: job.contact_id,
+      title: displayNameOrFallback(job.contacts, job.title),
+      description: `Completed job "${job.title}" has not been invoiced yet.`,
+      estimatedValue: job.amount,
+      valueBasis: job.amount != null ? "jobs.amount" : null,
+      metadata: { job_completed_at: job.completed_at },
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// N. invoice_overdue (Phase 1B-5)
+// ---------------------------------------------------------------------------
+
+/**
+ * One bounded, org-scoped read of the open (sent/partially_paid) invoices,
+ * judged against today's calendar date in the organization's timezone -
+ * the same `today` getInvoiceWithContext computes for the invoice page. The
+ * value is the invoice's own balance_due (a generated column the database
+ * maintains) - money asked for and still owed, never collected.
+ */
+export async function detectOverdueInvoices(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
+  const [timeZone, { data: invoiceRows }] = await Promise.all([
+    getOrganizationTimezone(supabase, organizationId),
+    supabase
+      .from("invoices")
+      .select("id, job_id, contact_id, number, title, status, balance_due, due_date, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .in("status", ["sent", "partially_paid"])
+      .not("due_date", "is", null)
+      .limit(MAX_ROWS),
+  ]);
+  const today = calendarDateInTimeZone(now, timeZone ?? "UTC");
+
+  const rows = (invoiceRows ?? []) as { id: string; job_id: string; contact_id: string | null; number: number; title: string; status: InvoiceStatus; balance_due: number; due_date: string | null; contacts: ContactRef }[];
+
+  return rows
+    .filter((invoice) => isOverdue({ status: invoice.status, dueDate: invoice.due_date }, today))
+    .map((invoice) => ({
+      type: "invoice_overdue" as const,
+      sourceEntityType: "job" as const,
+      sourceEntityId: invoice.job_id,
+      contactId: invoice.contact_id,
+      title: displayNameOrFallback(invoice.contacts, invoice.title),
+      description: `${formatInvoiceNumber(invoice.number)} was due ${invoice.due_date} - ${formatMoney(invoice.balance_due)} still outstanding.`,
+      estimatedValue: invoice.balance_due,
+      valueBasis: "invoices.balance_due",
+      metadata: { invoice_id: invoice.id, invoice_number: invoice.number, due_date: invoice.due_date, balance_due: invoice.balance_due, judged_against: today },
+    }));
+}
+
 export async function detectAllOpportunityCandidates(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<OpportunityCandidate[]> {
   const [
     qualifiedLeads,
@@ -953,6 +1071,8 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     acceptedEstimatesNoJob,
     activeLeadSignals,
     pendingEstimates,
+    completedJobsNotInvoiced,
+    overdueInvoices,
   ] = await Promise.all([
     detectQualifiedLeadsUnbooked(supabase, organizationId),
     detectStaleEstimates(supabase, organizationId),
@@ -966,6 +1086,8 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     detectAcceptedEstimatesWithoutJob(supabase, organizationId, now),
     detectActiveLeadSignals(supabase, organizationId),
     detectPendingEstimates(supabase, organizationId),
+    detectCompletedJobsNotInvoiced(supabase, organizationId),
+    detectOverdueInvoices(supabase, organizationId, now),
   ]);
 
   // Canonical Opportunity Intelligence Layer: active_lead_signal and
@@ -1004,6 +1126,11 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     ...acceptedEstimatesNoJob,
     ...dedupedActiveLeadSignals,
     ...dedupedPendingEstimates,
+    // Phase 1B-5: mutually exclusive by construction (one needs no live
+    // invoice, the other an overdue live invoice), so no cross-dedup is
+    // needed between them; each keys on the job id.
+    ...completedJobsNotInvoiced,
+    ...overdueInvoices,
   ];
 }
 

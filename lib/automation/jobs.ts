@@ -1,13 +1,13 @@
 import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAutomationEvent } from "./events";
-import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution } from "./executions";
+import { createAutomationEvent, createAutomationEventAsService } from "./events";
+import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution, startWorkflowExecutionAsService, completeWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getEstimate } from "@/lib/estimates/queries";
 import { getJob, getJobByEstimateId } from "@/lib/jobs/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
-import { emitLeadStageChanged } from "./lead-stage-history";
+import { emitLeadStageChanged, emitLeadStageChangedAsService } from "./lead-stage-history";
 import type { LeadStatus } from "@/lib/leads/queries";
 
 export const JOB_CREATED_WORKFLOW = "job_created_followup";
@@ -123,6 +123,139 @@ export async function emitJobCreatedFromEstimate(
   }
 
   await emitJobCreatedEvent(supabase, organizationId, jobId, estimateId);
+}
+
+/**
+ * Phase 1B-5 (approved option 2, lifecycle only): the service-role twin of
+ * emitJobCreatedFromEstimate above, for the two estimate-acceptance paths
+ * that have no Supabase Auth session - the public quote approval link
+ * (lib/estimates/approval.ts) and the customer's SMS "yes"
+ * (lib/automation/estimate-reply.ts). Before this, both called the
+ * session-only function with a service client: the job row and the
+ * lead -> won sync were correct, but the job.created event and the lead
+ * stage-history entry silently no-oped ("Not authenticated.").
+ *
+ * Job creation and the lead -> won sync are the identical writes, guards and
+ * 23505 resolution as the session variant. What differs, by explicit
+ * decision:
+ *   - lead.stage_changed goes through emitLeadStageChangedAsService with the
+ *     same idempotency suffix (the estimate id) as the session path.
+ *   - job.created is recorded as a LIFECYCLE-ONLY marker: created, started
+ *     under `job_created_lifecycle`, completed with lifecycle_only: true. It
+ *     never dispatches job_created_followup, never calls n8n, never creates
+ *     a conversation, and never sends SMS or email. The idempotency key is
+ *     the same `job.created:<job_id>` the session path uses, so a job can
+ *     only ever carry one job.created row whichever path created it.
+ *   - createAutomationEventAsService still applies the job-lifecycle
+ *     catalog entry's enable toggle and automation_paused, exactly as the
+ *     session path's createAutomationEvent does for this event type.
+ *
+ * `organizationId` must already be trusted - both callers derive it from
+ * the estimate row itself (resolved from an approval token or from the
+ * organization that owns the inbound SMS number), never from input.
+ * Never throws: the estimate transition already committed.
+ */
+export async function emitJobCreatedFromEstimateAsService(
+  supabase: SupabaseClient,
+  organizationId: string,
+  estimateId: string,
+): Promise<void> {
+  try {
+    const estimate = await getEstimate(supabase, organizationId, estimateId);
+    if (!estimate) {
+      console.error("[automation] emitJobCreatedFromEstimateAsService: estimate not found", { estimateId, organizationId });
+      return;
+    }
+
+    let jobId: string;
+    const { data: inserted, error: insertError } = await supabase
+      .from("jobs")
+      .insert({
+        organization_id: organizationId,
+        contact_id: estimate.contact_id,
+        lead_id: estimate.lead_id,
+        estimate_id: estimateId,
+        title: estimate.title,
+        amount: estimate.amount,
+        status: "scheduled",
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      if (insertError.code === "23505") {
+        const existing = await getJobByEstimateId(supabase, organizationId, estimateId);
+        if (!existing) {
+          console.error("[automation] job insert conflicted but existing row not found", { estimateId, organizationId });
+          return;
+        }
+        jobId = existing.id;
+      } else {
+        console.error("[automation] failed to create job from estimate", { estimateId, error: insertError.message });
+        return;
+      }
+    } else {
+      jobId = inserted.id;
+    }
+
+    if (estimate.lead_id) {
+      const { data: leadBeforeWon } = await supabase.from("leads").select("status").eq("id", estimate.lead_id).eq("organization_id", organizationId).maybeSingle();
+
+      const { data: wonLead, error: leadWonUpdateError } = await supabase
+        .from("leads")
+        .update({ status: "won" })
+        .eq("id", estimate.lead_id)
+        .eq("organization_id", organizationId)
+        .neq("status", "won")
+        .select("id")
+        .maybeSingle();
+
+      if (leadWonUpdateError) {
+        console.error("[automation] failed to sync lead status to won", { estimateId, leadId: estimate.lead_id, error: leadWonUpdateError.message });
+      } else if (wonLead && leadBeforeWon) {
+        await emitLeadStageChangedAsService(supabase, organizationId, {
+          leadId: estimate.lead_id,
+          previousStatus: leadBeforeWon.status as LeadStatus,
+          newStatus: "won",
+          source: "automation",
+          idempotencySuffix: estimateId,
+        });
+      }
+    }
+
+    const eventResult = await createAutomationEventAsService(supabase, organizationId, {
+      eventType: "job.created",
+      entityType: "job",
+      entityId: jobId,
+      payload: {
+        job_id: jobId,
+        estimate_id: estimateId,
+        contact_id: estimate.contact_id,
+        lead_id: estimate.lead_id,
+        lifecycle_only: true,
+      },
+      idempotencyKey: `job.created:${jobId}`,
+    });
+
+    if (!eventResult.ok) {
+      console.error("[automation] failed to create job.created event", { jobId, error: eventResult.error });
+      return;
+    }
+    if (eventResult.duplicate || eventResult.skipped) return;
+
+    const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, "job_created_lifecycle");
+    if (!executionResult.ok) {
+      console.error("[automation] failed to start job.created lifecycle execution", { jobId, error: executionResult.error });
+      return;
+    }
+
+    const completed = await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, { lifecycle_only: true, job_id: jobId });
+    if (!completed.ok) {
+      console.error("[automation] failed to complete job.created lifecycle execution", { jobId, error: completed.error });
+    }
+  } catch (error) {
+    console.error("[automation] emitJobCreatedFromEstimateAsService threw", { estimateId, error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 /**

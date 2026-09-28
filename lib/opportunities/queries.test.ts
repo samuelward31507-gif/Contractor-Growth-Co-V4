@@ -50,6 +50,8 @@ test("empty list: a real zeroed summary, never null and never a fabricated non-z
     accepted_estimate_no_job: 0,
     active_lead_signal: 0,
     pending_estimate: 0,
+    completed_job_not_invoiced: 0,
+    invoice_overdue: 0,
   });
 });
 

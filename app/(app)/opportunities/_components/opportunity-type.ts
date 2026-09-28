@@ -11,6 +11,8 @@ import {
   Share2,
   Flame,
   Send,
+  Receipt,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import type { BadgeTone } from "@/lib/ui/badge";
@@ -40,6 +42,8 @@ import type { Opportunity, OpportunityType } from "@/lib/opportunities/queries";
  */
 export const OPPORTUNITY_TYPE_ORDER: OpportunityType[] = [
   "accepted_estimate_no_job",
+  "invoice_overdue",
+  "completed_job_not_invoiced",
   "qualified_lead_unbooked",
   "completed_appointment_no_estimate",
   "uncontacted_lead",
@@ -66,6 +70,8 @@ export const OPPORTUNITY_TYPE_LABEL: Record<OpportunityType, string> = {
   completed_job_no_referral_request: "Referral request needed",
   active_lead_signal: "Marked hot or high-value",
   pending_estimate: "Estimate sent, awaiting reply",
+  completed_job_not_invoiced: "Completed, not invoiced",
+  invoice_overdue: "Invoice overdue",
 };
 
 export const OPPORTUNITY_TYPE_ICON: Record<OpportunityType, LucideIcon> = {
@@ -81,6 +87,8 @@ export const OPPORTUNITY_TYPE_ICON: Record<OpportunityType, LucideIcon> = {
   completed_job_no_referral_request: Share2,
   active_lead_signal: Flame,
   pending_estimate: Send,
+  completed_job_not_invoiced: Receipt,
+  invoice_overdue: AlertTriangle,
 };
 
 export const OPPORTUNITY_TYPE_TONE: Record<OpportunityType, BadgeTone> = {
@@ -96,6 +104,8 @@ export const OPPORTUNITY_TYPE_TONE: Record<OpportunityType, BadgeTone> = {
   completed_job_no_referral_request: "neutral",
   active_lead_signal: "info",
   pending_estimate: "neutral",
+  completed_job_not_invoiced: "warning",
+  invoice_overdue: "danger",
 };
 
 /**
@@ -148,7 +158,15 @@ export function opportunityActionHref(opportunity: Opportunity): string {
       return opportunity.contactId ? `/people/${opportunity.contactId}` : "/people";
     case "completed_job_no_review_request":
     case "completed_job_no_referral_request":
+    // Phase 1B-5: the job page owns the Create-invoice affordance.
+    case "completed_job_not_invoiced":
       return `/jobs/${opportunity.sourceEntityId}`;
+    case "invoice_overdue": {
+      // Sourced from the job (the stable dedup key); the invoice id travels
+      // in metadata exactly like pending_estimate's estimate id.
+      const invoiceId = opportunity.metadata.invoice_id;
+      return typeof invoiceId === "string" ? `/invoices/${invoiceId}` : "/money?browse=invoices&status=overdue";
+    }
   }
 }
 
@@ -165,4 +183,6 @@ export const OPPORTUNITY_ACTION_LABEL: Record<OpportunityType, string> = {
   completed_job_no_referral_request: "View job",
   active_lead_signal: "View lead",
   pending_estimate: "View estimate",
+  completed_job_not_invoiced: "Create invoice",
+  invoice_overdue: "View invoice",
 };

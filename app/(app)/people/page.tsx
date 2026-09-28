@@ -8,6 +8,7 @@ import { getJobs } from "@/lib/jobs/queries";
 import { getAppointments } from "@/lib/appointments/queries";
 import { getReviewRequests } from "@/lib/reviews-referrals/queries";
 import { getConversations } from "@/lib/conversations/queries";
+import { getInvoices } from "@/lib/invoices/queries";
 import { deriveContactLifecycle, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
 import { summarizeOpenLeadValue } from "@/lib/contacts/open-lead-value";
 import { findPersonNextStep, type NextStep } from "@/lib/people/next-step";
@@ -105,7 +106,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     redirect("/onboarding");
   }
 
-  const [allContacts, leads, estimates, jobs, appointments, reviewRequests, conversations] = await Promise.all([
+  const [allContacts, leads, estimates, jobs, appointments, reviewRequests, conversations, invoices] = await Promise.all([
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getEstimates(supabase, membership.organizationId),
@@ -113,6 +114,10 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     getAppointments(supabase, membership.organizationId),
     getReviewRequests(supabase, membership.organizationId),
     getConversations(supabase, membership.organizationId),
+    // Phase 1B-4: this org's invoices, bucketed per contact below exactly
+    // like estimates/jobs, so a completed job's next step can read its live
+    // invoice ("Collect payment" / "Create invoice") - see lib/people/next-step.ts.
+    getInvoices(supabase, membership.organizationId),
   ]);
   const lifecycleByContactId = new Map<string, ContactLifecycleStage>(
     allContacts.map((contact) => [contact.id, deriveContactLifecycle(contact.id, { leads, estimates, jobs, appointments, reviewRequests })]),
@@ -138,6 +143,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   const jobsByContactId = groupByContactId(jobs);
   const appointmentsByContactId = groupByContactId(appointments);
   const conversationsByContactId = groupByContactId(conversations);
+  const invoicesByContactId = groupByContactId(invoices);
 
   const valueByContactId = new Map<string, ReturnType<typeof summarizeOpenLeadValue>>();
   const nextStepByContactId = new Map<string, NextStep | null>();
@@ -151,6 +157,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
         estimates: estimatesByContactId.get(contact.id) ?? [],
         jobs: jobsByContactId.get(contact.id) ?? [],
         conversations: conversationsByContactId.get(contact.id) ?? [],
+        invoices: invoicesByContactId.get(contact.id) ?? [],
       }),
     );
   }

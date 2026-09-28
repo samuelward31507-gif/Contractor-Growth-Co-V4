@@ -16,6 +16,7 @@ import type {
   BiDataQuality,
   ResolvedDateRange,
 } from "./types";
+import { SANCTIONED_COLLECTED_REVENUE_DEFINITION, type BiBillingMetrics } from "./billing";
 
 /**
  * Phase 5.3 - AI Business Insights layer. This is a pure TRANSFORMATION on
@@ -154,6 +155,8 @@ export type AiInsightsInput = {
   automationMetrics: BiAutomationMetrics;
   aiMetrics: BiAiMetrics;
   followUpMetrics: BiFollowUpMetrics;
+  /** Phase 1B-4: the invoice/payment ledger figures (lib/bi/billing.ts) - aggregate sums/counts only, no invoice numbers, notes, or ids. */
+  billingMetrics: BiBillingMetrics;
   dataQuality: BiDataQuality;
 };
 
@@ -170,6 +173,7 @@ export function buildAiInsightsInput(snapshot: BusinessMetricsSnapshot): AiInsig
     automationMetrics: snapshot.automationMetrics,
     aiMetrics: snapshot.aiMetrics,
     followUpMetrics: snapshot.followUpMetrics,
+    billingMetrics: snapshot.billingMetrics,
     dataQuality: snapshot.dataQuality,
   };
 }
@@ -185,12 +189,12 @@ MANDATORY RULES - failing any of these makes your entire response unusable:
 2. Never invent a cause, reason, or explanation for a change unless the supplied metrics explicitly state it. "Lead volume decreased" is fine. "Your marketing stopped working" is not - nothing in the data says why it changed.
 3. Never infer a customer's motive, opinion, or behavior (e.g. "customers are price-sensitive," "customers disliked the service," "customers are unreliable"). You only have aggregate counts, never customer intent.
 4. Never claim a lead source is better, worse, higher-converting, or lower-converting than another, even if one has a higher count. A higher lead count from one source is not evidence of quality - report counts only, e.g. "Facebook accounted for X leads."
-5. Never call pipelineValue, estimateValue, acceptedEstimateValue, contractedJobValue, or completedContractedJobValue "revenue," "revenue collected," "cash collected," "profit," or "income." These are quoted/contracted figures, not confirmed collected money - completedContractedJobValue is the contracted value of completed work, not a payment record. If dataQuality.collectedRevenueUnavailable is true, you may say collected revenue is not available because Trackpr does not currently have payment data.
+5. Never call pipelineValue, estimateValue, acceptedEstimateValue, contractedJobValue, completedContractedJobValue, billingMetrics.invoicedValue, or billingMetrics.outstandingValue "revenue," "revenue collected," "cash collected," "profit," or "income." These are quoted, contracted, or invoiced figures, not money received - completedContractedJobValue is the contracted value of completed work, and invoicedValue is money asked for. The ONLY figure you may call collected revenue is billingMetrics.collectedValue (compared across periods in comparisons.collectedValue). Whenever you mention collected revenue, use exactly this definition: "${SANCTIONED_COLLECTED_REVENUE_DEFINITION}" Never say "profit" or "income" at all. If dataQuality.collectedRevenueUnavailable is true, the ledger could not be read for this report - say collected revenue is unavailable for this report and do not cite billingMetrics at all.
 5b. Never claim an estimate was "too expensive," "overpriced," or that price caused any outcome - price is never given to you as a cause.
 6. Never claim automation, AI, a follow-up, or a nurture/reactivation touch "generated," "caused," "recovered," or is responsible for any dollar amount or specific outcome. You may report factually that a certain number of these automated touches occurred.
 7. Never claim a historical stage-transition duration (e.g. "leads took 3 days to become qualified") unless a metric explicitly labeled as measuring that is supplied to you. If dataQuality.stageHistoryUnavailable is true, no such historical timing data exists at all.
 8. Never include or reference any customer name, phone number, email address, or message content - you are never given any of these, so this should never come up, but do not invent placeholder customer details either.
-9. Read the dataQuality flags. If a limitation is relevant to something you are about to say, mention it briefly in plain language (e.g. "Trackpr does not currently have payment data, so collected revenue isn't included in this report."). Do not list every flag mechanically if it isn't relevant to what you're reporting.
+9. Read the dataQuality flags. If a limitation is relevant to something you are about to say, mention it briefly in plain language (e.g. "The payment ledger could not be read, so collected revenue isn't included in this report."). Do not list every flag mechanically if it isn't relevant to what you're reporting.
 10. Return ONLY the JSON object described below - no prose before or after it, no markdown code fences.
 
 WHAT YOU MAY SAY (observational language only):
@@ -199,9 +203,10 @@ WHAT YOU MAY SAY (observational language only):
 - "Appointment no-show rate was X%."
 - "Automation failures increased compared with the previous period."
 - "Facebook accounted for X leads in this period." (count only, never a quality judgment)
+- "Collected revenue was $X this period, net of $Y in reversals." (billingMetrics.collectedValue / reversedValue only)
 
 WHAT YOU MAY NEVER SAY:
-- Any specific dollar amount as "revenue," "profit," "income," or "cash collected."
+- Any dollar amount other than billingMetrics.collectedValue as "revenue" or "cash collected," and any amount at all as "profit" or "income."
 - Any claim that automation/AI/a follow-up "generated" or "recovered" money.
 - Any claim about why a number changed, unless the data states the reason.
 - Any ranking or quality judgment about a lead source.
@@ -339,21 +344,42 @@ const FORBIDDEN_CLAIM_PATTERNS: { pattern: RegExp; reason: string }[] = [
 ];
 
 /**
- * The one sanctioned use of "collected revenue" wording is the negated form
- * the system prompt explicitly teaches ("Collected revenue is unavailable
- * because Trackpr does not currently have payment data.") - a blanket ban
- * on the phrase would also reject that ALLOWED sentence. A
- * revenue/cash-collected/profit/income mention is only treated as forbidden
- * when the same string does NOT also contain a nearby negation/unavailable
- * word explaining that it doesn't exist - i.e. only an AFFIRMATIVE claim of
- * collected money is blocked.
+ * Collected-revenue wording has two sanctioned uses. The negated form the
+ * system prompt teaches for a failed ledger read ("collected revenue is
+ * unavailable for this report") is allowed as before. Phase 1B-4 adds the
+ * affirmative form, allowed only when (a) the ledger was readable for this
+ * report and (b) every number in that text is one of the collected-ledger
+ * figures (billingMetrics.collectedValue / reversedValue / paymentsReceived /
+ * reversalCount and the collectedValue comparison) - so "collected revenue
+ * was $1,200" passes when $1,200 is what customers actually paid and fails
+ * when it is an invoiced, contracted or quoted amount. The exact sanctioned
+ * definition sentence carries no number and is always allowed. "profit" and
+ * "income" remain forbidden outright - nothing in the ledger measures either.
  */
-const REVENUE_NEGATION_PATTERN = /\b(unavailable|not\s+available|not\s+currently|does\s*not|doesn'?t|isn'?t|is\s+not|no\s+payment|not\s+included)\b/i;
+const REVENUE_NEGATION_PATTERN = /\b(unavailable|not\s+available|not\s+currently|does\s*not|doesn'?t|isn'?t|is\s+not|no\s+payment|not\s+included|could\s+not\s+be\s+read)\b/i;
+const COLLECTED_REVENUE_PATTERN = /revenue\s+collected|cash\s+collected|collected\s+revenue/i;
+const PROFIT_INCOME_PATTERN = /\bprofit\b|\bincome\b/i;
 
-function findForbiddenClaim(texts: string[]): string | null {
+/** The numbers an affirmative collected-revenue sentence may cite - only ledger figures, never an invoiced/contracted/quoted amount. */
+function collectedRevenueNumbers(aiInput: AiInsightsInput): number[] | null {
+  if (aiInput.dataQuality.collectedRevenueUnavailable) return null;
+  const { billingMetrics, comparisons } = aiInput;
+  return collectKnownNumbers([billingMetrics.collectedValue, billingMetrics.reversedValue, billingMetrics.paymentsReceived, billingMetrics.reversalCount, comparisons.collectedValue]);
+}
+
+function findForbiddenClaim(texts: string[], allowedCollectedNumbers: number[] | null): string | null {
   for (const text of texts) {
-    if (/revenue\s+collected|cash\s+collected|collected\s+revenue|\bprofit\b|\bincome\b/i.test(text) && !REVENUE_NEGATION_PATTERN.test(text)) {
-      return "response uses collected-revenue/profit/income terminology as an affirmative claim (not the sanctioned 'unavailable' phrasing)";
+    if (PROFIT_INCOME_PATTERN.test(text)) {
+      return "response uses profit/income terminology - nothing in the ledger measures either";
+    }
+    const withoutDefinition = text.split(SANCTIONED_COLLECTED_REVENUE_DEFINITION).join(" ");
+    if (COLLECTED_REVENUE_PATTERN.test(withoutDefinition) && !REVENUE_NEGATION_PATTERN.test(withoutDefinition)) {
+      if (allowedCollectedNumbers === null) {
+        return "response makes an affirmative collected-revenue claim although the payment ledger was unavailable for this report";
+      }
+      if (extractNumbers(withoutDefinition).some((number) => !isKnownNumber(number, allowedCollectedNumbers))) {
+        return "response calls a figure collected revenue that is not a customer-payment ledger figure";
+      }
     }
     for (const { pattern, reason } of FORBIDDEN_CLAIM_PATTERNS) {
       if (pattern.test(text)) return reason;
@@ -460,7 +486,7 @@ export function validateInsightsReport(raw: unknown, aiInput: AiInsightsInput): 
       ...insight.evidence.flatMap((e) => [e.metric, e.value, e.comparison ?? ""]),
     ]),
   ];
-  const forbiddenReason = findForbiddenClaim(allFreeText);
+  const forbiddenReason = findForbiddenClaim(allFreeText, collectedRevenueNumbers(aiInput));
   if (forbiddenReason) return { ok: false, error: `Response rejected: ${forbiddenReason}.` };
 
   return {

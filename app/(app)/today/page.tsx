@@ -25,6 +25,11 @@ import { getContacts } from "@/lib/contacts/queries";
 import { getEstimatesResult } from "@/lib/estimates/queries";
 import { getJobsResult } from "@/lib/jobs/queries";
 import { computeMoneySnapshot } from "@/lib/money/snapshot";
+import { getCustomerPaymentsResult, getInvoicesResult } from "@/lib/invoices/queries";
+import { summarizeInvoiceMoney } from "@/lib/invoices/summary";
+import { calendarDateInTimeZone } from "@/lib/invoices/domain";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
+import { InvoiceMoneySummaryCards } from "../invoices/_components/invoice-money-summary";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass, numericDisplayClass, sectionLabelClass } from "@/lib/ui/typography";
 import { QueueRow } from "@/lib/ui/queue-row";
@@ -82,6 +87,8 @@ const ACTION_SENTENCE: Partial<Record<RecommendedAction, string>> = {
   request_review: "Ask for a review.",
   request_referral: "Ask for a referral.",
   follow_up: "Follow up.",
+  create_invoice: "Create the invoice.",
+  collect_payment: "Collect the payment.",
 };
 
 function buildSentence(primaryReason: string, supportingSignals: string[], counterSignals: string[], recommendedAction: RecommendedAction): string {
@@ -197,6 +204,9 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     prioritizedOpportunities,
     estimatesResult,
     jobsResult,
+    invoicesResult,
+    paymentsResult,
+    timeZone,
   ] = await Promise.all([
     getDashboardData(supabase, membership.organizationId),
     getDashboardBusinessMetrics(supabase, membership.organizationId),
@@ -224,13 +234,25 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     // own detailed page uses, not a second version of it).
     getEstimatesResult(supabase, membership.organizationId),
     getJobsResult(supabase, membership.organizationId),
+    // Phase 1B-4 (Financial Visibility): the invoice/payment ledger for the
+    // Collected / Invoiced / Outstanding / Overdue row below - the same
+    // reads and the same summarizeInvoiceMoney computation Money's own
+    // Invoices tab uses, all-time by design (Money stays all-time; Insights
+    // is the period-aware view).
+    getInvoicesResult(supabase, membership.organizationId),
+    getCustomerPaymentsResult(supabase, membership.organizationId),
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
 
   const openOpportunities = opportunitiesResult.data;
   const appointmentSummary = summarizeAppointments(appointments);
   const businessName = membership.organizationName ?? "there";
   const moneySnapshot = computeMoneySnapshot(estimatesResult.data, jobsResult.data);
-  const moneyDataFailed = estimatesResult.failed || jobsResult.failed;
+  const moneyDataFailed = estimatesResult.failed || jobsResult.failed || invoicesResult.failed || paymentsResult.failed;
+  // "Overdue" is judged against today's date in the organization's own
+  // timezone - the same calendar the issue trigger used for the due date.
+  const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
+  const invoiceSummary = summarizeInvoiceMoney({ invoices: invoicesResult.data, payments: paymentsResult.data, jobs: jobsResult.data, today });
 
   // Canonical Opportunity Intelligence Layer: getConversationSignals/
   // getOperationalExceptions extract, never re-detect, the Attention Engine
@@ -354,6 +376,13 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
               icon={TrendingUp}
             />
           </StatGrid>
+        </div>
+        {/* Phase 1B-4: the money that was actually asked for and received -
+            Collected is the customer_payments ledger net of reversals and
+            is the only card in either row that is money in hand. Each card
+            links to Money's own Invoices tab filtered to the same rows. */}
+        <div className="mt-4">
+          <InvoiceMoneySummaryCards summary={invoiceSummary} variant="dashboard" />
         </div>
       </div>
 

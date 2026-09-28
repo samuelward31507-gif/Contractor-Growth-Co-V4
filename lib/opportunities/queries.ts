@@ -30,7 +30,13 @@ export type OpportunityType =
   // Canonical Opportunity Intelligence Layer: replaces the Attention
   // Engine's own non-persisted pending_estimate condition - see
   // detectPendingEstimates.
-  | "pending_estimate";
+  | "pending_estimate"
+  // Phase 1B-5 (Close the Money Loop): a job completed since invoicing went
+  // live with no live invoice - see detectCompletedJobsNotInvoiced.
+  | "completed_job_not_invoiced"
+  // Phase 1B-5: an issued, unpaid invoice past its due date in the
+  // organization's own calendar - see detectOverdueInvoices.
+  | "invoice_overdue";
 
 export type OpportunityStatus = "open" | "resolved" | "dismissed";
 
@@ -161,6 +167,8 @@ const EMPTY_BY_TYPE: Record<OpportunityType, number> = {
   accepted_estimate_no_job: 0,
   active_lead_signal: 0,
   pending_estimate: 0,
+  completed_job_not_invoiced: 0,
+  invoice_overdue: 0,
 };
 
 /** Summarizes an already-fetched open-opportunity list - kept as a pure function (no I/O) so it's directly unit-testable with controlled input, matching this codebase's established pure/impure split. */

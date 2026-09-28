@@ -17,6 +17,10 @@ import { DetailHeader } from "@/lib/ui/detail-header";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../_components/status";
 import { JobActions } from "./_components/job-actions";
 import { ReviewReferralPanel } from "./_components/review-referral-panel";
+import { getLiveInvoiceForJob } from "@/lib/invoices/queries";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
+import { calendarDateInTimeZone } from "@/lib/invoices/domain";
+import { InvoiceSection } from "./_components/invoice-section";
 
 export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">) {
   const { id } = await params;
@@ -52,11 +56,15 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
 
   const customerName = job.contact ? contactDisplayName(job.contact) : "No contact";
 
-  const [reviewRequest, referralRequest, leads] = await Promise.all([
+  const [reviewRequest, referralRequest, leads, liveInvoice, timeZone] = await Promise.all([
     getReviewRequestForJob(supabase, membership.organizationId, job.id),
     getReferralRequestForJob(supabase, membership.organizationId, job.id),
     getLeads(supabase, membership.organizationId),
+    // Phase 1B-3: the job's one live invoice (invoices_one_live_per_job).
+    getLiveInvoiceForJob(supabase, membership.organizationId, job.id),
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
+  const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
   const leadOptions = leads
     .filter((lead) => lead.id !== job.lead_id)
     .map((lead) => ({ id: lead.id, label: lead.service || `Lead ${lead.id.slice(0, 8)}` }));
@@ -116,6 +124,8 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
               </div>
             ) : null}
           </SectionCard>
+
+          <InvoiceSection job={job} invoice={liveInvoice} today={today} />
 
           {job.estimate ? (
             <SectionCard

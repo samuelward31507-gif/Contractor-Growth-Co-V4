@@ -45,6 +45,11 @@ export const TIER_ORDER: PriorityTier[] = ["needs_reply", "committed_revenue_at_
 
 export const TIER_BY_TYPE: Record<OpportunityType, PriorityTier> = {
   accepted_estimate_no_job: "committed_revenue_at_risk",
+  // Phase 1B-5: money for work already done - not yet asked for, or asked
+  // for and past due. The same tier as an accepted estimate with no job:
+  // committed, real, and leaking with every day it sits.
+  completed_job_not_invoiced: "committed_revenue_at_risk",
+  invoice_overdue: "committed_revenue_at_risk",
   qualified_lead_unbooked: "active_pursuit",
   completed_appointment_no_estimate: "active_pursuit",
   uncontacted_lead: "active_pursuit",
@@ -92,11 +97,17 @@ export type RecommendedAction =
   | "request_referral"
   | "follow_up"
   | "monitor"
-  | "no_action";
+  | "no_action"
+  // Phase 1B-5: the two invoice actions - both land on a real, existing page
+  // (the job's invoice section, the invoice itself).
+  | "create_invoice"
+  | "collect_payment";
 
 /** The action this opportunity type points at BEFORE any actionability check (§11 of the design) - "call"/"text" are downgraded to "follow_up" at build time when no valid, reachable phone exists. */
 const DEFAULT_ACTION_BY_TYPE: Record<OpportunityType, RecommendedAction> = {
   accepted_estimate_no_job: "create_job",
+  completed_job_not_invoiced: "create_invoice",
+  invoice_overdue: "collect_payment",
   qualified_lead_unbooked: "call",
   completed_appointment_no_estimate: "send_estimate",
   uncontacted_lead: "call",

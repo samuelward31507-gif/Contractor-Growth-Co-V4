@@ -17,6 +17,8 @@ export const ACTIVITY_ENTITY_TYPES: { value: string; label: string }[] = [
   { value: "lead", label: "Lead" },
   { value: "appointment", label: "Appointment" },
   { value: "conversation", label: "Conversation" },
+  { value: "invoice", label: "Invoice" },
+  { value: "customer_payment", label: "Payment" },
 ];
 
 export type ActivitySummary = {

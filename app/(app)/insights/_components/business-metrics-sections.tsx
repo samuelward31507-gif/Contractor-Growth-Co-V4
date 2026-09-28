@@ -3,6 +3,8 @@ import Link from "next/link";
 import { sectionLabelClass, metaClass, statLabelClass, statValueClass } from "@/lib/ui/typography";
 import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { formatCurrency } from "@/lib/dashboard/format";
+import { formatMoney } from "@/lib/invoices/domain";
+import { SANCTIONED_COLLECTED_REVENUE_DEFINITION } from "@/lib/bi/billing";
 import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
 import type { RepeatCustomerSummary } from "@/lib/customers/lifecycle";
 import { formatRate, formatComparisonBadge, formatDuration } from "./bi-format";
@@ -74,26 +76,81 @@ function Section({
 }
 
 /**
- * Trackpr 2.0 Phase 5: the page's executive summary - the four numbers that
- * most directly answer "how is the business doing," each already computed
- * and already reliable (comparisons.leadCount, and the two Phase 5 additions
- * to BiEstimateMetrics/BiJobMetrics - acceptedEstimateValue,
+ * Trackpr 2.0 Phase 5: the page's executive summary - the numbers that most
+ * directly answer "how is the business doing," each already computed and
+ * already reliable (comparisons.leadCount, and the two Phase 5 additions to
+ * BiEstimateMetrics/BiJobMetrics - acceptedEstimateValue,
  * completedContractedJobValue - both threaded through from an existing
  * lib/bi/queries.ts computation, not a new query). Deliberately keeps
  * "accepted"/"completed" in every label rather than a bare dollar amount -
- * this schema has no payment infrastructure, so every value figure here is
- * still a quoted/contracted amount, never confirmed collected revenue.
+ * every value figure there is a quoted/contracted amount.
+ *
+ * Phase 1B-4: "Collected" leads the row - billingMetrics.collectedValue, the
+ * customer_payments ledger net of reversals for the selected period, and
+ * the only figure on this page that is money received.
  */
 export function BusinessAtAGlance({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { comparisons, estimateMetrics, jobMetrics, leadMetrics } = snapshot;
+  const { comparisons, estimateMetrics, jobMetrics, leadMetrics, billingMetrics, dataQuality } = snapshot;
 
   return (
-    <StatGrid columns={4}>
+    <StatGrid columns={5}>
+      <StatCard
+        label="Collected"
+        value={dataQuality.collectedRevenueUnavailable ? "Unavailable" : formatMoney(billingMetrics.collectedValue)}
+        description={dataQuality.collectedRevenueUnavailable ? "The payment ledger could not be read" : (formatComparisonBadge(comparisons.collectedValue) ?? "Customer payments, net of reversals")}
+        tone="success"
+      />
       <StatCard label="Leads" value={String(comparisons.leadCount.current)} description={formatComparisonBadge(comparisons.leadCount)} />
       <StatCard label="Accepted estimate value" value={formatCurrency(estimateMetrics.acceptedEstimateValue)} description="Quoted work customers said yes to" />
       <StatCard label="Completed job value" value={formatCurrency(jobMetrics.completedContractedJobValue)} description="Contracted value of finished jobs" />
       <StatCard label="Lead → booking rate" value={formatRate(leadMetrics.leadToBookingRate)} description="Leads that got an appointment" />
     </StatGrid>
+  );
+}
+
+/**
+ * Phase 1B-4: the invoice/payment ledger for the selected period -
+ * snapshot.billingMetrics (lib/bi/billing.ts), read as-is like every other
+ * section here. Collected and Invoiced are period totals (received_at /
+ * issued_at in range) with the same previous-period badge convention as
+ * leadCount; Outstanding and Overdue are balances as of today and say so;
+ * days to payment is always paired with the count of invoices it was
+ * measured over, never shown bare; reversals are shown separately so the
+ * net Collected figure is transparent.
+ */
+export function BillingSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { billingMetrics, comparisons, dataQuality } = snapshot;
+  const count = (n: number, singular: string, plural: string) => `${n} ${n === 1 ? singular : plural}`;
+
+  if (dataQuality.collectedRevenueUnavailable) {
+    return (
+      <Section label="Invoices & payments" note={SANCTIONED_COLLECTED_REVENUE_DEFINITION}>
+        <p className="mt-3 text-sm text-slate-500">The invoice and payment ledger could not be read for this period. Nothing below is estimated in its place.</p>
+      </Section>
+    );
+  }
+
+  return (
+    <Section
+      label="Invoices & payments"
+      note={`${SANCTIONED_COLLECTED_REVENUE_DEFINITION} Invoiced is money asked for, not received. Outstanding and Overdue are balances as of today, not period totals.`}
+    >
+      <StatRow
+        stats={[
+          { key: "collected", label: "Collected", value: formatMoney(billingMetrics.collectedValue), detail: formatComparisonBadge(comparisons.collectedValue) ?? `${count(billingMetrics.paymentsReceived, "payment", "payments")} received` },
+          { key: "invoiced", label: "Invoiced", value: formatMoney(billingMetrics.invoicedValue), detail: formatComparisonBadge(comparisons.invoicedValue) ?? `${count(billingMetrics.invoicesIssued, "invoice", "invoices")} issued` },
+          { key: "outstanding", label: "Outstanding", value: formatMoney(billingMetrics.outstandingValue), detail: `${count(billingMetrics.outstandingInvoices, "open invoice", "open invoices")} · as of today` },
+          { key: "overdue", label: "Overdue", value: formatMoney(billingMetrics.overdueValue), detail: `${count(billingMetrics.overdueInvoices, "invoice", "invoices")} past due · as of today` },
+          {
+            key: "days-to-payment",
+            label: "Avg. days to payment",
+            value: billingMetrics.averageDaysToPayment === null ? "Not enough data yet" : `${Math.round(billingMetrics.averageDaysToPayment)} ${Math.round(billingMetrics.averageDaysToPayment) === 1 ? "day" : "days"}`,
+            detail: `Based on ${count(billingMetrics.invoicesPaid, "invoice", "invoices")} paid in this period · issue date to the payment that settled it`,
+          },
+          { key: "reversed", label: "Reversed", value: formatMoney(billingMetrics.reversedValue), detail: `${count(billingMetrics.reversalCount, "reversal", "reversals")} · already subtracted from Collected` },
+        ]}
+      />
+    </Section>
   );
 }
 
@@ -251,7 +308,7 @@ export function ReviewReferralSection({ snapshot }: { snapshot: BusinessMetricsS
  */
 export function RepeatCustomerSection({ summary }: { summary: RepeatCustomerSummary }) {
   return (
-    <Section label="Repeat customers" note="Completed job value is the contracted amount, not collected revenue - no payment ledger exists.">
+    <Section label="Repeat customers" note="Completed job value is the contracted amount, not collected revenue - see Invoices & payments for what was actually collected.">
       <StatRow
         stats={[
           { key: "repeat-count", label: "Repeat customers", value: String(summary.repeatCustomerCount), detail: `of ${summary.customersWithCompletedJob} with a completed job` },
@@ -291,7 +348,7 @@ export function LeadsPipelineSection({ snapshot }: { snapshot: BusinessMetricsSn
   return (
     <Section
       label="Leads & pipeline"
-      note="Pipeline and average pipeline value are manually entered estimates on the lead, not revenue - Trackpr does not track collected payments."
+      note="Pipeline and average pipeline value are manually entered estimates on the lead, not revenue - collected payments are only ever counted under Invoices & payments."
     >
       <div className="mt-3">
         <StatGrid columns={5}>
@@ -395,7 +452,7 @@ export function JobsSection({ snapshot }: { snapshot: BusinessMetricsSnapshot })
   ];
 
   return (
-    <Section label="Jobs" note="Contracted job value is a quoted/contracted figure - Trackpr has no payment infrastructure, so this is never collected revenue.">
+    <Section label="Jobs" note="Contracted job value is a quoted/contracted figure, never collected revenue - only customer payments recorded in Trackpr are (see Invoices & payments).">
       <StatRow
         stats={[
           { key: "jobs", label: "Jobs", value: String(comparisons.jobCount.current), detail: formatComparisonBadge(comparisons.jobCount) },
