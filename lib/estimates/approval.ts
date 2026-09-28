@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "@/lib/automation/events";
 import { emitEstimateLifecycleEventAsService } from "@/lib/automation/estimates";
-import { emitJobCreatedFromEstimate } from "@/lib/automation/jobs";
+import { emitJobCreatedFromEstimateAsService } from "@/lib/automation/jobs";
 
 /**
  * Quote Approval Links (V1): the service-side logic behind the public
@@ -20,11 +20,12 @@ import { emitJobCreatedFromEstimate } from "@/lib/automation/jobs";
  * The acceptance sequence deliberately mirrors estimate-reply.ts line for
  * line - guarded transition (status='sent' in the WHERE, so a double-tap or
  * a race with an SMS "yes" can never double-fire), then
- * emitEstimateLifecycleEventAsService, then emitJobCreatedFromEstimate
- * (estimate accepted is the sole job-creation trigger, per Phase 4.6; the
- * same documented service-client limitation applies: the job row and
- * lead->won sync are fully correct, only the optional job-kickoff
- * notification no-ops), then an idempotent automation event recording HOW
+ * emitEstimateLifecycleEventAsService, then
+ * emitJobCreatedFromEstimateAsService (estimate accepted is the sole
+ * job-creation trigger, per Phase 4.6; since Phase 1B-5 this service
+ * variant also records the job.created lifecycle marker and the lead
+ * stage-history entry, with no kickoff dispatch), then an idempotent
+ * automation event recording HOW
  * the acceptance happened (estimate.accepted_via_link vs .._via_reply) so
  * analytics can tell the channels apart. No outbound SMS is sent from this
  * path: unlike the reply path there is no conversation the customer just
@@ -160,9 +161,9 @@ export async function respondToEstimateByToken(
   );
 
   if (decision === "accept") {
-    // Same call, same documented service-client limitation as the reply
-    // path (see estimate-reply.ts's own comment block above this call).
-    await emitJobCreatedFromEstimate(service, estimate.organizationId, estimate.id);
+    // Phase 1B-5: lifecycle only - job row, lead -> won, lead.stage_changed
+    // and a job.created marker; no kickoff workflow, no n8n, no SMS.
+    await emitJobCreatedFromEstimateAsService(service, estimate.organizationId, estimate.id);
   }
 
   const eventType = decision === "accept" ? "estimate.accepted_via_link" : "estimate.declined_via_link";
