@@ -48,8 +48,14 @@ export async function updateSession(request: NextRequest) {
   // of the marketing site. It requires no session, touches no backend/
   // Supabase data, and must be reachable by a prospect who has never logged
   // in - without this, every demo link would silently redirect to /login.
+  // /quote is the public estimate-approval surface (app/quote/[token]) - the
+  // customer opening it from a follow-up text has no session by definition,
+  // and the page authorizes itself by resolving the unguessable
+  // approval_token (see lib/estimates/approval.ts), the same trust model as
+  // the /api/leads/capture/[token] intake route this block already exempts
+  // via the /api/ prefix.
   const PUBLIC_MARKETING_PATHS = new Set(["/", "/how-it-works", "/services", "/get-started", "/privacy", "/terms", "/robots.txt", "/sitemap.xml"]);
-  if (PUBLIC_MARKETING_PATHS.has(pathname) || pathname.startsWith("/auth") || pathname.startsWith("/api/") || pathname.startsWith("/demo")) {
+  if (PUBLIC_MARKETING_PATHS.has(pathname) || pathname.startsWith("/auth") || pathname.startsWith("/api/") || pathname.startsWith("/demo") || pathname.startsWith("/quote")) {
     return supabaseResponse;
   }
 

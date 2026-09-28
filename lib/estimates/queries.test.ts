@@ -29,6 +29,7 @@ function makeEstimate(overrides: Partial<Estimate>): Estimate {
     sent_at: null,
     responded_at: null,
     expires_at: null,
+  approval_token: "a".repeat(48),
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     contact: { id: "contact-1", first_name: "Jane", last_name: "Doe", company_name: "Doe LLC", phone: "555-1000", email: "jane@example.com" },
