@@ -34,6 +34,8 @@ export type Estimate = {
   sent_at: string | null;
   responded_at: string | null;
   expires_at: string | null;
+  /** Public approval-link token (estimates.approval_token) - see lib/estimates/approval.ts. */
+  approval_token: string;
   created_at: string;
   updated_at: string;
   contact: EstimateContact | null;
@@ -44,7 +46,7 @@ export type Estimate = {
 // lib/appointments/queries.ts's APPOINTMENT_COLUMNS convention: Supabase's
 // type-level select parser needs the literal type to infer typed columns.
 const ESTIMATE_COLUMNS =
-  "id, organization_id, contact_id, lead_id, title, amount, status, notes, sent_at, responded_at, expires_at, created_at, updated_at, contact:contacts(id, first_name, last_name, company_name, phone, email), lead:leads(id, service, status, temperature)";
+  "id, organization_id, contact_id, lead_id, title, amount, status, notes, sent_at, responded_at, expires_at, approval_token, created_at, updated_at, contact:contacts(id, first_name, last_name, company_name, phone, email), lead:leads(id, service, status, temperature)";
 
 type Embedded<T> = T | T[] | null;
 
