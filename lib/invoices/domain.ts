@@ -39,6 +39,29 @@ export const DEFAULT_DUE_DAYS = 14;
 export const MAX_INVOICE_AMOUNT = 10_000_000;
 
 // ---------------------------------------------------------------------------
+// Payment client keys (Phase 1B-5 idempotency)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors customer_payments_client_key_shape: 8-128 URL-safe characters.
+ * A key is minted once per Record-payment submission in the browser and
+ * reused on every retry of that same submission, so a replay resolves to
+ * the row the first attempt created (customer_payments_org_client_key_unique).
+ */
+export const CLIENT_KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
+
+export function isValidClientKey(value: unknown): value is string {
+  return typeof value === "string" && CLIENT_KEY_PATTERN.test(value);
+}
+
+/** A fresh key for one payment submission - crypto.randomUUID() where available (every supported browser and Node), a time-plus-random fallback otherwise. */
+export function generatePaymentClientKey(): string {
+  const webCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (webCrypto?.randomUUID) return webCrypto.randomUUID();
+  return `pk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+// ---------------------------------------------------------------------------
 // Money precision
 // ---------------------------------------------------------------------------
 

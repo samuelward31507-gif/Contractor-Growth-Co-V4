@@ -529,7 +529,7 @@ test("record: input validation - method, amount precision, positive amount, rece
   assert.equal(writes(fake.calls, "customer_payments").length, 0);
 });
 
-test("record: a replayed partial payment is recorded again (no idempotency key exists yet); a replayed final payment is rejected as overpayment", async () => {
+test("record: a replayed partial payment WITHOUT a client key is recorded again (no key, no replay protection); a replayed final payment is rejected as overpayment", async () => {
   const tables = { invoices: [invoice({ status: "sent" })], customer_payments: [] as Row[] };
   const fake = makeFakeSupabase(tables, { onInsert: withLedgerApply(tables) });
   const first = await recordCustomerPaymentForOrganization(fake.client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 100, method: "cash" });
@@ -627,4 +627,128 @@ test("an audit RPC failure is logged and never turns a committed change into an 
     console.error = originalError;
   }
   assert.equal(logged.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1B-5: client-key idempotency
+// ---------------------------------------------------------------------------
+
+const KEY = "3f0b6c1e-2b7a-4c1d-9c0e-1a2b3c4d5e6f";
+
+/** Emulates customer_payments_apply for the one invoice these tests pay. */
+function applyLedger(tables: Record<string, Row[]>, invoiceId: string) {
+  const inv = tables.invoices.find((row) => row.id === invoiceId)!;
+  const paid = (tables.customer_payments ?? []).filter((row) => row.invoice_id === invoiceId).reduce((sum, row) => sum + (row.amount as number), 0);
+  inv.amount_paid = paid;
+  inv.balance_due = (inv.total as number) - paid;
+  inv.status = paid >= (inv.total as number) ? "paid" : paid > 0 ? "partially_paid" : "sent";
+  inv.paid_at = paid >= (inv.total as number) ? "2026-10-02T00:00:00.000Z" : null;
+}
+
+test("record: the first submission with a client key stores the key and inserts once; the second with the same key inserts nothing, audits nothing, and returns the same payment with replayed: true", async () => {
+  const { client, calls, rpcCalls, tables } = makeFakeSupabase({ invoices: [invoice()], customer_payments: [] }, { onInsert: (table, row) => row });
+  const input = { invoiceId: "inv-1", amount: 300.25, method: "check", clientKey: KEY };
+
+  const first = await recordCustomerPaymentForOrganization(client, ORG_A, USER_A, input);
+  assert.equal(first.ok, true);
+  assert.equal(first.data?.replayed, false);
+  applyLedger(tables, "inv-1");
+  const inserted = writes(calls, "customer_payments");
+  assert.equal(inserted.length, 1);
+  assert.equal((inserted[0].payload as Row).client_key, KEY, "the key is written with the row");
+  assert.equal(rpcCalls.length, 1, "one audit entry");
+
+  const second = await recordCustomerPaymentForOrganization(client, ORG_A, USER_A, input);
+  assert.equal(second.ok, true);
+  assert.equal(second.data?.replayed, true);
+  assert.equal(second.data?.paymentId, first.data?.paymentId, "the same payment, not a new one");
+  assert.equal(second.data?.invoice.amount_paid, 300.25, "the invoice state is the database's own, read back");
+  assert.equal(writes(calls, "customer_payments").length, 1, "no second insert");
+  assert.equal(rpcCalls.length, 1, "no second audit entry");
+  assert.equal(tables.customer_payments.length, 1);
+});
+
+test("record: a replayed FINAL payment with the same key resolves idempotently instead of failing the overpayment pre-check (the invoice is already paid)", async () => {
+  const { client, calls, tables } = makeFakeSupabase({ invoices: [invoice()], customer_payments: [] });
+  const input = { invoiceId: "inv-1", amount: 1300.25, method: "cash", clientKey: KEY };
+  const first = await recordCustomerPaymentForOrganization(client, ORG_A, USER_A, input);
+  assert.equal(first.ok, true);
+  applyLedger(tables, "inv-1");
+  assert.equal(tables.invoices[0].status, "paid");
+
+  const replay = await recordCustomerPaymentForOrganization(client, ORG_A, USER_A, input);
+  assert.equal(replay.ok, true, replay.ok ? "" : replay.error);
+  assert.equal(replay.data?.replayed, true);
+  assert.equal(replay.data?.invoice.status, "paid");
+  assert.equal(writes(calls, "customer_payments").length, 1);
+});
+
+test("record: a race that loses to the unique index (23505 on customer_payments_org_client_key_unique) resolves to the winning row, never to a second insert or an audit entry", async () => {
+  let planted: Row[] | null = null;
+  const { client, calls, rpcCalls, tables } = makeFakeSupabase(
+    { invoices: [invoice({ status: "partially_paid", amount_paid: 300.25, balance_due: 1000 })], customer_payments: [] },
+    {
+      insertError: (table, row) => {
+        if (table !== "customer_payments" || row.client_key !== KEY) return null;
+        // The concurrent request committed between this call's lookup and
+        // its insert: the row appears, and the index rejects ours.
+        planted!.push(payment({ id: "pay-winner", client_key: KEY }));
+        return { code: "23505", message: 'duplicate key value violates unique constraint "customer_payments_org_client_key_unique"' };
+      },
+    },
+  );
+  planted = tables.customer_payments;
+
+  const result = await recordCustomerPaymentForOrganization(client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 300.25, method: "check", clientKey: KEY });
+  assert.equal(result.ok, true, result.ok ? "" : result.error);
+  assert.equal(result.data?.replayed, true);
+  assert.equal(result.data?.paymentId, "pay-winner");
+  assert.equal(tables.customer_payments.length, 1, "exactly one row exists");
+  assert.equal(rpcCalls.length, 0, "the loser never audits - the winner already did");
+  assert.equal(writes(calls, "customer_payments").length, 1, "one attempted insert, no retry loop");
+});
+
+test("record: organization isolation - the same client key used by another organization never resolves here, and the lookup carries this organization's id", async () => {
+  const { client, calls, tables } = makeFakeSupabase({
+    invoices: [invoice(), invoice({ id: "inv-b", organization_id: ORG_B, job_id: "job-b" })],
+    customer_payments: [payment({ id: "pay-b", organization_id: ORG_B, invoice_id: "inv-b", client_key: KEY })],
+  });
+  const result = await recordCustomerPaymentForOrganization(client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 100, method: "cash", clientKey: KEY });
+  assert.equal(result.ok, true, result.ok ? "" : result.error);
+  assert.equal(result.data?.replayed, false, "organization B's key is not organization A's replay");
+  const lookup = calls.find((call) => call.table === "customer_payments" && call.op === "select" && call.filters.some(([, column]) => column === "client_key"));
+  assert.ok(lookup, "a key lookup was made");
+  assert.deepEqual(lookup!.filters.find(([, column]) => column === "organization_id"), ["eq", "organization_id", ORG_A]);
+  assert.equal(tables.customer_payments.filter((row) => row.organization_id === ORG_A).length, 1);
+});
+
+test("record: a key already used for a DIFFERENT invoice is refused, never answered with the other invoice's payment", async () => {
+  const { client, calls } = makeFakeSupabase({
+    invoices: [invoice(), invoice({ id: "inv-2", job_id: "job-2", number: 8 })],
+    customer_payments: [payment({ id: "pay-other", invoice_id: "inv-2", client_key: KEY })],
+  });
+  const result = await recordCustomerPaymentForOrganization(client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 100, method: "cash", clientKey: KEY });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "This payment form was already used for a different invoice. Close it and try again.");
+  assert.equal(writes(calls, "customer_payments").length, 0);
+});
+
+test("record: a malformed client key is rejected before any read or write; an absent key records normally without one", async () => {
+  const { client, calls } = makeFakeSupabase({ invoices: [invoice()], customer_payments: [] });
+  for (const bad of ["short", "has spaces here", "k".repeat(129), "bad/slash-key"]) {
+    const result = await recordCustomerPaymentForOrganization(client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 100, method: "cash", clientKey: bad });
+    assert.equal(result.ok, false, `should reject: ${bad}`);
+    assert.equal(result.error, "This payment form is out of date. Close it and try again.");
+  }
+  assert.equal(calls.length, 0, "rejected before touching the database");
+
+  const withoutKey = await recordCustomerPaymentForOrganization(client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 100, method: "cash" });
+  assert.equal(withoutKey.ok, true);
+  assert.equal(withoutKey.data?.replayed, false);
+  const insert = writes(calls, "customer_payments")[0];
+  assert.equal("client_key" in (insert.payload as Row), false, "no key column is sent when the client supplied none");
+});
+
+test("describeDatabaseError maps the client-key unique violation to the sanctioned wording", () => {
+  assert.equal(describeDatabaseError({ code: "23505", message: 'duplicate key value violates unique constraint "customer_payments_org_client_key_unique"' }, "x"), "This payment was already recorded. Refresh to see it.");
 });

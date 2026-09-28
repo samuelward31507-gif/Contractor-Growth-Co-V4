@@ -2,7 +2,12 @@
   "name": "invoice-foundation-scratch",
   "private": true,
   "type": "module",
-  "description": "Disposable PGlite harness that applies supabase/pending/invoice_foundation.sql to an in-memory Postgres and exercises its rules. Never touches a real database.",
-  "scripts": { "validate": "node validate.mjs" },
-  "devDependencies": { "@electric-sql/pglite": "0.5.8" }
+  "description": "Disposable PGlite harnesses that apply pending migrations to an in-memory Postgres and exercise their rules. Never touches a real database.",
+  "scripts": {
+    "validate": "node validate.mjs",
+    "validate:idempotency": "node validate-payment-idempotency.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
+  }
 }

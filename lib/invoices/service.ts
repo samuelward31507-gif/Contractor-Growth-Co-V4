@@ -5,6 +5,7 @@ import {
   canIssue,
   formatInvoiceNumber,
   isTwoDecimalAmount,
+  isValidClientKey,
   labelStatus,
   parseAmountInput,
   PAYMENT_METHODS,
@@ -12,7 +13,7 @@ import {
   transitionInvoice,
   type PaymentMethod,
 } from "./domain";
-import { getCustomerPayment, getInvoice, getInvoicePayments, getLiveInvoiceForJob, type CustomerPayment, type Invoice } from "./queries";
+import { getCustomerPayment, getCustomerPaymentByClientKey, getInvoice, getInvoicePayments, getLiveInvoiceForJob, type CustomerPayment, type Invoice } from "./queries";
 
 /**
  * Phase 1B-2 (Close the Money Loop): the testable core behind
@@ -51,6 +52,7 @@ export function describeDatabaseError(error: DatabaseError | null | undefined, f
     if (message.includes("invoices_one_live_per_job")) return "This job already has a live invoice. Void it first to issue a new one.";
     if (message.includes("invoices_org_number_unique")) return "Two invoices were created at the same moment. Please try again.";
     if (message.includes("customer_payments_reversal_unique")) return "This payment has already been reversed.";
+    if (message.includes("customer_payments_org_client_key_unique")) return "This payment was already recorded. Refresh to see it.";
   }
   if (error.code === "23503") return "This record is linked to another that no longer exists.";
   if (error.code === "42501" || /row-level security/i.test(message)) return "You don't have access to that record.";
@@ -285,12 +287,23 @@ export type RecordCustomerPaymentInput = {
   /** ISO timestamp; defaults to now in the database. */
   receivedAt?: string | null;
   notes?: string | null;
+  /**
+   * Phase 1B-5: the browser-minted submission key (lib/invoices/forms.ts).
+   * When present, a second call carrying the same key for the same invoice
+   * resolves to the payment the first call recorded instead of inserting a
+   * second row - see recordCustomerPaymentForOrganization. Optional so an
+   * older client without a key still records normally (with no replay
+   * protection beyond the dialog's own submit lock).
+   */
+  clientKey?: string | null;
 };
 
 export type RecordedPayment = {
   paymentId: string;
   /** Read back from the database after the trigger applied the payment - never computed here. */
   invoice: Pick<Invoice, "id" | "status" | "amount_paid" | "balance_due" | "paid_at">;
+  /** True when this call did not insert anything because the same client key had already recorded this payment. */
+  replayed: boolean;
 };
 
 const METHOD_VALUES = new Set<string>(PAYMENT_METHODS.map((method) => method.value));
@@ -313,8 +326,22 @@ export async function recordCustomerPaymentForOrganization(
   const receivedAt = (input.receivedAt ?? "").trim() || null;
   if (receivedAt && !isIsoTimestamp(receivedAt)) return { ok: false, error: "Enter a valid received date." };
 
+  const clientKey = typeof input.clientKey === "string" && input.clientKey.trim() ? input.clientKey.trim() : null;
+  if (clientKey && !isValidClientKey(clientKey)) return { ok: false, error: "This payment form is out of date. Close it and try again." };
+
   const invoice = await getInvoice(supabase, organizationId, invoiceId);
   if (!invoice) return { ok: false, error: "This invoice could not be found." };
+
+  // Idempotency, step 1: a key this organization has already used means the
+  // first attempt (a double tap, a retried request) already recorded the
+  // money - return that row instead of touching the ledger again. Checked
+  // BEFORE the overpayment pre-check on purpose: after the first attempt
+  // the invoice may already be paid, which would otherwise turn a harmless
+  // replay into a misleading "would exceed the balance" error.
+  if (clientKey) {
+    const existing = await getCustomerPaymentByClientKey(supabase, organizationId, clientKey);
+    if (existing) return replayRecordedPayment(supabase, organizationId, existing, invoiceId);
+  }
 
   // Same rules the trigger enforces, answered without a round trip.
   const preview = applyPayment({ status: invoice.status, total: invoice.total, amountPaid: invoice.amount_paid, dueDate: invoice.due_date }, parsed.amount);
@@ -335,11 +362,21 @@ export async function recordCustomerPaymentForOrganization(
       received_at: receivedAt ?? new Date().toISOString(),
       notes: (input.notes ?? "").trim() || null,
       recorded_by: userId,
+      ...(clientKey ? { client_key: clientKey } : {}),
     })
     .select("id")
     .single();
 
-  if (error || !data) return { ok: false, error: describeDatabaseError(error, "We couldn't record this payment. Please try again.") };
+  if (error || !data) {
+    // Idempotency, step 2: two identical requests raced past the lookup
+    // above; the partial unique index let exactly one through. Resolve to
+    // that row - the database, not this process, decided the winner.
+    if (clientKey && error?.code === "23505" && (error.message ?? "").includes("customer_payments_org_client_key_unique")) {
+      const winner = await getCustomerPaymentByClientKey(supabase, organizationId, clientKey);
+      if (winner) return replayRecordedPayment(supabase, organizationId, winner, invoiceId);
+    }
+    return { ok: false, error: describeDatabaseError(error, "We couldn't record this payment. Please try again.") };
+  }
 
   const after = await getInvoice(supabase, organizationId, invoiceId);
   if (!after) return { ok: false, error: "The payment was recorded, but the invoice could not be re-read. Refresh to see the current balance." };
@@ -354,7 +391,21 @@ export async function recordCustomerPaymentForOrganization(
     amount_paid_after: after.amount_paid,
   });
 
-  return { ok: true, data: { paymentId: data.id, invoice: { id: after.id, status: after.status, amount_paid: after.amount_paid, balance_due: after.balance_due, paid_at: after.paid_at } } };
+  return { ok: true, data: { paymentId: data.id, invoice: { id: after.id, status: after.status, amount_paid: after.amount_paid, balance_due: after.balance_due, paid_at: after.paid_at }, replayed: false } };
+}
+
+/**
+ * The idempotent outcome: the payment a client key already produced, with
+ * the invoice's current state read back. No insert, no audit entry (the
+ * first attempt wrote it), no side effect of any kind. A key reused against
+ * a DIFFERENT invoice is a client bug, not a replay, and is refused rather
+ * than silently answered with someone else's payment.
+ */
+async function replayRecordedPayment(supabase: SupabaseClient, organizationId: string, existing: CustomerPayment, invoiceId: string): Promise<InvoiceServiceResult<RecordedPayment>> {
+  if (existing.invoice_id !== invoiceId) return { ok: false, error: "This payment form was already used for a different invoice. Close it and try again." };
+  const after = await getInvoice(supabase, organizationId, invoiceId);
+  if (!after) return { ok: false, error: "This invoice could not be found." };
+  return { ok: true, data: { paymentId: existing.id, invoice: { id: after.id, status: after.status, amount_paid: after.amount_paid, balance_due: after.balance_due, paid_at: after.paid_at }, replayed: true } };
 }
 
 // ---------------------------------------------------------------------------

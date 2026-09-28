@@ -187,6 +187,25 @@ export async function getCustomerPaymentsResult(supabase: SupabaseClient, organi
   return { data: (data ?? []) as CustomerPayment[], failed: error != null };
 }
 
+/**
+ * Phase 1B-5: the payment a client key already produced, if any - the
+ * idempotency lookup recordCustomerPaymentForOrganization makes before
+ * inserting and again after a 23505 on customer_payments_org_client_key_unique.
+ * Scoped to the organization exactly like the index is, so a key from
+ * another organization can never resolve here.
+ */
+export async function getCustomerPaymentByClientKey(supabase: SupabaseClient, organizationId: string, clientKey: string): Promise<CustomerPayment | null> {
+  const { data, error } = await supabase
+    .from("customer_payments")
+    .select(PAYMENT_COLUMNS)
+    .eq("organization_id", organizationId)
+    .eq("client_key", clientKey)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data as CustomerPayment;
+}
+
 /** One payment scoped to the org; null on any error or miss. */
 export async function getCustomerPayment(supabase: SupabaseClient, organizationId: string, paymentId: string): Promise<CustomerPayment | null> {
   const { data, error } = await supabase

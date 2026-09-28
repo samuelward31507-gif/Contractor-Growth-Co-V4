@@ -1,4 +1,4 @@
-import { applyPayment, isTwoDecimalAmount, parseAmountInput, PAYMENT_METHODS, type InvoiceMoney, type PaymentMethod } from "./domain";
+import { applyPayment, generatePaymentClientKey, isTwoDecimalAmount, parseAmountInput, PAYMENT_METHODS, type InvoiceMoney, type PaymentMethod } from "./domain";
 import type { CreateInvoiceFromJobInput, RecordCustomerPaymentInput } from "./service";
 
 /**
@@ -66,11 +66,18 @@ export type RecordPaymentFormValues = {
   /** Value of an <input type="datetime-local">, e.g. 2026-10-02T14:30. */
   receivedAtLocal: string;
   notes: string;
+  /**
+   * Phase 1B-5: minted once when the dialog opens (it lives in the form's
+   * own state) and sent with every submission of that dialog - a retry after
+   * a failure carries the SAME key, so the server resolves it to the payment
+   * the first attempt may already have recorded. A new dialog gets a new key.
+   */
+  clientKey: string;
 };
 
-export function defaultRecordPaymentForm(invoice: Pick<InvoiceMoney, "total" | "amountPaid">, now: Date = new Date()): RecordPaymentFormValues {
+export function defaultRecordPaymentForm(invoice: Pick<InvoiceMoney, "total" | "amountPaid">, now: Date = new Date(), clientKey: string = generatePaymentClientKey()): RecordPaymentFormValues {
   const balance = Math.round((invoice.total - invoice.amountPaid) * 100) / 100;
-  return { amountRaw: balance > 0 ? String(balance) : "", method: "", reference: "", receivedAtLocal: toDateTimeLocalValue(now), notes: "" };
+  return { amountRaw: balance > 0 ? String(balance) : "", method: "", reference: "", receivedAtLocal: toDateTimeLocalValue(now), notes: "", clientKey };
 }
 
 /** YYYY-MM-DDTHH:MM in the browser's local time, the format datetime-local expects. */
@@ -112,6 +119,7 @@ export function buildRecordPaymentInput(values: RecordPaymentFormValues, invoice
       reference: values.reference.trim() || null,
       receivedAt,
       notes: values.notes.trim() || null,
+      clientKey: values.clientKey,
     },
   };
 }

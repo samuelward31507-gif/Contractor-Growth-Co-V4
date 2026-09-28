@@ -36,3 +36,28 @@ Applied to production on 2026-09-28 via the MCP `apply_migration` mechanism. Rec
 ### If it must be undone
 
 Before any invoice exists, run `invoice_foundation_rollback.sql` as one transaction, then decide separately whether to delete the ledger row. After invoices exist, do not roll back; hide the UI instead.
+
+## payment_idempotency_and_invoice_opportunities.sql (PENDING - not applied)
+
+Phase 1B-5 (Lifecycle Signals). Two additive changes in one script:
+
+1. `public.customer_payments.client_key` (nullable text, 8-128 URL-safe characters via `customer_payments_client_key_shape`) with the partial unique index `customer_payments_org_client_key_unique (organization_id, client_key) where client_key is not null`. The Record-payment dialog mints one key per submission and reuses it on retries; `lib/invoices/service.ts` resolves a replay to the row the first attempt created. The append-only trigger function `customer_payments_immutable` is re-created with `client_key` added to its list of columns an UPDATE may never change - the harness proved that without this line the key was editable after the fact. It is the only function the script replaces; no policy, trigger definition or grant changes.
+2. `opportunities_type_check` widened with `completed_job_not_invoiced` and `invoice_overdue` (both sourced from `job`; the invoice id travels in `metadata.invoice_id`).
+
+Companion files:
+
+- `payment_idempotency_and_invoice_opportunities_rollback.sql` refuses to run while any keyed payment or new-type opportunity exists, then restores `customer_payments_immutable` byte-for-byte, drops the index, constraint and column, and re-creates the 12-type CHECK.
+- `scratch/validate-payment-idempotency.mjs` reproduces the production starting state (foundation + grants), applies the script twice, exercises key uniqueness per organization, key shape, append-only, RLS, grants, payment gate, the new opportunity types, dedup and the rollback. Run with `cd supabase/pending/scratch && npm run validate:idempotency`.
+
+### Apply procedure (a person does this, not tooling)
+
+1. Confirm read-only that `customer_payments` has no `client_key` column and `opportunities_type_check` still lists 12 types.
+2. Apply the script via the MCP `apply_migration` tool with the name `payment_idempotency_and_invoice_opportunities` (the mechanism supplies the transaction).
+3. Read back the ledger entry and verify: the column, the index, the constraint, `md5(pg_get_functiondef('public.customer_payments_immutable'::regproc))` changed, every other invoice/payment function unchanged, grants unchanged.
+4. `git mv` the file to `supabase/migrations/<recorded version>_payment_idempotency_and_invoice_opportunities.sql` and update this note.
+
+Deployment order matters: the application code on `phase-1b-invoice-foundation` sends `client_key` on every Record-payment submission, so the migration must be applied before that branch is deployed.
+
+### Status
+
+Pending approval. Not applied.
