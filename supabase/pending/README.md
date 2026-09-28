@@ -37,27 +37,24 @@ Applied to production on 2026-09-28 via the MCP `apply_migration` mechanism. Rec
 
 Before any invoice exists, run `invoice_foundation_rollback.sql` as one transaction, then decide separately whether to delete the ledger row. After invoices exist, do not roll back; hide the UI instead.
 
-## payment_idempotency_and_invoice_opportunities.sql (PENDING - not applied)
+## payment_idempotency_and_invoice_opportunities.sql (moved to supabase/migrations/20260928181837_payment_idempotency_and_invoice_opportunities.sql)
 
 Phase 1B-5 (Lifecycle Signals). Two additive changes in one script:
 
 1. `public.customer_payments.client_key` (nullable text, 8-128 URL-safe characters via `customer_payments_client_key_shape`) with the partial unique index `customer_payments_org_client_key_unique (organization_id, client_key) where client_key is not null`. The Record-payment dialog mints one key per submission and reuses it on retries; `lib/invoices/service.ts` resolves a replay to the row the first attempt created. The append-only trigger function `customer_payments_immutable` is re-created with `client_key` added to its list of columns an UPDATE may never change - the harness proved that without this line the key was editable after the fact. It is the only function the script replaces; no policy, trigger definition or grant changes.
 2. `opportunities_type_check` widened with `completed_job_not_invoiced` and `invoice_overdue` (both sourced from `job`; the invoice id travels in `metadata.invoice_id`).
 
-Companion files:
+Companion files (kept here):
 
 - `payment_idempotency_and_invoice_opportunities_rollback.sql` refuses to run while any keyed payment or new-type opportunity exists, then restores `customer_payments_immutable` byte-for-byte, drops the index, constraint and column, and re-creates the 12-type CHECK.
-- `scratch/validate-payment-idempotency.mjs` reproduces the production starting state (foundation + grants), applies the script twice, exercises key uniqueness per organization, key shape, append-only, RLS, grants, payment gate, the new opportunity types, dedup and the rollback. Run with `cd supabase/pending/scratch && npm run validate:idempotency`.
-
-### Apply procedure (a person does this, not tooling)
-
-1. Confirm read-only that `customer_payments` has no `client_key` column and `opportunities_type_check` still lists 12 types.
-2. Apply the script via the MCP `apply_migration` tool with the name `payment_idempotency_and_invoice_opportunities` (the mechanism supplies the transaction).
-3. Read back the ledger entry and verify: the column, the index, the constraint, `md5(pg_get_functiondef('public.customer_payments_immutable'::regproc))` changed, every other invoice/payment function unchanged, grants unchanged.
-4. `git mv` the file to `supabase/migrations/<recorded version>_payment_idempotency_and_invoice_opportunities.sql` and update this note.
-
-Deployment order matters: the application code on `phase-1b-invoice-foundation` sends `client_key` on every Record-payment submission, so the migration must be applied before that branch is deployed.
+- `scratch/validate-payment-idempotency.mjs` reproduces the pre-migration production state (foundation + grants), applies the script twice, exercises key uniqueness per organization, key shape, append-only, RLS, grants, payment gate, the new opportunity types, dedup and the rollback. Run with `cd supabase/pending/scratch && npm run validate:idempotency`. It now reads the script from its `supabase/migrations/` location.
 
 ### Status
 
-Pending approval. Not applied.
+Applied to production on 2026-09-28 via the MCP `apply_migration` mechanism with the name `payment_idempotency_and_invoice_opportunities`, applied once, as the file's exact text (md5 `8c97dac247e7dd91ca074fc78a4285c4`, identical to commit `9bc2bbb`). Recorded as ledger version `20260928181837` (ledger count 51 -> 52). The file now lives at `supabase/migrations/20260928181837_payment_idempotency_and_invoice_opportunities.sql`, unmodified; its header comment still reads "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied.
+
+Verified read-only afterwards: the column (text, nullable, no default), the unique index, the validated shape constraint, `customer_payments_immutable` containing the `client_key` comparison (still SECURITY DEFINER, `search_path=public`), the 14-type CHECK validated against all existing opportunity rows. Unchanged: every other invoice/payment function including `merge_contacts`, all 8 triggers on invoices/customer_payments/opportunities, all 125 public policies, all grants (authenticated still SELECT/INSERT only on customer_payments, anon nothing), and every other public function, index and constraint (fingerprints identical before and after). No invoice or payment rows were created.
+
+### If it must be undone
+
+Run `payment_idempotency_and_invoice_opportunities_rollback.sql` as one transaction, by a person. It refuses while any keyed payment or new-type opportunity exists; after real payments carry keys, do not roll back.

@@ -1,7 +1,8 @@
 /**
- * Phase 1B-5: structural checks of the PENDING migration
- * supabase/pending/payment_idempotency_and_invoice_opportunities.sql and its
- * rollback - the same source-text discipline supabase/migrations/
+ * Phase 1B-5: structural checks of the migration
+ * supabase/migrations/20260928181837_payment_idempotency_and_invoice_opportunities.sql
+ * (applied to production as ledger version 20260928181837) and its
+ * rollback in supabase/pending/ - the same source-text discipline supabase/migrations/
  * opportunities-migration.test.ts's Part 1 uses. The behavioral proof lives
  * in supabase/pending/scratch/validate-payment-idempotency.mjs (49 checks
  * against a real Postgres via PGlite); this file only pins the shape a
@@ -16,7 +17,7 @@ import path from "node:path";
 
 const ROOT = process.cwd();
 const read = (relative: string) => fs.readFileSync(path.join(ROOT, relative), "utf8");
-const forward = read("supabase/pending/payment_idempotency_and_invoice_opportunities.sql");
+const forward = read("supabase/migrations/20260928181837_payment_idempotency_and_invoice_opportunities.sql");
 const rollback = read("supabase/pending/payment_idempotency_and_invoice_opportunities_rollback.sql");
 /** The executable statements only - header/inline comments are prose, not DDL. */
 const stripComments = (sql: string) => sql.replace(/^\s*--.*$/gm, "");
@@ -42,9 +43,10 @@ const ALL_TYPES = [
   "invoice_overdue",
 ];
 
-test("the migration is still pending: it lives in supabase/pending, not supabase/migrations", () => {
-  assert.equal(fs.existsSync(path.join(ROOT, "supabase/pending/payment_idempotency_and_invoice_opportunities.sql")), true);
-  assert.equal(fs.readdirSync(path.join(ROOT, "supabase/migrations")).some((name) => name.includes("payment_idempotency")), false);
+test("the applied migration lives in supabase/migrations under its production ledger version, exactly once, and no copy remains in supabase/pending", () => {
+  const matches = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((name) => name.includes("payment_idempotency"));
+  assert.deepEqual(matches, ["20260928181837_payment_idempotency_and_invoice_opportunities.sql"]);
+  assert.equal(fs.existsSync(path.join(ROOT, "supabase/pending/payment_idempotency_and_invoice_opportunities.sql")), false);
 });
 
 test("client_key is a nullable text column with a partial UNIQUE index on (organization_id, client_key) and a shape constraint matching the application's CLIENT_KEY_PATTERN", () => {

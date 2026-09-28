@@ -1,5 +1,7 @@
 // Disposable validation harness for
-// supabase/pending/payment_idempotency_and_invoice_opportunities.sql.
+// supabase/migrations/20260928181837_payment_idempotency_and_invoice_opportunities.sql
+// (applied to production 2026-09-28 as ledger version 20260928181837; kept
+// runnable so the rollback and the rules stay provable).
 //
 // Boots an in-memory Postgres (PGlite), recreates the production starting
 // state for the objects involved (the same stand-ins validate.mjs uses, plus
@@ -28,7 +30,7 @@ const pending = path.resolve(here, "..");
 const migrations = path.join(pending, "..", "migrations");
 const foundation = readFileSync(path.join(migrations, "20260928162500_invoice_foundation.sql"), "utf8");
 const grants = readFileSync(path.join(migrations, "20260928163516_invoice_foundation_grants.sql"), "utf8");
-const forward = readFileSync(path.join(pending, "payment_idempotency_and_invoice_opportunities.sql"), "utf8");
+const forward = readFileSync(path.join(migrations, "20260928181837_payment_idempotency_and_invoice_opportunities.sql"), "utf8");
 const rollback = readFileSync(path.join(pending, "payment_idempotency_and_invoice_opportunities_rollback.sql"), "utf8");
 const captured = readFileSync(path.join(pending, "reference", "merge_contacts.production.sql"), "utf8");
 const capturedBody = captured.slice(captured.indexOf("CREATE OR REPLACE FUNCTION public.merge_contacts"));
