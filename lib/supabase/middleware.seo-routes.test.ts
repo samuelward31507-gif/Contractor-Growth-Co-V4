@@ -37,9 +37,14 @@ test("3. AUTH_PATHS is untouched by this change - /robots.txt and /sitemap.xml a
   assert.match(SOURCE, /const AUTH_PATHS = new Set\(\["\/login", "\/signup", "\/forgot-password"\]\);/);
 });
 
-test("4. the PUBLIC_MARKETING_PATHS check itself is unchanged in shape aside from the documented /demo addition - still a single short-circuit before any auth check runs, so an authenticated user hitting these routes is never redirected away either", () => {
+test("4. the PUBLIC_MARKETING_PATHS check itself is unchanged in shape aside from the documented /demo and /quote additions - still a single short-circuit before any auth check runs, so an authenticated user hitting these routes is never redirected away either", () => {
+  // Phase 1A (quote approval links) appended `|| pathname.startsWith("/quote")`
+  // to this same short-circuit - see middleware.quote-route.test.ts for that
+  // clause's own dedicated assertions. This test only pins the shape: the
+  // marketing/auth/api/demo clauses stay first and unchanged, and the whole
+  // condition is still one early `return supabaseResponse`.
   assert.match(
     SOURCE,
-    /if \(PUBLIC_MARKETING_PATHS\.has\(pathname\) \|\| pathname\.startsWith\("\/auth"\) \|\| pathname\.startsWith\("\/api\/"\) \|\| pathname\.startsWith\("\/demo"\)\) \{\s*\n\s*return supabaseResponse;\s*\n\s*\}/,
+    /if \(PUBLIC_MARKETING_PATHS\.has\(pathname\) \|\| pathname\.startsWith\("\/auth"\) \|\| pathname\.startsWith\("\/api\/"\) \|\| pathname\.startsWith\("\/demo"\) \|\| pathname\.startsWith\("\/quote"\)\) \{\s*\n\s*return supabaseResponse;\s*\n\s*\}/,
   );
 });

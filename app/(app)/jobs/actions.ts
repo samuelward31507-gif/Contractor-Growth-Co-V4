@@ -10,6 +10,7 @@ import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 import { emitLeadCreatedFollowup } from "@/lib/automation/lead-followup";
 import { emitLeadStageChanged } from "@/lib/automation/lead-stage-history";
 import { getJob } from "@/lib/jobs/queries";
+import { parseJobEditInput } from "@/lib/jobs/edit-input";
 
 /**
  * Job status transitions, plus (Growth System Completion Pass 1) direct job
@@ -25,6 +26,8 @@ import { getJob } from "@/lib/jobs/queries";
 export type JobActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
 export type CreateJobFormState = { error?: string; success?: boolean; id?: string };
+
+export type UpdateJobFormState = { error?: string; success?: boolean; id?: string };
 
 async function requireOrganization() {
   const supabase = await createClient();
@@ -138,6 +141,51 @@ export async function createJob(_prevState: CreateJobFormState, formData: FormDa
 
   revalidatePath("/money");
   return { success: true, id: created.id };
+}
+
+/**
+ * Phase 1A (Close the Money Loop): the one way to correct a job's own
+ * record after creation. Scope is deliberately title / amount / notes and
+ * nothing else - status, timestamps, and every relationship (contact, lead,
+ * estimate, organization) are never part of the patch, so this can never
+ * move a job through its lifecycle or re-point it at another customer. The
+ * amount here is the job's contracted value (the same meaning it has at
+ * creation and on every summary), never collected revenue; correcting it is
+ * what the Phase 1 audit found blocking: 20 of 32 production jobs had no
+ * amount and no way to add one.
+ *
+ * Same authorization shape as every other action in this file: the
+ * organization comes from the caller's own session via requireOrganization()
+ * (never the form), the UPDATE is filtered by that organization_id, and RLS
+ * (is_org_member + the payment-active restrictive policy) re-verifies it at
+ * the database. Any status is editable - the jobs most in need of a
+ * corrected amount are already completed.
+ */
+export async function updateJob(_prevState: UpdateJobFormState, formData: FormData): Promise<UpdateJobFormState> {
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { error: "Missing job." };
+
+  const parsed = parseJobEditInput({ title: formData.get("title"), amount: formData.get("amount"), notes: formData.get("notes") });
+  if (parsed.error || !parsed.input) return { error: parsed.error ?? "Enter job details." };
+
+  const { supabase, organizationId } = await requireOrganization();
+
+  const { data, error } = await supabase
+    .from("jobs")
+    .update({ title: parsed.input.title, amount: parsed.input.amount, notes: parsed.input.notes })
+    .eq("id", id)
+    .eq("organization_id", organizationId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) return { error: "We couldn't update this job. Please try again." };
+  if (!data) return { error: "This job could not be found." };
+
+  revalidatePath("/money");
+  revalidatePath("/jobs");
+  revalidatePath("/today");
+  revalidatePath(`/jobs/${id}`);
+  return { success: true, id: data.id };
 }
 
 /**

@@ -7,7 +7,7 @@ import { RespondPanel } from "./_components/respond-panel";
 /**
  * Quote Approval Links (V1): the public, customer-facing page a follow-up
  * text links to - see lib/estimates/approval.ts for the trust model and
- * supabase/migrations/20260929000000_estimate_approval_links.sql for the
+ * supabase/migrations/20260928052521_estimate_approval_links.sql for the
  * token. Deliberately outside the (app) route group so it never inherits
  * the authenticated layout (the exact /demo precedent), and reachable
  * logged-out via its own startsWith exemption in lib/supabase/middleware.ts.
