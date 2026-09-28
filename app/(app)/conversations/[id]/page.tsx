@@ -9,6 +9,14 @@ import {
   getMessages,
   pickRelevantAppointment,
 } from "@/lib/conversations/queries";
+import { getContactLeads } from "@/lib/leads/queries";
+import { getContactEstimates } from "@/lib/estimates/queries";
+import { getContactJobs } from "@/lib/jobs/queries";
+import { getReviewRequestsForJobs } from "@/lib/reviews-referrals/queries";
+import { deriveContactLifecycle } from "@/lib/customers/lifecycle-stage";
+import { findPersonNextStep } from "@/lib/people/next-step";
+import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contacts/open-lead-value";
+import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials } from "@/lib/contacts/format";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { CHANNEL_LABELS } from "@/lib/conversations/format";
@@ -58,11 +66,20 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     );
   }
 
-  const [messages, contactAppointments, contactOptOut, timeZone] = await Promise.all([
+  const [messages, contactAppointments, contactLeads, contactEstimates, contactJobs, contactOptOut, timeZone] = await Promise.all([
     getMessages(supabase, membership.organizationId, conversation.id),
     conversation.contact_id
       ? getContactAppointments(supabase, membership.organizationId, conversation.contact_id)
       : Promise.resolve([]),
+    // Final Major Product Build: scoped reads (never a full org fetch) that
+    // power this panel's own lifecycle stage, opportunity value, next step,
+    // and Estimate card below - see each scoped query's own comment
+    // (lib/leads/queries.ts, lib/estimates/queries.ts, lib/jobs/queries.ts)
+    // for why these exist as real `.eq("contact_id", ...)` queries rather
+    // than filtering a page-wide fetch in memory.
+    conversation.contact_id ? getContactLeads(supabase, membership.organizationId, conversation.contact_id) : Promise.resolve([]),
+    conversation.contact_id ? getContactEstimates(supabase, membership.organizationId, conversation.contact_id) : Promise.resolve([]),
+    conversation.contact_id ? getContactJobs(supabase, membership.organizationId, conversation.contact_id) : Promise.resolve([]),
     // sms_opt_out isn't part of the conversation query's embedded contact
     // columns (lib/conversations/queries.ts is out of scope for this pass),
     // so it's read directly here, scoped by org + contact id the same way
@@ -83,9 +100,47 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     getOrganizationTimezone(supabase, membership.organizationId),
   ]);
 
+  // review_requests are read after contactJobs resolves (needs its own job
+  // ids to scope to), the same staged-fetch shape /people/[id]/page.tsx
+  // already uses for its own reviewRequests/referralRequests.
+  const reviewRequests = await getReviewRequestsForJobs(
+    supabase,
+    membership.organizationId,
+    contactJobs.map((job) => job.id),
+  );
+
   const relevantAppointment = pickRelevantAppointment(contactAppointments);
   const contactName = conversation.contact ? contactDisplayName(conversation.contact) : "No contact";
   const smsOptOut = Boolean(contactOptOut?.data?.sms_opt_out);
+
+  const lifecycleStage = conversation.contact_id
+    ? deriveContactLifecycle(conversation.contact_id, {
+        leads: contactLeads,
+        estimates: contactEstimates,
+        jobs: contactJobs,
+        appointments: contactAppointments,
+        reviewRequests,
+      })
+    : null;
+
+  const openLeadValueSummary = summarizeOpenLeadValue(contactLeads);
+  const openLeadCount = contactLeads.filter((lead) => lead.status !== "won" && lead.status !== "lost").length;
+  const openLeadValueDisplay = formatOpenLeadValueDisplay(openLeadValueSummary, openLeadCount, formatCurrency);
+
+  // The current conversation is the only one this scoped fetch has - a
+  // narrower input than /people/[id]'s own full conversation list, so the
+  // "a conversation is waiting for a reply" branch only ever considers this
+  // one thread. Every other branch (appointment/estimate/lead) reads this
+  // contact's full, real history exactly like the Person page does.
+  const nextStep = conversation.contact_id
+    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: [conversation], timeZone })
+    : null;
+
+  const relevantEstimate =
+    contactEstimates.find((estimate) => estimate.status === "sent") ??
+    contactEstimates.find((estimate) => estimate.status === "accepted") ??
+    contactEstimates[0] ??
+    null;
 
   // There's no dedicated automation-log query keyed by conversation in
   // scope here - this is derived straight from the messages already loaded
@@ -146,6 +201,10 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
             <ConversationContext
               conversation={conversation}
               relevantAppointment={relevantAppointment}
+              relevantEstimate={relevantEstimate}
+              lifecycleStage={lifecycleStage}
+              openLeadValueDisplay={openLeadCount > 0 ? openLeadValueDisplay : null}
+              nextStep={nextStep}
               smsOptOut={smsOptOut}
               automationActivity={automationActivity}
               timeZone={timeZone}
@@ -157,6 +216,10 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
           <ConversationContext
             conversation={conversation}
             relevantAppointment={relevantAppointment}
+            relevantEstimate={relevantEstimate}
+            lifecycleStage={lifecycleStage}
+            openLeadValueDisplay={openLeadCount > 0 ? openLeadValueDisplay : null}
+            nextStep={nextStep}
             smsOptOut={smsOptOut}
             automationActivity={automationActivity}
             timeZone={timeZone}

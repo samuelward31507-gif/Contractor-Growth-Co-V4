@@ -160,7 +160,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
             <SectionCard
               title="Customer"
               action={
-                <Link href={`/contacts/${appointment.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/people/${appointment.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
                   View contact
                 </Link>
               }

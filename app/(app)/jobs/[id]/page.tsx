@@ -183,7 +183,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
             <SectionCard
               title="Customer"
               action={
-                <Link href={`/contacts/${job.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/people/${job.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
                   View contact
                 </Link>
               }

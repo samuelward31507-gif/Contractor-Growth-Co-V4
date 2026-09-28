@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Phone, MessageCircle, Briefcase, CalendarClock, FileSearch, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles, ArrowRight, AlertCircle, FileX2 } from "lucide-react";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
-import { getContact } from "@/lib/contacts/queries";
+import { getContact, getContacts } from "@/lib/contacts/queries";
 import { getContactRelationshipCounts } from "@/lib/contacts/duplicates";
 import { getLeads, OPEN_LEAD_STATUSES } from "@/lib/leads/queries";
 import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contacts/open-lead-value";
@@ -13,7 +13,7 @@ import { getConversations, getMessages, CONVERSATION_CHANNELS } from "@/lib/conv
 import { getJobs } from "@/lib/jobs/queries";
 import { getCustomerLifecycle } from "@/lib/customers/lifecycle";
 import { getOpenOpportunities } from "@/lib/opportunities/queries";
-import { getReviewRequestForJob, getReferralRequestForJob } from "@/lib/reviews-referrals/queries";
+import { getReviewRequestForJob, getReferralRequestForJob, getReviewRequestsForJobs, getReferralRequestsForJobs } from "@/lib/reviews-referrals/queries";
 import { REVIEW_STATUS_LABELS, REFERRAL_STATUS_LABELS } from "@/lib/reviews-referrals/format";
 import { getLeadStageHistory } from "@/lib/automation/lead-stage-history";
 import { ACTIVE_APPOINTMENT_STATUSES, ACTIVE_ESTIMATE_STATUSES, ACTIVE_JOB_STATUSES } from "@/lib/automation/customer-reactivation";
@@ -37,6 +37,7 @@ import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_com
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
 import { buildPersonTimeline } from "@/lib/people/timeline";
 import { findPersonNextStep } from "@/lib/people/next-step";
+import { CreateEstimateButton } from "./_components/create-estimate-button";
 
 const OPPORTUNITY_TYPE_LABELS: Record<string, string> = {
   qualified_lead_unbooked: "Qualified, not booked",
@@ -85,9 +86,14 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
     redirect("/onboarding");
   }
 
-  const [contact, relationshipCounts, allLeads, allAppointments, allEstimates, allConversations, allJobs, lifecycle, allOpenOpportunities, timeZone] =
+  const [contact, contacts, relationshipCounts, allLeads, allAppointments, allEstimates, allConversations, allJobs, lifecycle, allOpenOpportunities, timeZone] =
     await Promise.all([
       getContact(supabase, membership.organizationId, id),
+      // Final Major Product Build: full org contact list, needed only for
+      // CreateEstimateButton's own ContactPicker (the same dialog /estimates
+      // itself already fetches this for) - not used for anything else on
+      // this page.
+      getContacts(supabase, membership.organizationId),
       getContactRelationshipCounts(supabase, membership.organizationId, id),
       getLeads(supabase, membership.organizationId),
       getAppointments(supabase, membership.organizationId),
@@ -139,20 +145,27 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
     .filter((job) => job.contact_id === contact.id)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const openOpportunities = allOpenOpportunities.filter((opportunity) => opportunity.contactId === contact.id);
+  const jobIds = jobs.map((job) => job.id);
 
   // One getLeadStageHistory call per lead (the same function
   // /leads/[id] already calls once) and one getMessages call per
   // conversation (same as /leads/[id] and /contacts/[id] already do) -
   // reused as-is, never a new query shape, just called across this
   // person's full set of leads/conversations instead of a single one.
-  const [stageHistories, conversationMessages] = await Promise.all([
+  // reviewRequests/referralRequests are a real, database-scoped
+  // `.in("job_id", jobIds)` read (see getReviewRequestsForJobs's own
+  // comment) rather than a full org fetch filtered in memory - this page
+  // only needs this one person's own jobs' requests.
+  const [stageHistories, conversationMessages, reviewRequests, referralRequests] = await Promise.all([
     Promise.all(leads.map((lead) => getLeadStageHistory(supabase, membership.organizationId, lead.id))),
     Promise.all(conversations.map((conversation) => getMessages(supabase, membership.organizationId, conversation.id))),
+    getReviewRequestsForJobs(supabase, membership.organizationId, jobIds),
+    getReferralRequestsForJobs(supabase, membership.organizationId, jobIds),
   ]);
   const stageHistoryByLeadId = new Map(leads.map((lead, index) => [lead.id, stageHistories[index]]));
   const messages = conversationMessages.flat();
 
-  const timeline = buildPersonTimeline({ leads, stageHistoryByLeadId, appointments, estimates, jobs, messages, timeZone });
+  const timeline = buildPersonTimeline({ leads, stageHistoryByLeadId, appointments, estimates, jobs, messages, reviewRequests, referralRequests, timeZone });
   const nextStep = findPersonNextStep({ leads, appointments, estimates, jobs, conversations, timeZone });
 
   const openLeadCount = leads.filter((lead) => lead.status !== "won" && lead.status !== "lost").length;
@@ -237,6 +250,18 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                 Text
               </Link>
             ) : null}
+            {/* Final Major Product Build: Schedule links to the real
+                calendar (never a fabricated per-contact booking dialog - the
+                existing Schedule/calendar engine is explicitly out of scope
+                for this pass) and Create Estimate opens the real, existing
+                estimate dialog pre-filled with this contact - the two
+                remaining actions from the product brief's own "Call, Text,
+                Schedule, Create Estimate" set that weren't already here. */}
+            <Link href="/schedule" className={`${secondaryButtonAutoClass} gap-1.5`}>
+              <CalendarClock className="h-4 w-4" aria-hidden />
+              Schedule
+            </Link>
+            <CreateEstimateButton contactId={contact.id} contacts={contacts} leads={allLeads} />
             {/* Reuses ContactActions (Edit/Delete) as-is - contacts/[id]'s
                 own header action - so editing a person's details isn't a
                 capability this new unified view drops relative to the old

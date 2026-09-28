@@ -86,6 +86,28 @@ export async function getReferralRequestForJob(supabase: SupabaseClient, organiz
   return data as ReferralRequest;
 }
 
+/**
+ * Final Major Product Build: review/referral requests for a specific set of
+ * jobs (a person's own completed jobs, or a contact's) - a real,
+ * database-level `.in("job_id", ...)` filter, not a full getReviewRequests()/
+ * getReferralRequests() org-wide fetch filtered client-side. Returns `[]`
+ * immediately for an empty jobIds list, matching
+ * getDormantCustomersValueSummaryResult's own established "skip the query
+ * entirely when there's nothing to scope to" pattern
+ * (lib/customers/lifecycle.ts).
+ */
+export async function getReviewRequestsForJobs(supabase: SupabaseClient, organizationId: string, jobIds: string[]): Promise<ReviewRequest[]> {
+  if (jobIds.length === 0) return [];
+  const { data } = await supabase.from("review_requests").select(REVIEW_REQUEST_COLUMNS).eq("organization_id", organizationId).in("job_id", jobIds).limit(1000);
+  return (data ?? []) as ReviewRequest[];
+}
+
+export async function getReferralRequestsForJobs(supabase: SupabaseClient, organizationId: string, jobIds: string[]): Promise<ReferralRequest[]> {
+  if (jobIds.length === 0) return [];
+  const { data } = await supabase.from("referral_requests").select(REFERRAL_REQUEST_COLUMNS).eq("organization_id", organizationId).in("job_id", jobIds).limit(1000);
+  return (data ?? []) as ReferralRequest[];
+}
+
 /** Loads every review/referral request for the org (capped, matching getJobs/getLeads), for the Jobs page's summary. */
 export async function getReviewRequests(supabase: SupabaseClient, organizationId: string): Promise<ReviewRequest[]> {
   const { data } = await supabase.from("review_requests").select(REVIEW_REQUEST_COLUMNS).eq("organization_id", organizationId).limit(1000);

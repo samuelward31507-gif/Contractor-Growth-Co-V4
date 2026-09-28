@@ -107,6 +107,25 @@ export async function getEstimate(
   return normalizeEstimate(data as RawEstimateRow);
 }
 
+/**
+ * Final Major Product Build: contact-scoped estimates for surfaces that only
+ * ever need one person's own estimates (the Inbox context panel) - a real,
+ * org+contact-filtered query at the database level, not a full getEstimates()
+ * fetch filtered client-side. Mirrors getContactAppointments's exact
+ * contract (lib/conversations/queries.ts).
+ */
+export async function getContactEstimates(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Estimate[]> {
+  const { data } = await supabase
+    .from("estimates")
+    .select(ESTIMATE_COLUMNS)
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  return ((data ?? []) as RawEstimateRow[]).map(normalizeEstimate);
+}
+
 export type EstimateFilters = {
   query?: string;
   status?: EstimateStatus | "all";

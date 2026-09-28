@@ -100,15 +100,31 @@ export const OPPORTUNITY_TYPE_TONE: Record<OpportunityType, BadgeTone> = {
 
 /**
  * The one action target per type - reuses exactly the same canonical
- * destinations Phase 3C/3D/3E already established (Customers' Active Leads
- * view, Schedule's list view, the Estimates & Jobs surface), or, for the two
- * job-sourced types, the real existing job detail route via the
- * opportunity's own sourceEntityId - the exact same deep-link Dashboard's
- * own attention items already use for these two types
- * (lib/dashboard/queries.ts). Never a new route, never a fabricated
- * relationship - every href below is either a canonical destination this
- * redesign already shipped, or data the Opportunity Engine already provides
- * on the opportunity itself.
+ * destinations Phase 3C/3D/3E already established (People, Schedule's list
+ * view, Estimates), or, for the job/estimate-sourced types, the real
+ * existing detail route via the opportunity's own sourceEntityId - the exact
+ * same deep-link Dashboard's own attention items already use for the two
+ * job-sourced types (lib/dashboard/queries.ts). Never a new route, never a
+ * fabricated relationship - every href below is either a canonical
+ * destination this redesign already shipped, or data the Opportunity Engine
+ * already provides on the opportunity itself.
+ *
+ * Final Major Product Build (nav-restructure follow-up): accepted_estimate_
+ * no_job/stale_estimate/pending_estimate used to all point at the generic
+ * /money browse view - a real destination, but a dead end relative to the
+ * specific record the opportunity is actually about, and stale now that
+ * Estimates is its own nav destination rather than Money. These three now
+ * deep-link straight to the real estimate record (sourceEntityId for the
+ * first two; pending_estimate's own sourceEntityId is deliberately the
+ * LEAD's id - see detectPendingEstimates's own comment in
+ * lib/opportunities/detect.ts - so its real estimate id is read from
+ * metadata.estimate_id, which that same detector always sets).
+ * completed_appointment_no_estimate's own action is labeled "Create
+ * estimate" (OPPORTUNITY_ACTION_LABEL below) but used to land on a page with
+ * no create affordance for this specific customer - it now opens the real
+ * create-estimate dialog on /estimates pre-filled with this contact (see
+ * AddEstimateButton's own contactId query-param support), so the label is
+ * no longer aspirational.
  */
 export function opportunityActionHref(opportunity: Opportunity): string {
   switch (opportunity.type) {
@@ -118,9 +134,13 @@ export function opportunityActionHref(opportunity: Opportunity): string {
       return opportunity.contactId ? `/people/${opportunity.contactId}` : "/people";
     case "accepted_estimate_no_job":
     case "stale_estimate":
+      return `/estimates/${opportunity.sourceEntityId}`;
+    case "pending_estimate": {
+      const estimateId = opportunity.metadata.estimate_id;
+      return typeof estimateId === "string" ? `/estimates/${estimateId}` : "/estimates";
+    }
     case "completed_appointment_no_estimate":
-    case "pending_estimate":
-      return "/money";
+      return opportunity.contactId ? `/estimates?new=estimate&contactId=${opportunity.contactId}` : "/estimates";
     case "no_show":
     case "cancelled_appointment_no_rebooking":
       return "/schedule?view=list";

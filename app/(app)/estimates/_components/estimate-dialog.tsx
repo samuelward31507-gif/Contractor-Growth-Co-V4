@@ -21,17 +21,21 @@ export function EstimateDialog({
   contacts,
   leads,
   estimate,
+  defaultContactId,
   onClose,
 }: {
   mode: "create" | "edit";
   contacts: Contact[];
   leads: Lead[];
   estimate?: Estimate;
+  /** Pre-selects the contact picker in create mode - see AddEstimateButton's own comment for why. Ignored in edit mode (the estimate's own contact always wins). */
+  defaultContactId?: string;
   onClose: () => void;
 }) {
   const action = mode === "create" ? createEstimate : updateEstimate;
   const [state, formAction, isPending] = useActionState(action, initialState);
-  const [contactId, setContactId] = useState(estimate?.contact_id ?? "");
+  const [contactId, setContactId] = useState(estimate?.contact_id ?? defaultContactId ?? "");
+  const defaultContact = estimate?.contact ?? (defaultContactId ? (contacts.find((contact) => contact.id === defaultContactId) ?? null) : null);
   const closedRef = useRef(false);
 
   useEffect(() => {
@@ -54,7 +58,7 @@ export function EstimateDialog({
             <label className={labelClass}>Contact</label>
             <ContactPicker
               contacts={contacts}
-              defaultContact={estimate?.contact ?? null}
+              defaultContact={defaultContact}
               name="contactId"
               onSelect={(contact) => setContactId(contact?.id ?? "")}
             />
