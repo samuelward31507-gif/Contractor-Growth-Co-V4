@@ -208,10 +208,19 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
         meta={
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
             {[
-              { label: "Leads", value: String(relationshipCounts.leads), icon: Flame },
-              { label: "Open opportunity value", value: openLeadsValueDisplay, icon: Wallet },
-              { label: "Appointments", value: String(relationshipCounts.appointments), icon: CalendarCheck2 },
-              { label: "Jobs", value: String(relationshipCounts.jobs), icon: Briefcase },
+              { label: "Leads", value: String(relationshipCounts.leads), detail: undefined, icon: Flame },
+              {
+                label: "Open opportunity value",
+                value: openLeadsValueDisplay,
+                // Finalization pass, money-truth audit: formatOpenLeadValueDisplay
+                // already correctly shows "Unknown" when every open lead's value
+                // is unknown, but silently said nothing when only SOME were -
+                // matches /people/[id]'s identical fix for the same stat.
+                detail: openLeadsValueSummary.unknownValueCount > 0 ? `${openLeadsValueSummary.unknownValueCount} with unknown value` : undefined,
+                icon: Wallet,
+              },
+              { label: "Appointments", value: String(relationshipCounts.appointments), detail: undefined, icon: CalendarCheck2 },
+              { label: "Jobs", value: String(relationshipCounts.jobs), detail: undefined, icon: Briefcase },
             ].map((stat) => (
               <div key={stat.label}>
                 <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
@@ -219,6 +228,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                   {stat.label}
                 </p>
                 <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{stat.value}</p>
+                {stat.detail ? <p className="mt-0.5 text-xs text-slate-500">{stat.detail}</p> : null}
               </div>
             ))}
           </div>

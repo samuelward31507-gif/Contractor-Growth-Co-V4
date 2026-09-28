@@ -24,11 +24,11 @@ import { computeOnboardingReadiness, type OnboardingReadiness } from "@/lib/onbo
 export type ExpansionConfidence = "high" | "medium" | "informational";
 
 /**
- * Every one of the Opportunity Engine's 10 types maps to exactly one of
+ * Every one of the Opportunity Engine's 12 types maps to exactly one of
  * these 7 service labels. Deliberately a `Record<OpportunityType, string>`
  * (not a plain object typed `Record<string, string>`) - TypeScript enforces
  * that this mapping stays exhaustive. If lib/opportunities/detect.ts/queries.ts
- * ever adds an 11th OpportunityType, this file fails to compile until a
+ * ever adds another OpportunityType, this file fails to compile until a
  * conscious mapping decision is made here - the mapping can never silently
  * fall back to an invented or default service label for a type nobody has
  * actually decided how to sell yet.
@@ -49,6 +49,13 @@ export const OPPORTUNITY_TYPE_TO_SERVICE: Record<OpportunityType, string> = {
   no_show: "Scheduling Optimization",
   cancelled_appointment_no_rebooking: "Scheduling Optimization",
   completed_appointment_no_estimate: "Estimate Follow-Through",
+  // Canonical Opportunity Intelligence Layer: these 2 types replace the
+  // Attention Engine's own non-persisted hot_lead/high_value_lead/
+  // pending_estimate conditions with real, persisted opportunities (see
+  // lib/opportunities/detect.ts) - mapped to the same service line as their
+  // closest sibling type.
+  active_lead_signal: "Lead Response / Booking Assist",
+  pending_estimate: "Estimate Recovery",
 };
 
 /**

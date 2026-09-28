@@ -72,10 +72,10 @@ export function CalendarConnectionSection({
           </div>
         ) : (
           <div className="space-y-4 rounded-lg border border-slate-200 px-4 py-3.5">
-            {disconnectState.error ? <p className={errorBannerClass}>{disconnectState.error}</p> : null}
-            {selectState.error ? <p className={errorBannerClass}>{selectState.error}</p> : null}
+            {disconnectState.error ? <p className={errorBannerClass} role="alert">{disconnectState.error}</p> : null}
+            {selectState.error ? <p className={errorBannerClass} role="alert">{selectState.error}</p> : null}
             {selectState.success ? <p className={successBannerClass}>Calendar selection saved.</p> : null}
-            {healthState.error ? <p className={errorBannerClass}>{healthState.error}</p> : null}
+            {healthState.error ? <p className={errorBannerClass} role="alert">{healthState.error}</p> : null}
             {healthState.success ? <p className={successBannerClass}>Calendar connection is healthy.</p> : null}
 
             <div className="flex flex-wrap items-center justify-between gap-3">

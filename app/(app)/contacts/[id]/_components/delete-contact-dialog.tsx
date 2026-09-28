@@ -18,7 +18,7 @@ export function DeleteContactDialog({ contact, onClose }: { contact: Contact; on
       <DialogTitle id="delete-contact-title">Delete {name}?</DialogTitle>
       <DialogDescription>This will permanently remove this contact.</DialogDescription>
 
-      {state.error ? <p className={`mt-4 ${errorBannerClass}`}>{state.error}</p> : null}
+      {state.error ? <p className={`mt-4 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
 
       <form action={formAction}>
         <input type="hidden" name="id" value={contact.id} />

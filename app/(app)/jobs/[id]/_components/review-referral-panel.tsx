@@ -159,7 +159,7 @@ export function ReviewReferralPanel({
         ) : null}
       </div>
 
-      {error ? <p className={`mt-3 ${errorBannerClass}`}>{error}</p> : null}
+      {error ? <p className={`mt-3 ${errorBannerClass}`} role="alert">{error}</p> : null}
     </SectionCard>
   );
 }

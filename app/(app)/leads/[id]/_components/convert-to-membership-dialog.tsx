@@ -21,7 +21,7 @@ export function ConvertToMembershipDialog({ lead, onClose }: { lead: Lead; onClo
         automatically.
       </DialogDescription>
 
-      {state.error ? <p className={`mt-4 ${errorBannerClass}`}>{state.error}</p> : null}
+      {state.error ? <p className={`mt-4 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
       {state.success ? (
         <p className={`mt-4 ${successBannerClass}`}>
           {state.alreadyMember ? `${who} is already an active member.` : `${who} is now a member.`}

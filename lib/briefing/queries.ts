@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDashboardData, type AttentionItem } from "@/lib/dashboard/queries";
+import { getHotLeadCount } from "@/lib/leads/queries";
 import { getAppointmentsResult, type Appointment } from "@/lib/appointments/queries";
 import { getEstimatesResult, type Estimate } from "@/lib/estimates/queries";
 import { getJobsResult, type Job } from "@/lib/jobs/queries";
@@ -66,6 +67,7 @@ export type OwnerDailyBriefing = {
   organizationId: string;
   generatedAt: string;
   newLeadsCount: number;
+  /** Capped at MAX_LIST_ITEMS for whatever future list rendering needs a short sample - the summary sentence's own "N hot" figure uses the real, uncapped getHotLeadCount instead (see getOwnerDailyBriefing), so the two numbers can legitimately differ for an org with more than MAX_LIST_ITEMS hot leads; this array's own .length is never the authoritative count. */
   hotLeads: BriefingLead[];
   appointmentsToday: BriefingAppointment[];
   appointmentsNeedingAttention: AttentionItem[];
@@ -87,7 +89,7 @@ export type OwnerDailyBriefing = {
 };
 
 export async function getOwnerDailyBriefing(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<OwnerDailyBriefing> {
-  const [dashboard, appointmentsResult, estimatesResult, jobsResult, reviewRequestsResult, referralRequestsResult, health, aiEscalationsCount] = await Promise.all([
+  const [dashboard, appointmentsResult, estimatesResult, jobsResult, reviewRequestsResult, referralRequestsResult, health, aiEscalationsCount, hotLeadCount] = await Promise.all([
     getDashboardData(supabase, organizationId),
     getAppointmentsResult(supabase, organizationId),
     getEstimatesResult(supabase, organizationId),
@@ -96,6 +98,15 @@ export async function getOwnerDailyBriefing(supabase: SupabaseClient, organizati
     getReferralRequestsResult(supabase, organizationId),
     getOrganizationHealth(supabase, organizationId),
     getAiEscalationCount(supabase, organizationId),
+    // Finalization pass, product-consistency audit: the summary sentence
+    // below used to say `${hotLeads.length} hot`, capped at MAX_LIST_ITEMS
+    // (5) by the same slice() that bounds the (unrendered) hotLeads list -
+    // an org with more than 5 hot leads got a silently wrong, undercounted
+    // sentence ("5 hot") that disagreed with Today's own header, which
+    // already shows the true, uncapped count via this exact same function.
+    // Reusing it here - rather than a second, independently-drifting hot-lead
+    // count - is what makes the two numbers agree everywhere they're shown.
+    getHotLeadCount(supabase, organizationId),
   ]);
   const appointments = appointmentsResult.data;
   const estimates = estimatesResult.data;
@@ -148,7 +159,7 @@ export async function getOwnerDailyBriefing(supabase: SupabaseClient, organizati
 
   const summaryParts: string[] = [];
   if (dashboard.overview.newLeads > 0) summaryParts.push(`${dashboard.overview.newLeads} new lead${dashboard.overview.newLeads === 1 ? "" : "s"}`);
-  if (hotLeads.length > 0) summaryParts.push(`${hotLeads.length} hot`);
+  if (hotLeadCount > 0) summaryParts.push(`${hotLeadCount} hot`);
   if (appointmentsToday.length > 0) summaryParts.push(`${appointmentsToday.length} appointment${appointmentsToday.length === 1 ? "" : "s"} today`);
   if (estimatesAwaitingAction.length > 0) summaryParts.push(`${estimatesAwaitingAction.length} estimate${estimatesAwaitingAction.length === 1 ? "" : "s"} awaiting a reply`);
   if (aiEscalationsCount > 0) summaryParts.push(`${aiEscalationsCount} conversation${aiEscalationsCount === 1 ? "" : "s"} waiting on you`);
@@ -186,6 +197,18 @@ export type EndOfDaySummary = {
   jobsWonOrCompleted: number;
   /** SUM(estimates.amount) for estimates sent today + SUM(jobs.amount) for jobs won/completed today - the quoted/contracted amount those activities REPRESENT, never collected revenue (no payment infrastructure exists in this codebase). */
   valueRepresented: number;
+  /**
+   * Finalization pass: a raw count of every Attention Engine item
+   * (lib/dashboard/queries.ts's 17 kinds), computed here but never rendered
+   * anywhere in the current UI (confirmed by a full-repo search) - kept for
+   * API compatibility with any future consumer, but explicitly NOT the same
+   * number as Today's own canonical "N things need you" total
+   * (lib/opportunities/intelligence.ts's getPrioritizedOpportunities +
+   * getOperationalExceptions + getConversationSignals), which deduplicates
+   * and covers 2 opportunity types this raw count doesn't. A future consumer
+   * wanting "how many things need attention" should call the canonical
+   * intelligence layer directly, never read this field for that purpose.
+   */
   unresolvedItemsCount: number;
   automationIncidentsCount: number;
   aiEscalationsCount: number;
@@ -238,7 +261,17 @@ export async function getEndOfDaySummary(supabase: SupabaseClient, organizationI
   if (appointmentsBookedToday.length > 0) summaryParts.push(`${appointmentsBookedToday.length} appointment${appointmentsBookedToday.length === 1 ? "" : "s"} booked`);
   if (estimatesSentToday.length > 0) summaryParts.push(`${estimatesSentToday.length} estimate${estimatesSentToday.length === 1 ? "" : "s"} sent`);
   if (jobsWonOrCompletedToday.length > 0) summaryParts.push(`${jobsWonOrCompletedToday.length} job${jobsWonOrCompletedToday.length === 1 ? "" : "s"} won/completed`);
-  if (unresolvedItemsCount > 0) summaryParts.push(`${unresolvedItemsCount} item${unresolvedItemsCount === 1 ? "" : "s"} still need attention`);
+  // Phase 0 (Foundation Trust), item 3: deliberately NOT folded into this
+  // sentence - this used to add "N items still need attention" using its
+  // own count (dashboard.attentionItems.length, a raw AttentionItem count),
+  // while /today's own H1 states a DIFFERENT number for what reads as the
+  // same claim (queue.length, which also folds in the two opportunity-only
+  // card types AttentionItem doesn't cover). Today's H1 is the one
+  // authoritative "things need you" statement; this summary sentence
+  // stays scoped to what actually happened today (leads/appointments/
+  // estimates/jobs), never a second, competing count of the same concept.
+  // unresolvedItemsCount is still returned below (a real, honest number),
+  // just no longer composed into this sentence.
   if (automationIncidentsCount > 0) summaryParts.push(`${automationIncidentsCount} automation incident${automationIncidentsCount === 1 ? "" : "s"}`);
 
   const summary = summaryParts.length > 0 ? summaryParts.join(", ") + "." : "A quiet day - nothing new to report.";

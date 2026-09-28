@@ -31,7 +31,15 @@ export const ATTENTION_COPY: Record<AttentionItem["kind"], { label: string; tone
   no_show: { label: "No-show", tone: "urgent" },
   accepted_estimate_no_job: { label: "They said yes, nothing scheduled", tone: "urgent" },
 
-  hot_lead: { label: "Hot lead", tone: "soon" },
+  // Phase 0 (Foundation Trust), item 5: "temperature" is a plain manual
+  // field (set directly on the lead form, or hardcoded to "cold" for every
+  // webform-captured lead - see lib/leads/actions.ts and
+  // app/api/leads/capture/[token]/route.ts) - Trackpr has never computed
+  // or detected it. "Hot lead" read as a discovery sitting in the same
+  // queue, same visual tier, as genuinely-detected signals (a no-show, a
+  // quote going cold). "Marked hot" says exactly what's true - a status
+  // someone set - without dropping the signal or its priority.
+  hot_lead: { label: "Marked hot", tone: "soon" },
   high_value_lead: { label: "High-value lead", tone: "soon" },
   pending_estimate: { label: "Estimate pending", tone: "soon" },
   stale_estimate: { label: "Quote going cold", tone: "soon" },

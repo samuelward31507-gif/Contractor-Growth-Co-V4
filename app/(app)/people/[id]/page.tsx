@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getContact } from "@/lib/contacts/queries";
 import { getContactRelationshipCounts } from "@/lib/contacts/duplicates";
 import { getLeads, OPEN_LEAD_STATUSES } from "@/lib/leads/queries";
+import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contacts/open-lead-value";
 import { getAppointments } from "@/lib/appointments/queries";
 import { getEstimates } from "@/lib/estimates/queries";
 import { getConversations, getMessages, CONVERSATION_CHANNELS } from "@/lib/conversations/queries";
@@ -155,6 +156,15 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
   const nextStep = findPersonNextStep({ leads, appointments, estimates, jobs, conversations, timeZone });
 
   const openLeadCount = leads.filter((lead) => lead.status !== "won" && lead.status !== "lost").length;
+  // Finalization pass, money-truth audit: this header stat used to sum
+  // `estimated_value ?? 0` with no disclosure that some leads have no value
+  // entered - unlike its sibling on /opportunities (opportunities-list.tsx's
+  // own "N with unknown value, not counted above" line) and unlike the
+  // ALREADY-CORRECT identical stat on /contacts/[id]/page.tsx, which uses
+  // this exact helper. Reusing it here, rather than a second inline
+  // computation, is what makes the two pages agree.
+  const openLeadValueSummary = summarizeOpenLeadValue(leads);
+  const openLeadValueDisplay = formatOpenLeadValueDisplay(openLeadValueSummary, openLeadCount, formatCurrency);
 
   const hasActiveEngagement =
     leads.some((lead) => OPEN_LEAD_STATUSES.has(lead.status)) ||
@@ -237,10 +247,15 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
         meta={
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
             {[
-              { label: "Leads", value: String(relationshipCounts.leads), icon: Flame },
-              { label: "Open opportunity value", value: openLeadCount > 0 ? formatCurrency(leads.filter((l) => l.status !== "won" && l.status !== "lost").reduce((sum, l) => sum + (l.estimated_value ?? 0), 0)) : "$0", icon: Wallet },
-              { label: "Appointments", value: String(relationshipCounts.appointments), icon: CalendarCheck2 },
-              { label: "Jobs", value: String(relationshipCounts.jobs), icon: Briefcase },
+              { label: "Leads", value: String(relationshipCounts.leads), detail: undefined, icon: Flame },
+              {
+                label: "Open opportunity value",
+                value: openLeadValueDisplay,
+                detail: openLeadValueSummary.unknownValueCount > 0 ? `${openLeadValueSummary.unknownValueCount} with unknown value` : undefined,
+                icon: Wallet,
+              },
+              { label: "Appointments", value: String(relationshipCounts.appointments), detail: undefined, icon: CalendarCheck2 },
+              { label: "Jobs", value: String(relationshipCounts.jobs), detail: undefined, icon: Briefcase },
             ].map((stat) => (
               <div key={stat.label}>
                 <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
@@ -248,6 +263,7 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                   {stat.label}
                 </p>
                 <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{stat.value}</p>
+                {stat.detail ? <p className="mt-0.5 text-xs text-slate-500">{stat.detail}</p> : null}
               </div>
             ))}
           </div>

@@ -170,7 +170,7 @@ export function BlockedTimeDialog({
             </button>
           </div>
         </DialogFooter>
-        {deleteState?.error ? <p className={`mt-2 ${errorBannerClass}`}>{deleteState.error}</p> : null}
+        {deleteState?.error ? <p className={`mt-2 ${errorBannerClass}`} role="alert">{deleteState.error}</p> : null}
       </form>
     </Dialog>
   );

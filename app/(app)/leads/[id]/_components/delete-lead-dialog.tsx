@@ -21,7 +21,7 @@ export function DeleteLeadDialog({ lead, onClose }: { lead: Lead; onClose: () =>
         contact itself will not be affected.
       </DialogDescription>
 
-      {state.error ? <p className={`mt-4 ${errorBannerClass}`}>{state.error}</p> : null}
+      {state.error ? <p className={`mt-4 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
 
       <form action={formAction}>
         <input type="hidden" name="id" value={lead.id} />

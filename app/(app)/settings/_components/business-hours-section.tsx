@@ -26,7 +26,7 @@ export function BusinessHoursSection({
 
       <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
-          {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
+          {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Business hours saved.</p> : null}
 
           <div className="divide-y divide-slate-100">

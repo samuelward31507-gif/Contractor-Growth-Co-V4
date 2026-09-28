@@ -110,7 +110,7 @@ export function EstimateActions({
         ) : null}
       </div>
 
-      {error ? <p className={errorBannerClass}>{error}</p> : null}
+      {error ? <p className={errorBannerClass} role="alert">{error}</p> : null}
 
       {editOpen ? (
         <EstimateDialog

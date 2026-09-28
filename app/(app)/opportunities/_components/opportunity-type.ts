@@ -9,6 +9,8 @@ import {
   UserX,
   Star,
   Share2,
+  Flame,
+  Send,
   type LucideIcon,
 } from "lucide-react";
 import type { BadgeTone } from "@/lib/ui/badge";
@@ -29,19 +31,23 @@ import type { Opportunity, OpportunityType } from "@/lib/opportunities/queries";
  * has never surfaced (qualified_lead_unbooked, completed_appointment_no_estimate)
  * get new, but consistent, choices.
  *
- * Display order below is a fixed, documented sequence - not a numerical
- * score - grouping "a lead or estimate actively in motion" first, then
- * "a scheduling gap," then "a longer-horizon or growth-ask opportunity"
- * last.
+ * Canonical Opportunity Intelligence Layer: display order below now matches
+ * lib/opportunities/intelligence.ts's own TIER_BY_TYPE exactly (committed
+ * revenue at risk -> active pursuit -> at risk -> recoverable -> growth) -
+ * not a second, independently-drifting ordering. Browsing/filtering here
+ * must never disagree with Today's own priority ordering of the same
+ * underlying rows.
  */
 export const OPPORTUNITY_TYPE_ORDER: OpportunityType[] = [
-  "uncontacted_lead",
-  "qualified_lead_unbooked",
   "accepted_estimate_no_job",
-  "stale_estimate",
+  "qualified_lead_unbooked",
   "completed_appointment_no_estimate",
+  "uncontacted_lead",
+  "active_lead_signal",
+  "pending_estimate",
   "no_show",
   "cancelled_appointment_no_rebooking",
+  "stale_estimate",
   "dormant_customer",
   "completed_job_no_review_request",
   "completed_job_no_referral_request",
@@ -58,6 +64,8 @@ export const OPPORTUNITY_TYPE_LABEL: Record<OpportunityType, string> = {
   dormant_customer: "Dormant customer",
   completed_job_no_review_request: "Review request needed",
   completed_job_no_referral_request: "Referral request needed",
+  active_lead_signal: "Marked hot or high-value",
+  pending_estimate: "Estimate sent, awaiting reply",
 };
 
 export const OPPORTUNITY_TYPE_ICON: Record<OpportunityType, LucideIcon> = {
@@ -71,6 +79,8 @@ export const OPPORTUNITY_TYPE_ICON: Record<OpportunityType, LucideIcon> = {
   dormant_customer: UserX,
   completed_job_no_review_request: Star,
   completed_job_no_referral_request: Share2,
+  active_lead_signal: Flame,
+  pending_estimate: Send,
 };
 
 export const OPPORTUNITY_TYPE_TONE: Record<OpportunityType, BadgeTone> = {
@@ -84,6 +94,8 @@ export const OPPORTUNITY_TYPE_TONE: Record<OpportunityType, BadgeTone> = {
   dormant_customer: "neutral",
   completed_job_no_review_request: "neutral",
   completed_job_no_referral_request: "neutral",
+  active_lead_signal: "info",
+  pending_estimate: "neutral",
 };
 
 /**
@@ -102,10 +114,12 @@ export function opportunityActionHref(opportunity: Opportunity): string {
   switch (opportunity.type) {
     case "uncontacted_lead":
     case "qualified_lead_unbooked":
+    case "active_lead_signal":
       return opportunity.contactId ? `/people/${opportunity.contactId}` : "/people";
     case "accepted_estimate_no_job":
     case "stale_estimate":
     case "completed_appointment_no_estimate":
+    case "pending_estimate":
       return "/money";
     case "no_show":
     case "cancelled_appointment_no_rebooking":
@@ -129,4 +143,6 @@ export const OPPORTUNITY_ACTION_LABEL: Record<OpportunityType, string> = {
   dormant_customer: "View customer",
   completed_job_no_review_request: "View job",
   completed_job_no_referral_request: "View job",
+  active_lead_signal: "View lead",
+  pending_estimate: "View estimate",
 };

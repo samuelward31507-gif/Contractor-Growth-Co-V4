@@ -144,9 +144,32 @@ test("3. syncOpportunities auto-resolves an open opportunity once its underlying
     const openAfter = await getOpenOpportunities(service, orgId);
     assert.equal(openAfter.length, 0, "no open opportunities should remain once the underlying condition is gone");
 
-    const { data: resolvedRow } = await service.from("opportunities").select("status, resolved_at").eq("organization_id", orgId).single();
+    const { data: resolvedRow } = await service.from("opportunities").select("status, resolved_at, resolution_reason").eq("organization_id", orgId).single();
     assert.equal(resolvedRow!.status, "resolved");
     assert.ok(resolvedRow!.resolved_at, "resolved_at must be set when the detector resolves an opportunity");
+    assert.equal(resolvedRow!.resolution_reason, "condition_no_longer_true", "getting booked is a genuinely good outcome, not a loss");
+  } finally {
+    await cleanupOrg(orgId);
+  }
+});
+
+test("3b. Canonical Opportunity Intelligence Layer: syncOpportunities records resolution_reason='lost' specifically when the underlying lead's own status moved to 'lost' - distinct from every other, non-loss auto-resolution", async () => {
+  const orgId = await makeOrg("Opportunities Sync Test Org (Lost Lead)");
+  try {
+    const contactId = await makeContact(orgId, "+15555570099");
+    const leadId = await makeLead(orgId, contactId, "qualified");
+
+    const first = await syncOpportunities(service, orgId);
+    assert.equal(first.created, 1);
+
+    await service.from("leads").update({ status: "lost" }).eq("id", leadId);
+
+    const second = await syncOpportunities(service, orgId);
+    assert.equal(second.resolved, 1);
+
+    const { data: resolvedRow } = await service.from("opportunities").select("status, resolution_reason").eq("organization_id", orgId).single();
+    assert.equal(resolvedRow!.status, "resolved");
+    assert.equal(resolvedRow!.resolution_reason, "lost", "a lead moving to 'lost' is a real, negative outcome worth distinguishing from an ordinary condition change");
   } finally {
     await cleanupOrg(orgId);
   }

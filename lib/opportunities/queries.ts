@@ -20,9 +20,32 @@ export type OpportunityType =
   | "completed_job_no_review_request"
   | "cancelled_appointment_no_rebooking"
   | "uncontacted_lead"
-  | "accepted_estimate_no_job";
+  | "accepted_estimate_no_job"
+  // Canonical Opportunity Intelligence Layer: replaces the Attention
+  // Engine's own non-persisted hot_lead/high_value_lead conditions
+  // (lib/dashboard/queries.ts) with a real, persisted opportunity - see
+  // lib/opportunities/detect.ts's detectActiveLeadSignals for the exact
+  // detection rule and its duplication-avoidance scope.
+  | "active_lead_signal"
+  // Canonical Opportunity Intelligence Layer: replaces the Attention
+  // Engine's own non-persisted pending_estimate condition - see
+  // detectPendingEstimates.
+  | "pending_estimate";
 
 export type OpportunityStatus = "open" | "resolved" | "dismissed";
+
+/**
+ * Canonical Opportunity Intelligence Layer: only ever non-null once status
+ * is 'resolved' or 'dismissed' (enforced by opportunities_resolution_reason_
+ * requires_closed_check) - the minimum outcome/learning instrumentation the
+ * approved design identified, without any event-sourcing architecture.
+ * 'condition_no_longer_true' covers every ordinary detector-driven
+ * auto-resolution (the lead got booked, the estimate is no longer expired,
+ * etc.) except the one case worth distinguishing on its own: 'lost' (the
+ * underlying lead's own status moved to 'lost'). 'dismissed' is the existing,
+ * unchanged human "not now" action.
+ */
+export type OpportunityResolutionReason = "condition_no_longer_true" | "dismissed" | "lost";
 
 export type Opportunity = {
   id: string;
@@ -40,6 +63,7 @@ export type Opportunity = {
   createdAt: string;
   updatedAt: string;
   resolvedAt: string | null;
+  resolutionReason: OpportunityResolutionReason | null;
   metadata: Record<string, unknown>;
 };
 
@@ -57,6 +81,7 @@ type OpportunityRow = {
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+  resolution_reason: OpportunityResolutionReason | null;
   metadata: Record<string, unknown> | null;
 };
 
@@ -75,11 +100,13 @@ function normalizeOpportunity(row: OpportunityRow): Opportunity {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     resolvedAt: row.resolved_at,
+    resolutionReason: row.resolution_reason ?? null,
     metadata: row.metadata ?? {},
   };
 }
 
-const OPPORTUNITY_COLUMNS = "id, type, status, source_entity_type, source_entity_id, contact_id, title, description, estimated_value, value_basis, created_at, updated_at, resolved_at, metadata";
+const OPPORTUNITY_COLUMNS =
+  "id, type, status, source_entity_type, source_entity_id, contact_id, title, description, estimated_value, value_basis, created_at, updated_at, resolved_at, resolution_reason, metadata";
 
 export type OpenOpportunitiesResult = { data: Opportunity[]; failed: boolean };
 
@@ -132,6 +159,8 @@ const EMPTY_BY_TYPE: Record<OpportunityType, number> = {
   cancelled_appointment_no_rebooking: 0,
   uncontacted_lead: 0,
   accepted_estimate_no_job: 0,
+  active_lead_signal: 0,
+  pending_estimate: 0,
 };
 
 /** Summarizes an already-fetched open-opportunity list - kept as a pure function (no I/O) so it's directly unit-testable with controlled input, matching this codebase's established pure/impure split. */

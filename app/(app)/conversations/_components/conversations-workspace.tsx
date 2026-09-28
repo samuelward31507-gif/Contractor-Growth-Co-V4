@@ -56,7 +56,7 @@ export function ConversationsWorkspace({
           list and thread (and so this header) are always both visible at
           the lg breakpoint and above. */}
       <div className={activeId ? "hidden lg:block" : "block"}>
-        <PageHeader eyebrow="Operate" title="Conversations" description="Every customer conversation in one place, organized by activity." />
+        <PageHeader eyebrow="Operate" title="Inbox" description="Every customer conversation in one place, organized by activity." />
         <div className="mt-6">
           <ConversationsSummary summary={summary} />
         </div>

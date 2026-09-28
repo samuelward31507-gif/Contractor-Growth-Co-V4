@@ -4,7 +4,7 @@ import { EmptyState } from "@/lib/ui/empty-state";
 import { RAIL_TONE_CLASS, type BadgeTone } from "@/lib/ui/badge";
 import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { formatCurrency } from "@/lib/dashboard/format";
-import type { Opportunity, OpportunityType } from "@/lib/opportunities/queries";
+import { summarizeOpportunities, type Opportunity, type OpportunityType } from "@/lib/opportunities/queries";
 import { DismissOpportunityButton } from "../../dashboard/_components/dismiss-opportunity-button";
 import {
   OPPORTUNITY_TYPE_ORDER,
@@ -115,8 +115,25 @@ export function OpportunitiesList({ opportunities, failed }: { opportunities: Op
 
   const groups = OPPORTUNITY_TYPE_ORDER.map((type) => ({ type, items: byType.get(type) ?? [] })).filter((group) => group.items.length > 0);
 
+  // Final completion program, Phase 2 (Opportunity + Value Truth):
+  // summarizeOpportunities already computed knownEstimatedValue and
+  // unknownValueCount with the explicit rule "never silently imply the
+  // unknown ones are worth $0" (see its own comment in
+  // lib/opportunities/queries.ts) - this was never actually rendered
+  // anywhere. Each row already discloses its own unknown value individually
+  // (the "Unknown value" span above); this adds the one missing aggregate
+  // view, so the total isn't left looking like $knownEstimatedValue is the
+  // whole pipeline when some of it genuinely isn't counted.
+  const summary = summarizeOpportunities(opportunities);
+
   return (
     <div className="flex flex-col gap-8">
+      <p className={metaClass}>
+        {formatCurrency(summary.knownEstimatedValue)} known value across {summary.count} {summary.count === 1 ? "opportunity" : "opportunities"}
+        {summary.unknownValueCount > 0
+          ? ` · ${summary.unknownValueCount} with unknown value (not counted above)`
+          : ""}
+      </p>
       {groups.map(({ type, items }) => (
         <div key={type}>
           <div className="flex items-baseline justify-between">

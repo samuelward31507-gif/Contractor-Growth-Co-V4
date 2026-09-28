@@ -59,7 +59,7 @@ export function NotificationSettingsSection({
 
       <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
-          {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
+          {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Notification preferences saved.</p> : null}
 
           <div className="space-y-1.5">

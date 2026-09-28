@@ -6,7 +6,7 @@ import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { getDashboardBusinessMetrics } from "@/lib/dashboard/business-metrics";
 import { generateBusinessInsights } from "@/lib/bi/insights";
-import { getOpportunityById } from "@/lib/opportunities/queries";
+import { dismissOpportunityForOrganization, type DismissOpportunityResult } from "@/lib/opportunities/detect";
 
 export type GenerateInsightsState = {
   error?: string;
@@ -55,8 +55,6 @@ export async function generateDashboardInsights(
   return {};
 }
 
-export type DismissOpportunityResult = { ok: true } | { ok: false; error: string };
-
 /**
  * Pass 3 (Revenue Intelligence Foundation): the only write path for a
  * human-driven "dismissed" opportunity - see the opportunities migration's
@@ -68,11 +66,12 @@ export type DismissOpportunityResult = { ok: true } | { ok: false; error: string
  * place" inline-button pattern the dashboard's AttentionPanel already uses
  * for human_escalation items, now reused for opportunity-backed items too.
  * Resolves the caller's own organization from their session, never trusts a
- * client-supplied organization id; getOpportunityById itself scopes the
- * lookup to that organization, so an id belonging to another organization
- * resolves to "not found" here rather than ever being updatable - RLS
- * (opportunities_update) is the real backstop underneath this, this is
- * defense in depth.
+ * client-supplied organization id. The state-transition logic itself lives in
+ * dismissOpportunityForOrganization (lib/opportunities/detect.ts), which
+ * getOpportunityById scopes to that organization, so an id belonging to
+ * another organization resolves to "not found" rather than ever being
+ * updatable - RLS (opportunities_update) is the real backstop underneath
+ * this, this is defense in depth.
  */
 export async function dismissOpportunity(opportunityId: string): Promise<DismissOpportunityResult> {
   const supabase = await createClient();
@@ -90,25 +89,9 @@ export async function dismissOpportunity(opportunityId: string): Promise<Dismiss
     return { ok: false, error: "Not authorized" };
   }
 
-  const opportunity = await getOpportunityById(supabase, membership.organizationId, opportunityId);
-  if (!opportunity) {
-    return { ok: false, error: "Opportunity not found" };
+  const result = await dismissOpportunityForOrganization(supabase, membership.organizationId, opportunityId);
+  if (result.ok) {
+    revalidatePath("/today");
   }
-  if (opportunity.status !== "open") {
-    return { ok: true };
-  }
-
-  const { error } = await supabase
-    .from("opportunities")
-    .update({ status: "dismissed", resolved_at: new Date().toISOString() })
-    .eq("id", opportunityId)
-    .eq("organization_id", membership.organizationId)
-    .eq("status", "open");
-
-  if (error) {
-    return { ok: false, error: "We couldn't dismiss that opportunity right now. Please try again." };
-  }
-
-  revalidatePath("/today");
-  return { ok: true };
+  return result;
 }

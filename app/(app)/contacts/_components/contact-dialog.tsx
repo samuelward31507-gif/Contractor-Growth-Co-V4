@@ -35,7 +35,7 @@ export function ContactDialog({
       <form action={formAction} className="mt-4 space-y-4">
           {mode === "edit" && contact ? <input type="hidden" name="id" value={contact.id} /> : null}
 
-          {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
+          {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

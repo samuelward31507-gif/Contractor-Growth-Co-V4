@@ -87,6 +87,24 @@ export async function getLeads(supabase: SupabaseClient, organizationId: string)
   return (await getLeadsResult(supabase, organizationId)).data;
 }
 
+/**
+ * Final completion program, Phase 13 (Performance): Today's own header used
+ * to call getLeads (up to 1000 full rows, every column, every load) purely
+ * to compute summarizeLeads(leads).hotCount - a single integer. A head-only
+ * count query returns the same number without ever transferring a row.
+ * Never used for anything requiring the actual lead records - if a caller
+ * needs more than the count, getLeads/getLeadsResult remain the right call.
+ */
+export async function getHotLeadCount(supabase: SupabaseClient, organizationId: string): Promise<number> {
+  const { count } = await supabase
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("temperature", "hot");
+
+  return count ?? 0;
+}
+
 export type LeadFilters = {
   query?: string;
   status?: LeadStatus | "all";

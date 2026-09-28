@@ -133,7 +133,7 @@ export function DuplicateGroupCard({
         })}
       </div>
 
-      {error ? <p className={`mt-4 ${errorBannerClass}`}>{error}</p> : null}
+      {error ? <p className={`mt-4 ${errorBannerClass}`} role="alert">{error}</p> : null}
       {success ? <p className={`mt-4 ${successBannerClass}`}>{success}</p> : null}
     </SectionCard>
   );

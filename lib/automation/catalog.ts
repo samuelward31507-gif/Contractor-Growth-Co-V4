@@ -15,10 +15,13 @@ import type { OrganizationVertical } from "@/lib/auth/organization";
  *   (creating a lead, an appointment, a job, marking one completed, an
  *   inbound SMS arriving) via createAutomationEvent + startWorkflowExecution
  *   + an after()-deferred call to n8n.
- * - `kind: "scheduled"` - dispatched from one of the four Vercel Cron routes
- *   (app/api/automation/{appointment-reminders,estimate-followups,
- *   lead-nurture,lead-reactivation}/route.ts), which scan for candidates on
- *   a schedule rather than reacting to a single event.
+ * - `kind: "scheduled"` - dispatched from one of the 6 routes under
+ *   app/api/automation/{appointment-reminders,estimate-followups,
+ *   lead-nurture,lead-reactivation,customer-reactivation,
+ *   no-show-detection}/route.ts, which scan for candidates on a schedule
+ *   rather than reacting to a single event. Called by an external n8n
+ *   Schedule Trigger every 15 minutes (Vercel Cron was removed - see
+ *   lib/automation/cron-auth.ts), not by vercel.json's own cron mechanism.
  * - `kind: "safety-layer"` - not independently triggered at all. Safe AI
  *   Outbound is lib/automation/outbound-gate.ts's evaluateOutboundGate() -
  *   the single chokepoint every AI-drafted message (n8n-dispatched or

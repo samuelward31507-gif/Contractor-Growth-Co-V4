@@ -70,7 +70,7 @@ export function RescheduleDialog({
       <DialogTitle id="reschedule-dialog-title">Reschedule Appointment</DialogTitle>
 
       <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-        {error ? <p className={errorBannerClass}>{error}</p> : null}
+        {error ? <p className={errorBannerClass} role="alert">{error}</p> : null}
 
         <div className="space-y-1.5">
           <label htmlFor="reschedule-date" className={labelClass}>

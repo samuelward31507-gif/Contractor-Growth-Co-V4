@@ -19,7 +19,7 @@ function DeleteAreaDialog({ area, onClose }: { area: ServiceArea; onClose: () =>
       <DialogTitle id="delete-area-title">Remove &quot;{area.name}&quot;?</DialogTitle>
       <DialogDescription>This area will no longer be listed as served.</DialogDescription>
 
-      {state.error ? <p className={`mt-4 ${errorBannerClass}`}>{state.error}</p> : null}
+      {state.error ? <p className={`mt-4 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
 
       <form action={formAction}>
         <input type="hidden" name="id" value={area.id} />
@@ -53,7 +53,7 @@ export function ServiceAreasSection({ areas, canEdit }: { areas: ServiceArea[]; 
       <p className={`mt-1 ${metaClass}`}>Cities and areas your business serves.</p>
 
       <div className="mt-4">
-        {state.error ? <p className={`mb-4 ${errorBannerClass}`}>{state.error}</p> : null}
+        {state.error ? <p className={`mb-4 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
 
         {areas.length === 0 ? (
           <p className="text-sm text-slate-500">No service areas added yet.</p>

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { sectionLabelClass, metaClass, statLabelClass, statValueClass } from "@/lib/ui/typography";
 import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { formatCurrency } from "@/lib/dashboard/format";
@@ -180,6 +181,7 @@ export function HistoricalFunnelSection({ snapshot }: { snapshot: BusinessMetric
  */
 export function RevenueOpportunitySection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
   const { revenueOpportunity } = snapshot;
+  const hasOpenItems = revenueOpportunity.qualifiedLeadsWithoutAppointment > 0 || revenueOpportunity.completedAppointmentsWithoutEstimate > 0 || revenueOpportunity.recoverableEstimateValue > 0;
 
   return (
     <Section label="Where follow-up is leaking" note="Real opportunity, not guaranteed revenue or a close probability.">
@@ -190,6 +192,22 @@ export function RevenueOpportunitySection({ snapshot }: { snapshot: BusinessMetr
           { key: "completed-no-estimate", label: "Completed visits, no estimate", value: String(revenueOpportunity.completedAppointmentsWithoutEstimate) },
         ]}
       />
+      {/* Final completion program, Phase 5 (Insights): these three numbers
+          are the exact same underlying opportunities Today's queue already
+          tracks individually, each with its own real, explainable next
+          action (see lib/opportunities/detect.ts). Rather than inventing a
+          second, parallel "recommendation" here, this points at the one
+          place that already has the real per-item action - one source of
+          truth per concept, not a duplicate intelligence surface. */}
+      {hasOpenItems ? (
+        <p className="mt-3 text-sm text-slate-500">
+          This is work you already have - a real quote, a qualified conversation, a finished visit - not speculative pipeline.{" "}
+          <Link href="/today?view=by-type" className="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500">
+            Review these in Today
+          </Link>
+          .
+        </p>
+      ) : null}
     </Section>
   );
 }

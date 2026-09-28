@@ -63,9 +63,9 @@ export function SmsRoutingSection({
 
         <form action={saveAction} className="space-y-4">
           <fieldset disabled={!canEdit || isPending} className="space-y-4">
-            {saveState.error ? <p className={errorBannerClass}>{saveState.error}</p> : null}
+            {saveState.error ? <p className={errorBannerClass} role="alert">{saveState.error}</p> : null}
             {saveState.success ? <p className={successBannerClass}>SMS number saved.</p> : null}
-            {saveState.auditWarning ? <p className={errorBannerClass}>{saveState.auditWarning}</p> : null}
+            {saveState.auditWarning ? <p className={errorBannerClass} role="alert">{saveState.auditWarning}</p> : null}
 
             <div className="space-y-1.5">
               <label htmlFor="smsPhoneNumber" className={labelClass}>
@@ -107,9 +107,9 @@ export function SmsRoutingSection({
           </fieldset>
         </form>
 
-        {clearState.error ? <p className={errorBannerClass}>{clearState.error}</p> : null}
+        {clearState.error ? <p className={errorBannerClass} role="alert">{clearState.error}</p> : null}
         {clearState.success ? <p className={successBannerClass}>SMS number cleared.</p> : null}
-        {clearState.auditWarning ? <p className={errorBannerClass}>{clearState.auditWarning}</p> : null}
+        {clearState.auditWarning ? <p className={errorBannerClass} role="alert">{clearState.auditWarning}</p> : null}
       </div>
     </SectionCard>
   );

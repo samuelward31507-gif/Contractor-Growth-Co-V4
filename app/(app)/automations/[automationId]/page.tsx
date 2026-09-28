@@ -169,7 +169,7 @@ export default async function AutomationDetailPage({ params }: { params: Promise
       </div>
 
       {summary.failedExecutions > 0 ? (
-        <div className={errorBannerClass}>
+        <div className={errorBannerClass} role="alert">
           <p className="font-medium">Attention</p>
           <p>
             {formatCount(summary.failedExecutions)} {summary.failedExecutions === 1 ? "activity" : "activities"} needing attention in the last 30 days.

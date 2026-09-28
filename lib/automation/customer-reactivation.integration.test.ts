@@ -239,7 +239,7 @@ test("7c. an organization still in onboarding (payment_required, never yet activ
   assert.equal(outcome?.outcome, "payment_inactive");
 });
 
-test("8. automation pause (founder kill switch) blocks the send", async () => {
+test("8. automation pause (founder kill switch) blocks the send - and, since the final completion program's Phase 6 fix, does so before any event/dispatch is even created", async () => {
   const organizationId = await makeOrg({ automation_paused: true });
   fixtures.push({ organizationId, contactId: "" });
   await setConfig(organizationId, { inactivity_days: 30, respect_business_hours: false });
@@ -248,8 +248,19 @@ test("8. automation pause (founder kill switch) blocks the send", async () => {
 
   const result = await processCustomerReactivation(service, NOW, fakeSendSms);
   const outcome = result.outcomes.find((o) => o.contactId === contactId);
-  assert.equal(outcome?.outcome, "blocked");
-  assert.equal((outcome as { reason: string }).reason, "organization_automation_paused");
+  // Before this program's Phase 6 fix, organizations.automation_paused was
+  // only ever enforced at evaluateOutboundGate's send-time check
+  // (outcome "blocked", reason "organization_automation_paused") - the
+  // event, the workflow execution, and (for n8n-dispatched automations) a
+  // real Claude API call all still ran in full first. createAutomationEvent/
+  // createAutomationEventAsService (lib/automation/events.ts) now check
+  // automation_paused alongside the existing per-automation enabled check,
+  // so a paused organization is skipped at the same, earlier point as test
+  // 10 below - no automation_events row, no wasted dispatch.
+  assert.equal(outcome?.outcome, "skipped_disabled");
+
+  const { data: events } = await service.from("automation_events").select("id").eq("organization_id", organizationId);
+  assert.equal((events ?? []).length, 0, "no automation event should even be created for a paused organization");
 });
 
 test("9. an organization not switched to live (go-live protection) never has a real customer contacted", async () => {

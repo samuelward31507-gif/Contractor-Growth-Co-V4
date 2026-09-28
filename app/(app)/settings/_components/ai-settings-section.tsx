@@ -18,7 +18,7 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
 
       <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
-          {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
+          {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>AI settings saved.</p> : null}
 
           <div className="rounded-md border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-700">

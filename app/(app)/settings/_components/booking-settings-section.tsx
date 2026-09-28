@@ -24,7 +24,7 @@ export function BookingSettingsSection({
 
       <form action={formAction} className="mt-5">
         <fieldset disabled={!canEdit || isPending} className="space-y-4">
-          {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
+          {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Booking settings saved.</p> : null}
 
           <label className="flex items-center gap-2 text-sm text-slate-700">

@@ -89,14 +89,26 @@ export async function createAutomationEvent(
   // returning ok:true/skipped:true here, never ok:false, is what keeps an
   // admin's disable decision from ever surfacing as a failure to the
   // triggering CRUD action.
+  //
+  // Final completion program, Phase 6 (Automation reliability): before this,
+  // the org-wide organizations.automation_paused toggle was only ever
+  // enforced at evaluateOutboundGate's send-time check - the event, the
+  // workflow execution, the n8n dispatch, and the AI drafting call all still
+  // ran in full for a paused org, only to have the actual send blocked at
+  // the very last step. Checked here, alongside the existing per-automation
+  // enabled check, so a paused organization skips the entire dispatch - no
+  // wasted n8n round trip, no wasted Claude API spend - not just the send.
   const automation = getAutomationForEventType(eventType);
   if (automation) {
     const membership = await getUserOrganization(supabase, user.id);
     if (!membership) {
       return { ok: false, error: "We couldn't record this automation event." };
     }
-    const enabled = await getAutomationEnabled(supabase, membership.organizationId, automation.id);
-    if (!enabled) {
+    const [enabled, organizationRow] = await Promise.all([
+      getAutomationEnabled(supabase, membership.organizationId, automation.id),
+      supabase.from("organizations").select("automation_paused").eq("id", membership.organizationId).maybeSingle(),
+    ]);
+    if (!enabled || organizationRow.data?.automation_paused) {
       return { ok: true, event: null, duplicate: false, skipped: true };
     }
   }
@@ -154,11 +166,16 @@ export async function createAutomationEventAsService(
 
   // Phase C: same enable/disable enforcement as createAutomationEvent above
   // - organizationId is already a trusted parameter here, so no extra
-  // lookup is needed for this variant.
+  // membership lookup is needed for this variant. Also checks
+  // organizations.automation_paused for the same reason documented in
+  // createAutomationEvent above (Phase 6, final completion program).
   const automation = getAutomationForEventType(eventType);
   if (automation) {
-    const enabled = await getAutomationEnabled(supabase, organizationId, automation.id);
-    if (!enabled) {
+    const [enabled, organizationRow] = await Promise.all([
+      getAutomationEnabled(supabase, organizationId, automation.id),
+      supabase.from("organizations").select("automation_paused").eq("id", organizationId).maybeSingle(),
+    ]);
+    if (!enabled || organizationRow.data?.automation_paused) {
       return { ok: true, event: null, duplicate: false, skipped: true };
     }
   }

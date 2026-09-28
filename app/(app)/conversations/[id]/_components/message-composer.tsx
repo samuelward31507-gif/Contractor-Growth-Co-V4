@@ -32,7 +32,7 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
 
   return (
     <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
-      {state.error ? <p className={`mb-2 ${errorBannerClass}`}>{state.error}</p> : null}
+      {state.error ? <p className={`mb-2 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
       <form ref={formRef} action={formAction} className="space-y-2">
         <input type="hidden" name="conversationId" value={conversationId} />
         <label htmlFor={fieldId} className="flex items-center gap-1.5 text-xs font-medium text-slate-500">

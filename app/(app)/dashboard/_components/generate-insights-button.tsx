@@ -27,7 +27,7 @@ export function GenerateInsightsButton({ label }: { label: string }) {
           {isPending ? "Generating…" : label}
         </button>
       </form>
-      {state.error ? <p className={`${errorBannerClass} text-xs`}>{state.error}</p> : null}
+      {state.error ? <p className={`${errorBannerClass} text-xs`} role="alert">{state.error}</p> : null}
     </div>
   );
 }

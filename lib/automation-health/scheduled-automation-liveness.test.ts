@@ -25,7 +25,13 @@ test("never observed running at all: unverified, never 'stale' - no evidence mus
 });
 
 test("a run within the grace window: healthy", () => {
-  const recentIso = new Date(NOW - 2 * 60 * 60 * 1000).toISOString();
+  // Final completion program, Phase 6: SCHEDULED_AUTOMATION_STALE_THRESHOLD_MS
+  // is now 45 minutes (3x the confirmed real 15-minute n8n cadence, matching
+  // HEALTH_CHECK_STALE_THRESHOLD_MS's identical convention) - 20 minutes ago
+  // is comfortably "one missed tick, not yet concerning", the same relative
+  // position within the grace window the previous 2-hour value held against
+  // the old 24-hour placeholder threshold.
+  const recentIso = new Date(NOW - 20 * 60 * 1000).toISOString();
   assert.equal(computeScheduledAutomationLivenessState(recentIso, NOW), "healthy");
 });
 

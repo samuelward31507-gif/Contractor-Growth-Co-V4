@@ -46,7 +46,7 @@ export function AppointmentQuickActions({ appointment, timeZone, onChanged }: { 
 
   return (
     <div className="flex flex-col gap-2">
-      {error ? <p className={errorBannerClass}>{error}</p> : null}
+      {error ? <p className={errorBannerClass} role="alert">{error}</p> : null}
 
       {confirmingCancel ? (
         <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-muted px-3 py-2.5">

@@ -5,8 +5,20 @@ import { getConversations, getLastMessagesByConversation, attachLastMessages } f
 import type { IncidentStatus } from "@/lib/automation-health/types";
 import { getOpenOpportunities } from "@/lib/opportunities/queries";
 
-/** Q7 (pre-launch lead-leak audit): a lead below "hot" temperature but at or above this estimated value is still worth surfacing - hotLeads alone ignores value entirely. Deliberately a plain, documented constant rather than a per-organization setting - the smallest correction that fixes the real prioritization gap without building a new configuration surface. */
-const HIGH_VALUE_THRESHOLD = 5000;
+/**
+ * Q7 (pre-launch lead-leak audit): a lead below "hot" temperature but at or
+ * above this estimated value is still worth surfacing - hotLeads alone
+ * ignores value entirely. Deliberately a plain, documented constant rather
+ * than a per-organization setting - the smallest correction that fixes the
+ * real prioritization gap without building a new configuration surface.
+ *
+ * Exported (Canonical Opportunity Intelligence Layer): lib/opportunities/
+ * detect.ts's detectActiveLeadSignals reuses this exact value for the
+ * persisted active_lead_signal opportunity type, rather than declaring a
+ * second, independently-drifting "high value" number - this file remains the
+ * one source of truth for what "high value" means for a lead.
+ */
+export const HIGH_VALUE_THRESHOLD = 5000;
 
 export type PipelineStage = "new" | "contacted" | "qualified" | "appointment" | "estimate" | "won";
 
@@ -396,8 +408,11 @@ export async function getDashboardData(
     .map((lead) => ({
       id: `hot-${lead.id}`,
       kind: "hot_lead",
-      title: contactName(lead.contacts) ?? lead.service ?? "Hot lead",
-      detail: "Hot lead - follow up soon",
+      title: contactName(lead.contacts) ?? lead.service ?? "Marked hot",
+      // Phase 0 (Foundation Trust), item 5: "temperature" is a manually-set
+      // field, never computed - see lib/today/copy.ts's own comment on this
+      // same kind. "Marked hot" here, not "Hot lead," for the same reason.
+      detail: "Marked hot - follow up soon",
       value: lead.estimated_value != null ? formatCurrency(Number(lead.estimated_value)) : null,
       // Usability fix: this row names one specific lead - it must open that
       // lead, not the generic Active Leads list (the previous `href: "/leads"`

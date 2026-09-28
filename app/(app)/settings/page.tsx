@@ -133,7 +133,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           </p>
         ) : null}
         {calendarBannerMessage ? (
-          <p className={`mt-3 ${calendarParam === "connected" ? successBannerClass : errorBannerClass}`}>{calendarBannerMessage}</p>
+          <p className={`mt-3 ${calendarParam === "connected" ? successBannerClass : errorBannerClass}`} role={calendarParam === "connected" ? undefined : "alert"}>{calendarBannerMessage}</p>
         ) : null}
       </div>
 

@@ -16,7 +16,7 @@ export function DeleteServiceDialog({ service, onClose }: { service: Service; on
       <DialogTitle id="delete-service-title">Delete &quot;{service.name}&quot;?</DialogTitle>
       <DialogDescription>This will permanently remove this service.</DialogDescription>
 
-      {state.error ? <p className={`mt-4 ${errorBannerClass}`}>{state.error}</p> : null}
+      {state.error ? <p className={`mt-4 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
 
       <form action={formAction}>
         <input type="hidden" name="id" value={service.id} />

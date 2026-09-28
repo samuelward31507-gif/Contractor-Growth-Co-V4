@@ -41,7 +41,7 @@ export function LeadDialog({
       <form action={formAction} className="mt-4 space-y-4">
           {mode === "edit" && lead ? <input type="hidden" name="id" value={lead.id} /> : null}
 
-          {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
+          {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
 
           <div className="space-y-1.5">
             <label className={labelClass}>Contact</label>

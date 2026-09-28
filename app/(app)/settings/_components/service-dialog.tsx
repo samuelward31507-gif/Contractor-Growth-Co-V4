@@ -35,7 +35,7 @@ export function ServiceDialog({
       <form action={formAction} className="mt-4 space-y-4">
           {mode === "edit" && service ? <input type="hidden" name="id" value={service.id} /> : null}
 
-          {state.error ? <p className={errorBannerClass}>{state.error}</p> : null}
+          {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
 
           <div className="space-y-1.5">
             <label htmlFor="name" className={labelClass}>

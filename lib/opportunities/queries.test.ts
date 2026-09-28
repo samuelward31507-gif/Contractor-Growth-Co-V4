@@ -27,6 +27,7 @@ function makeOpportunity(overrides: Partial<import("./queries").Opportunity> = {
     createdAt: overrides.createdAt ?? "2026-01-01T00:00:00.000Z",
     updatedAt: overrides.updatedAt ?? "2026-01-01T00:00:00.000Z",
     resolvedAt: overrides.resolvedAt ?? null,
+    resolutionReason: overrides.resolutionReason ?? null,
     metadata: overrides.metadata ?? {},
   };
 }
@@ -47,6 +48,8 @@ test("empty list: a real zeroed summary, never null and never a fabricated non-z
     cancelled_appointment_no_rebooking: 0,
     uncontacted_lead: 0,
     accepted_estimate_no_job: 0,
+    active_lead_signal: 0,
+    pending_estimate: 0,
   });
 });
 

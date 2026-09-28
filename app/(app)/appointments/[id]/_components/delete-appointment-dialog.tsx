@@ -24,7 +24,7 @@ export function DeleteAppointmentDialog({
         This will permanently remove this appointment. The associated contact and lead will not be affected.
       </DialogDescription>
 
-      {state.error ? <p className={`mt-4 ${errorBannerClass}`}>{state.error}</p> : null}
+      {state.error ? <p className={`mt-4 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
 
       <form action={formAction}>
         <input type="hidden" name="id" value={appointment.id} />

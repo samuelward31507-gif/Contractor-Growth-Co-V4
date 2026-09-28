@@ -8,7 +8,8 @@ import {
 } from "@/lib/automation/customer-reactivation";
 import { getAutomationConfigByOrganization, readCustomerReactivationConfig, getAutomationEnabled } from "@/lib/automation/settings";
 import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
-import type { OpportunityType, OpportunityStatus } from "./queries";
+import { HIGH_VALUE_THRESHOLD } from "@/lib/dashboard/queries";
+import { getOpportunityById, type OpportunityType, type OpportunityStatus, type OpportunityResolutionReason } from "./queries";
 
 /**
  * Pass 3 (Revenue Intelligence Foundation) + Pass 4 P1-D: real-data
@@ -836,6 +837,108 @@ async function detectAcceptedEstimatesWithoutJob(supabase: SupabaseClient, organ
     }));
 }
 
+// ---------------------------------------------------------------------------
+// K. active_lead_signal (Canonical Opportunity Intelligence Layer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads the exact same two real fields (leads.temperature, leads.
+ * estimated_value) and the exact same "high value" threshold the Attention
+ * Engine's own hot_lead/high_value_lead conditions already used
+ * (lib/dashboard/queries.ts's HIGH_VALUE_THRESHOLD, exported and reused here
+ * rather than redeclared) - never a new signal, never a computed score.
+ * temperature is a plain manual field (see lib/today/copy.ts's own comment) -
+ * "marked hot" is surfaced honestly as a status someone set, never as
+ * detected intelligence.
+ *
+ * Scoped to OPEN_LEAD_STATUSES, matching every other active-lead condition in
+ * this codebase. Deliberately does NOT exclude leads already covered by a
+ * more specific opportunity type here - that exclusion happens once, as a
+ * shared post-filter in detectAllOpportunityCandidates below, since this
+ * function has no dependency on those other detectors' own queries. Where a
+ * more specific type already exists for a lead, that lead's temperature/
+ * value becomes supporting context on the more specific opportunity (see
+ * lib/opportunities/intelligence.ts), not a second, duplicate row - this is
+ * the permanent, detector-level fix for the exact Ashley-Simmons/
+ * Christopher-Foster duplication a prior pass patched at the Today page
+ * level (two cards for the same lead, same dollar figure, no indication they
+ * were the same thing).
+ */
+async function detectActiveLeadSignals(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
+  const { data } = await supabase
+    .from("leads")
+    .select("id, contact_id, service, temperature, estimated_value, contacts(id, first_name, last_name, company_name)")
+    .eq("organization_id", organizationId)
+    .in("status", [...OPEN_LEAD_STATUSES])
+    .limit(MAX_ROWS);
+
+  const rows = (data ?? []) as { id: string; contact_id: string | null; service: string | null; temperature: string; estimated_value: number | null; contacts: ContactRef }[];
+
+  return rows
+    .filter((row) => row.temperature === "hot" || (row.estimated_value != null && row.estimated_value >= HIGH_VALUE_THRESHOLD))
+    .map((row) => ({
+      type: "active_lead_signal" as const,
+      sourceEntityType: "lead" as const,
+      sourceEntityId: row.id,
+      contactId: row.contact_id,
+      title: displayNameOrFallback(row.contacts, row.service || "Active lead"),
+      description: row.temperature === "hot" ? "Marked hot - worth pursuing." : "A high-value opportunity - worth pursuing.",
+      estimatedValue: row.estimated_value,
+      valueBasis: row.estimated_value != null ? "leads.estimated_value" : null,
+      metadata: { temperature: row.temperature },
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// L. pending_estimate (Canonical Opportunity Intelligence Layer)
+// ---------------------------------------------------------------------------
+
+/**
+ * A lead with a real, currently-sent estimate (estimates.status = 'sent') -
+ * the exact same real-world condition the Attention Engine's own
+ * pending_estimate condition already read (lib/dashboard/queries.ts's
+ * distinctLeadIdsWithPendingEstimate). Deliberately NOT itself an urgent
+ * condition - "sent, within its own expiry window" is the normal, healthy
+ * state an estimate is expected to sit in; it only becomes a real leak once
+ * it actually goes stale, which is already the separate, existing
+ * stale_estimate type (gated on the real terminal 'expired' status, not an
+ * invented age threshold). This type exists purely so a sent estimate has an
+ * honest, low-urgency presence in the intelligence layer, tiered accordingly
+ * (see lib/opportunities/intelligence.ts), rather than no representation at
+ * all until it either gets accepted or expires.
+ *
+ * sourceEntityId is the LEAD's id, not the estimate's - deliberately, so this
+ * type can be excluded (like active_lead_signal above) for a lead already
+ * covered by a more specific type, using the same lead-id key space. Phase 4C
+ * already documented that a lead can have more than one simultaneously-sent
+ * estimate; this collapses to one representative pending_estimate opportunity
+ * per lead rather than one per estimate, which is more correct for a
+ * per-lead intelligence surface than showing the same lead twice.
+ */
+async function detectPendingEstimates(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
+  const { data } = await supabase
+    .from("estimates")
+    .select("id, lead_id, contact_id, title, amount, sent_at, contacts(id, first_name, last_name, company_name)")
+    .eq("organization_id", organizationId)
+    .eq("status", "sent")
+    .not("lead_id", "is", null)
+    .limit(MAX_ROWS);
+
+  const rows = (data ?? []) as { id: string; lead_id: string; contact_id: string | null; title: string; amount: number | null; sent_at: string | null; contacts: ContactRef }[];
+
+  return rows.map((row) => ({
+    type: "pending_estimate" as const,
+    sourceEntityType: "lead" as const,
+    sourceEntityId: row.lead_id,
+    contactId: row.contact_id,
+    title: displayNameOrFallback(row.contacts, row.title),
+    description: `Estimate "${row.title}" sent - awaiting the customer's decision.`,
+    estimatedValue: row.amount,
+    valueBasis: row.amount != null ? "estimates.amount" : null,
+    metadata: { estimate_id: row.id, sent_at: row.sent_at },
+  }));
+}
+
 export async function detectAllOpportunityCandidates(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<OpportunityCandidate[]> {
   const [
     qualifiedLeads,
@@ -848,6 +951,8 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     cancelledAppointmentsNoRebooking,
     uncontactedLeads,
     acceptedEstimatesNoJob,
+    activeLeadSignals,
+    pendingEstimates,
   ] = await Promise.all([
     detectQualifiedLeadsUnbooked(supabase, organizationId),
     detectStaleEstimates(supabase, organizationId),
@@ -859,7 +964,32 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     detectCancelledAppointmentsWithoutRebooking(supabase, organizationId, now),
     detectUncontactedLeads(supabase, organizationId, now),
     detectAcceptedEstimatesWithoutJob(supabase, organizationId, now),
+    detectActiveLeadSignals(supabase, organizationId),
+    detectPendingEstimates(supabase, organizationId),
   ]);
+
+  // Canonical Opportunity Intelligence Layer: active_lead_signal and
+  // pending_estimate are the lowest-specificity lead-level signals this file
+  // detects - a lead already producing a more specific opportunity type
+  // (qualified_lead_unbooked, uncontacted_lead) doesn't need a second,
+  // duplicate row for the same underlying lead. See detectActiveLeadSignals'
+  // own comment above for the full reasoning.
+  const moreSpecificLeadIds = new Set([...qualifiedLeads, ...uncontactedLeads].map((candidate) => candidate.sourceEntityId));
+  const dedupedPendingEstimates = pendingEstimates.filter((candidate) => !moreSpecificLeadIds.has(candidate.sourceEntityId));
+
+  // Live browser verification caught the remaining real duplicate this
+  // exclusion alone didn't cover: a lead that is BOTH hot/high-value AND has
+  // a real pending estimate produced two separate active_pursuit cards for
+  // the same person (e.g. "Marked hot" $4,800 and "Estimate sent" $6,500 for
+  // the same lead) - the exact same class of confusion this whole layer
+  // exists to prevent. pending_estimate is the more specific, more concrete
+  // fact (a real sent estimate, not just a temperature/value flag), so it
+  // wins; active_lead_signal is suppressed for any lead a pending estimate
+  // already covers, same as it is for the other more-specific types above.
+  const pendingEstimateLeadIds = new Set(dedupedPendingEstimates.map((candidate) => candidate.sourceEntityId));
+  const dedupedActiveLeadSignals = activeLeadSignals.filter(
+    (candidate) => !moreSpecificLeadIds.has(candidate.sourceEntityId) && !pendingEstimateLeadIds.has(candidate.sourceEntityId),
+  );
 
   return [
     ...qualifiedLeads,
@@ -872,6 +1002,8 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
     ...cancelledAppointmentsNoRebooking,
     ...uncontactedLeads,
     ...acceptedEstimatesNoJob,
+    ...dedupedActiveLeadSignals,
+    ...dedupedPendingEstimates,
   ];
 }
 
@@ -887,7 +1019,17 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
 
 export type OpportunitySyncResult = { created: number; refreshed: number; resolved: number; unchanged: number; suppressed: number };
 
-type ExistingOpenRow = { id: string; type: OpportunityType; source_entity_id: string; title: string; description: string | null; estimated_value: number | null; value_basis: string | null; metadata: Record<string, unknown> | null };
+type ExistingOpenRow = {
+  id: string;
+  type: OpportunityType;
+  source_entity_type: "lead" | "estimate" | "appointment" | "contact" | "job";
+  source_entity_id: string;
+  title: string;
+  description: string | null;
+  estimated_value: number | null;
+  value_basis: string | null;
+  metadata: Record<string, unknown> | null;
+};
 type RecentRow = { type: OpportunityType; source_entity_id: string; status: OpportunityStatus; created_at: string };
 
 /**
@@ -917,7 +1059,7 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
     detectAllOpportunityCandidates(supabase, organizationId, now),
     supabase
       .from("opportunities")
-      .select("id, type, source_entity_id, title, description, estimated_value, value_basis, metadata")
+      .select("id, type, source_entity_type, source_entity_id, title, description, estimated_value, value_basis, metadata")
       .eq("organization_id", organizationId)
       .eq("status", "open")
       .limit(MAX_ROWS)
@@ -958,13 +1100,40 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
   // Auto-resolve: an open row whose (type, source) is no longer a detected candidate.
   const toResolve = existingRows.filter((row) => !candidatesByKey.has(candidateKey(row.type, row.source_entity_id)));
   if (toResolve.length > 0) {
-    const { error } = await supabase
-      .from("opportunities")
-      .update({ status: "resolved", resolved_at: now.toISOString() })
-      .in("id", toResolve.map((row) => row.id))
-      .eq("organization_id", organizationId)
-      .eq("status", "open");
-    if (!error) resolved = toResolve.length;
+    // Canonical Opportunity Intelligence Layer, outcome instrumentation:
+    // distinguishes a lead that was genuinely lost (a real, negative outcome
+    // worth learning from later) from every other reason an opportunity's
+    // underlying condition stopped being true (the lead got booked, the
+    // estimate is no longer expired-and-idle, the customer is no longer
+    // dormant, etc. - all genuinely good/neutral outcomes). Only a
+    // lead-sourced opportunity can be "lost" this way; every other
+    // source_entity_type resolves as condition_no_longer_true. One extra,
+    // bounded, org-scoped query - never per-row.
+    const leadSourcedIds = toResolve.filter((row) => row.source_entity_type === "lead").map((row) => row.source_entity_id);
+    const lostLeadIds = new Set<string>();
+    if (leadSourcedIds.length > 0) {
+      const { data: leadRows } = await supabase.from("leads").select("id, status").eq("organization_id", organizationId).in("id", leadSourcedIds).limit(MAX_ROWS);
+      for (const row of (leadRows ?? []) as { id: string; status: LeadStatus }[]) {
+        if (row.status === "lost") lostLeadIds.add(row.id);
+      }
+    }
+
+    const lostRows = toResolve.filter((row) => lostLeadIds.has(row.source_entity_id));
+    const otherRows = toResolve.filter((row) => !lostLeadIds.has(row.source_entity_id));
+
+    async function resolveBatch(rows: ExistingOpenRow[], reason: OpportunityResolutionReason): Promise<number> {
+      if (rows.length === 0) return 0;
+      const { error } = await supabase
+        .from("opportunities")
+        .update({ status: "resolved", resolved_at: now.toISOString(), resolution_reason: reason })
+        .in("id", rows.map((row) => row.id))
+        .eq("organization_id", organizationId)
+        .eq("status", "open");
+      return error ? 0 : rows.length;
+    }
+
+    const [lostResolved, otherResolved] = await Promise.all([resolveBatch(lostRows, "lost"), resolveBatch(otherRows, "condition_no_longer_true")]);
+    resolved = lostResolved + otherResolved;
   }
 
   for (const candidate of candidates) {
@@ -1019,4 +1188,43 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
   }
 
   return { created, refreshed, resolved, unchanged, suppressed };
+}
+
+export type DismissOpportunityResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Finalization pass: the pure state-transition logic behind
+ * app/(app)/dashboard/actions.ts's dismissOpportunity Server Action,
+ * extracted so it can be exercised directly with a real, session-scoped test
+ * client. That file's createClient() requires next/headers' cookies(), which
+ * only resolves inside a real Next.js request - unreachable from a plain
+ * node test, which is exactly why this write path had no dedicated test
+ * before now. The exported Server Action is now a thin wrapper that resolves
+ * the caller's own session/organization and delegates here; behavior is
+ * byte-for-byte unchanged. Mirrors this codebase's own established
+ * "*AsService"/dependency-injected split (e.g. createAutomationEvent vs.
+ * createAutomationEventAsService, getAgencyHealth(sessionSupabase, ...)) -
+ * not a new pattern.
+ */
+export async function dismissOpportunityForOrganization(supabase: SupabaseClient, organizationId: string, opportunityId: string): Promise<DismissOpportunityResult> {
+  const opportunity = await getOpportunityById(supabase, organizationId, opportunityId);
+  if (!opportunity) {
+    return { ok: false, error: "Opportunity not found" };
+  }
+  if (opportunity.status !== "open") {
+    return { ok: true };
+  }
+
+  const { error } = await supabase
+    .from("opportunities")
+    .update({ status: "dismissed", resolved_at: new Date().toISOString(), resolution_reason: "dismissed" })
+    .eq("id", opportunityId)
+    .eq("organization_id", organizationId)
+    .eq("status", "open");
+
+  if (error) {
+    return { ok: false, error: "We couldn't dismiss that opportunity right now. Please try again." };
+  }
+
+  return { ok: true };
 }

@@ -99,6 +99,26 @@ test("2. hot leads are correctly surfaced in the daily briefing", async () => {
   assert.equal(briefing.hotLeads.length, 1);
 });
 
+test("2b. Finalization pass, product-consistency fix: the summary sentence's 'N hot' figure is the TRUE, uncapped hot-lead count, not silently capped at MAX_LIST_ITEMS (5) the way the (unrendered) hotLeads array itself is - an org with more than 5 hot leads must not get an undercounted sentence that disagrees with Today's own header", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "Briefing Test Org (Many Hot Leads)" }).select("id").single();
+  const orgId = org!.id as string;
+  try {
+    const { data: contact } = await service.from("contacts").insert({ organization_id: orgId, phone: "+15555550777" }).select("id").single();
+    const orgContactId = contact!.id as string;
+    for (let i = 0; i < 7; i += 1) {
+      await service.from("leads").insert({ organization_id: orgId, contact_id: orgContactId, status: "qualified", temperature: "hot", source: "website" });
+    }
+
+    const briefing = await getOwnerDailyBriefing(service, orgId);
+    assert.equal(briefing.hotLeads.length, 5, "the array itself stays capped at MAX_LIST_ITEMS, unchanged behavior");
+    assert.match(briefing.summary, /^7 hot\b/, "the sentence must state the real, uncapped count (7), not the capped array length (5)");
+  } finally {
+    await service.from("leads").delete().eq("organization_id", orgId);
+    await service.from("contacts").delete().eq("organization_id", orgId);
+    await service.from("organizations").delete().eq("id", orgId);
+  }
+});
+
 test("3. appointments today are correctly filtered to TODAY only, excluding tomorrow's and yesterday's", async () => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 0, 0).toISOString();

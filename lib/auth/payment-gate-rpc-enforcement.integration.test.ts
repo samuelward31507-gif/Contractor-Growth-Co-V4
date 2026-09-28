@@ -1,12 +1,22 @@
 /**
- * Evidence for the SECURITY DEFINER RPC gap closed by
- * supabase/migrations/20260921160000_payment_gate_rpc_enforcement.sql.
+ * Evidence for the SECURITY DEFINER RPC payment-gate guard, originally
+ * closed by supabase/migrations/20260921160000_payment_gate_rpc_enforcement.sql.
  *
- * IMPORTANT - READ BEFORE INTERPRETING RESULTS, same caveat as
- * lib/auth/payment-gate-rls.integration.test.ts: this migration has NOT
- * been applied anywhere (no disposable database was available - see the
- * accompanying report). Two different kinds of evidence are combined here,
- * clearly separated and labeled:
+ * UPDATED (Phase 0, Foundation Trust): that original migration WAS applied,
+ * but two of its 12 functions (merge_contacts, record_automation_incident_signal)
+ * were independently redefined by later, unrelated feature migrations, each
+ * based on a pre-fix copy of the function - silently dropping the guard
+ * back out for those two. supabase/migrations/20260929000000_reinstate_
+ * payment_gate_on_merge_contacts_and_incident_signal.sql re-applied it.
+ * Section 2's three "EXPECTED TO FAIL" cases (originally written when the
+ * fix had never been applied at all) now PASS for real, live-verified
+ * reasons: the guard is confirmed present and enforced against the actual
+ * database, not merely asserted absent. Kept as regression coverage - if
+ * a future migration repeats the same mistake (redefining one of these
+ * functions from a stale pre-fix copy), these tests fail again exactly the
+ * way they did before this phase, which is the intended signal.
+ *
+ * Two kinds of evidence are combined here, clearly separated and labeled:
  *
  *  (a) STATIC tests (section 1) - read supabase/migrations/20260921160000_payment_gate_rpc_enforcement.sql
  *      and supabase/migrations/20260921150000_payment_gate_rls_enforcement.sql
@@ -17,24 +27,26 @@
  *      function, functions with a service_role branch have the new check
  *      nested inside `if not v_is_service_role`, functions without one
  *      never gained a v_is_service_role reference, and the first migration
- *      file was not touched. These do not prove runtime behavior - they
- *      prove the SQL is shaped the way the report claims.
+ *      file was not touched. These prove the ORIGINAL migration's SQL is
+ *      shaped correctly - they do not by themselves prove the two
+ *      functions covered by 20260929000000 are correct today, which is
+ *      what section 2's live tests are for.
  *
  *  (b) LIVE tests (section 2) - real minted Supabase Auth sessions calling
- *      four representative RPCs (merge_contacts, acknowledge_automation_incident,
- *      create_automation_event, start_workflow_execution) against the
- *      CURRENT, unmigrated database - i.e. today's already-deployed
- *      function bodies, which do not yet contain the payment check. These
- *      tests assert the DESIRED post-migration behavior and are EXPECTED
- *      TO FAIL for the "should be denied while unpaid" cases - a failure
- *      here is live, empirical proof the RPC bypass is real today, exactly
- *      mirroring how lib/auth/payment-gate-rls.integration.test.ts proved
- *      the table-level bypass. The "should already succeed" cases (paid
- *      org, and service_role regardless of payment_status) are expected to
- *      genuinely pass today, proving this change doesn't regress them.
- *      The remaining 8 RPCs are covered only by the static tests in
- *      section 1, not live - clearly a smaller evidence base, disclosed
- *      here rather than left implicit.
+ *      representative RPCs (merge_contacts, acknowledge_automation_incident,
+ *      create_automation_event, start_workflow_execution,
+ *      record_automation_incident_signal) against the CURRENT, live
+ *      database, asserting the guard is actually enforced: an active org's
+ *      own member/admin succeeds, an unpaid org's own member/admin is
+ *      rejected, cross-org spoofing remains rejected independent of
+ *      payment status, and service_role always succeeds regardless of
+ *      payment status (the automation dispatch/health pipeline must never
+ *      be blocked by a client org's own billing state). The remaining 7 of
+ *      the 12 originally-migrated RPCs are covered only by the static
+ *      tests in section 1, not live - a smaller evidence base for those,
+ *      disclosed here rather than left implicit (they were never redefined
+ *      after the original fix, so the live-regression risk this phase
+ *      found does not apply to them).
  *
  * Run with:
  *   node --import ./lib/automation/test-loader.mjs --test "lib/auth/payment-gate-rpc-enforcement.integration.test.ts"
@@ -281,12 +293,12 @@ test("2.1 merge_contacts: an active org's own admin can call it successfully - a
   assert.equal(error, null, "an active org's own admin must be able to call merge_contacts");
 });
 
-test("2.2 merge_contacts: a payment_required org's own admin can currently still call it - EXPECTED TO FAIL until the RPC migration is applied (live proof of the bypass)", async () => {
+test("2.2 merge_contacts: a payment_required org's own admin is rejected - live proof Phase 0's re-fix (20260929000000) closed this specific regression", async () => {
   await setOrgAStatus("payment_required");
   const { data: c1 } = await service.from("contacts").insert({ organization_id: orgA, first_name: "Source2" }).select("id").single();
   const { data: c2 } = await service.from("contacts").insert({ organization_id: orgA, first_name: "Target2" }).select("id").single();
   const { error } = await sessionA.rpc("merge_contacts", { p_organization_id: orgA, p_source_contact_id: c1!.id, p_target_contact_id: c2!.id });
-  assert.ok(error, "once the migration is applied, an unpaid org's own admin must be rejected by merge_contacts");
+  assert.ok(error, "an unpaid org's own admin must be rejected by merge_contacts");
 });
 
 test("2.3 merge_contacts: cross-org spoofing remains rejected regardless of payment status - org A's admin cannot merge org B's contacts by naming org B's id", async () => {
@@ -308,7 +320,7 @@ test("2.4 acknowledge_automation_incident: an active org's own admin can call it
   assert.equal(error, null, "an active org's own admin must be able to acknowledge their own incident");
 });
 
-test("2.5 acknowledge_automation_incident: a suspended org's own admin can currently still call it - EXPECTED TO FAIL until the RPC migration is applied", async () => {
+test("2.5 acknowledge_automation_incident: a suspended org's own admin is rejected", async () => {
   await setOrgAStatus("suspended");
   const { data: incident } = await service
     .from("automation_incidents")
@@ -316,7 +328,7 @@ test("2.5 acknowledge_automation_incident: a suspended org's own admin can curre
     .select("id")
     .single();
   const { error } = await sessionA.rpc("acknowledge_automation_incident", { p_incident_id: incident!.id });
-  assert.ok(error, "once the migration is applied, a suspended org's own admin must be rejected by acknowledge_automation_incident");
+  assert.ok(error, "a suspended org's own admin must be rejected by acknowledge_automation_incident");
 });
 
 test("2.6 create_automation_event (authenticated-user path): an active org's own member can call it successfully - already true today, must remain true", async () => {
@@ -331,7 +343,7 @@ test("2.6 create_automation_event (authenticated-user path): an active org's own
   assert.equal(error, null, "an active org's own member must be able to call create_automation_event");
 });
 
-test("2.7 create_automation_event (authenticated-user path): a cancelled org's own member can currently still call it - EXPECTED TO FAIL until the RPC migration is applied", async () => {
+test("2.7 create_automation_event (authenticated-user path): a cancelled org's own member is rejected", async () => {
   await setOrgAStatus("cancelled");
   const { error } = await sessionA.rpc("create_automation_event", {
     p_event_type: "test.event",
@@ -340,7 +352,43 @@ test("2.7 create_automation_event (authenticated-user path): a cancelled org's o
     p_payload: {},
     p_idempotency_key: `test-${Date.now()}-cancelled`,
   });
-  assert.ok(error, "once the migration is applied, a cancelled org's own member must be rejected by create_automation_event");
+  assert.ok(error, "a cancelled org's own member must be rejected by create_automation_event");
+});
+
+test("2.9 record_automation_incident_signal (authenticated-user path): an active org's own member can call it successfully - already true today, must remain true", async () => {
+  await setOrgAStatus("active");
+  const { error } = await sessionA.rpc("record_automation_incident_signal", {
+    p_organization_id: orgA,
+    p_category: "workflow_failed",
+    p_severity: "warning",
+    p_fingerprint: `test-${Date.now()}-signal-active`,
+    p_title: "Test signal - active org",
+  });
+  assert.equal(error, null, "an active org's own member must be able to call record_automation_incident_signal");
+});
+
+test("2.10 record_automation_incident_signal (authenticated-user path): a payment_required org's own member is rejected - live proof Phase 0's re-fix (20260929000000) closed this specific regression", async () => {
+  await setOrgAStatus("payment_required");
+  const { error } = await sessionA.rpc("record_automation_incident_signal", {
+    p_organization_id: orgA,
+    p_category: "workflow_failed",
+    p_severity: "warning",
+    p_fingerprint: `test-${Date.now()}-signal-unpaid`,
+    p_title: "Test signal - unpaid org",
+  });
+  assert.ok(error, "an unpaid org's own member must be rejected by record_automation_incident_signal");
+});
+
+test("2.11 record_automation_incident_signal (service_role path): succeeds regardless of payment_status - the automation-health/incident pipeline (lib/automation-health/service.ts) must never be blocked by an org's own payment status", async () => {
+  await setOrgAStatus("payment_required");
+  const { error } = await service.rpc("record_automation_incident_signal", {
+    p_organization_id: orgA,
+    p_category: "workflow_failed",
+    p_severity: "warning",
+    p_fingerprint: `test-${Date.now()}-signal-service-role`,
+    p_title: "Test signal - service role",
+  });
+  assert.equal(error, null, "service_role must be able to record an incident signal for an unpaid org");
 });
 
 test("2.8 create_automation_event + start_workflow_execution (service_role path): succeed regardless of payment_status, today and after the migration - service_role must never be blocked", async () => {

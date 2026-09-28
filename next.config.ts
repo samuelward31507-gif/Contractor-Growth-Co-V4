@@ -59,9 +59,28 @@ const nextConfig: NextConfig = {
       // /leads' own real value was never the list itself (identical rows to
       // Contacts) but the hot/warm/cold filter - see people/page.tsx's own
       // comment on the `temperature` param this now lands on.
-      { source: "/leads", destination: "/people?temperature=hot", permanent: true },
+      //
+      // `permanent: false` (307, not 308) is deliberate here and on the
+      // three other IA-consolidation-pass rules below whose `destination`
+      // changed this session (they used to point at /customers.../work,
+      // now at /people.../money) - a `permanent: true` (308) redirect is
+      // CACHED BY THE BROWSER indefinitely, keyed on the exact request URL.
+      // Found live during this pass' own final verification: a browser that
+      // had already cached the OLD 308 for plain `/leads` (shipped in the
+      // original Phase 0 migration, before this pass existed) silently kept
+      // following it straight to `/customers?from=lead` - skipping this
+      // updated rule and this dev server entirely - and landed on the new
+      // unconditional /customers redirect, losing the `?temperature=hot`
+      // this rule exists to attach. A non-permanent redirect is revalidated
+      // on every request, so a stale client can never strand a visitor on a
+      // destination this codebase has already moved past. The three rules
+      // whose destination is UNCHANGED this session (/leads/:id, /contacts/
+      // :id, /calendar, /appointments) keep `permanent: true` - nothing
+      // about where they point has changed, so there is nothing stale for a
+      // cached 308 to strand anyone on.
+      { source: "/leads", destination: "/people?temperature=hot", permanent: false },
       { source: "/contacts/:id", destination: "/customers/:id?from=contact", permanent: true },
-      { source: "/contacts", destination: "/people", permanent: true },
+      { source: "/contacts", destination: "/people", permanent: false },
 
       // --- Schedule (Calendar + Appointments merge) ---
       // Calendar's own `view` (day/week/month) and `date` params are already
@@ -93,8 +112,11 @@ const nextConfig: NextConfig = {
       // (not in scope - only the /appointments LIST route merges below) -
       // historical notifyFounder detailPath links to /appointments/${id}
       // therefore need no redirect at all; that route is untouched.
-      { source: "/estimates", destination: "/money?browse=estimates", permanent: true },
-      { source: "/jobs", destination: "/money?browse=jobs", permanent: true },
+      // permanent: false for the same reason as /leads/contacts above -
+      // these two destinations also changed this session (were
+      // /work?type=...).
+      { source: "/estimates", destination: "/money?browse=estimates", permanent: false },
+      { source: "/jobs", destination: "/money?browse=jobs", permanent: false },
     ];
   },
 };

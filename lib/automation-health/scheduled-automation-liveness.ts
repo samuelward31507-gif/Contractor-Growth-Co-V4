@@ -3,10 +3,12 @@ import { getAutomationDefinition } from "@/lib/automation/catalog";
 
 /**
  * Pass 5A: liveness tracking for Trackpr's scheduled (cron-dependent)
- * automations - the 5 real routes under app/api/automation/* that an
- * external n8n Schedule Trigger must call on their behalf (see
- * lib/automation/cron-auth.ts): appointment-reminders, estimate-followups,
- * lead-nurture, lead-reactivation, customer-reactivation.
+ * automations - the 6 real routes under app/api/automation/* that the
+ * "Trackpr Scheduled Automation Dispatch" n8n workflow calls on their
+ * behalf, every 15 minutes, alongside health (see lib/automation/cron-auth.ts
+ * and lib/automation-health/health.ts): appointment-reminders,
+ * estimate-followups, lead-nurture, lead-reactivation,
+ * customer-reactivation, no-show-detection.
  *
  * This list is NOT derived from AUTOMATION_CATALOG's own `kind` field.
  * estimate-followup's `kind` is "event-triggered" - its primary behavior
@@ -41,19 +43,16 @@ export const SCHEDULED_AUTOMATION_IDS = [
 export type ScheduledAutomationId = (typeof SCHEDULED_AUTOMATION_IDS)[number];
 
 /**
- * No ground truth exists anywhere in this codebase for the real n8n
- * Schedule Trigger's actual interval for these 5 routes (unlike the
- * health-check route's own ~15-minute cadence, which is directly,
- * empirically observable from automation_health_check_runs - see
- * HEALTH_CHECK_STALE_THRESHOLD_MS in ./health.ts). Rather than invent a
- * specific number this codebase has no evidence for, this uses one
- * deliberately generous, uniform threshold across all 5 routes - long
- * enough that a route genuinely still being called, whatever its real
- * interval turns out to be, will not falsely read as stale, short enough to
- * still catch a genuinely dead scheduler within a business day. Tune this
- * once the real n8n cadence for these routes is confirmed.
+ * The real n8n cadence for these routes is now confirmed (Phase 0 final
+ * completion program audit, live inspection of the "Trackpr Scheduled
+ * Automation Dispatch" workflow): every 15 minutes, uniform across all 6
+ * routes plus health. This applies the exact same "3x the interval"
+ * convention HEALTH_CHECK_STALE_THRESHOLD_MS already established in
+ * ./health.ts for that identical 15-minute cadence - tolerating a couple of
+ * missed ticks before alarming, rather than the previous 24h placeholder,
+ * which existed only because no ground truth was available yet.
  */
-export const SCHEDULED_AUTOMATION_STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+export const SCHEDULED_AUTOMATION_STALE_THRESHOLD_MS = 45 * 60 * 1000;
 
 export type ScheduledAutomationLivenessState = "healthy" | "stale" | "unverified";
 
