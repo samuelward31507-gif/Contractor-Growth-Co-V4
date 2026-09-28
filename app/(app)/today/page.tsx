@@ -309,6 +309,54 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         </div>
       </div>
 
+      {/* Nav-restructure pass: Money's own real cross-entity snapshot
+          (Quotes out / Ready to schedule / Jobs in progress / Known
+          opportunity value), relocated here now that Money is no longer its
+          own nav destination - Estimates and Jobs are. Every card links to
+          the exact real, already-supported filter on the page that owns
+          that data; "Known opportunity value" is a pure metric with nowhere
+          more precise to send someone, so it stays unlinked. See
+          lib/money/snapshot.ts for the shared computation this and Money's
+          own detailed page both read from. Moved to the top of the page,
+          directly under the greeting header, so the financial snapshot is
+          the first thing visible - ahead of the priority queue. */}
+      <div className="border-t border-slate-200 pt-8">
+        <p className={sectionLabelClass}>Money at a glance</p>
+        <div className="mt-3">
+          <StatGrid columns={4}>
+            <StatCard
+              label="Quotes out"
+              value={moneySnapshot.quotesOut.length}
+              description={moneySnapshot.quotesOut.length > 0 ? "Awaiting a decision" : "Nothing out right now"}
+              icon={Wallet}
+              href="/estimates?status=sent"
+            />
+            <StatCard
+              label="Ready to schedule"
+              value={moneySnapshot.readyToSchedule.length}
+              description={moneySnapshot.readyToSchedule.length > 0 ? "Accepted, no job yet" : "Nothing waiting"}
+              tone="danger"
+              icon={CalendarClock}
+              href="/estimates?status=accepted"
+            />
+            <StatCard
+              label="Jobs in progress"
+              value={moneySnapshot.wonNotFinished.length}
+              description={moneySnapshot.wonNotFinished.length > 0 ? "Scheduled or underway" : "Nothing in progress"}
+              tone="success"
+              icon={Hammer}
+              href="/jobs?status=in_progress"
+            />
+            <StatCard
+              label="Known opportunity value"
+              value={formatCurrency(moneySnapshot.knownOpportunityValue)}
+              description="Across every quote, accepted job, and job in progress"
+              icon={TrendingUp}
+            />
+          </StatGrid>
+        </div>
+      </div>
+
       <div>
         <TodayViewTabs active={view} opportunityCount={openOpportunities.length} />
 
@@ -366,52 +414,6 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
             <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
           </div>
         )}
-      </div>
-
-      {/* Nav-restructure pass: Money's own real cross-entity snapshot
-          (Quotes out / Ready to schedule / Jobs in progress / Known
-          opportunity value), relocated here now that Money is no longer its
-          own nav destination - Estimates and Jobs are. Every card links to
-          the exact real, already-supported filter on the page that owns
-          that data; "Known opportunity value" is a pure metric with nowhere
-          more precise to send someone, so it stays unlinked. See
-          lib/money/snapshot.ts for the shared computation this and Money's
-          own detailed page both read from. */}
-      <div className="border-t border-slate-200 pt-8">
-        <p className={sectionLabelClass}>Money at a glance</p>
-        <div className="mt-3">
-          <StatGrid columns={4}>
-            <StatCard
-              label="Quotes out"
-              value={moneySnapshot.quotesOut.length}
-              description={moneySnapshot.quotesOut.length > 0 ? "Awaiting a decision" : "Nothing out right now"}
-              icon={Wallet}
-              href="/estimates?status=sent"
-            />
-            <StatCard
-              label="Ready to schedule"
-              value={moneySnapshot.readyToSchedule.length}
-              description={moneySnapshot.readyToSchedule.length > 0 ? "Accepted, no job yet" : "Nothing waiting"}
-              tone="danger"
-              icon={CalendarClock}
-              href="/estimates?status=accepted"
-            />
-            <StatCard
-              label="Jobs in progress"
-              value={moneySnapshot.wonNotFinished.length}
-              description={moneySnapshot.wonNotFinished.length > 0 ? "Scheduled or underway" : "Nothing in progress"}
-              tone="success"
-              icon={Hammer}
-              href="/jobs?status=in_progress"
-            />
-            <StatCard
-              label="Known opportunity value"
-              value={formatCurrency(moneySnapshot.knownOpportunityValue)}
-              description="Across every quote, accepted job, and job in progress"
-              icon={TrendingUp}
-            />
-          </StatGrid>
-        </div>
       </div>
 
       {/* What Trackpr did today - Dashboard's own Act 3, moved here
