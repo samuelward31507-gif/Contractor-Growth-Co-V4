@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { Pencil } from "lucide-react";
 import {
   destructiveButtonAutoClass,
   destructiveGhostButtonAutoClass,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/ui/form";
 import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
 import type { Job } from "@/lib/jobs/queries";
+import { JobEditDialog } from "./job-edit-dialog";
 import { markJobCancelled, markJobCompleted, markJobStarted } from "../../actions";
 
 const primaryBtn = primaryButtonAutoClass;
@@ -42,6 +44,7 @@ const CONFIRM_COPY: Record<ConfirmKind, { title: string; body: string; confirmLa
  * app/(app)/estimates/[id]/_components/estimate-actions.tsx's shape.
  */
 export function JobActions({ job }: { job: Job }) {
+  const [editOpen, setEditOpen] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmKind | null>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +66,14 @@ export function JobActions({ job }: { job: Job }) {
   return (
     <div className="flex flex-col items-end gap-2">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        {/* Phase 1A: Edit is offered in every status - a completed job with a
+            missing or wrong contracted amount is exactly the record that
+            needs correcting. updateJob never touches status or relationships. */}
+        <button type="button" disabled={isPending} onClick={() => setEditOpen(true)} className={secondaryBtn}>
+          <Pencil aria-hidden className="h-4 w-4" />
+          Edit
+        </button>
+
         {job.status === "scheduled" ? (
           <>
             <button type="button" disabled={isPending} onClick={() => run(() => markJobStarted(job.id))} className={primaryBtn}>
@@ -90,6 +101,16 @@ export function JobActions({ job }: { job: Job }) {
       </div>
 
       {error ? <p className={errorBannerClass} role="alert">{error}</p> : null}
+
+      {editOpen ? (
+        <JobEditDialog
+          job={job}
+          onClose={() => {
+            setEditOpen(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
 
       {confirming ? (
         <Dialog onClose={() => setConfirming(null)} labelledBy="job-confirm-title">

@@ -15,6 +15,8 @@ import { Badge } from "@/lib/ui/badge";
 import { successBannerClass } from "@/lib/ui/form";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
 import { DetailHeader } from "@/lib/ui/detail-header";
+import { ApprovalLinkRow } from "./_components/approval-link-row";
+import { resolveAppBaseUrl } from "@/lib/automation/sms";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../_components/status";
 import { EstimateActions } from "./_components/estimate-actions";
 
@@ -53,6 +55,13 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
       </div>
     );
   }
+
+  // Quote Approval Links (V1): the shareable customer-facing URL for this
+  // estimate. resolveAppBaseUrl() returns null when no base URL is
+  // configured (e.g. plain local dev) - the row then explains itself
+  // instead of rendering a broken link, mirroring lead-capture-section.tsx.
+  const approvalBase = resolveAppBaseUrl();
+  const approvalUrl = approvalBase ? `${approvalBase}/quote/${estimate.approval_token}` : null;
 
   // Only ever set once the estimate has actually been accepted - the same
   // read used by emitJobCreatedFromEstimate's own idempotency check, so
@@ -134,6 +143,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
                 <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{estimate.notes}</dd>
               </div>
             ) : null}
+            <ApprovalLinkRow status={estimate.status} url={approvalUrl} />
           </SectionCard>
 
           {estimate.lead ? (
