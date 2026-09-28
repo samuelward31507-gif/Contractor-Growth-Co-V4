@@ -173,6 +173,20 @@ export async function getInvoicePayments(supabase: SupabaseClient, organizationI
   return (data ?? []) as CustomerPayment[];
 }
 
+export type CustomerPaymentsResult = { data: CustomerPayment[]; failed: boolean };
+
+/** Every payment row for the org (capped) - the "collected" ledger for Money. `failed` distinguishes a read error from a genuinely empty ledger. */
+export async function getCustomerPaymentsResult(supabase: SupabaseClient, organizationId: string): Promise<CustomerPaymentsResult> {
+  const { data, error } = await supabase
+    .from("customer_payments")
+    .select(PAYMENT_COLUMNS)
+    .eq("organization_id", organizationId)
+    .order("received_at", { ascending: false })
+    .limit(5000);
+
+  return { data: (data ?? []) as CustomerPayment[], failed: error != null };
+}
+
 /** One payment scoped to the org; null on any error or miss. */
 export async function getCustomerPayment(supabase: SupabaseClient, organizationId: string, paymentId: string): Promise<CustomerPayment | null> {
   const { data, error } = await supabase

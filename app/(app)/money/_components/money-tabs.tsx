@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export type MoneyTab = "money" | "estimates" | "jobs";
+export type MoneyTab = "money" | "invoices" | "estimates" | "jobs";
 
 /**
  * IA consolidation pass: Work's own three tabs (Needs to move | Estimates |
@@ -9,10 +9,15 @@ export type MoneyTab = "money" | "estimates" | "jobs";
  * move), and "All estimates"/"All jobs" are Work's own full browse-and-
  * search tables, unchanged, just reached from here instead of /work. Same
  * segmented-control pattern WorkTabs itself established.
+ *
+ * Phase 1B-3: "Invoices" joins the set - the billing side of the same
+ * money-in-motion story, backed by public.invoices and
+ * public.customer_payments.
  */
 export function MoneyTabs({ active }: { active: MoneyTab }) {
   const items: { value: MoneyTab; label: string; href: string }[] = [
     { value: "money", label: "Money", href: "/money" },
+    { value: "invoices", label: "Invoices", href: "/money?browse=invoices" },
     { value: "estimates", label: "All estimates", href: "/money?browse=estimates" },
     { value: "jobs", label: "All jobs", href: "/money?browse=jobs" },
   ];

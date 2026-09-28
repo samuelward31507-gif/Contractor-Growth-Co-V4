@@ -14,7 +14,7 @@ import type { ActivityEntry } from "@/lib/activity/queries";
 
 function ActivityRow({ entry, currentUserId }: { entry: ActivityEntry; currentUserId: string }) {
   const entityLabel = activityEntityLabel(entry.entity_type);
-  const href = activityEntityHref(entry.entity_type, entry.entity_id);
+  const href = activityEntityHref(entry.entity_type, entry.entity_id, entry.metadata);
   const metadataDescription = describeMetadata(entry.metadata);
   const actor = describeActor(entry.user_id, currentUserId);
   // A member expression (icons.entry), not a bare PascalCase identifier, so
