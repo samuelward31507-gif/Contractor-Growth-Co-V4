@@ -8,9 +8,9 @@ import { Bone, SkeletonPage, SkeletonPageHeader, SkeletonRows } from "@/lib/ui/s
  */
 export default function PeopleLoading() {
   return (
-    <SkeletonPage>
+    <SkeletonPage width="content">
       <SkeletonPageHeader action />
-      <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+      <div className="rounded-lg border border-line bg-surface p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Bone className="h-9 w-full rounded-lg sm:max-w-sm" />
           <Bone className="h-9 w-full rounded-lg sm:w-40" />

@@ -1,63 +1,88 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
+import { BrandMark } from "@/app/(app)/_components/sidebar-content";
 import { AgencySidebarContent } from "./agency-sidebar-content";
 
+/**
+ * Agency's mobile header and menu drawer. Trackpr 2.0 (step 2G): the same
+ * light header as the client app's merged mobile header, and a light drawer
+ * holding the same navigation as the desktop sidebar. `inert` keeps the
+ * closed drawer out of the tab order; Escape closes it and focus returns to
+ * the menu button.
+ */
 export function AgencyMobileNav({ userEmail, isAdmin }: { userEmail: string; isAdmin: boolean }) {
   const [open, setOpen] = useState(false);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    closeButtonRef.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      openButtonRef.current?.focus();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   return (
     <div className="lg:hidden">
-      <header className="relative flex items-center justify-between overflow-hidden border-b border-white/[0.06] bg-[#0a120f] px-4 py-3">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_80%_at_20%_-30%,rgba(16,185,129,0.10),transparent)]"
-        />
-        <span className="relative flex items-center gap-2.5">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500 text-xs font-bold text-slate-950">
-            T
-          </span>
-          <span className="min-w-0">
-            <span className="block text-[15px] font-semibold leading-tight tracking-tight text-white">Agency Command Center</span>
-            <span className="block text-[12px] font-semibold uppercase tracking-[0.02em] text-emerald-400/80">Contractor Growth Co.</span>
-          </span>
-        </span>
+      <header className="flex h-12 items-center justify-between gap-3 border-b border-line bg-surface pl-4 pr-1.5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <BrandMark />
+          <div className="min-w-0 leading-tight">
+            <p className="text-[13px] font-semibold text-ink">Trackpr</p>
+            <p className="truncate text-[11.5px] text-ink-3">Agency Command Center</p>
+          </div>
+        </div>
         <button
+          ref={openButtonRef}
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/[0.06]"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="flex h-11 w-11 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
-          <Menu className="h-5 w-5" aria-hidden />
+          <Menu className="h-5 w-5" strokeWidth={1.75} aria-hidden />
         </button>
       </header>
 
-      <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
+      <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`} inert={!open}>
         <button
           type="button"
           aria-label="Close menu"
-          tabIndex={open ? 0 : -1}
-          className={`absolute inset-0 bg-slate-950/60 transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0"}`}
+          tabIndex={-1}
+          className={`absolute inset-0 bg-ink/25 transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0"}`}
           onClick={() => setOpen(false)}
         />
         <div
-          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] shadow-2xl transition-transform duration-200 ease-out ${
+          role="dialog"
+          aria-modal="true"
+          aria-label="Agency menu"
+          className={`absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-line bg-surface shadow-popover transition-transform duration-200 ease-out ${
             open ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <div className="flex justify-end bg-[#0a120f] px-3 pt-3">
+          <div className="flex justify-end px-1.5 pt-1.5">
             <button
+              ref={closeButtonRef}
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                setOpen(false);
+                openButtonRef.current?.focus();
+              }}
               aria-label="Close menu"
-              tabIndex={open ? 0 : -1}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/[0.06]"
+              className="flex h-11 w-11 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
-              <X className="h-5 w-5" aria-hidden />
+              <X className="h-5 w-5" strokeWidth={1.75} aria-hidden />
             </button>
           </div>
-          <div className="h-[calc(100%-3.25rem)]">
+          <div className="min-h-0 flex-1">
             <AgencySidebarContent userEmail={userEmail} isAdmin={isAdmin} onNavigate={() => setOpen(false)} />
           </div>
         </div>

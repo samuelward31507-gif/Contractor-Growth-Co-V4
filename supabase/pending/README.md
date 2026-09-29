@@ -59,12 +59,77 @@ Verified read-only afterwards: the column (text, nullable, no default), the uniq
 
 Run `payment_idempotency_and_invoice_opportunities_rollback.sql` as one transaction, by a person. It refuses while any keyed payment or new-type opportunity exists; after real payments carry keys, do not roll back.
 
+## online_payments.sql (PENDING - not applied anywhere)
+
+Phase 1C (Online Payments): a contractor's customer pays an issued invoice by card through Stripe Checkout, as a direct charge on the contractor's own Standard-style connected Stripe account, with no platform fee. Four additive sections:
+
+1. `organizations`: `stripe_connect_account_id` (shape-checked, partial unique), `stripe_connect_charges_enabled`, `stripe_connect_payouts_enabled`, `stripe_connect_details_submitted`, `stripe_connect_synced_at`. The guard trigger `organizations_stripe_connect_guard` (BEFORE INSERT OR UPDATE) lets only the service role set or change them.
+2. `invoices.payment_token`: the public token behind `app/pay/[token]`, using `estimates.approval_token`'s model (48 hex characters from `extensions.gen_random_bytes`, unique). It's backfilled by the column default during the table rewrite, so no row trigger fires and `updated_at` is untouched. `invoices_payment_token_guard` regenerates the token on every INSERT and lets only the service role change it afterwards.
+3. `customer_payments`:
+   - `card_online` added to `customer_payments_method_check`
+   - `stripe_checkout_session_id`, `stripe_payment_intent_id`, `stripe_account_id`
+   - `customer_payments_stripe_fields`: an ordinary `card_online` row carries all three ids, every other row carries none; a NULL id never passes
+   - global partial unique indexes on the session id and the payment intent id, so a replayed `checkout.session.completed` can't add a second row
+   - `customer_payments_online_guard` (BEFORE INSERT): an ordinary `card_online` row may only come from the service role, and its `stripe_account_id` must equal the organization's stored Connect account
+   - `customer_payments_immutable` re-created with the three ids added to its never-changes list
+4. `automation_incidents`: the `online_payment_reconciliation` category, added to the category CHECK and to `record_automation_incident_signal`'s allowlist. That function is re-created from `reference/record_automation_incident_signal.captured.sql` with only that one line added.
+
+**Stripe Accounts v2 mapping (documentation only; the SQL is unchanged).** Connected accounts are created and read with the Accounts v2 API (`/v2/core/accounts`, in `lib/payments/connect.ts`), because Stripe no longer supports v1 account creation for new Connect integrations. The five organizations columns keep their names and are filled from a v2 account retrieved with `include: ["configuration.merchant", "requirements"]`:
+
+- `stripe_connect_account_id`: the v2 account id. It's still `acct_…`, so the shape check and unique index hold.
+- `stripe_connect_charges_enabled`: `configuration.merchant.capabilities.card_payments.status` is `active`.
+- `stripe_connect_payouts_enabled`: `configuration.merchant.capabilities.stripe_balance.payouts.status` is `active`.
+- `stripe_connect_details_submitted`: v2 has no such field. The column now means "onboarding requirements satisfied": the requirements hash has no entry awaiting the user with `minimum_deadline.status` of `currently_due` or `past_due`. It's false when the hash is absent.
+- `stripe_connect_synced_at`: unchanged.
+
+The column names still say "details submitted" because renaming them would need a migration for no behavioral gain. Only the Settings detail text reads that column; online-payment eligibility never does.
+
+The accounting boundary is unchanged. `customer_payments_guard_insert`, `customer_payments_apply`, the three invoice guards, `create_invoice_audit_event` and `merge_contacts` aren't touched (the harness compares their md5s). No policy or table grant changes. An online payment is recorded only through the existing insert path, so the overpayment, issued-invoice and append-only rules all still apply. When the database refuses money Stripe has already collected, the Connect webhook must raise an `online_payment_reconciliation` incident. The migration adds nothing that could bypass a rule.
+
+Companion files:
+
+- `online_payments_rollback.sql` refuses to run while any `card_online` payment, any `online_payment_reconciliation` incident, or any stored Connect account id exists. It then restores `customer_payments_immutable` (the 20260928181837 body) and `record_automation_incident_signal` (the captured body) byte-for-byte, restores the narrower CHECKs, and drops everything else the forward script added.
+- `reference/record_automation_incident_signal.captured.sql` is the function body read from **trackpr-stripe-test**, not production (md5 `dfca7377dd707f2cd7814f87ae84a6bf`, 3554 characters).
+- `scratch/validate-online-payments.mjs` (77 checks) reproduces the starting state from the three applied invoice migrations. It first proves parity with trackpr-stripe-test by matching three function md5s. Then it applies the script twice, exercises every rule (including the accounting-boundary cases and replays), runs each rollback guard and the rollback, and applies once more. Run it with `cd supabase/pending/scratch && npm run validate:online-payments`. It never connects to a real database.
+- `lib/payments/online-payments-migration.structural.test.ts` pins the source text: which functions are created, the byte-for-byte body diffs, no policy changes, rerun safety.
+
+### Apply procedure (a person does this, not tooling)
+
+The test project goes first. Production needs separate, explicit approval.
+
+1. Read the target's live `record_automation_incident_signal` and confirm the md5 is `dfca7377dd707f2cd7814f87ae84a6bf`. Use the query in the reference file's header. If it differs, stop: section 4 and the rollback must be rebased on the live body.
+2. Confirm the live `customer_payments_immutable` md5 is `b2be41a0c1f3458e1ca3c6a1df592c39`, and that none of the new columns exist yet: `select column_name from information_schema.columns where table_schema = 'public' and column_name in ('stripe_connect_account_id', 'payment_token', 'stripe_checkout_session_id')` should return no rows.
+3. Apply `online_payments.sql` as one transaction, using the Supabase SQL editor or the MCP `apply_migration` tool with the name `online_payments`. The script wraps itself in `begin; … commit;`. If the mechanism supplies its own transaction, apply it without those two lines.
+4. Read back the ledger entry: `select version, name from supabase_migrations.schema_migrations order by version desc limit 1`.
+5. Verify read-only:
+   - the new columns, indexes and constraints
+   - the three new triggers
+   - `record_automation_incident_signal` now allowing `online_payment_reconciliation`
+   - the untouched functions' md5s unchanged
+   - every existing invoice has a 48-hex `payment_token`
+6. Only after production has it: `git mv supabase/pending/online_payments.sql supabase/migrations/<recorded production version>_online_payments.sql`. Leave the rollback and reference files in place.
+
+### Status
+
+**trackpr-stripe-test (lwofqffxagxiqodqvcfr):** applied on 2026-09-28 through the MCP `apply_migration` mechanism, named `online_payments`, as the file's exact text minus its `begin;`/`commit;` lines (the mechanism supplies the transaction). It's recorded as ledger version `20260928232804` (ledger count went from 69 to 70). Checks before the apply:
+- production's `record_automation_incident_signal` md5 was `dfca7377dd707f2cd7814f87ae84a6bf` and its `customer_payments_immutable` md5 was `b2be41a0c1f3458e1ca3c6a1df592c39`, matching the reference, so there was no drift
+- the target had no Phase 1C objects
+
+Verified afterwards:
+- `md5(prosrc)` of all five created or replaced functions equals the md5 of the matching body text in this file
+- the 9 columns, 5 constraints (all validated), 4 unique indexes and 3 triggers are present
+- the seven accounting functions' md5s are identical before and after
+- grants and the incident function's privileges are unchanged
+- a probe run inside one transaction that always rolled back passed 12/12 guard checks under real JWT-claim roles, and left no rows behind
+
+**Production:** not applied. Its ledger is still at 52 rows, latest `20260928181837`. The file stays in `supabase/pending/` until production has it.
+
 ## dashboard_sql.sql (PENDING - not applied anywhere)
 
 Phase 2D: three read-only functions for the Dashboard (`app/(app)/today/page.tsx`) - `dashboard_summary`, `dashboard_conversation_attention`, `dashboard_briefing` - that count and sum over an organization's complete data instead of the capped row reads summed in TypeScript. Additive only: no tables, indexes or policies. Each function is `language sql stable security invoker set search_path = public`, filters `organization_id` explicitly, and leaves RLS (membership and the payment gate) authoritative. EXECUTE is revoked from PUBLIC and anon and granted to authenticated.
 
 - `dashboard_sql_rollback.sql` drops the three functions. Deploy application code that no longer calls them first.
-- `scratch/validate-dashboard-sql.mjs` builds the full schema in PGlite from `migrations/` (production's schema), seeds five organizations (empty, normal with timezone and boundary cases, isolation, one above every old row cap with 1,000-5,100 rows per table, and one with more than five responded review and referral requests), and proves parity with the TypeScript loaders through a PostgREST-compatible adapter (`scratch/pglite-postgrest.mjs`). Run from the repo root, under both `TZ=UTC` and `TZ=America/Los_Angeles`: `node --import ./lib/automation/test-loader.mjs supabase/pending/scratch/validate-dashboard-sql.mjs verify` (add `EXPLAIN=<dir>` for plans). `capture` re-freezes the pre-2D baseline from the legacy loaders, which still exist.
+- `scratch/validate-dashboard-sql.mjs` builds the full schema in PGlite from `migrations/` plus `online_payments.sql`, seeds five organizations (empty, normal with timezone and boundary cases, isolation, one above every old row cap with 1,000-5,100 rows per table, and one with more than five responded review and referral requests), and proves parity with the TypeScript loaders through a PostgREST-compatible adapter (`scratch/pglite-postgrest.mjs`). Run from the repo root, under both `TZ=UTC` and `TZ=America/Los_Angeles`: `node --import ./lib/automation/test-loader.mjs supabase/pending/scratch/validate-dashboard-sql.mjs verify` (add `EXPLAIN=<dir>` for plans). `capture` re-freezes the pre-2D baseline from the legacy loaders, which still exist.
 - One intentional behavior change: responded review/referral requests on the owner briefing are ordered `created_at ASC, id ASC`. The previous reads had no ORDER BY, so their order - and which five were shown when more than five existed - was undefined.
 
 ### Apply procedure

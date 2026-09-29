@@ -22,32 +22,32 @@ export function InvoicesTable({ invoices, hasActiveFilters, today }: { invoices:
   return (
     <div>
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-slate-200 pl-3 pr-2 pb-3`}>
-          <span className="text-xs text-slate-400">Invoice</span>
-          <span className="text-xs text-slate-400">Status</span>
-          <span className="text-right text-xs text-slate-400">Total</span>
-          <span className="text-right text-xs text-slate-400">Balance</span>
-          <span className="text-xs text-slate-400">Due</span>
+        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-line pl-3 pr-2 pb-3`}>
+          <span className="text-xs text-ink-3">Invoice</span>
+          <span className="text-xs text-ink-3">Status</span>
+          <span className="text-right text-xs text-ink-3">Total</span>
+          <span className="text-right text-xs text-ink-3">Balance</span>
+          <span className="text-xs text-ink-3">Due</span>
           <span />
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-line">
           {invoices.map((invoice) => {
             const overdue = isOverdue({ status: invoice.status, dueDate: invoice.due_date }, today);
             return (
               <Link
                 key={invoice.id}
                 href={`/invoices/${invoice.id}`}
-                className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${overdue ? RAIL_TONE_CLASS.danger : RAIL_TONE_CLASS[INVOICE_STATUS_TONE[invoice.status]]}`}
+                className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${overdue ? RAIL_TONE_CLASS.danger : RAIL_TONE_CLASS[INVOICE_STATUS_TONE[invoice.status]]}`}
               >
                 <span className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                     {invoice.contact ? contactInitials(invoice.contact) : "?"}
                   </span>
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-slate-900">
-                      <span className="text-slate-500">{formatInvoiceNumber(invoice.number)}</span> · {invoice.title}
+                    <span className="block truncate text-sm font-medium text-ink">
+                      <span className="text-ink-3">{formatInvoiceNumber(invoice.number)}</span> · {invoice.title}
                     </span>
-                    <span className="block truncate text-xs text-slate-500">
+                    <span className="block truncate text-xs text-ink-3">
                       {invoice.contact ? contactDisplayName(invoice.contact) : "No contact"}
                       {invoice.contact?.company_name ? ` · ${invoice.contact.company_name}` : ""}
                     </span>
@@ -59,17 +59,17 @@ export function InvoicesTable({ invoices, hasActiveFilters, today }: { invoices:
                   </Badge>
                   {overdue ? <Badge tone="danger">Overdue</Badge> : null}
                 </span>
-                <span className="text-right text-sm font-medium tabular-nums text-slate-700">{formatMoney(invoice.total)}</span>
-                <span className="text-right text-sm tabular-nums text-slate-700">{invoice.status === "void" ? "—" : formatMoney(invoice.balance_due)}</span>
-                <span className="text-xs tabular-nums text-slate-400">{invoice.due_date ? formatContactDate(`${invoice.due_date}T12:00:00Z`) : "—"}</span>
-                <ChevronRight aria-hidden className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500" />
+                <span className="text-right text-sm font-medium tabular-nums text-ink-2">{formatMoney(invoice.total)}</span>
+                <span className="text-right text-sm tabular-nums text-ink-2">{invoice.status === "void" ? "—" : formatMoney(invoice.balance_due)}</span>
+                <span className="text-xs tabular-nums text-ink-3">{invoice.due_date ? formatContactDate(`${invoice.due_date}T12:00:00Z`) : "—"}</span>
+                <ChevronRight aria-hidden className="h-4 w-4 shrink-0 justify-self-end text-ink-4 transition-colors group-hover:text-ink-3" />
               </Link>
             );
           })}
         </div>
       </div>
 
-      <ul className="divide-y divide-slate-100 lg:hidden">
+      <ul className="divide-y divide-line lg:hidden">
         {invoices.map((invoice) => {
           const overdue = isOverdue({ status: invoice.status, dueDate: invoice.due_date }, today);
           return (
@@ -78,12 +78,12 @@ export function InvoicesTable({ invoices, hasActiveFilters, today }: { invoices:
                 href={`/invoices/${invoice.id}`}
                 className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${overdue ? RAIL_TONE_CLASS.danger : RAIL_TONE_CLASS[INVOICE_STATUS_TONE[invoice.status]]}`}
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                   {invoice.contact ? contactInitials(invoice.contact) : "?"}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-slate-900">
+                    <span className="truncate text-sm font-medium text-ink">
                       {formatInvoiceNumber(invoice.number)} · {invoice.title}
                     </span>
                     <Badge tone={overdue ? "danger" : INVOICE_STATUS_TONE[invoice.status]} icon={INVOICE_STATUS_ICON[invoice.status]}>
@@ -91,8 +91,8 @@ export function InvoicesTable({ invoices, hasActiveFilters, today }: { invoices:
                     </Badge>
                   </span>
                   <span className="mt-0.5 flex items-center justify-between gap-2">
-                    <span className="truncate text-xs text-slate-500">{invoice.contact ? contactDisplayName(invoice.contact) : "No contact"}</span>
-                    <span className="shrink-0 text-xs font-medium tabular-nums text-slate-600">
+                    <span className="truncate text-xs text-ink-3">{invoice.contact ? contactDisplayName(invoice.contact) : "No contact"}</span>
+                    <span className="shrink-0 text-xs font-medium tabular-nums text-ink-2">
                       {invoice.status === "void" ? formatMoney(invoice.total) : `${formatMoney(invoice.balance_due)} due`}
                     </span>
                   </span>

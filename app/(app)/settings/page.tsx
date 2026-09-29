@@ -16,6 +16,10 @@ import {
 import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
 import { resolveAppBaseUrl } from "@/lib/automation/sms";
 import { getCalendarConnection, listConnectedCalendars } from "@/lib/calendar/connection";
+import { getOrganizationConnectStatus } from "@/lib/payments/connect";
+import { refreshStaleConnectStatus } from "@/lib/payments/connect-backstop";
+import { createServiceRoleClient } from "@/lib/supabase/service";
+import { onlinePaymentsBanner } from "@/lib/payments/online-payments-view";
 import type { CalendarListItem } from "@/lib/calendar/provider";
 import { sectionLabelClass } from "@/lib/ui/typography";
 import { PageHeader } from "@/lib/ui/page-header";
@@ -28,12 +32,14 @@ import { BusinessHoursSection } from "./_components/business-hours-section";
 import { BusinessProfileSection } from "./_components/business-profile-section";
 import { LeadCaptureSection } from "./_components/lead-capture-section";
 import { NotificationSettingsSection } from "./_components/notification-settings-section";
+import { OnlinePaymentsSection } from "./_components/online-payments-section";
 import { OperationsDetailSection } from "./_components/operations-detail-section";
 import { ReputationSection } from "./_components/reputation-section";
 import { ServiceAreasSection } from "./_components/service-areas-section";
 import { ServicesSection } from "./_components/services-section";
 import { SmsSummarySection } from "./_components/sms-summary-section";
 import { SettingsJumpNav } from "./_components/settings-jump-nav";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 /** Usability audit fix (#7): a stable slug per group label, used both as the section's scroll anchor and the jump nav's href - derived from the same label passed to SettingsGroup, never a second source of truth for section names. */
 function settingsGroupId(label: string): string {
@@ -42,7 +48,7 @@ function settingsGroupId(label: string): string {
 
 function SettingsGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div id={settingsGroupId(label)} className="scroll-mt-6 border-t border-slate-200 pt-8 first:border-t-0 first:pt-0">
+    <div id={settingsGroupId(label)} className="scroll-mt-6 border-t border-line pt-8 first:border-t-0 first:pt-0">
       <p className={sectionLabelClass}>{label}</p>
       <div className="mt-5 space-y-10">{children}</div>
     </div>
@@ -65,6 +71,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const calendarParam = typeof params.calendar === "string" ? params.calendar : null;
   const calendarReason = typeof params.reason === "string" ? params.reason : null;
   const calendarBannerMessage = calendarParam === "connected" ? CALENDAR_STATUS_MESSAGE.connected : calendarParam === "error" ? (calendarReason && CALENDAR_STATUS_MESSAGE[calendarReason]) || "We couldn't connect Google Calendar. Please try again." : null;
+  const paymentsBanner = onlinePaymentsBanner(params);
 
   const supabase = await getRequestSupabase();
   const { user, membership } = await getRequestMembership();
@@ -80,7 +87,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const canEdit = membership.role === "owner" || membership.role === "admin";
   const organizationId = membership.organizationId;
 
-  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings, smsPhoneNumber, automationMode, leadIntakeToken] =
+  // Performance Pass B: the calendar connection and the stored Stripe
+  // Connect status are independent reads of this organization, so they now
+  // run in the same batch as everything else instead of one after another
+  // afterwards. What depends on them (the calendar list, the Stripe
+  // backstop) still runs after, unchanged.
+  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings, smsPhoneNumber, automationMode, leadIntakeToken, calendarConnection, storedConnectStatus] =
     await Promise.all([
       getBusinessProfile(supabase, organizationId),
       getBusinessHours(supabase, organizationId),
@@ -92,6 +104,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       getOrganizationSmsNumber(supabase, organizationId),
       getAutomationMode(supabase, organizationId),
       getLeadIntakeToken(supabase, organizationId),
+      getCalendarConnection(supabase, organizationId),
+      getOrganizationConnectStatus(supabase, organizationId),
     ]);
 
   const appBaseUrl = resolveAppBaseUrl();
@@ -100,18 +114,28 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   // Only fetched (a real provider call) when there's actually a connection
   // with no calendar chosen yet - see calendar-connection-section.tsx's own
   // comment for why this isn't fetched unconditionally on every page load.
-  const calendarConnection = await getCalendarConnection(supabase, organizationId);
   let availableCalendars: CalendarListItem[] = [];
   if (calendarConnection && !calendarConnection.calendarId) {
     const listResult = await listConnectedCalendars(calendarConnection.id);
     if (listResult.ok) availableCalendars = listResult.value;
   }
 
+  // Phase 1C: the stored Stripe Connect status (a plain read of the
+  // organization row, loaded in the batch above; the start/return routes are
+  // what re-read Stripe).
+  // Backstop (owners/admins only): if the stored status is incomplete and
+  // wasn't synced in the last minute, re-read it from Stripe (Accounts v2)
+  // before rendering. Never creates an account or a link; keeps the stored
+  // status if Stripe can't be reached. See lib/payments/connect-backstop.ts.
+  const connectBackstop = canEdit
+    ? await refreshStaleConnectStatus(createServiceRoleClient(), organizationId, storedConnectStatus)
+    : { status: storedConnectStatus, refreshed: false, refreshFailed: false };
+
   if (!profile) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-        <h1 className="text-lg font-semibold text-slate-900">We couldn&apos;t load your business settings.</h1>
-        <p className="text-sm text-slate-500">Please try again in a moment.</p>
+        <h1 className="text-lg font-semibold text-ink">We couldn&apos;t load your business settings.</h1>
+        <p className="text-sm text-ink-3">Please try again in a moment.</p>
       </div>
     );
   }
@@ -119,16 +143,24 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const hours = withDefaultHours(hoursRows);
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <div>
-        <PageHeader eyebrow="System" title="Settings" description="Configure the business rules your automations use." />
+        <PageHeader title="Settings" description="Configure the business rules your automations use." />
         {!canEdit ? (
-          <p className="mt-3 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
+          <p className="mt-3 inline-flex items-center rounded-full border border-line bg-canvas px-3 py-1 text-xs font-medium text-ink-3">
             You have read-only access. Only owners and admins can change these settings.
           </p>
         ) : null}
         {calendarBannerMessage ? (
           <p className={`mt-3 ${calendarParam === "connected" ? successBannerClass : errorBannerClass}`} role={calendarParam === "connected" ? undefined : "alert"}>{calendarBannerMessage}</p>
+        ) : null}
+        {paymentsBanner ? (
+          <p
+            className={`mt-3 ${paymentsBanner.tone === "success" ? successBannerClass : paymentsBanner.tone === "error" ? errorBannerClass : "rounded-md border border-info-border bg-info-muted px-3.5 py-2.5 text-sm text-info-text"}`}
+            role={paymentsBanner.tone === "error" ? "alert" : undefined}
+          >
+            {paymentsBanner.message}
+          </p>
         ) : null}
       </div>
 
@@ -143,6 +175,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div className="min-w-0">
           <SettingsGroup label="Business & Organization">
             <BusinessProfileSection profile={profile} canEdit={canEdit} />
+            <OnlinePaymentsSection status={connectBackstop.status} paymentStatus={membership.paymentStatus} canEdit={canEdit} refreshFailed={connectBackstop.refreshFailed} />
           </SettingsGroup>
 
           <SettingsGroup label="Automations">

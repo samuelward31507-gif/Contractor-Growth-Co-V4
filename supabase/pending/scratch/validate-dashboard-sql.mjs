@@ -1,8 +1,7 @@
 // Parity harness for supabase/pending/dashboard_sql.sql (Phase 2D, PENDING).
 //
-// Builds an in-memory Postgres (PGlite) from the REAL migrations - exactly
-// production's schema - plus the pending dashboard_sql.sql and
-// dashboard_attention_sql.sql,
+// Builds an in-memory Postgres (PGlite) from the REAL migrations (plus the
+// applied-to-test online_payments.sql and the pending dashboard_sql.sql),
 // seeds deterministic organizations, and runs the application's REAL
 // TypeScript loaders against it through a PostgREST-compatible adapter
 // (pglite-postgrest.mjs) with a fixed clock.
@@ -84,7 +83,7 @@ await db.exec(`
 `);
 const migrationFiles = readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
 debug("boot start");
-for (const f of migrationFiles.map((f) => path.join(ROOT, "supabase/migrations", f))) {
+for (const f of [...migrationFiles.map((f) => path.join(ROOT, "supabase/migrations", f)), path.join(ROOT, "supabase/pending/online_payments.sql")]) {
   try {
     await db.exec(readFileSync(f, "utf8"));
   } catch (error) {

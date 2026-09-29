@@ -46,7 +46,7 @@ export function ManualRunControls({ automationId, enabled }: { automationId: str
         setError(result.error);
         return;
       }
-      setMessage(result.auditWarning ? `Run started. ${result.auditWarning}` : "Run started - check Recent Executions below.");
+      setMessage(result.auditWarning ? `Run started. ${result.auditWarning}` : "Run started - check Automation activity below.");
     });
   }
 
@@ -71,7 +71,7 @@ export function ManualRunControls({ automationId, enabled }: { automationId: str
           type="button"
           onClick={handleRun}
           disabled={!enabled || isPending}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          className="rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
         >
           {isPending ? "Working…" : "Run now"}
         </button>
@@ -79,14 +79,14 @@ export function ManualRunControls({ automationId, enabled }: { automationId: str
           type="button"
           onClick={handleDryRun}
           disabled={!enabled || isPending}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          className="rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
         >
           {isPending ? "Working…" : "Test / dry run"}
         </button>
-        {!enabled ? <span className="text-xs text-slate-400">Disabled - re-enable this automation to run or test it.</span> : null}
+        {!enabled ? <span className="text-xs text-ink-3">Disabled - re-enable this automation to run or test it.</span> : null}
       </div>
-      {message ? <p className="text-xs text-emerald-700">{message}</p> : null}
-      {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      {message ? <p className="text-xs text-accent-text">{message}</p> : null}
+      {error ? <p className="text-xs text-danger">{error}</p> : null}
     </div>
   );
 }

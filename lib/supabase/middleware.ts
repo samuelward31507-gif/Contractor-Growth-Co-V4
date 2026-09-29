@@ -54,8 +54,13 @@ export async function updateSession(request: NextRequest) {
   // approval_token (see lib/estimates/approval.ts), the same trust model as
   // the /api/leads/capture/[token] intake route this block already exempts
   // via the /api/ prefix.
+  // /pay/ is the public invoice payment page (app/pay/[token], Phase 1C) -
+  // the same trust model as /quote: the customer has no session, and the
+  // page authorizes itself by resolving the unguessable payment_token (see
+  // lib/payments/public-invoice.ts). "/pay/" with the slash, so no other
+  // path that merely starts with "pay" becomes public.
   const PUBLIC_MARKETING_PATHS = new Set(["/", "/how-it-works", "/services", "/get-started", "/privacy", "/terms", "/robots.txt", "/sitemap.xml"]);
-  if (PUBLIC_MARKETING_PATHS.has(pathname) || pathname.startsWith("/auth") || pathname.startsWith("/api/") || pathname.startsWith("/demo") || pathname.startsWith("/quote")) {
+  if (PUBLIC_MARKETING_PATHS.has(pathname) || pathname.startsWith("/auth") || pathname.startsWith("/api/") || pathname.startsWith("/demo") || pathname.startsWith("/quote") || pathname.startsWith("/pay/")) {
     return supabaseResponse;
   }
 

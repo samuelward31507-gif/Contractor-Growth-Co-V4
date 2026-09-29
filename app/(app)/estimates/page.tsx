@@ -12,6 +12,7 @@ import { EstimatesEmptyState } from "./_components/estimates-empty-state";
 import { EstimatesSummary } from "./_components/estimates-summary";
 import { EstimatesTable } from "./_components/estimates-table";
 import { EstimatesToolbar } from "./_components/estimates-toolbar";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 const VALID_STATUSES = new Set<string>(["draft", "sent", "accepted", "declined", "cancelled", "expired"]);
 
@@ -57,16 +58,15 @@ export default async function EstimatesPage({ searchParams }: PageProps<"/estima
   const hasActiveFilters = Boolean(query.trim()) || status !== "all";
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow="Operate"
         title="Estimates"
         description="Create, send, and track project estimates."
         action={
           <div className="flex items-center gap-4">
             <Link
               href="/jobs"
-              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="inline-flex min-h-11 items-center rounded text-sm font-medium text-ink-3 transition-colors hover:text-ink sm:min-h-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               View jobs
             </Link>

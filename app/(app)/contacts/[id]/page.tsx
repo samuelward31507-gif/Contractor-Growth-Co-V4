@@ -32,6 +32,7 @@ import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_com
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
 import { ContactActions } from "./_components/contact-actions";
 import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contacts/open-lead-value";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 const OPPORTUNITY_TYPE_LABELS: Record<string, string> = {
   qualified_lead_unbooked: "Qualified, not booked",
@@ -90,13 +91,13 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
 
   if (!contact) {
     return (
-      <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
         <EmptyState
           icon={FileX2}
           title="Contact not found"
           description="This contact may have been deleted, or the link is incorrect."
           action={
-            <Link href="/contacts" className="text-sm font-medium text-slate-900 hover:underline">
+            <Link href="/contacts" className="text-sm font-medium text-ink hover:underline">
               Back to Contacts
             </Link>
           }
@@ -195,7 +196,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
         backHref="/contacts"
         backLabel="Back to Contacts"
         avatar={
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-base font-medium text-slate-600 ring-1 ring-inset ring-slate-200">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-inset text-base font-medium text-ink-2 ring-1 ring-inset ring-line">
             {contactInitials(contact)}
           </span>
         }
@@ -220,19 +221,19 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
               { label: "Jobs", value: String(relationshipCounts.jobs), detail: undefined, icon: Briefcase },
             ].map((stat) => (
               <div key={stat.label}>
-                <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
+                <p className="flex items-center gap-1.5 text-xs font-medium text-ink-3">
                   <stat.icon className="h-3 w-3 shrink-0" aria-hidden />
                   {stat.label}
                 </p>
-                <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{stat.value}</p>
-                {stat.detail ? <p className="mt-0.5 text-xs text-slate-500">{stat.detail}</p> : null}
+                <p className="mt-1 text-xl font-semibold tabular-nums text-ink">{stat.value}</p>
+                {stat.detail ? <p className="mt-0.5 text-xs text-ink-3">{stat.detail}</p> : null}
               </div>
             ))}
           </div>
         }
       />
 
-      <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
         {/* Customer/person-view redesign: "what stage they're in" already
             lives in the header's status badge (unchanged); this is "what
             happens next" - grounded entirely in the same opportunities table
@@ -242,18 +243,18 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
             established (see app/(app)/leads/[id]/page.tsx's own nextStep),
             so the two detail pages read as the same product. */}
         {openOpportunities.length > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-line bg-surface px-5 py-4">
             <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-muted text-accent-text">
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </span>
               <div>
-                <p className="text-[12.5px] font-medium text-slate-500">What happens next</p>
-                <p className="text-sm font-semibold text-slate-900">
+                <p className="text-xs font-medium text-ink-3">What happens next</p>
+                <p className="text-sm font-semibold text-ink">
                   {OPPORTUNITY_TYPE_LABELS[openOpportunities[0].type] ?? openOpportunities[0].type}
                 </p>
                 {openOpportunities[0].estimatedValue != null ? (
-                  <p className="text-xs text-slate-500">{formatCurrency(openOpportunities[0].estimatedValue)}</p>
+                  <p className="text-xs text-ink-3">{formatCurrency(openOpportunities[0].estimatedValue)}</p>
                 ) : null}
               </div>
             </div>
@@ -267,28 +268,28 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
               individually bordered sections. Every list, row, href, and
               empty-state string below is unchanged; only the outer
               container moved. */}
-          <div className="flex flex-col divide-y divide-slate-200 lg:col-span-2">
+          <div className="flex flex-col divide-y divide-line lg:col-span-2">
             <section className="pb-6">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <Flame className="h-4 w-4 text-slate-400" aria-hidden />
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <Flame className="h-4 w-4 text-ink-3" aria-hidden />
                 Leads
               </h2>
               {leads.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-500">No leads for this contact yet.</p>
+                <p className="mt-2 text-sm text-ink-3">No leads for this contact yet.</p>
               ) : (
-                <ul className="mt-1 divide-y divide-slate-100">
+                <ul className="mt-1 divide-y divide-line">
                   {leads.map((lead) => (
                     <li key={lead.id}>
                       <Link
                         href={`/leads/${lead.id}`}
-                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-ink"
                       >
                         <span className="min-w-0">
-                          <span className="block truncate font-medium text-slate-900">{lead.service || "General inquiry"}</span>
-                          <span className="block text-xs text-slate-500">{formatContactDate(lead.created_at)}</span>
+                          <span className="block truncate font-medium text-ink">{lead.service || "General inquiry"}</span>
+                          <span className="block text-xs text-ink-3">{formatContactDate(lead.created_at)}</span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
-                          <span className="text-sm font-medium tabular-nums text-slate-700">
+                          <span className="text-sm font-medium tabular-nums text-ink-2">
                             {lead.estimated_value != null ? formatCurrency(lead.estimated_value) : "—"}
                           </span>
                           <Badge tone={LEAD_STATUS_TONE[lead.status]}>{LEAD_STATUS_LABELS[lead.status]}</Badge>
@@ -301,23 +302,23 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
             </section>
 
             <section className="py-6">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <MessagesSquare className="h-4 w-4 text-slate-400" aria-hidden />
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <MessagesSquare className="h-4 w-4 text-ink-3" aria-hidden />
                 Conversations
               </h2>
               {conversations.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-500">No conversations with this contact yet.</p>
+                <p className="mt-2 text-sm text-ink-3">No conversations with this contact yet.</p>
               ) : (
-                <ul className="mt-1 divide-y divide-slate-100">
+                <ul className="mt-1 divide-y divide-line">
                   {conversations.map((conversation) => (
                     <li key={conversation.id}>
                       <Link
                         href={`/conversations/${conversation.id}`}
-                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-ink"
                       >
-                        <span className="flex items-center gap-2 text-slate-700">
+                        <span className="flex items-center gap-2 text-ink-2">
                           <span className="font-medium">{CHANNEL_LABEL[conversation.channel] ?? conversation.channel}</span>
-                          <span className="text-xs text-slate-400">Updated {formatContactDate(conversation.updated_at)}</span>
+                          <span className="text-xs text-ink-3">Updated {formatContactDate(conversation.updated_at)}</span>
                         </span>
                         <Badge tone={conversation.status === "open" ? "info" : "neutral"}>
                           {conversation.status === "open" ? "Open" : "Closed"}
@@ -330,23 +331,23 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
             </section>
 
             <section className="py-6">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <CalendarClock className="h-4 w-4 text-slate-400" aria-hidden />
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <CalendarClock className="h-4 w-4 text-ink-3" aria-hidden />
                 Appointments
               </h2>
               {appointments.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-500">No appointments for this contact yet.</p>
+                <p className="mt-2 text-sm text-ink-3">No appointments for this contact yet.</p>
               ) : (
-                <ul className="mt-1 divide-y divide-slate-100">
+                <ul className="mt-1 divide-y divide-line">
                   {appointments.map((appointment) => (
                     <li key={appointment.id}>
                       <Link
                         href={`/appointments/${appointment.id}`}
-                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-ink"
                       >
                         <span className="min-w-0">
-                          <span className="block truncate font-medium text-slate-900">{appointment.title}</span>
-                          <span className="block text-xs text-slate-500">
+                          <span className="block truncate font-medium text-ink">{appointment.title}</span>
+                          <span className="block text-xs text-ink-3">
                             {formatAppointmentDate(appointment.start_at, timeZone)} ·{" "}
                             {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
                           </span>
@@ -362,26 +363,26 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
             </section>
 
             <section className="py-6">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <FileSearch className="h-4 w-4 text-slate-400" aria-hidden />
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <FileSearch className="h-4 w-4 text-ink-3" aria-hidden />
                 Estimates
               </h2>
               {estimates.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-500">No estimates for this contact yet.</p>
+                <p className="mt-2 text-sm text-ink-3">No estimates for this contact yet.</p>
               ) : (
-                <ul className="mt-1 divide-y divide-slate-100">
+                <ul className="mt-1 divide-y divide-line">
                   {estimates.map((estimate) => (
                     <li key={estimate.id}>
                       <Link
                         href={`/estimates/${estimate.id}`}
-                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                        className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-ink"
                       >
                         <span className="min-w-0">
-                          <span className="block truncate font-medium text-slate-900">{estimate.title}</span>
-                          <span className="block text-xs text-slate-500">{formatContactDate(estimate.created_at)}</span>
+                          <span className="block truncate font-medium text-ink">{estimate.title}</span>
+                          <span className="block text-xs text-ink-3">{formatContactDate(estimate.created_at)}</span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
-                          <span className="text-sm font-medium tabular-nums text-slate-700">
+                          <span className="text-sm font-medium tabular-nums text-ink-2">
                             {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
                           </span>
                           <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
@@ -396,22 +397,22 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
             </section>
 
             <section className="pt-6">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <Briefcase className="h-4 w-4 text-slate-400" aria-hidden />
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <Briefcase className="h-4 w-4 text-ink-3" aria-hidden />
                 Jobs
               </h2>
               {jobs.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-500">No jobs for this contact yet.</p>
+                <p className="mt-2 text-sm text-ink-3">No jobs for this contact yet.</p>
               ) : (
-                <ul className="mt-1 divide-y divide-slate-100">
+                <ul className="mt-1 divide-y divide-line">
                   {jobs.map((job) => (
                     <li key={job.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
                       <span className="min-w-0">
-                        <span className="block truncate font-medium text-slate-900">{job.title}</span>
-                        <span className="block text-xs text-slate-500">{formatContactDate(job.created_at)}</span>
+                        <span className="block truncate font-medium text-ink">{job.title}</span>
+                        <span className="block text-xs text-ink-3">{formatContactDate(job.created_at)}</span>
                       </span>
                       <span className="flex shrink-0 items-center gap-2">
-                        <span className="text-sm font-medium tabular-nums text-slate-700">
+                        <span className="text-sm font-medium tabular-nums text-ink-2">
                           {job.amount != null ? formatCurrency(job.amount) : "—"}
                         </span>
                         <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
@@ -453,7 +454,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                       <dd className={detailValueClass}>
                         {lifecycle.knownCompletedJobValueCount > 0 ? formatCurrency(lifecycle.knownCompletedJobValue) : "Unknown"}
                         {lifecycle.averageKnownCompletedJobValue != null ? (
-                          <span className="ml-1.5 text-xs font-normal text-slate-400">{formatCurrency(lifecycle.averageKnownCompletedJobValue)} average</span>
+                          <span className="ml-1.5 text-xs font-normal text-ink-3">{formatCurrency(lifecycle.averageKnownCompletedJobValue)} average</span>
                         ) : null}
                       </dd>
                     </div>
@@ -462,7 +463,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                       <dd className={detailValueClass}>
                         {formatContactDate(lifecycle.lastCompletedJobAt as string)}
                         {lifecycle.daysSinceLastCompletedJob != null ? (
-                          <span className="ml-1.5 text-xs font-normal text-slate-400">{lifecycle.daysSinceLastCompletedJob} days ago</span>
+                          <span className="ml-1.5 text-xs font-normal text-ink-3">{lifecycle.daysSinceLastCompletedJob} days ago</span>
                         ) : null}
                       </dd>
                     </div>
@@ -472,14 +473,14 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-slate-500">No completed jobs yet.</p>
+                  <p className="text-sm text-ink-3">No completed jobs yet.</p>
                 )}
                 {openOpportunities.length > 0 ? (
                   <div>
                     <dt className={detailLabelClass}>Open opportunities</dt>
                     <dd className={`${detailValueClass} space-y-1`}>
                       {openOpportunities.map((opportunity) => (
-                        <span key={opportunity.id} className="block text-sm font-normal text-slate-700">
+                        <span key={opportunity.id} className="block text-sm font-normal text-ink-2">
                           {OPPORTUNITY_TYPE_LABELS[opportunity.type] ?? opportunity.type}
                           {opportunity.estimatedValue != null ? ` · ${formatCurrency(opportunity.estimatedValue)}` : ""}
                         </span>
@@ -505,7 +506,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
             {contact.notes ? (
               <Panel>
                 <h2 className={subsectionTitleClass}>Notes</h2>
-                <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{contact.notes}</p>
+                <p className="mt-3 whitespace-pre-wrap text-sm text-ink-2">{contact.notes}</p>
               </Panel>
             ) : null}
 

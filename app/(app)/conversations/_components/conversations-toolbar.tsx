@@ -34,7 +34,7 @@ export function ConversationsToolbar({
       <div className="relative">
         <Search
           aria-hidden
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3"
         />
         <input
           type="search"
@@ -80,7 +80,7 @@ export function ConversationsToolbar({
         <button
           type="button"
           onClick={onClear}
-          className="text-xs font-medium text-slate-500 transition-colors hover:text-slate-900"
+          className="text-xs font-medium text-ink-3 transition-colors hover:text-ink"
         >
           Clear filters
         </button>

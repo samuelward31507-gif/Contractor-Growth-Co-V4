@@ -29,7 +29,7 @@ function AppointmentRow({
     <li>
       <Link
         href={`/appointments/${appointment.id}`}
-        className={`group flex items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
+        className={`group flex items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
       >
         {/* Leading time column - this list reads as "the contractor's day"
             first and foremost, so the answer to "when" is the first thing
@@ -38,27 +38,27 @@ function AppointmentRow({
             wrapped onto two lines on mobile widths - whitespace-nowrap plus
             a slightly wider fixed column keeps every time on one line while
             still aligning names into a consistent column across rows. */}
-        <span className="w-[68px] shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-slate-900">
+        <span className="w-[68px] shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-ink">
           {formatAppointmentTime(appointment.start_at, timeZone)}
         </span>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
           {appointment.contact ? contactInitials(appointment.contact) : "?"}
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-2">
-            <span className="truncate text-sm font-medium text-slate-900">{name}</span>
+            <span className="truncate text-sm font-medium text-ink">{name}</span>
             <Badge tone={APPOINTMENT_STATUS_TONE[appointment.status]} icon={APPOINTMENT_STATUS_ICON[appointment.status]}>
               {STATUS_LABELS[appointment.status]}
             </Badge>
           </span>
-          <span className="mt-0.5 block truncate text-xs text-slate-500">
+          <span className="mt-0.5 block truncate text-xs text-ink-3">
             {showDate ? `${formatAppointmentDate(appointment.start_at, timeZone)} · ` : ""}
             {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)} · {appointment.title}
           </span>
         </span>
         <ChevronRight
           aria-hidden
-          className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500"
+          className="h-4 w-4 shrink-0 text-ink-4 transition-colors group-hover:text-ink-3"
         />
       </Link>
     </li>
@@ -120,7 +120,7 @@ export function AppointmentsList({
     const ordered = view === "past" ? [...appointments].reverse() : appointments;
 
     return (
-      <ul className="divide-y divide-slate-100">
+      <ul className="divide-y divide-line">
         {ordered.map((appointment) => (
           <AppointmentRow key={appointment.id} appointment={appointment} showDate={view === "past"} timeZone={timeZone} />
         ))}
@@ -141,7 +141,7 @@ export function AppointmentsList({
       {[...groups.entries()].map(([label, items]) => (
         <div key={label}>
           <p className={sectionLabelClass}>{label}</p>
-          <ul className="mt-3 divide-y divide-slate-100">
+          <ul className="mt-3 divide-y divide-line">
             {items.map((appointment) => (
               <AppointmentRow key={appointment.id} appointment={appointment} showDate={false} timeZone={timeZone} />
             ))}

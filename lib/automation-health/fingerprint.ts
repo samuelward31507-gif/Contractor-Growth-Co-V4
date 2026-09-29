@@ -42,6 +42,11 @@ import type { IncidentCategory } from "./types";
  *    one. Uniqueness of the resulting incident is still correctly
  *    per-organization, since automation_incidents' own dedup key is
  *    (organization_id, fingerprint), not fingerprint alone.
+ *  - online_payment_reconciliation (Phase 1C): context is the Stripe
+ *    Checkout Session id - one incident per Stripe payment that the ledger
+ *    could not record (or that later needs refund/dispute follow-up), so a
+ *    Stripe webhook retry of the same failure increments occurrence_count on
+ *    that payment's incident instead of opening another.
  */
 export function buildIncidentFingerprint(category: IncidentCategory, context: string): string {
   const trimmed = context.trim();

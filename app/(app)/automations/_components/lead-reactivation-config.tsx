@@ -8,7 +8,7 @@ import { SectionCard } from "@/lib/ui/section-card";
 import { primaryButtonAutoClass } from "@/lib/ui/form";
 
 const numberFieldClass =
-  "w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 transition-colors focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-60";
+  "w-20 rounded-lg border border-line-strong px-2.5 py-1.5 text-sm text-ink transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10 disabled:cursor-not-allowed disabled:opacity-60";
 
 /**
  * Automation Configuration V4 - only ever rendered for org admins, same
@@ -78,7 +78,7 @@ export function LeadReactivationConfigForm({
     <SectionCard title="Reactivation touch timing" icon={Settings}>
       <div className="flex flex-col gap-3">
         <div>
-          <p className="text-xs font-medium text-slate-500">First reactivation touch</p>
+          <p className="text-xs font-medium text-ink-3">First reactivation touch</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <input
               type="number"
@@ -92,11 +92,11 @@ export function LeadReactivationConfigForm({
               aria-label="First reactivation touch, in days"
               className={numberFieldClass}
             />
-            <span className="text-sm text-slate-700">days</span>
+            <span className="text-sm text-ink-2">days</span>
           </div>
         </div>
         <div>
-          <p className="text-xs font-medium text-slate-500">Second reactivation touch</p>
+          <p className="text-xs font-medium text-ink-3">Second reactivation touch</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <input
               type="number"
@@ -110,7 +110,7 @@ export function LeadReactivationConfigForm({
               aria-label="Second reactivation touch, in days"
               className={numberFieldClass}
             />
-            <span className="text-sm text-slate-700">days</span>
+            <span className="text-sm text-ink-2">days</span>
           </div>
         </div>
         <div>
@@ -119,12 +119,12 @@ export function LeadReactivationConfigForm({
           </button>
         </div>
       </div>
-      <p className="mt-3 text-xs text-slate-400">
+      <p className="mt-3 text-xs text-ink-3">
         Defaults: {DEFAULT_LEAD_REACTIVATION_CONFIG.touch_1_days} and {DEFAULT_LEAD_REACTIVATION_CONFIG.touch_2_days} days. Changes apply to future
         touches only - anything already sent or in progress is unaffected.
       </p>
-      {success && !error ? <p className="mt-1.5 text-xs text-emerald-700">Saved.</p> : null}
-      {error ? <p className="mt-1.5 text-xs text-red-600">{error}</p> : null}
+      {success && !error ? <p className="mt-1.5 text-xs text-accent-text">Saved.</p> : null}
+      {error ? <p className="mt-1.5 text-xs text-danger">{error}</p> : null}
     </SectionCard>
   );
 }

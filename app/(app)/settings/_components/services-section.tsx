@@ -27,9 +27,9 @@ function ServiceRow({
   return (
     <li className="flex flex-col gap-2 py-3.5 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-slate-900">{service.name}</p>
+        <p className="text-sm font-medium text-ink">{service.name}</p>
         {service.description ? (
-          <p className="mt-0.5 truncate text-xs text-slate-500">{service.description}</p>
+          <p className="mt-0.5 truncate text-xs text-ink-3">{service.description}</p>
         ) : null}
         {state.error ? <p className="mt-1 text-xs text-danger-text">{state.error}</p> : null}
       </div>
@@ -41,9 +41,9 @@ function ServiceRow({
           <button
             type="submit"
             disabled={!canEdit || isPending}
-            className="inline-flex items-center gap-1.5 rounded-md text-sm text-slate-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 rounded-md text-sm text-ink-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10 disabled:cursor-not-allowed"
           >
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${service.is_active ? "bg-emerald-500" : "bg-slate-300"}`} aria-hidden />
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${service.is_active ? "bg-accent" : "bg-line-strong"}`} aria-hidden />
             {isPending ? "Updating…" : service.is_active ? "Active" : "Inactive"}
           </button>
         </form>
@@ -54,7 +54,7 @@ function ServiceRow({
               type="button"
               onClick={onEdit}
               aria-label="Edit service"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-selected focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10"
             >
               <Pencil className="h-4 w-4" aria-hidden />
             </button>
@@ -62,7 +62,7 @@ function ServiceRow({
               type="button"
               onClick={onDelete}
               aria-label="Delete service"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/20"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-danger transition-colors hover:bg-danger-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/20"
             >
               <Trash2 className="h-4 w-4" aria-hidden />
             </button>
@@ -94,11 +94,11 @@ export function ServicesSection({ services, canEdit }: { services: Service[]; ca
       </div>
 
       {services.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-500">
+        <p className="mt-4 text-sm text-ink-3">
           No services yet. Add the services your business offers so future AI systems can reference them.
         </p>
       ) : (
-        <ul className="mt-4 divide-y divide-slate-100">
+        <ul className="mt-4 divide-y divide-line">
           {services.map((service) => (
             <ServiceRow
               key={service.id}

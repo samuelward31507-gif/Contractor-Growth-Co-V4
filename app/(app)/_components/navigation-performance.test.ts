@@ -26,7 +26,12 @@ const ROOT = process.cwd();
 const exists = (relative: string) => fs.existsSync(path.join(ROOT, relative));
 const read = (relative: string) => fs.readFileSync(path.join(ROOT, relative), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
-const NAV_HREFS = [...NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href)), AGENCY_NAV_ITEM.href];
+// Trackpr 2.0 (step 2C): some nav entries are two views of one route
+// (/people?temperature=hot, /schedule?view=list, /today?view=by-type,
+// /growth#referrals), so the route checks below run on each href's path -
+// every one of those paths must still be a real page with its own loading
+// state and must never be a redirect.
+const NAV_HREFS = [...new Set([...NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href)), AGENCY_NAV_ITEM.href].map((href) => href.split(/[?#]/)[0]))];
 const segmentDir = (href: string) => (href === "/agency" ? "app/agency" : `app/(app)${href}`);
 
 // ---------------------------------------------------------------------------
@@ -57,14 +62,30 @@ test("the new skeletons render no data, no text and no data access - only pulse 
   const skeleton = read("lib/ui/skeleton.tsx");
   assert.match(skeleton, /role="status" aria-busy="true" aria-live="polite"/);
   assert.match(skeleton, /<span className="sr-only">Loading…<\/span>/);
-  assert.match(skeleton, /aria-hidden className=\{`animate-pulse rounded bg-slate-100/);
+  // Trackpr 2.0 (step 2A): the pulse block's fill moved onto the --inset token.
+  assert.match(skeleton, /aria-hidden className=\{`animate-pulse rounded bg-inset/);
 });
 
 test("skeletons use the real page container so the swap to content doesn't shift the layout", () => {
-  assert.match(read("lib/ui/skeleton.tsx"), /SKELETON_PAGE_CLASS = "flex flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10"/);
-  for (const route of ["today", "people", "growth", "insights", "settings"]) {
-    assert.match(read(`app/(app)/${route}/page.tsx`), /className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10"/, `${route} page uses the container the skeleton mirrors`);
+  // Trackpr 2.0 (step 2A): the skeleton container is the shared page
+  // container constant (lib/ui/page.tsx), whose value is still the literal
+  // the pages below use - so the guarantee is unchanged.
+  assert.match(read("lib/ui/skeleton.tsx"), /SKELETON_PAGE_CLASS = PAGE_CONTAINER_CLASS;/);
+  assert.match(read("lib/ui/page.tsx"), /PAGE_CONTAINER_CLASS = "flex flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10"/);
+  // Trackpr 2.0 (step 2G): every page is on the shared container constants
+  // now, and each page and its skeleton agree on the content width - so the
+  // skeleton-to-content swap still never shifts the layout.
+  for (const route of ["people", "growth", "insights", "settings", "money"]) {
+    assert.match(read(`app/(app)/${route}/page.tsx`), /className=\{`\$\{PAGE_CONTAINER_CLASS\} gap-8 \$\{PAGE_MAX_WIDTH_CLASS\}`\}/, `${route} page uses the shared container at the content width`);
+    assert.match(read(`app/(app)/${route}/loading.tsx`), /<SkeletonPage[^>]*width="content"/, `${route} skeleton mirrors the page's content width`);
   }
+  // Trackpr 2.0 (step 2E): the Dashboard moved onto PageContainer at the
+  // shared content width; its skeleton uses the same container at the same
+  // width, so the guarantee holds for it too.
+  assert.match(read("app/(app)/today/page.tsx"), /<PageContainer>/);
+  assert.match(read("lib/ui/page.tsx"), /width = "content"/);
+  assert.match(read("app/(app)/today/loading.tsx"), /<SkeletonPage width="content">/);
+  assert.match(read("lib/ui/skeleton.tsx"), /\$\{width === "content" \? PAGE_MAX_WIDTH_CLASS : ""\}/);
 });
 
 // ---------------------------------------------------------------------------
@@ -142,8 +163,13 @@ test("no navigation link points at a next.config redirect source or a redirect-o
 test("Inbox and the automation-health indicator link to their destinations directly", () => {
   assert.ok(isPageRedirect("/inbox"), "/inbox stays as a compatibility redirect for old links");
   assert.ok(isPageRedirect("/automation-health"), "/automation-health stays as a compatibility redirect for old links");
-  assert.match(read("app/(app)/_components/top-bar.tsx"), /href="\/automations"/);
-  assert.doesNotMatch(read("app/(app)/_components/top-bar.tsx"), /href="\/automation-health"/);
+  // Trackpr 2.0 (step 2D): the status indicator now opens a short
+  // explanation whose "View details" link carries the destination.
+  assert.match(read("app/(app)/_components/system-status-model.ts"), /const detailsHref = "\/automations";/);
+  assert.match(read("app/(app)/_components/system-status.tsx"), /href=\{view\.detailsHref\}/);
+  for (const file of ["app/(app)/_components/top-bar.tsx", "app/(app)/_components/system-status.tsx", "app/(app)/_components/system-status-model.ts"]) {
+    assert.doesNotMatch(read(file), /["'`]\/automation-health/, `${file} must not link to the compatibility redirect`);
+  }
   assert.doesNotMatch(read("app/(app)/_components/breadcrumb.tsx"), /BREADCRUMB_PATH_ALIASES/);
 });
 

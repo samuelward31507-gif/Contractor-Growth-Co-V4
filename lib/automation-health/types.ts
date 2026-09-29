@@ -18,7 +18,9 @@ export type IncidentCategory =
   | "sms_send_failed"
   | "sms_delivery_failed"
   | "human_escalation_requested"
-  | "scheduled_automation_stale";
+  | "scheduled_automation_stale"
+  /** Phase 1C: Stripe and the invoice ledger disagree about an online payment; a person must reconcile it (see lib/payments/online-payment.ts). */
+  | "online_payment_reconciliation";
 
 /** The subset of categories a caller of recordAutomationHealthSignal may request directly. */
 export type RecordableIncidentCategory = Exclude<IncidentCategory, "repeated_workflow_failure">;

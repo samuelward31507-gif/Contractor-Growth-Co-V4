@@ -33,7 +33,7 @@ export function ClientReadinessRow({ client }: { client: AgencyClientReadiness }
     <div className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <Link
         href={`/agency/organizations/${client.organizationId}`}
-        className="shrink-0 text-sm font-medium text-slate-900 hover:underline"
+        className="shrink-0 text-sm font-medium text-ink hover:underline"
       >
         {client.organizationName}
       </Link>

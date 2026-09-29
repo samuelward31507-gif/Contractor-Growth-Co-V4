@@ -32,12 +32,12 @@ export function SmsRoutingSection({
       action={<Badge tone={isConfigured ? "success" : "neutral"}>{isConfigured ? "Configured" : "Not configured"}</Badge>}
     >
       <div className="space-y-5">
-        <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3.5 py-2.5">
+        <div className="rounded-lg border border-line bg-canvas/60 px-3.5 py-2.5">
           <p className={detailLabelClass}>Current configuration</p>
           <p className={detailValueClass}>{smsPhoneNumber ?? "Not set"}</p>
         </div>
 
-        <div className="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-700">
+        <div className="flex items-start gap-2 rounded-lg border border-info-border bg-info-muted px-3.5 py-2.5 text-xs text-info-text">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <p>
             Inbound texts sent to this number are routed into your Trackpr conversation inbox, where they can trigger AI qualification and automated
@@ -46,7 +46,7 @@ export function SmsRoutingSection({
         </div>
 
         {!isConfigured ? (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
+          <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning-muted px-3.5 py-2.5 text-xs text-warning-text">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <p>
               Until a number is set, texts your customers send to your business won&apos;t reach Trackpr — they won&apos;t appear in your inbox and
@@ -56,7 +56,7 @@ export function SmsRoutingSection({
         ) : null}
 
         {!canEdit ? (
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-600">
+          <p className="rounded-lg border border-line bg-canvas px-3.5 py-2.5 text-sm text-ink-2">
             You have read-only access. Only owners and admins can change this setting.
           </p>
         ) : null}

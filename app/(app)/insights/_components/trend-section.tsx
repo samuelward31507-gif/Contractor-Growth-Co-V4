@@ -39,7 +39,7 @@ export function TrendSection({
       <p className={sectionLabelClass}>Leads, day by day{isFallbackWindow ? " (last 30 days)" : ""}</p>
       <div className="mt-3">
         {failed ? (
-          <p className="text-sm text-slate-500">Some information is temporarily unavailable. Please try again.</p>
+          <p className="text-sm text-ink-3">Some information is temporarily unavailable. Please try again.</p>
         ) : (
           <BarSeries data={series.map((point) => ({ key: point.date, label: formatDayLabel(point.date), value: point.count }))} emptyLabel="No leads created in this range." />
         )}

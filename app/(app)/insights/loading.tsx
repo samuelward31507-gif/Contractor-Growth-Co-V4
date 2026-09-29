@@ -10,7 +10,7 @@ import { Bone, SkeletonPage, SkeletonPageHeader, SkeletonStatCard } from "@/lib/
  */
 export default function InsightsLoading() {
   return (
-    <SkeletonPage>
+    <SkeletonPage width="content">
       <SkeletonPageHeader />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Bone className="h-3.5 w-44" />
@@ -29,7 +29,7 @@ export default function InsightsLoading() {
           ))}
         </div>
       </div>
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="rounded-lg border border-line bg-surface p-5">
         <Bone className="h-3.5 w-32" />
         <Bone className="mt-4 h-48 w-full rounded-lg" />
       </div>

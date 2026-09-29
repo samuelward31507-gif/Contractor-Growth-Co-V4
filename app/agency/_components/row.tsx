@@ -11,14 +11,14 @@ import type { ReactNode } from "react";
  */
 export function Row({ label, value, tone = "default", description }: { label: string; value: ReactNode; tone?: "default" | "danger" | "warning" | "success"; description?: string }) {
   const valueClass =
-    tone === "danger" ? "text-red-600" : tone === "warning" ? "text-amber-600" : tone === "success" ? "text-accent-text" : "text-slate-900";
+    tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : tone === "success" ? "text-accent-text" : "text-ink";
 
   return (
     <div className="flex items-baseline justify-between gap-3 py-2">
-      <span className="text-sm text-slate-600">{label}</span>
+      <span className="text-sm text-ink-2">{label}</span>
       <span className="text-right">
         <span className={`text-sm font-semibold tabular-nums ${valueClass}`}>{value}</span>
-        {description ? <span className="ml-1.5 text-xs text-slate-400">{description}</span> : null}
+        {description ? <span className="ml-1.5 text-xs text-ink-3">{description}</span> : null}
       </span>
     </div>
   );
@@ -27,8 +27,8 @@ export function Row({ label, value, tone = "default", description }: { label: st
 export function RowGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <p className="text-[12.5px] font-medium text-slate-500">{label}</p>
-      <div className="mt-1.5 divide-y divide-slate-100">{children}</div>
+      <p className="text-xs font-medium text-ink-3">{label}</p>
+      <div className="mt-1.5 divide-y divide-line">{children}</div>
     </div>
   );
 }

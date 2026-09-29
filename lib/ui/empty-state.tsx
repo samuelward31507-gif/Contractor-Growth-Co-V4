@@ -23,11 +23,11 @@ export function EmptyState({
 }) {
   return (
     <div className={`flex flex-col items-center gap-2 px-6 py-12 text-center ${surfaceClass}`}>
-      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
-        <Icon className="h-5 w-5 text-slate-400" aria-hidden />
+      <span className="flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface">
+        <Icon className="h-4 w-4 text-ink-3" aria-hidden />
       </span>
-      <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-      <p className="max-w-sm text-sm text-slate-500">{description}</p>
+      <h3 className="mt-1 text-sm font-semibold text-ink">{title}</h3>
+      <p className="max-w-sm text-sm text-ink-3">{description}</p>
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
   );

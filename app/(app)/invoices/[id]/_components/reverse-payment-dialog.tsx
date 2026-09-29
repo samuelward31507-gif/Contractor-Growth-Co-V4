@@ -49,7 +49,7 @@ export function ReversePaymentDialog({ payment, onClose }: { payment: CustomerPa
         A reversal adds a new entry of {formatMoney(reversalAmount)} to the ledger. The original payment is not deleted or changed, so the history stays complete.
       </DialogDescription>
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-line bg-canvas px-4 py-3">
         <div>
           <dt className={detailLabelClass}>Original payment</dt>
           <dd className={`${detailValueClass} font-semibold tabular-nums`}>{formatMoney(payment.amount)}</dd>
@@ -77,7 +77,7 @@ export function ReversePaymentDialog({ payment, onClose }: { payment: CustomerPa
 
       <div className="mt-4 space-y-1.5">
         <label htmlFor="reversal-notes" className={labelClass}>
-          Reason <span className="font-normal text-slate-400">(optional)</span>
+          Reason <span className="font-normal text-ink-3">(optional)</span>
         </label>
         <input id="reversal-notes" value={notes} onChange={(e) => setNotes(e.target.value)} className={inputClass} placeholder="Check bounced, entered twice, wrong invoice…" />
       </div>

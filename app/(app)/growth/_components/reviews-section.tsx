@@ -31,7 +31,7 @@ function ReviewRowItem({ row }: { row: ReviewRow }) {
           <Icon className="h-4 w-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900">
+          <p className="truncate text-sm font-semibold text-ink">
             {job?.contact ? (
               <Link href={`/people/${job.contact.id}`} className="rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
                 {contactName}
@@ -40,7 +40,7 @@ function ReviewRowItem({ row }: { row: ReviewRow }) {
               contactName
             )}
           </p>
-          <p className="truncate text-sm text-slate-500">{job ? job.title : "Job unavailable"}</p>
+          <p className="truncate text-sm text-ink-3">{job ? job.title : "Job unavailable"}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
             <Badge tone={tone} icon={Icon}>
               {REVIEW_STATUS_LABELS[request.status]}
@@ -55,7 +55,7 @@ function ReviewRowItem({ row }: { row: ReviewRow }) {
         {job ? (
           <Link
             href={`/jobs/${job.id}`}
-            className="inline-flex items-center gap-1 rounded text-sm font-medium text-slate-600 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="inline-flex items-center gap-1 rounded text-sm font-medium text-ink-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           >
             View job
             <ArrowRight className="h-3.5 w-3.5" aria-hidden />
@@ -85,7 +85,7 @@ export function ReviewsSection({ rows, failed }: { rows: ReviewRow[]; failed: bo
           <EmptyState icon={Star} title="No review activity yet." description="Review requests will appear here once Trackpr sends one after a completed job." />
         ) : (
           <Panel className="overflow-hidden p-0">
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-line">
               {rows.map((row) => (
                 <ReviewRowItem key={row.request.id} row={row} />
               ))}

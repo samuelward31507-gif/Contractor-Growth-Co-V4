@@ -21,11 +21,11 @@ import type { OrganizationHealthStatus } from "@/lib/automation-health/types";
  * own organizationStatus() for the precedence rule these labels mirror.
  */
 const STATUS_DOT: Record<OrganizationHealthStatus, string> = {
-  healthy: "bg-emerald-500",
-  degraded: "bg-amber-500",
-  unhealthy: "bg-red-500",
-  paused: "bg-slate-400",
-  payment_blocked: "bg-red-500",
+  healthy: "bg-accent",
+  degraded: "bg-warning",
+  unhealthy: "bg-danger",
+  paused: "bg-ink-4",
+  payment_blocked: "bg-danger",
 };
 
 const STATUS_LABEL: Record<OrganizationHealthStatus, string> = {
@@ -85,32 +85,32 @@ export function SystemStatus({
     <div>
       <div className="flex items-baseline justify-between">
         <p className={sectionLabelClass}>System status</p>
-        <Link href={status === "payment_blocked" ? "/onboarding" : "/automations"} className="text-xs font-medium text-slate-500 hover:text-slate-900">
+        <Link href={status === "payment_blocked" ? "/onboarding" : "/automations"} className="text-xs font-medium text-ink-3 hover:text-ink">
           {status === "payment_blocked" ? "Resolve payment" : "View details"}
         </Link>
       </div>
 
       <div className="mt-2 flex items-center gap-2">
         <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status]}`} aria-hidden />
-        <p className="text-sm font-semibold text-slate-900">{STATUS_LABEL[status]}</p>
+        <p className="text-sm font-semibold text-ink">{STATUS_LABEL[status]}</p>
       </div>
 
-      {detail ? <p className="mt-1 text-xs text-slate-500">{detail}</p> : null}
+      {detail ? <p className="mt-1 text-xs text-ink-3">{detail}</p> : null}
 
-      <div className="mt-3 divide-y divide-slate-100">
+      <div className="mt-3 divide-y divide-line">
         {lastLeadCapturedAt ? (
           <div className="flex items-baseline justify-between gap-3 py-1.5">
-            <span className="text-sm text-slate-600">Last lead captured</span>
-            <span className="text-sm font-medium tabular-nums text-slate-900">{formatRelativeTime(lastLeadCapturedAt)}</span>
+            <span className="text-sm text-ink-2">Last lead captured</span>
+            <span className="text-sm font-medium tabular-nums text-ink">{formatRelativeTime(lastLeadCapturedAt)}</span>
           </div>
         ) : null}
         <div className="flex items-baseline justify-between gap-3 py-1.5">
-          <span className="text-sm text-slate-600">Automation activity</span>
-          <span className="text-sm font-medium tabular-nums text-slate-900">{automationActivityToday} today</span>
+          <span className="text-sm text-ink-2">Automation activity</span>
+          <span className="text-sm font-medium tabular-nums text-ink">{automationActivityToday} today</span>
         </div>
         <div className="flex items-baseline justify-between gap-3 py-1.5">
-          <span className="text-sm text-slate-600">Issues requiring attention</span>
-          <span className={`text-sm font-medium tabular-nums ${issuesRequiringAttention > 0 ? "text-red-600" : "text-slate-900"}`}>
+          <span className="text-sm text-ink-2">Issues requiring attention</span>
+          <span className={`text-sm font-medium tabular-nums ${issuesRequiringAttention > 0 ? "text-danger" : "text-ink"}`}>
             {issuesRequiringAttention}
           </span>
         </div>

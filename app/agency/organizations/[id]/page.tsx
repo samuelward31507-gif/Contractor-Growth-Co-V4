@@ -166,12 +166,12 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   return (
     <div className="mx-auto w-full max-w-[1100px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+        <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink">
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
           Agency Command Center
         </Link>
-        <span className="text-xs text-slate-300">·</span>
-        <Link href="/today" className="text-xs font-medium text-slate-500 hover:text-slate-700">
+        <span className="text-xs text-ink-4">·</span>
+        <Link href="/today" className="text-xs font-medium text-ink-3 hover:text-ink">
           Back to Trackpr
         </Link>
       </div>
@@ -211,7 +211,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           is the last section of the page's primary tier - everything below
           this point is reference/supporting detail, per the deliberately
           larger gap that follows. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-8 sm:grid-cols-[auto_1fr]">
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-line pt-8 sm:grid-cols-[auto_1fr]">
         <div className="flex gap-8 sm:shrink-0">
           <div>
             <p className={statLabelClass}>Leads today</p>
@@ -222,16 +222,16 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
             <p className={statValueClass}>{formatCount(orgToday?.appointmentsToday ?? 0)}</p>
           </div>
         </div>
-        <div className="sm:border-l sm:border-slate-200 sm:pl-8">
+        <div className="sm:border-l sm:border-line sm:pl-8">
           <p className={sectionLabelClass}>Live activity</p>
           {dashboardData.recentActivity.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-500">No activity yet for this client.</p>
+            <p className="mt-2 text-sm text-ink-3">No activity yet for this client.</p>
           ) : (
-            <ul className="mt-2 divide-y divide-slate-100">
+            <ul className="mt-2 divide-y divide-line">
               {dashboardData.recentActivity.slice(0, 5).map((item) => (
                 <li key={item.id} className="flex items-center justify-between gap-4 py-1.5">
-                  <span className="min-w-0 truncate text-sm text-slate-700">{item.message}</span>
-                  <span className="shrink-0 text-xs tabular-nums text-slate-400">{formatRelativeTime(item.timestamp)}</span>
+                  <span className="min-w-0 truncate text-sm text-ink-2">{item.message}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-ink-3">{formatRelativeTime(item.timestamp)}</span>
                 </li>
               ))}
             </ul>
@@ -246,14 +246,14 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         /agency) - everything above this point (identity, pause control,
         Needs Attention, Today/Live activity) is the primary tier; everything
         from here down is reference/supporting detail. The lighter
-        border-slate-100 dividers used on every subsequent block (instead of
-        border-slate-200) mark them as sub-topics within this one lower tier,
+        border-line dividers used on every subsequent block (instead of
+        border-line) mark them as sub-topics within this one lower tier,
         not additional tier boundaries of their own. No RowGroup/Row content
         or data changed - only spacing and divider weight.
 
         Automation + Communication - operational status side by side.
       */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-200 pt-14 sm:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-line pt-14 sm:grid-cols-2">
         <RowGroup label="Automation">
           <Row label="Executions" value={formatCount(m.automationMetrics.workflowExecutions)} />
           <Row label="Completed" value={formatCount(m.automationMetrics.successfulWorkflowExecutions)} tone={m.automationMetrics.successfulWorkflowExecutions > 0 ? "success" : "default"} />
@@ -282,7 +282,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           internal safe-AI safety layer, which is never independently
           triggered). Never invents an automation that isn't in
           AUTOMATION_CATALOG. */}
-      <div className="mt-8 border-t border-slate-100 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <p className={sectionLabelClass}>Automations</p>
         <AutomationsPanel automations={automations.automations} />
       </div>
@@ -291,7 +291,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           two things "is this client configured" is actually made of. Secondary
           business/CRM-style detail from here down - operational state and
           what changed already surfaced above. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-100 pt-8 sm:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-line pt-8 sm:grid-cols-2">
         <RowGroup label="Client">
           <Row label="Owner / contact" value={profile?.owner_name ?? "Not set"} />
           <Row label="Trade" value={profile?.trade ?? "Not set"} />
@@ -317,16 +317,16 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       </div>
 
       {/* Readiness - what's still blocking Go Live, if anything. */}
-      <div className="mt-8 border-t border-slate-100 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <p className={sectionLabelClass}>Readiness</p>
         {missingItems.length === 0 ? (
           <p className="mt-2 text-sm text-accent-text">Everything required is complete.</p>
         ) : (
-          <ul className="mt-2 divide-y divide-slate-100">
+          <ul className="mt-2 divide-y divide-line">
             {missingItems.map((item) => (
               <li key={item.key} className="flex items-center gap-2.5 py-1.5">
-                <Circle className="h-3.5 w-3.5 shrink-0 text-slate-300" aria-hidden />
-                <p className="text-sm text-slate-700">{item.label}</p>
+                <Circle className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
+                <p className="text-sm text-ink-2">{item.label}</p>
               </li>
             ))}
           </ul>
@@ -337,10 +337,10 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       </div>
 
       {/* Test - the real, most recent onboarding test-lead outcome. */}
-      <div className="mt-8 border-t border-slate-100 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <p className={sectionLabelClass}>Test</p>
         {testLeadOutcome ? (
-          <div className="mt-2 space-y-1 text-sm text-slate-700">
+          <div className="mt-2 space-y-1 text-sm text-ink-2">
             <p>Last run {new Date(testLeadOutcome.createdAt).toLocaleString()}.</p>
             <p>
               {testLeadOutcome.executionStatus === "completed" && (testLeadOutcome.blockedReason === null || testLeadOutcome.blockedReason === "organization_not_live")
@@ -351,25 +351,25 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
             </p>
           </div>
         ) : (
-          <p className="mt-2 text-sm text-slate-500">No test has been attempted yet.</p>
+          <p className="mt-2 text-sm text-ink-3">No test has been attempted yet.</p>
         )}
       </div>
 
       {/* Active incidents - kept as its own list, already the right shape. */}
-      <div className="mt-8 border-t border-slate-100 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <div className="flex items-baseline justify-between">
           <p className={sectionLabelClass}>Active incidents</p>
           <span className={metaClass}>{incidents.length} open or acknowledged</span>
         </div>
         {incidents.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No active operational incidents for this organization.</p>
+          <p className="mt-3 text-sm text-ink-3">No active operational incidents for this organization.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-slate-100">
+          <ul className="mt-3 divide-y divide-line">
             {incidents.map((incident) => (
               <li key={incident.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
                 <div>
-                  <p className="text-sm font-medium text-slate-900">{incident.title}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <p className="text-sm font-medium text-ink">{incident.title}</p>
+                  <p className="mt-0.5 text-xs text-ink-3">
                     First seen {new Date(incident.firstSeenAt).toLocaleString()} · {formatCount(incident.occurrenceCount)} occurrence{incident.occurrenceCount === 1 ? "" : "s"}
                   </p>
                 </div>
@@ -382,7 +382,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
 
       {/* Operational detail - business/estimate/job/appointment/AI figures,
           grouped as reference rows rather than six separate card walls. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-slate-100 pt-8 sm:grid-cols-2">
+      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-line pt-8 sm:grid-cols-2">
         <RowGroup label="Business">
           <Row label="Leads" value={formatCount(m.leadMetrics.totalLeads)} />
           <Row label="Open opportunities" value={formatCount(m.pipelineMetrics.openOpportunityCount)} />
@@ -412,7 +412,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       </div>
 
       {Object.keys(org.aiInteractionsByType).length > 0 ? (
-        <div className="mt-8 border-t border-slate-100 pt-8">
+        <div className="mt-8 border-t border-line pt-8">
           <RowGroup label="AI activity">
             <Row label="Total interactions" value={formatCount(m.aiMetrics.aiInteractions)} />
             {m.aiMetrics.totalTokensUsed !== null ? (
@@ -431,24 +431,24 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         </div>
       ) : null}
 
-      <div className="mt-8 border-t border-slate-100 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <p className={sectionLabelClass}>Data quality</p>
-        <ul className="mt-2 space-y-1.5 text-xs text-slate-500">
+        <ul className="mt-2 space-y-1.5 text-xs text-ink-3">
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             No payment infrastructure exists - every value figure is quoted/contracted, never confirmed collected money.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             leads.source is not standardized - source counts, where shown, are never ranked or labeled as best/worst.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             No stage-transition history exists - rates are current-state or activity-count metrics, never true historical conversion rates.
           </li>
           {metrics.dataQuality.aiTokenUsageUnavailable ? (
             <li className="flex gap-2">
-              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
               AI token usage unavailable - not populated by any automation path yet.
             </li>
           ) : null}

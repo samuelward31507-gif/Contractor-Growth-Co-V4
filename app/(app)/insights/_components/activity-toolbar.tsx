@@ -86,7 +86,7 @@ export function ActivityToolbar({
       <div className="relative flex-1 sm:max-w-sm">
         <Search
           aria-hidden
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3"
         />
         <input
           type="search"
@@ -120,7 +120,7 @@ export function ActivityToolbar({
           aria-label="From date"
           className={`${inputClass} sm:w-40`}
         />
-        <span className="text-sm text-slate-400">to</span>
+        <span className="text-sm text-ink-3">to</span>
         <input
           type="date"
           value={to}
@@ -134,7 +134,7 @@ export function ActivityToolbar({
         <button
           type="button"
           onClick={clearFilters}
-          className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
+          className="text-sm font-medium text-ink-3 transition-colors hover:text-ink"
         >
           Clear filters
         </button>

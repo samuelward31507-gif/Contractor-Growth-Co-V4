@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
-import { AlertCircle, Wallet, CalendarClock, Hammer, TrendingUp } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { getDashboardSqlData } from "@/lib/dashboard/queries";
 import { dashboardInvoiceSummary, dashboardMoneyCounts, getDashboardSummary } from "@/lib/dashboard/sql";
 import { getCachedBusinessInsights, getDashboardAiHandled } from "@/lib/dashboard/business-metrics";
@@ -19,22 +19,19 @@ import {
 } from "@/lib/opportunities/intelligence";
 import { OPPORTUNITY_TYPE_LABEL, opportunityActionHref, OPPORTUNITY_ACTION_LABEL } from "../opportunities/_components/opportunity-type";
 import { getContacts } from "@/lib/contacts/queries";
-import { calendarDateInTimeZone } from "@/lib/invoices/domain";
+import { calendarDateInTimeZone, formatMoney } from "@/lib/invoices/domain";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
-import { InvoiceMoneySummaryCards } from "../invoices/_components/invoice-money-summary";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
-import { pageTitleClass, pageDescriptionClass, numericDisplayClass, sectionLabelClass } from "@/lib/ui/typography";
+import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
+import { PageContainer } from "@/lib/ui/page";
 import { QueueRow } from "@/lib/ui/queue-row";
-import { StatGrid, StatCard } from "@/lib/ui/stat-card";
-import { surfaceClass } from "@/lib/ui/surface";
 import { ATTENTION_COPY } from "@/lib/today/copy";
 import type { StatusTone } from "@/lib/ui/status";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
 import { OpportunitiesList } from "../opportunities/_components/opportunities-list";
-import { AiInsightsPanel } from "../dashboard/_components/ai-insights-panel";
-import { BriefingPanel } from "../dashboard/_components/briefing-panel";
-import { WhatAiHandled } from "../dashboard/_components/what-ai-handled";
 import { TodayViewTabs, type TodayView } from "./_components/today-view-tabs";
+import { activityItems, attentionLine, briefingLines, greetingForHour, handledItems, hourInTimeZone, pipelineStages } from "./_components/dashboard-model";
+import { BriefingBody, DashboardSection, FigureList, InsightsBody, PipelineFlow, RevenuePanel, SectionLink, ShowAllLink, type RevenueFigure } from "./_components/dashboard-sections";
 
 type QueueEntry = {
   key: string;
@@ -116,7 +113,8 @@ function priorityItemToQueueEntry(item: PriorityItem): QueueEntry {
     sentence: buildSentence(explanation.primaryReason, [], [], recommendedAction),
     phone: null,
     secondaryHref: href,
-    secondaryLabel: "View",
+    // A conversation waiting on the contractor gets the direct verb.
+    secondaryLabel: kind === "awaiting_reply" ? "Reply" : "View",
   };
 }
 
@@ -124,42 +122,33 @@ function normalizeView(value: string | undefined): TodayView {
   return value === "by-type" ? "by-type" : "priority";
 }
 
+/** How many attention rows show before "Show all" - the top of the priority order is what matters at a glance. */
+const ATTENTION_PREVIEW = 6;
+
 /**
- * IA consolidation pass: Today is now the app's one daily-action screen -
- * Dashboard's own unique content (the greeting/Pipeline-value header, the
- * daily briefing, what the AI handled, cached AI insights) moved in here
- * rather than staying duplicated on a second page; /dashboard is now a
- * redirect (see its own page.tsx). Dashboard's OTHER sections
- * (PipelineRail's stage breakdown, the "Right now"/"Last 30 days" BI recap,
- * TodaysSchedule, the raw activity feed) were dropped from here, not lost -
- * they're each better represented as their own real page now: Insights
- * (stage breakdown, BI recap, activity timeline), Schedule (today's
- * appointments, and every other day's), Money (estimates/jobs counts).
- * Duplicating them a second time here would recreate the exact "which
- * number do I trust" problem the redesign audit called out.
+ * Trackpr 2.0 (step 2E): Dashboard 2.0 - the screen that answers, in this
+ * order: what needs me (the priority list, first and widest), where my
+ * money is (revenue), what's going on today (the briefing), what Trackpr
+ * handled, where the work stands (pipeline), and what happened (today's
+ * activity, observations). System health is not repeated here - the top
+ * bar (step 2D) is its one home.
  *
- * Opportunities is no longer a separate primary nav destination either -
- * "By type" (TodayViewTabs) reuses the Opportunities page's own
- * OpportunitiesList component and query, unmodified, as a real view of this
- * same screen rather than a fourth place to check. /opportunities is now a
- * redirect (see its own page.tsx).
+ * Data is unchanged: the same single parallel batch of request-memoized
+ * reads as before (no read added, none removed), the same background
+ * opportunity sync scheduled inside it, and the same partial-data
+ * disclosure. Only presentation changed; the wording lives in
+ * ./_components/dashboard-model.ts, composed from those same values.
  *
- * Canonical Opportunity Intelligence Layer: the priority queue no longer
- * computes its own ordering here. It calls lib/opportunities/intelligence.ts's
- * getPrioritizedOpportunities (the real, persisted Opportunity rows, tiered
- * and explained) plus getConversationSignals/getOperationalExceptions (which
- * extract, never re-detect, the remaining Attention Engine kinds that aren't
- * revenue opportunities), then buildPriorityQueue merges the first two into
- * one ordered list. Today only renders - see that module's own header
- * comment for the full architecture. getDashboardData is still called (its
- * own AttentionItem output is unchanged and still feeds agency/briefing
- * elsewhere - untouched by this pass), just no longer read here for the 11
- * opportunity-shaped kinds it also produces; those now come from the real,
- * persisted Opportunity rows instead.
+ * The priority list still comes from lib/opportunities/intelligence.ts
+ * (persisted opportunities, tiered and explained, merged with conversation
+ * signals); operational exceptions still render first and are never tiered
+ * alongside revenue opportunities. "By type" (TodayViewTabs) is the
+ * Opportunities nav destination and reuses OpportunitiesList unmodified.
  */
 export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const params = await searchParams;
   const view = normalizeView(typeof params.view === "string" ? params.view : undefined);
+  const showAllAttention = params.all === "1";
 
   const supabase = await getRequestSupabase();
   const { user, membership } = await getRequestMembership();
@@ -191,78 +180,117 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     // SQL, memoized for this request so the briefing and end-of-day summary
     // below reuse the same load.
     getDashboardSqlData(supabase, membership.organizationId),
-    // Phase 2D: every header / Money / invoice figure this page shows - hot
-    // leads, pipeline value, appointments today, the estimate/job snapshot,
-    // and the invoice/payment ledger - counted and summed by the database
-    // over the organization's complete data (dashboard_summary, supabase/
-    // pending/dashboard_sql.sql), replacing seven capped row reads. Same
-    // definitions; see lib/dashboard/sql.ts.
+    // Phase 2D: every header / Money / invoice figure this page shows -
+    // counted and summed by the database over the organization's complete
+    // data (dashboard_summary). See lib/dashboard/sql.ts.
     getDashboardSummary(supabase, membership.organizationId),
     getCachedBusinessInsights(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
-    // Phase 2A-1: only the "What AI handled" business-metrics value this page
-    // renders - see lib/dashboard/business-metrics.ts.
+    // Phase 2A-1: only today's AI metrics - see lib/dashboard/business-metrics.ts.
     getDashboardAiHandled(supabase, membership.organizationId),
     getOwnerDailyBriefing(supabase, membership.organizationId, briefingNow, { source: "sql" }),
     getEndOfDaySummary(supabase, membership.organizationId, briefingNow, { source: "sql" }),
     getOpenOpportunitiesResult(supabase, membership.organizationId),
     // Canonical Opportunity Intelligence Layer: the one prioritized,
     // explained, actionability-checked read every consumer of "what needs
-    // attention" now shares - see lib/opportunities/intelligence.ts's own
-    // header comment.
+    // attention" shares.
     getPrioritizedOpportunities(supabase, membership.organizationId),
     getOrganizationTimezone(supabase, membership.organizationId),
-    // Phase 2C: opportunity detection no longer blocks this render. The page
-    // reads the opportunities table as it stands; the sync is scheduled here
-    // and runs after the response (next/server after()), so anything it
-    // detects or updates appears on the next render - see
-    // lib/opportunities/background-sync.ts. Never rejects.
+    // Phase 2C: opportunity detection never blocks this render - scheduled
+    // here, run after the response (next/server after()). Never rejects.
     scheduleOpportunitySync(supabase, membership.organizationId),
   ]);
 
   const openOpportunities = opportunitiesResult.data;
-  const businessName = membership.organizationName ?? "there";
-  const hotLeadCount = summary.data.hot_lead_count;
-  const appointmentsToday = summary.data.appointments_today;
-  // Money at a glance: the counts and known value computeMoneySnapshot
-  // produced, with the same definitions - now summed in SQL.
   const money = dashboardMoneyCounts(summary.data);
-  // A failed summary is disclosed exactly as the estimate/job/invoice/payment
-  // and pipeline reads it replaces were.
+  // A failed summary is disclosed exactly as the reads it replaced were.
   const moneyDataFailed = summary.failed;
   // "Overdue" is judged against today's date in the organization's own
   // timezone - the same calendar the issue trigger used for the due date.
   const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
   const invoiceSummary = dashboardInvoiceSummary(summary.data, today);
 
-  // Canonical Opportunity Intelligence Layer: getConversationSignals/
-  // getOperationalExceptions extract, never re-detect, the Attention Engine
-  // kinds that aren't revenue opportunities (a conversation waiting on a
-  // reply, a broken calendar sync) from the same data.attentionItems this
-  // page already fetched above - zero new queries. buildPriorityQueue merges
-  // the conversation signals with the real, persisted opportunities into one
-  // ordered list; operational exceptions render separately, always first,
-  // never tiered alongside revenue opportunities (§8/§13 of the approved
-  // design).
+  // Operational exceptions render first, separately; conversation signals
+  // merge with persisted opportunities into one priority order. Zero new
+  // queries - both come from data.attentionItems, already fetched above.
   const operationalExceptions = getOperationalExceptions(data.attentionItems);
   const conversationSignals = getConversationSignals(data.attentionItems);
   const priorityQueue = buildPriorityQueue(prioritizedOpportunities, conversationSignals);
   const queue: QueueEntry[] = priorityQueue.map(priorityItemToQueueEntry);
   const totalNeedingAttention = operationalExceptions.length + queue.length;
+  const visibleQueue = showAllAttention ? queue : queue.slice(0, Math.max(0, ATTENTION_PREVIEW - operationalExceptions.length));
+  const hiddenCount = queue.length - visibleQueue.length;
+
+  const greeting = greetingForHour(hourInTimeZone(briefingNow, timeZone ?? null));
+
+  const revenue: RevenueFigure[] = [
+    {
+      key: "collected",
+      label: "Collected",
+      value: formatMoney(invoiceSummary.collected),
+      detail: invoiceSummary.paymentCount > 0 ? `${invoiceSummary.paymentCount} payment${invoiceSummary.paymentCount === 1 ? "" : "s"} received` : "No payments recorded yet",
+      href: "/money?browse=invoices&status=paid",
+      tone: invoiceSummary.paymentCount > 0 ? "positive" : undefined,
+    },
+    {
+      key: "outstanding",
+      label: "Outstanding",
+      value: formatMoney(invoiceSummary.outstanding),
+      detail:
+        invoiceSummary.overdueCount > 0
+          ? `${formatMoney(invoiceSummary.overdue)} past due`
+          : invoiceSummary.outstandingCount > 0
+            ? `${invoiceSummary.outstandingCount} invoice${invoiceSummary.outstandingCount === 1 ? "" : "s"} awaiting payment`
+            : "Nothing awaiting payment",
+      href: invoiceSummary.overdueCount > 0 ? "/money?browse=invoices&status=overdue" : "/money?browse=invoices&status=sent",
+      tone: invoiceSummary.overdueCount > 0 ? "attention" : undefined,
+    },
+    {
+      key: "invoiced",
+      label: "Invoiced",
+      value: formatMoney(invoiceSummary.invoiced),
+      detail: invoiceSummary.invoicedCount > 0 ? `${invoiceSummary.invoicedCount} issued invoice${invoiceSummary.invoicedCount === 1 ? "" : "s"}` : "No invoices issued yet",
+      href: "/money?browse=invoices",
+    },
+    {
+      key: "open",
+      label: "Open opportunities",
+      value: formatCurrency(money.knownOpportunityValue),
+      detail: "Estimates out, accepted work and jobs in progress",
+      href: "/money",
+    },
+  ];
+
+  const briefing = briefingLines({
+    leadsReceivedToday: endOfDaySummary.leadsReceived,
+    appointmentsToday: summary.data.appointments_today,
+    quotesOutCount: summary.data.quotes_out_count,
+    quotesOutValue: formatCurrency(summary.data.quotes_out_value),
+    readyToScheduleCount: summary.data.ready_to_schedule_count,
+    overdueCount: invoiceSummary.overdueCount,
+    overdueValue: formatMoney(invoiceSummary.overdue),
+    conversationsWaiting: dailyBriefing.aiEscalationsCount,
+  });
+
+  const stages = pipelineStages(summary.data, {
+    openLeads: formatCurrency(summary.data.pipeline_value),
+    quotesOut: formatCurrency(summary.data.quotes_out_value),
+    readyToSchedule: formatCurrency(summary.data.ready_to_schedule_value),
+    inProgress: formatCurrency(summary.data.won_not_finished_value),
+    outstanding: formatMoney(invoiceSummary.outstanding),
+  });
+  // Estimates, jobs and invoices are contractor workflows - the same
+  // vertical rule navigation uses (nav-items.ts) - so the pipeline flow
+  // only renders for a contractor organization.
+  const showPipeline = membership.vertical === "contractor";
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-      {/* Same disclosure discipline dashboard/page.tsx's own partialData
-          notice used - a failed read here used to silently render as a
-          confidently "clean" page. Covers every read this page performs
-          that dashboard/page.tsx also covered (data, the business-metrics
-          reads - Phase 2D: the dashboard_summary read that carries the
-          pipeline value and every Money/invoice figure, plus the AI read -
-          dailyBriefing, endOfDaySummary); repeatCustomerSummary/
-          dormantCustomersValue aren't read here at all (they fed
-          Dashboard's own BusinessGlance, which moved to Insights). */}
+    <PageContainer>
+      {/* A failed read is disclosed, never rendered as a confidently clean
+          page: the SQL dashboard data, the summary that carries every money
+          figure, today's AI metrics, the briefing and the end-of-day counts. */}
       {data.partialData || summary.failed || aiHandled.failed || dailyBriefing.partialData || endOfDaySummary.partialData || moneyDataFailed ? (
-        <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+        <div role="status" className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>
             Some information is temporarily unavailable.{" "}
@@ -274,176 +302,98 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          {/* Nav-restructure pass: this page's own sidebar/nav label is now
-              "Dashboard" (see nav-items.ts) - Today's own headline stays the
-              dynamic, computed sentence it's always been ("29 things need
-              you"), so this eyebrow is the one static anchor tying the two
-              together, matching every other page's own eyebrow-over-title
-              convention (PageHeader's own "Operate"/"Automate"/etc). */}
-          <p className="mb-1.5 text-[12.5px] font-medium text-accent-text">Dashboard</p>
-          <h1 className={pageTitleClass}>
-            {totalNeedingAttention === 0 ? "Nothing needs you" : `${totalNeedingAttention} thing${totalNeedingAttention === 1 ? "" : "s"} need${totalNeedingAttention === 1 ? "s" : ""} you`}
-          </h1>
-          <p className={`mt-1.5 ${pageDescriptionClass}`}>
-            {totalNeedingAttention === 0 ? `You're clear, ${businessName}.` : "Sorted by what it costs you to ignore it."}
-          </p>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className={pageTitleClass}>{greeting}</h1>
+          <p className={`mt-1 ${pageDescriptionClass}`}>{attentionLine(totalNeedingAttention)}</p>
         </div>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-          <div className="sm:text-right">
-            <p className="text-[12.5px] font-medium text-slate-500">Pipeline value</p>
-            <p className={`mt-1 text-[32px] font-semibold tracking-tight text-slate-900 ${numericDisplayClass}`}>
-              {formatCurrency(summary.data.pipeline_value)}
-            </p>
-            <p className="mt-1 text-sm text-slate-500">
-              <Link href="/people?temperature=hot" className={hotLeadCount > 0 ? "font-semibold text-danger hover:underline" : "hover:underline"}>
-                {hotLeadCount} hot {hotLeadCount === 1 ? "lead" : "leads"}
-              </Link>
-              <span className="mx-1.5 text-slate-300">·</span>
-              <Link href="/schedule" className={appointmentsToday > 0 ? "font-semibold text-slate-900 hover:underline" : "hover:underline"}>
-                {appointmentsToday} today
-              </Link>
-            </p>
+        {contacts.length > 0 ? (
+          <div className="shrink-0">
+            <AddLeadButton contacts={contacts} />
           </div>
-          {contacts.length > 0 ? (
-            <div className="shrink-0">
-              <AddLeadButton contacts={contacts} />
-            </div>
-          ) : null}
-        </div>
-      </div>
+        ) : null}
+      </header>
 
-      {/* Nav-restructure pass: Money's own real cross-entity snapshot
-          (Quotes out / Ready to schedule / Jobs in progress / Known
-          opportunity value), relocated here now that Money is no longer its
-          own nav destination - Estimates and Jobs are. Every card links to
-          the exact real, already-supported filter on the page that owns
-          that data; "Known opportunity value" is a pure metric with nowhere
-          more precise to send someone, so it stays unlinked. See
-          lib/money/snapshot.ts for the shared computation this and Money's
-          own detailed page both read from. Moved to the top of the page,
-          directly under the greeting header, so the financial snapshot is
-          the first thing visible - ahead of the priority queue. */}
-      <div className="border-t border-slate-200 pt-8">
-        <p className={sectionLabelClass}>Money at a glance</p>
-        <div className="mt-3">
-          <StatGrid columns={4}>
-            <StatCard
-              label="Quotes out"
-              value={money.quotesOutCount}
-              description={money.quotesOutCount > 0 ? "Awaiting a decision" : "Nothing out right now"}
-              icon={Wallet}
-              href="/estimates?status=sent"
-            />
-            <StatCard
-              label="Ready to schedule"
-              value={money.readyToScheduleCount}
-              description={money.readyToScheduleCount > 0 ? "Accepted, no job yet" : "Nothing waiting"}
-              tone="danger"
-              icon={CalendarClock}
-              href="/estimates?status=accepted"
-            />
-            <StatCard
-              label="Jobs in progress"
-              value={money.wonNotFinishedCount}
-              description={money.wonNotFinishedCount > 0 ? "Scheduled or underway" : "Nothing in progress"}
-              tone="success"
-              icon={Hammer}
-              href="/jobs?status=in_progress"
-            />
-            <StatCard
-              label="Known opportunity value"
-              value={formatCurrency(money.knownOpportunityValue)}
-              description="Across every quote, accepted job, and job in progress"
-              icon={TrendingUp}
-            />
-          </StatGrid>
-        </div>
-        {/* Phase 1B-4: the money that was actually asked for and received -
-            Collected is the customer_payments ledger net of reversals and
-            is the only card in either row that is money in hand. Each card
-            links to Money's own Invoices tab filtered to the same rows. */}
-        <div className="mt-4">
-          <InvoiceMoneySummaryCards summary={invoiceSummary} variant="dashboard" />
-        </div>
-      </div>
-
-      <div>
-        <TodayViewTabs active={view} opportunityCount={openOpportunities.length} />
-
+      <DashboardSection
+        id="needs-attention"
+        title={view === "by-type" ? "Opportunities" : totalNeedingAttention > 0 ? `Needs your attention · ${totalNeedingAttention}` : "Needs your attention"}
+        action={<TodayViewTabs active={view} opportunityCount={openOpportunities.length} />}
+      >
         {view === "priority" ? (
-          <div className="mt-5 flex flex-col gap-6">
-            {/* Canonical Opportunity Intelligence Layer: operational
-                exceptions (the AI needs a human, the calendar sync broke)
-                render first and separately - they are pure safety/system
-                issues with no revenue framing, never tiered or scored
-                alongside opportunities (§8/§13 of the approved design). */}
-            {operationalExceptions.length > 0 ? (
-              <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                {operationalExceptions.map((exception) => (
-                  <QueueRow
-                    key={exception.incidentId ?? `${exception.kind}-${exception.href}`}
-                    tone="urgent"
-                    problemLabel={ATTENTION_COPY[exception.kind].label}
-                    personName={exception.title}
-                    personHref={exception.href}
-                    sentence={exception.detail}
-                    secondaryHref={exception.href}
-                    secondaryLabel="View"
-                  />
-                ))}
-              </div>
-            ) : null}
-
+          <div className="overflow-hidden rounded-lg border border-line bg-surface">
             {totalNeedingAttention === 0 ? (
-              <div className={`${surfaceClass} px-6 py-14 text-center`}>
-                <p className="text-base font-medium text-slate-900">Nothing needs you.</p>
-                <p className="mt-1.5 text-sm text-slate-500">You&apos;re clear.</p>
+              <div className="px-5 py-10 text-center">
+                <p className="text-sm font-medium text-ink">You&apos;re all caught up.</p>
+                <p className="mt-1 text-[13px] text-ink-3">Anything new that needs you will appear here first.</p>
               </div>
-            ) : queue.length > 0 ? (
-              <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                {queue.map((entry) => (
-                  <QueueRow
-                    key={entry.key}
-                    tone={entry.tone}
-                    problemLabel={entry.problemLabel}
-                    age={entry.age}
-                    personName={entry.personName}
-                    personHref={entry.personHref}
-                    money={entry.money}
-                    sentence={entry.sentence}
-                    phone={entry.phone}
-                    secondaryHref={entry.secondaryHref}
-                    secondaryLabel={entry.secondaryLabel}
-                  />
+            ) : (
+              <ul className="divide-y divide-line">
+                {operationalExceptions.map((exception) => (
+                  <li key={exception.incidentId ?? `${exception.kind}-${exception.href}`}>
+                    <QueueRow
+                      tone="urgent"
+                      problemLabel={ATTENTION_COPY[exception.kind].label}
+                      personName={exception.title}
+                      personHref={exception.href}
+                      sentence={exception.detail}
+                      secondaryHref={exception.href}
+                      secondaryLabel="Review"
+                    />
+                  </li>
                 ))}
-              </div>
-            ) : null}
+                {visibleQueue.map((entry) => (
+                  <li key={entry.key}>
+                    <QueueRow
+                      tone={entry.tone}
+                      problemLabel={entry.problemLabel}
+                      age={entry.age}
+                      personName={entry.personName}
+                      personHref={entry.personHref}
+                      money={entry.money}
+                      sentence={entry.sentence}
+                      phone={entry.phone}
+                      secondaryHref={entry.secondaryHref}
+                      secondaryLabel={entry.secondaryLabel}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+            {hiddenCount > 0 ? <ShowAllLink href="/today?all=1" count={totalNeedingAttention} /> : null}
           </div>
         ) : (
-          <div className="mt-5">
-            <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
-          </div>
+          <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
         )}
+      </DashboardSection>
+
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
+        <DashboardSection id="revenue" title="Revenue" action={<SectionLink href="/money">Open Money</SectionLink>} className="lg:col-span-7">
+          <RevenuePanel figures={revenue} />
+        </DashboardSection>
+        <DashboardSection id="briefing" title="Today's briefing" className="lg:col-span-5">
+          <BriefingBody lines={briefing} briefing={dailyBriefing} />
+        </DashboardSection>
       </div>
 
-      {/* What Trackpr did today - Dashboard's own Act 3, moved here
-          unchanged (same components, same data, same queries) rather than
-          left on a second page nobody would think to check for it. */}
-      <div className="border-t border-slate-200 pt-8">
-        <div className="divide-y divide-slate-200">
-          <div className="pb-8">
-            <WhatAiHandled snapshot={aiHandled} />
-          </div>
-          <div className="py-8">
-            <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />
-          </div>
-          <div className="pt-8">
-            <AiInsightsPanel cached={cachedInsights} />
-          </div>
-        </div>
+      <div className="grid grid-cols-1 gap-8 border-t border-line pt-8 lg:grid-cols-12">
+        <DashboardSection id="handled" title="Trackpr handled today" action={<SectionLink href="/automations">View automations</SectionLink>} className="lg:col-span-5">
+          <FigureList items={handledItems(aiHandled.aiMetrics)} emptyText="Nothing handled yet today. Customer conversations Trackpr answers will show here." />
+        </DashboardSection>
+        {showPipeline ? (
+          <DashboardSection id="pipeline" title="Where the work stands" className="lg:col-span-7">
+            <PipelineFlow stages={stages} />
+          </DashboardSection>
+        ) : null}
       </div>
-    </div>
+
+      <div className="grid grid-cols-1 gap-8 border-t border-line pt-8 lg:grid-cols-12">
+        <DashboardSection id="activity" title="Today so far" action={<SectionLink href="/insights">View activity</SectionLink>} className="lg:col-span-5">
+          <FigureList items={activityItems(endOfDaySummary)} emptyText="Nothing yet today." />
+        </DashboardSection>
+        <DashboardSection id="insights" title="Insights" className="lg:col-span-7">
+          <InsightsBody cached={cachedInsights} />
+        </DashboardSection>
+      </div>
+    </PageContainer>
   );
 }

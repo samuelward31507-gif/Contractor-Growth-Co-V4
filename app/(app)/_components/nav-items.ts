@@ -3,104 +3,134 @@
 // and a LucideIcon component reference can't be serialized across that
 // boundary. NavLink owns the actual name -> component lookup.
 export type NavIconName =
-  | "Sparkles"
+  | "LayoutDashboard"
   | "Users"
-  | "Wallet"
-  | "MessageSquare"
+  | "Target"
+  | "Inbox"
+  | "CalendarDays"
   | "CalendarClock"
-  | "Star"
-  | "Workflow"
-  | "BarChart3"
-  | "Building2"
-  | "Settings"
+  | "FileText"
   | "Hammer"
-  | "FileText";
+  | "Wallet"
+  | "TrendingUp"
+  | "Star"
+  | "Handshake"
+  | "BarChart3"
+  | "Workflow"
+  | "Settings"
+  | "Building2";
 
 import type { OrganizationVertical } from "@/lib/auth/organization";
 import { getTerminology } from "@/lib/verticals/terminology";
 
 export type NavItem = {
+  /** Always the final destination - never a next.config or page-level redirect (see navigation-performance.test.ts). May carry a query or a #fragment when two nav entries are two views of one route. */
   href: string;
   label: string;
   icon: NavIconName;
-  /** Omitted = visible to every vertical. Jobs and Estimates (like Money before them) are contractor-specific - everything else is vertical-neutral per the Gym Trackpr audit, unchanged by the Trackpr 2.0 IA work. */
+  /** Omitted = visible to every vertical. Jobs, Estimates and Money are contractor-specific. */
   verticals?: OrganizationVertical[];
+  /** Extra path prefixes that count as "inside" this destination - legacy or detail routes that render under it (e.g. /appointments/[id] under Appointments). */
+  activeFor?: string[];
 };
-export type NavGroup = { label: string | null; items: NavItem[] };
 
 /**
- * Nav-restructure pass: un-merges Money back into its own two real
- * destinations - Estimates and Jobs were always genuinely distinct data
- * (never the "same 37 rows twice" problem the original IA consolidation
- * pass fixed for Customers/People or Calendar/Appointments), and a
- * contractor asked for the more granular, GHL-style breadth back:
- * separately browsable Jobs and Estimates tabs rather than one merged
- * Money view behind a tab switcher. Money's own page (app/(app)/money/
- * page.tsx) is untouched and still fully reachable by URL - nothing it
- * could do is lost - it's just no longer linked from navigation, the same
- * "old routes remain, only the nav entry moves" pattern this codebase
- * already uses everywhere else. The one real thing Money's own default tab
- * showed that neither Estimates nor Jobs alone could - the cross-entity
- * "what's in motion financially" snapshot - now lives on Dashboard instead
- * (see lib/money/snapshot.ts and today/page.tsx's own "Money at a glance"
- * section), so nothing behind that view was dropped either.
+ * `id` is the stable key (sidebar collapse preferences, React keys); `label`
+ * is what renders as the group heading - null for the ungrouped Dashboard
+ * entry and the pinned system group (Settings, Agency Command Center).
+ */
+export type NavGroup = { id: string; label: string | null; items: NavItem[] };
+
+/**
+ * Trackpr 2.0 (step 2C) information architecture: one ungrouped home, five
+ * labelled groups organised around how a contractor thinks about the
+ * business (who, when, what work, how it grows, how it's going), and a
+ * pinned system group at the foot of the sidebar.
  *
- * "Today" is relabeled "Dashboard" in this list only - its href, page, and
- * dynamic headline are all unchanged; this is the exact same screen, given
- * back its familiar name as one more of the terms the contractor originally
- * asked to restore, right alongside Jobs and Estimates.
- *
- * Five primary, ungrouped destinations now (Dashboard, People, Jobs,
- * Estimates, Schedule), everything else still folded into one collapsible
- * More group exactly as before.
+ * Several entries are two views of one existing route - the redesign adds
+ * navigation, never new pages or backend:
+ *   Contacts / Leads        -> /people, /people?temperature=hot
+ *   Calendar / Appointments -> /schedule, /schedule?view=list
+ *   Opportunities           -> /today?view=by-type (Dashboard's "By type" tab)
+ *   Reviews / Referrals     -> /growth#reviews, /growth#referrals (one page, two sections)
+ * Every href is the route the visitor actually lands on: /contacts, /leads,
+ * /calendar, /appointments, /opportunities and /analytics all still work as
+ * compatibility redirects for old links, but navigation never pays their
+ * extra round trip. /money is linked again under Work (it was un-linked, not
+ * removed, by the earlier nav-restructure pass).
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
+    id: "home",
     label: null,
+    items: [{ href: "/today", label: "Dashboard", icon: "LayoutDashboard", activeFor: ["/dashboard"] }],
+  },
+  {
+    id: "customers",
+    label: "Customers",
     items: [
-      { href: "/today", label: "Dashboard", icon: "Sparkles" },
-      { href: "/people", label: "People", icon: "Users" },
-      { href: "/jobs", label: "Jobs", icon: "Hammer", verticals: ["contractor"] },
-      { href: "/estimates", label: "Estimates", icon: "FileText", verticals: ["contractor"] },
-      { href: "/schedule", label: "Schedule", icon: "CalendarClock" },
+      { href: "/people", label: "Contacts", icon: "Users", activeFor: ["/customers", "/contacts"] },
+      { href: "/people?temperature=hot", label: "Leads", icon: "Target", activeFor: ["/leads"] },
+      // Performance Pass A: points straight at /conversations - the route the
+      // Inbox actually renders - instead of /inbox, a compatibility redirect.
+      { href: "/conversations", label: "Inbox", icon: "Inbox", activeFor: ["/inbox"] },
     ],
   },
   {
-    label: "More",
+    id: "schedule",
+    label: "Schedule",
     items: [
-      // Performance Pass A: points straight at /conversations - the route the
-      // Inbox actually renders - instead of /inbox, a compatibility redirect
-      // (app/(app)/inbox/page.tsx, kept for bookmarks and old links) that
-      // cost every Inbox click an extra server round trip.
-      { href: "/conversations", label: "Inbox", icon: "MessageSquare" },
-      { href: "/growth", label: "Reviews & Referrals", icon: "Star" },
-      { href: "/automations", label: "Automations", icon: "Workflow" },
-      { href: "/insights", label: "Insights", icon: "BarChart3" },
-      { href: "/settings", label: "Settings", icon: "Settings" },
+      { href: "/schedule", label: "Calendar", icon: "CalendarDays", activeFor: ["/calendar"] },
+      { href: "/schedule?view=list", label: "Appointments", icon: "CalendarClock", activeFor: ["/appointments"] },
     ],
+  },
+  {
+    id: "work",
+    label: "Work",
+    items: [
+      { href: "/estimates", label: "Estimates", icon: "FileText", verticals: ["contractor"] },
+      { href: "/jobs", label: "Jobs", icon: "Hammer", verticals: ["contractor"] },
+      { href: "/money", label: "Money", icon: "Wallet", verticals: ["contractor"], activeFor: ["/invoices", "/work"] },
+    ],
+  },
+  {
+    id: "growth",
+    label: "Growth",
+    items: [
+      { href: "/today?view=by-type", label: "Opportunities", icon: "TrendingUp", activeFor: ["/opportunities"] },
+      { href: "/growth#reviews", label: "Reviews", icon: "Star" },
+      { href: "/growth#referrals", label: "Referrals", icon: "Handshake" },
+    ],
+  },
+  {
+    id: "insights",
+    label: "Insights",
+    items: [
+      { href: "/insights", label: "Analytics", icon: "BarChart3", activeFor: ["/analytics", "/activity"] },
+      { href: "/automations", label: "Automations", icon: "Workflow", activeFor: ["/automation-health"] },
+    ],
+  },
+  {
+    id: "system",
+    label: null,
+    items: [{ href: "/settings", label: "Settings", icon: "Settings" }],
   },
 ];
 
 /**
  * Appended conditionally at render time (only for a real, verified agency
- * admin - see sidebar-content.tsx), never unconditionally in NAV_GROUPS - a
+ * admin - see layout.tsx), never unconditionally in NAV_GROUPS - a
  * nav-visible link is not itself an authorization boundary, but it must
- * never imply access a given user does not actually have. Trackpr 2.0,
- * Phase 5: now placed inside the More group (alongside Settings) rather
- * than the old SYSTEM group it used to join - its own route (/agency) and
- * label ("Agency Command Center") are completely unchanged; only its
- * grouping moved.
+ * never imply access a given user does not actually have. Lives in the
+ * pinned system group, next to Settings.
  */
 export const AGENCY_NAV_ITEM: NavItem = { href: "/agency", label: "Agency Command Center", icon: "Building2" };
 
 /**
- * Gym Foundation Phase 1, Section 6 (unchanged mechanism, retargeted hrefs):
- * filters NAV_GROUPS down to items visible for a given vertical, relabels
- * "People" via lib/verticals/terminology.ts, and folds a verified agency
- * admin's AGENCY_NAV_ITEM into the existing More group rather than
- * appending a separate one-item group after it. A contractor org matches
- * every current item, so contractor nav is unaffected by this filtering
- * beyond the Trackpr 2.0 relabel/regroup itself.
+ * Filters NAV_GROUPS down to items visible for a given vertical, relabels
+ * Contacts via lib/verticals/terminology.ts (gym: "Members"), folds a
+ * verified agency admin's AGENCY_NAV_ITEM into the system group, and drops
+ * any group left empty (a gym has no Work group).
  */
 export function getNavGroupsForVertical(vertical: OrganizationVertical, showAgencyLink: boolean): NavGroup[] {
   const terminology = getTerminology(vertical);
@@ -110,10 +140,67 @@ export function getNavGroupsForVertical(vertical: OrganizationVertical, showAgen
       .filter((item) => !item.verticals || item.verticals.includes(vertical))
       .map((item) => (item.href === "/people" ? { ...item, label: terminology.contactsLabel } : item));
 
-    if (group.label === "More" && showAgencyLink) {
+    if (group.id === "system" && showAgencyLink) {
       items = [...items, AGENCY_NAV_ITEM];
     }
 
     return { ...group, items };
   }).filter((group) => group.items.length > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Active-item resolution
+// ---------------------------------------------------------------------------
+
+export type NavLocation = { pathname: string; search: string; hash: string };
+
+function splitHref(href: string) {
+  const [beforeHash, hash = ""] = href.split("#");
+  const [path, query = ""] = beforeHash.split("?");
+  return { path, params: new URLSearchParams(query), hash };
+}
+
+function isWithin(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+/**
+ * The one nav item the current URL belongs to, or null. Exactly one item is
+ * ever active, even where two entries share a route (Contacts/Leads,
+ * Calendar/Appointments, Dashboard/Opportunities, Reviews/Referrals): on the
+ * item's own route it qualifies only when every query param it names is
+ * present in the URL, and the qualifying item matching the most wins (ties
+ * go to the entry listed first) - so /people?temperature=hot is Leads and
+ * plain /people (or /people/123) is Contacts. A fragment counts in favor
+ * when it matches and against when it doesn't, without disqualifying. An
+ * `activeFor` prefix (a legacy or detail route) qualifies on the path
+ * alone. Pure, so the sidebar, mobile tab bar and breadcrumb can never
+ * disagree.
+ */
+export function resolveActiveNavItem(items: NavItem[], location: NavLocation): NavItem | null {
+  const current = new URLSearchParams(location.search);
+  const currentHash = location.hash.replace(/^#/, "");
+  let best: { item: NavItem; score: number } | null = null;
+
+  for (const item of items) {
+    const { path, params, hash } = splitHref(item.href);
+    let score = 0;
+    if (isWithin(location.pathname, path)) {
+      let qualifies = true;
+      for (const [key, value] of params) {
+        if (current.get(key) !== value) qualifies = false;
+        score += 1;
+      }
+      // A fragment is only a scroll position on the same page, so it is a
+      // preference, not a requirement: plain /growth still belongs to the
+      // first of its entries (Reviews), and #referrals picks Referrals.
+      if (hash) score += hash === currentHash ? 1 : -1;
+      if (!qualifies) continue;
+    } else if (!(item.activeFor ?? []).some((prefix) => isWithin(location.pathname, prefix))) {
+      continue;
+    }
+    if (!best || score > best.score) best = { item, score };
+  }
+
+  return best?.item ?? null;
 }

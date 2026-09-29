@@ -159,11 +159,11 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         description={`Contractor Growth Co. · ${formatCount(metrics.organizations.length)} client organization${metrics.organizations.length === 1 ? "" : "s"}`}
         action={
           <div className="sm:text-right">
-            <p className="text-[12.5px] font-medium text-slate-500">Needs attention</p>
-            <p className={`mt-1 text-[32px] font-semibold tracking-tight ${numericDisplayClass} ${hasAttentionItems ? "text-danger-text" : "text-accent-text"}`}>
+            <p className="text-xs font-medium text-ink-3">Needs attention</p>
+            <p className={`mt-1 text-[26px] font-semibold leading-tight tracking-[-0.02em] ${numericDisplayClass} ${hasAttentionItems ? "text-danger-text" : "text-accent-text"}`}>
               {formatCount(needsAttention.items.length)}
             </p>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-ink-3">
               {hasAttentionItems ? `client${needsAttention.items.length === 1 ? "" : "s"} to review` : "All clients operating normally"}
             </p>
           </div>
@@ -189,7 +189,7 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         just recreate the duplication the audit flagged. Every other value
         and its calculation is unchanged.
       */}
-      <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-slate-200 py-4">
+      <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-line py-4">
         <Row label="Clients" value={formatCount(allRows.length)} />
         <Row label="Live" value={formatCount(liveCount)} />
         <Row label="Setting up" value={formatCount(settingUpCount)} />
@@ -237,31 +237,31 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         /agency/expansion, /agency/usage, and /agency/revenue, each fetched
         exactly once.
       */}
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <p className={sectionLabelClass}>Deeper intelligence</p>
-        <div className="mt-2 divide-y divide-slate-100">
-          <Link href="/agency/expansion" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50">
+        <div className="mt-2 divide-y divide-line">
+          <Link href="/agency/expansion" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-hover">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-900">Expansion Opportunities</p>
-              <p className="mt-0.5 truncate text-xs text-slate-500">Estimate recovery, reactivation, and other service opportunities across your managed clients.</p>
+              <p className="text-sm font-medium text-ink">Expansion Opportunities</p>
+              <p className="mt-0.5 truncate text-xs text-ink-3">Estimate recovery, reactivation, and other service opportunities across your managed clients.</p>
             </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+            <ChevronRight className="h-4 w-4 shrink-0 text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
           </Link>
 
-          <Link href="/agency/usage" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50">
+          <Link href="/agency/usage" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-hover">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-900">Client Usage</p>
-              <p className="mt-0.5 truncate text-xs text-slate-500">Messaging, AI, and automation activity across your managed clients — usage visibility, not billing.</p>
+              <p className="text-sm font-medium text-ink">Client Usage</p>
+              <p className="mt-0.5 truncate text-xs text-ink-3">Messaging, AI, and automation activity across your managed clients — usage visibility, not billing.</p>
             </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+            <ChevronRight className="h-4 w-4 shrink-0 text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
           </Link>
 
-          <Link href="/agency/revenue" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50">
+          <Link href="/agency/revenue" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-hover">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-900">Revenue</p>
-              <p className="mt-0.5 truncate text-xs text-slate-500">Contractor Growth Co.&rsquo;s own revenue from managed clients, recorded from real Stripe events.</p>
+              <p className="text-sm font-medium text-ink">Revenue</p>
+              <p className="mt-0.5 truncate text-xs text-ink-3">Contractor Growth Co.&rsquo;s own revenue from managed clients, recorded from real Stripe events.</p>
             </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+            <ChevronRight className="h-4 w-4 shrink-0 text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
           </Link>
         </div>
       </div>
@@ -275,12 +275,12 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         spaced sections. No component, data, or internal spacing within this
         tier was changed - only the gap leading into it.
       */}
-      <div className="mt-14 border-t border-slate-200 pt-8">
+      <div className="mt-14 border-t border-line pt-8">
         <p className={sectionLabelClass}>Onboarding pipeline</p>
         <OnboardingPipeline byStage={byStage} />
       </div>
 
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <SystemHealth
           rollup={health.incidentRollup}
           schedulerHeartbeat={health.schedulerHeartbeat}
@@ -291,7 +291,7 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         />
       </div>
 
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <AgencyActivity items={activity.items} />
       </div>
     </div>

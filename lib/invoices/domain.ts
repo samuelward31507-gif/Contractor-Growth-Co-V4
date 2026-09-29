@@ -22,15 +22,34 @@ export type InvoiceStatus = "draft" | "sent" | "partially_paid" | "paid" | "void
 
 export const INVOICE_STATUSES: readonly InvoiceStatus[] = ["draft", "sent", "partially_paid", "paid", "void"];
 
-export type PaymentMethod = "cash" | "check" | "card_elsewhere" | "bank_transfer" | "other";
+export type PaymentMethod = "cash" | "check" | "card_elsewhere" | "bank_transfer" | "other" | "card_online";
 
+/**
+ * Phase 1C: `card_online` is recorded only by the Stripe Connect webhook
+ * (lib/payments/online-payment.ts) - the database refuses it from anyone but
+ * the service role (customer_payments_online_guard). Everything a contractor
+ * can record by hand is a ManualPaymentMethod.
+ */
+export type ManualPaymentMethod = Exclude<PaymentMethod, "card_online">;
+
+/** Every method, for labelling ledger rows (history, activity, reversal copy). */
 export const PAYMENT_METHODS: readonly { value: PaymentMethod; label: string }[] = [
   { value: "cash", label: "Cash" },
   { value: "check", label: "Check" },
   { value: "card_elsewhere", label: "Card (processed elsewhere)" },
   { value: "bank_transfer", label: "Bank transfer" },
   { value: "other", label: "Other" },
+  { value: "card_online", label: "Card (paid online)" },
 ];
+
+/** The methods the Record payment dialog offers and the manual record path accepts. */
+export const MANUAL_PAYMENT_METHODS: readonly { value: ManualPaymentMethod; label: string }[] = PAYMENT_METHODS.filter(
+  (method): method is { value: ManualPaymentMethod; label: string } => method.value !== "card_online",
+);
+
+export function isManualPaymentMethod(value: unknown): value is ManualPaymentMethod {
+  return typeof value === "string" && MANUAL_PAYMENT_METHODS.some((method) => method.value === value);
+}
 
 /** Default payment terms: due 14 days after the issue date. */
 export const DEFAULT_DUE_DAYS = 14;

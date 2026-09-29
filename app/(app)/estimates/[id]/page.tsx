@@ -18,6 +18,7 @@ import { ApprovalLinkRow } from "./_components/approval-link-row";
 import { resolveAppBaseUrl } from "@/lib/automation/sms";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../_components/status";
 import { EstimateActions } from "./_components/estimate-actions";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 export default async function EstimateDetailPage({ params }: PageProps<"/estimates/[id]">) {
   const { id } = await params;
@@ -42,9 +43,9 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
   if (!estimate) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-        <h1 className="text-lg font-semibold text-slate-900">Estimate not found</h1>
-        <p className="text-sm text-slate-500">This estimate may have been deleted, or the link is incorrect.</p>
-        <Link href="/estimates" className="mt-2 text-sm font-medium text-slate-900 hover:underline">
+        <h1 className="text-lg font-semibold text-ink">Estimate not found</h1>
+        <p className="text-sm text-ink-3">This estimate may have been deleted, or the link is incorrect.</p>
+        <Link href="/estimates" className="mt-2 text-sm font-medium text-ink hover:underline">
           Back to Estimates
         </Link>
       </div>
@@ -90,15 +91,15 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
         action={<EstimateActions estimate={estimate} contacts={contacts} leads={leads} />}
         meta={
           <div>
-            <p className="text-[12.5px] font-medium text-slate-500">Amount</p>
-            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
+            <p className="text-xs font-medium text-ink-3">Amount</p>
+            <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-ink">
               {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
             </p>
           </div>
         }
       />
 
-      <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
       {estimate.status === "accepted" && job ? (
         <div className={successBannerClass}>
           <p className="font-medium">Job created</p>
@@ -135,7 +136,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
             {estimate.notes ? (
               <div className="mt-4">
                 <dt className={detailLabelClass}>Notes</dt>
-                <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{estimate.notes}</dd>
+                <dd className="mt-1 whitespace-pre-wrap text-sm text-ink-2">{estimate.notes}</dd>
               </div>
             ) : null}
             <ApprovalLinkRow status={estimate.status} url={approvalUrl} />
@@ -145,7 +146,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
             <SectionCard
               title="Lead"
               action={
-                <Link href={`/leads/${estimate.lead.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/leads/${estimate.lead.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
                   View lead
                 </Link>
               }
@@ -173,7 +174,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
             <SectionCard
               title="Customer"
               action={
-                <Link href={`/people/${estimate.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/people/${estimate.contact.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
                   View contact
                 </Link>
               }

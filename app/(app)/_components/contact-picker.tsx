@@ -60,17 +60,17 @@ export function ContactPicker({
         className={inputClass}
       />
       {open && query && results.length > 0 ? (
-        <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+        <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-popover">
           {results.map((contact) => (
             <li key={contact.id}>
               <button
                 type="button"
                 onClick={() => selectContact(contact)}
-                className="flex w-full flex-col items-start px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50"
+                className="flex w-full flex-col items-start px-3 py-2 text-left text-sm transition-colors hover:bg-hover"
               >
-                <span className="font-medium text-slate-900">{contactDisplayName(contact)}</span>
+                <span className="font-medium text-ink">{contactDisplayName(contact)}</span>
                 {contact.company_name ? (
-                  <span className="text-xs text-slate-500">{contact.company_name}</span>
+                  <span className="text-xs text-ink-3">{contact.company_name}</span>
                 ) : null}
               </button>
             </li>
@@ -78,7 +78,7 @@ export function ContactPicker({
         </ul>
       ) : null}
       {open && query && results.length === 0 ? (
-        <div className="absolute z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 shadow-lg">
+        <div className="absolute z-10 mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-3 shadow-popover">
           No contacts match &quot;{query}&quot;
         </div>
       ) : null}

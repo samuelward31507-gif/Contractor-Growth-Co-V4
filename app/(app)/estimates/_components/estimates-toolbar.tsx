@@ -62,7 +62,7 @@ export function EstimatesToolbar({
       <div className="relative flex-1 sm:max-w-sm">
         <Search
           aria-hidden
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3"
         />
         <input
           type="search"
@@ -92,7 +92,7 @@ export function EstimatesToolbar({
         <button
           type="button"
           onClick={clearAll}
-          className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="inline-flex min-h-11 items-center rounded text-sm font-medium text-ink-3 transition-colors hover:text-ink sm:min-h-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
           Clear filters
         </button>

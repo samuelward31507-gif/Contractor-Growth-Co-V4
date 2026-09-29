@@ -95,7 +95,7 @@ async function run(pathname: string, userId?: string) {
 }
 
 const APP_ROUTES = ["/today", "/people", "/people/some-id", "/jobs", "/schedule", "/conversations", "/settings", "/insights", "/money?browse=invoices"];
-const PUBLIC_ROUTES = ["/", "/how-it-works", "/privacy", "/terms", "/robots.txt", "/sitemap.xml", "/demo", "/quote/abc", "/api/leads/capture/x", "/auth/reset-password"];
+const PUBLIC_ROUTES = ["/", "/how-it-works", "/privacy", "/terms", "/robots.txt", "/sitemap.xml", "/demo", "/quote/abc", "/pay/abc", "/api/leads/capture/x", "/auth/reset-password"];
 
 test("1. logged out: every protected route redirects to /login, with no membership query", async () => {
   for (const route of [...APP_ROUTES, "/agency", "/agency/usage", "/onboarding"]) {

@@ -29,19 +29,19 @@ export function BusinessHoursSection({
           {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Business hours saved.</p> : null}
 
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-line">
             {DAYS_OF_WEEK.map(({ value: day, label }) => {
               const dayHours = hours[day];
               return (
                 <div key={day} className="grid grid-cols-1 items-center gap-3 py-3 sm:grid-cols-[8rem_auto_1fr_auto_1fr]">
-                  <span className="text-sm font-medium text-slate-900">{label}</span>
+                  <span className="text-sm font-medium text-ink">{label}</span>
 
-                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <label className="flex min-h-11 items-center gap-2 text-sm text-ink-2 sm:min-h-0">
                     <input
                       type="checkbox"
                       name={`${day}_isOpen`}
                       defaultChecked={dayHours.is_open}
-                      className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
+                      className="h-4 w-4 shrink-0 rounded border-line-strong accent-accent focus:ring-accent/20"
                     />
                     Open
                   </label>
@@ -54,7 +54,7 @@ export function BusinessHoursSection({
                     aria-label={`${label} opening time`}
                   />
 
-                  <span className="hidden text-center text-xs text-slate-400 sm:block">to</span>
+                  <span className="hidden text-center text-xs text-ink-3 sm:block">to</span>
 
                   <input
                     type="time"

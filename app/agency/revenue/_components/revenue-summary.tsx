@@ -13,9 +13,9 @@ import type { RevenueTotals } from "@/lib/agency/revenue";
  */
 export function RevenueSummary({ totals }: { totals: RevenueTotals }) {
   return (
-    <div className="mt-6 border-y border-slate-200 py-4">
+    <div className="mt-6 border-y border-line py-4">
       <p className={sectionLabelClass}>Revenue summary</p>
-      <div className="mt-2 divide-y divide-slate-100">
+      <div className="mt-2 divide-y divide-line">
         <Row label="Collected" value={formatCurrencyAmounts(totals.collected)} />
         <Row label="— Setup fees" value={formatCurrencyAmounts(totals.setupCollected)} />
         <Row label="— Recurring" value={formatCurrencyAmounts(totals.recurringCollected)} />

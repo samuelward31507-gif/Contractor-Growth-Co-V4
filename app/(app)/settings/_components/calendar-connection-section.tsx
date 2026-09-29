@@ -59,9 +59,9 @@ export function CalendarConnectionSection({
 
       <div className="mt-5 space-y-4">
         {!connection ? (
-          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3.5">
-            <div className="flex items-center gap-2.5 text-sm text-slate-600">
-              <Calendar className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+          <div className="flex items-center justify-between rounded-lg border border-line bg-canvas/60 px-4 py-3.5">
+            <div className="flex items-center gap-2.5 text-sm text-ink-2">
+              <Calendar className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
               No calendar connected yet.
             </div>
             {canEdit ? (
@@ -71,7 +71,7 @@ export function CalendarConnectionSection({
             ) : null}
           </div>
         ) : (
-          <div className="space-y-4 rounded-lg border border-slate-200 px-4 py-3.5">
+          <div className="space-y-4 rounded-lg border border-line px-4 py-3.5">
             {disconnectState.error ? <p className={errorBannerClass} role="alert">{disconnectState.error}</p> : null}
             {selectState.error ? <p className={errorBannerClass} role="alert">{selectState.error}</p> : null}
             {selectState.success ? <p className={successBannerClass}>Calendar selection saved.</p> : null}
@@ -82,11 +82,11 @@ export function CalendarConnectionSection({
               <div className="space-y-1 text-sm">
                 <div className="flex items-center gap-2">
                   <Badge tone={STATUS_TONE[connection.status]}>{STATUS_LABEL[connection.status]}</Badge>
-                  {connection.accountEmail ? <span className="text-slate-600">{connection.accountEmail}</span> : null}
+                  {connection.accountEmail ? <span className="text-ink-2">{connection.accountEmail}</span> : null}
                 </div>
                 {connection.calendarName ? <p className={metaClass}>Using calendar: {connection.calendarName}</p> : null}
                 {connection.lastSyncedAt ? <p className={metaClass}>Last checked {new Date(connection.lastSyncedAt).toLocaleString()}</p> : null}
-                {connection.status === "error" && connection.lastError ? <p className="text-xs text-amber-700">{connection.lastError}</p> : null}
+                {connection.status === "error" && connection.lastError ? <p className="text-xs text-warning-text">{connection.lastError}</p> : null}
               </div>
 
               {canEdit ? (
@@ -106,7 +106,7 @@ export function CalendarConnectionSection({
             </div>
 
             {canEdit && !connection.calendarId ? (
-              <form action={selectFormAction} className="flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4">
+              <form action={selectFormAction} className="flex flex-wrap items-end gap-3 border-t border-line pt-4">
                 <div className="min-w-[220px] space-y-1.5">
                   <label htmlFor="calendarId" className={labelClass}>
                     Choose a calendar

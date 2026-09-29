@@ -1,4 +1,5 @@
 import { Bone, SkeletonRows } from "@/lib/ui/skeleton";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 /**
  * Performance Pass A: a person's loading state. Without it, opening a
@@ -11,7 +12,7 @@ export default function PersonLoading() {
   return (
     <div className="flex flex-1 flex-col" role="status" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>
-      <div className="border-b border-slate-200 px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="border-b border-line px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
         <Bone className="h-4 w-24" />
         <div className="mt-4 flex items-start gap-4">
           <Bone className="h-12 w-12 shrink-0 rounded-full" />
@@ -30,14 +31,14 @@ export default function PersonLoading() {
           ))}
         </div>
       </div>
-      <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
           <div className="flex flex-col gap-6 lg:col-span-2">
             <SkeletonRows count={3} />
             <SkeletonRows count={4} />
           </div>
           <div className="flex flex-col gap-6">
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-line bg-surface p-5">
               <Bone className="h-4 w-24" />
               <div className="mt-4 space-y-3">
                 {Array.from({ length: 4 }).map((_, i) => (

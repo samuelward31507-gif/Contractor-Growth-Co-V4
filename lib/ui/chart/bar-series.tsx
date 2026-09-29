@@ -21,7 +21,7 @@ export function BarSeries({
   emptyLabel?: string;
 }) {
   if (data.length === 0) {
-    return <p className="text-sm text-slate-500">{emptyLabel}</p>;
+    return <p className="text-sm text-ink-3">{emptyLabel}</p>;
   }
 
   const max = Math.max(1, ...data.map((point) => point.value));
@@ -39,7 +39,7 @@ export function BarSeries({
             />
             <span
               role="tooltip"
-              className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow-lg transition-opacity group-hover/bar:opacity-100"
+              className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-xs font-medium text-white opacity-0 shadow-popover transition-opacity group-hover/bar:opacity-100"
             >
               {point.label}: {point.value}
             </span>
@@ -48,7 +48,7 @@ export function BarSeries({
       </div>
       <div className="mt-1.5 flex gap-[3px]">
         {data.map((point, index) => (
-          <div key={point.key} className="min-w-0 flex-1 text-center text-[10px] text-slate-400">
+          <div key={point.key} className="min-w-0 flex-1 text-center text-[10px] text-ink-3">
             {index % labelStride === 0 ? <span className="truncate">{point.label}</span> : null}
           </div>
         ))}

@@ -15,18 +15,18 @@ export function AgencyActivity({ items }: { items: AgencyActivityItem[] }) {
     <div>
       <p className={sectionLabelClass}>Recent activity</p>
       {items.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">Activity will appear here as client organizations start using Trackpr.</p>
+        <p className="mt-3 text-sm text-ink-3">Activity will appear here as client organizations start using Trackpr.</p>
       ) : (
-        <ul className="mt-3 divide-y divide-slate-100">
+        <ul className="mt-3 divide-y divide-line">
           {items.map((item) => (
             <li key={item.id} className="flex items-center justify-between gap-4 py-2.5">
-              <span className="min-w-0 truncate text-sm text-slate-700">
-                <Link href={`/agency/organizations/${item.organizationId}`} className="font-medium text-slate-900 hover:underline">
+              <span className="min-w-0 truncate text-sm text-ink-2">
+                <Link href={`/agency/organizations/${item.organizationId}`} className="font-medium text-ink hover:underline">
                   {item.organizationName}
                 </Link>{" "}
-                <span className="text-slate-400">·</span> {item.message}
+                <span className="text-ink-3">·</span> {item.message}
               </span>
-              <span className="shrink-0 text-xs tabular-nums text-slate-400">{formatRelativeTime(item.timestamp)}</span>
+              <span className="shrink-0 text-xs tabular-nums text-ink-3">{formatRelativeTime(item.timestamp)}</span>
             </li>
           ))}
         </ul>

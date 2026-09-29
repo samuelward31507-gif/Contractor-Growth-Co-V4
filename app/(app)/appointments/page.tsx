@@ -19,6 +19,7 @@ import { AppointmentsList } from "./_components/appointments-list";
 import { AppointmentsSummary } from "./_components/appointments-summary";
 import { AppointmentsToolbar } from "./_components/appointments-toolbar";
 import { ScheduleViewSwitcher } from "../schedule/_components/schedule-view-switcher";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 const VALID_STATUSES = new Set<string>(["scheduled", "confirmed", "completed", "cancelled", "no_show"]);
 const VALID_VIEWS = new Set<string>(["upcoming", "today", "past"]);
@@ -73,16 +74,15 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
   const hasActiveFilters = Boolean(query.trim()) || status !== "all";
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       {/* Usability audit fix (#6): the old "List view" badge + plain
           "Calendar view" text link are gone - the same ScheduleViewSwitcher
           CalendarToolbar uses now sits here too, so Day/Week/Month/List
           reads as one consistent control on both presentations of Schedule
           rather than two different affordances for the same idea. */}
       <PageHeader
-        eyebrow="Operate"
-        title="Schedule"
-        description="Your real-time scheduling command center - appointments, availability, and blocked time in one place."
+        title="Appointments"
+        description="Every appointment in one list - upcoming, today and past."
         action={
           <div className="flex flex-wrap items-center gap-3">
             <ScheduleViewSwitcher active="list" hrefs={{ day: "/schedule?view=day", week: "/schedule?view=week", month: "/schedule?view=month", list: "/schedule?view=list" }} />
@@ -103,7 +103,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
       {allAppointments.length === 0 ? (
         <AppointmentsEmptyState contacts={contacts} leads={leads} />
       ) : (
-        <div className="border-t border-slate-200 pt-8">
+        <div className="border-t border-line pt-8">
           <AppointmentsToolbar initialQuery={query} initialStatus={status} view={view} todayCount={summary.today} />
           <div className="mt-5">
             <AppointmentsList

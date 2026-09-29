@@ -71,7 +71,7 @@ export default async function AgencyRevenuePage({ searchParams }: { searchParams
 
   return (
     <div className="mx-auto w-full max-w-[1150px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
         Agency Command Center
       </Link>
@@ -98,23 +98,23 @@ export default async function AgencyRevenuePage({ searchParams }: { searchParams
       <ClientRevenueTable clients={clients} />
       <RecentRevenueEvents events={recentEvents} />
 
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <p className={sectionLabelClass}>About this page</p>
-        <ul className="mt-2 space-y-1.5 text-xs text-slate-500">
+        <ul className="mt-2 space-y-1.5 text-xs text-ink-3">
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             Every figure here comes from a real Stripe webhook event Trackpr recorded - never from current subscription pricing, Price IDs, or an estimate.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             &ldquo;Uncategorized&rdquo; means the invoice mixed a one-time setup fee with the first recurring charge and could not be honestly split - never guessed into either bucket.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             Failed payment attempts are never counted as collected or included in Net collected.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             This is Contractor Growth Co.&rsquo;s own revenue from its clients - not contractor/customer job revenue, which is shown separately across the client CRM and never mixed in here.
           </li>
         </ul>

@@ -89,7 +89,7 @@ export default async function AgencyCostsPage({ searchParams }: { searchParams: 
 
   return (
     <div className="mx-auto w-full max-w-[1150px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
         Agency Command Center
       </Link>
@@ -117,23 +117,23 @@ export default async function AgencyCostsPage({ searchParams }: { searchParams: 
       <SmsCostSummary totals={smsTotals} clients={smsClients} />
       <UnsupportedProviders />
 
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <p className={sectionLabelClass}>About this page</p>
-        <ul className="mt-2 space-y-1.5 text-xs text-slate-500">
+        <ul className="mt-2 space-y-1.5 text-xs text-ink-3">
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             Known AI cost is calculated only from real token usage, a trusted provider/model, and a matching historical rate card - never an estimate, never today&rsquo;s rate applied to past usage.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             &ldquo;Unpriced&rdquo; and &ldquo;Unknown&rdquo; are always shown as counts, never as $0 - a missing rate or an unreliable identity is not the same as zero cost.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             Known SMS cost is Twilio&rsquo;s own authoritative price for that exact message - no local rate, no segment estimate, and no rate card is used for SMS.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             This is Contractor Growth Co.&rsquo;s own provider cost - not a margin, not a profit figure, and not client pricing or billing.
           </li>
         </ul>

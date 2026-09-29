@@ -68,7 +68,7 @@ export function ReviewReferralPanel({
                 {REVIEW_STATUS_LABELS[reviewRequest.status]}
               </Badge>
             </dd>
-            {reviewRequest.failure_reason ? <p className="mt-1.5 text-xs text-red-600">{reviewRequest.failure_reason}</p> : null}
+            {reviewRequest.failure_reason ? <p className="mt-1.5 text-xs text-danger">{reviewRequest.failure_reason}</p> : null}
             {reviewResolvable ? (
               <div className="mt-2 flex gap-2">
                 <button type="button" disabled={isPending} onClick={() => run(() => markReviewCompleted(jobId))} className={primaryButtonSmallClass}>
@@ -90,7 +90,7 @@ export function ReviewReferralPanel({
                 {REFERRAL_STATUS_LABELS[referralRequest.status]}
               </Badge>
             </dd>
-            {referralRequest.failure_reason ? <p className="mt-1.5 text-xs text-red-600">{referralRequest.failure_reason}</p> : null}
+            {referralRequest.failure_reason ? <p className="mt-1.5 text-xs text-danger">{referralRequest.failure_reason}</p> : null}
             {referralResolvable ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {leadOptions.length > 0 ? (
@@ -116,14 +116,14 @@ export function ReviewReferralPanel({
                   Mark Declined
                 </button>
                 {!showNewLeadForm ? (
-                  <button type="button" disabled={isPending} onClick={() => setShowNewLeadForm(true)} className="text-xs font-medium text-slate-500 hover:text-slate-900">
+                  <button type="button" disabled={isPending} onClick={() => setShowNewLeadForm(true)} className="text-xs font-medium text-ink-3 hover:text-ink">
                     Don&apos;t have a lead yet? Create one
                   </button>
                 ) : null}
               </div>
             ) : null}
             {referralResolvable && showNewLeadForm ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
                 <input
                   type="text"
                   aria-label="Referred person's name"

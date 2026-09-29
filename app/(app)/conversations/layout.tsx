@@ -55,7 +55,7 @@ export default async function ConversationsLayout({ children }: { children: Reac
       ) : null}
       {conversations.length === 0 ? (
         <>
-          <PageHeader eyebrow="Operate" title="Inbox" description="Every customer conversation in one place, organized by activity." />
+          <PageHeader title="Inbox" description="Every customer conversation in one place, organized by activity." />
           <div className="mt-6">
             <ConversationsSummary summary={summary} />
           </div>

@@ -45,7 +45,11 @@ test("payment history offers no edit or delete control - only Reverse, submitted
 test("payment history keeps the original visible and marks reversals and reversed originals", () => {
   assert.match(paymentHistory, /Reversal<\/Badge>/);
   assert.match(paymentHistory, /Reversed<\/Badge>/);
-  assert.match(paymentHistory, /!isReversal && !isReversed && canReverse/);
+  // Phase 1C cleanup: the row action (reversals, reversed originals and
+  // card_online never offer Reverse) comes from paymentRowAction - see
+  // lib/invoices/payment-history-view.test.ts.
+  assert.match(paymentHistory, /paymentRowAction\(\{ method: payment\.method, isReversal, isReversed, invoiceStatus \}\)/);
+  assert.match(paymentHistory, /action === "reverse" \?/);
 });
 
 test("the invoice page never renders internal ids, organization ids or approval tokens", () => {
@@ -117,7 +121,13 @@ test("Dashboard's money row uses summarizeInvoiceMoney's definitions (Phase 2D: 
   assert.match(todayPage, /getDashboardSummary\(supabase, membership\.organizationId\)/);
   assert.match(todayPage, /dashboardInvoiceSummary\(summary\.data, today\)/);
   assert.match(todayPage, /calendarDateInTimeZone\(new Date\(\), timeZone \?\? "UTC"\)/);
-  assert.match(todayPage, /<InvoiceMoneySummaryCards summary=\{invoiceSummary\} variant="dashboard" \/>/);
+  // Trackpr 2.0 (step 2E): the Dashboard's revenue panel renders the same
+  // invoiceSummary figures (Collected, Outstanding with Overdue, Invoiced)
+  // with the same formatter - one computation, a new presentation.
+  assert.match(todayPage, /value: formatMoney\(invoiceSummary\.collected\)/);
+  assert.match(todayPage, /value: formatMoney\(invoiceSummary\.outstanding\)/);
+  assert.match(todayPage, /value: formatMoney\(invoiceSummary\.invoiced\)/);
+  assert.match(todayPage, /formatMoney\(invoiceSummary\.overdue\)\} past due/);
   assert.match(todayPage, /const moneyDataFailed = summary\.failed;/, "a failed ledger read is disclosed, never rendered as a clean $0");
   assert.match(dashboardSql, /isOverdue\(\{ status: "sent", dueDate: bucket\.due_date \}, today\)/);
   assert.match(summaryCards, /variant === "dashboard" \? null : \(/, "the dashboard variant drops only Not yet invoiced");

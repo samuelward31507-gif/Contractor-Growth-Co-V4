@@ -27,12 +27,12 @@ export function BookingSettingsSection({
           {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Booking settings saved.</p> : null}
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex min-h-11 items-center gap-2 text-sm text-ink-2 sm:min-h-0">
             <input
               type="checkbox"
               name="bookingEnabled"
               defaultChecked={settings.booking_enabled}
-              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
+              className="h-4 w-4 shrink-0 rounded border-line-strong accent-accent focus:ring-accent/20"
             />
             Allow the system to schedule appointments automatically when booking is available
           </label>
@@ -53,7 +53,7 @@ export function BookingSettingsSection({
                   defaultValue={settings.minimum_notice_minutes}
                   className={inputClass}
                 />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-3">
                   minutes
                 </span>
               </div>
@@ -74,7 +74,7 @@ export function BookingSettingsSection({
                   defaultValue={settings.default_duration_minutes}
                   className={inputClass}
                 />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-3">
                   minutes
                 </span>
               </div>
@@ -95,7 +95,7 @@ export function BookingSettingsSection({
                   defaultValue={settings.buffer_minutes}
                   className={inputClass}
                 />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-3">
                   minutes
                 </span>
               </div>

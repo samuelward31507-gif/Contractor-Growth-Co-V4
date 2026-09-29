@@ -11,38 +11,38 @@ export default function ConversationsLoading() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden px-4 pt-6 sm:px-6 sm:pt-8 lg:px-10 lg:pt-10">
       <div>
-        <div className="h-7 w-40 animate-pulse rounded bg-slate-100" />
-        <div className="mt-2 h-4 w-80 max-w-full animate-pulse rounded bg-slate-100" />
+        <div className="h-7 w-40 animate-pulse rounded bg-inset" />
+        <div className="mt-2 h-4 w-80 max-w-full animate-pulse rounded bg-inset" />
       </div>
 
       {/* Mirrors lib/ui/hero-stat-row.tsx's shape - same convention as
           appointments/estimates/jobs/leads loading.tsx now that
           ConversationsSummary uses HeroStatRow too. */}
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,220px)_1fr]">
-        <div className="h-[84px] animate-pulse rounded-xl bg-slate-100" />
-        <div className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+        <div className="h-[84px] animate-pulse rounded-lg bg-inset" />
+        <div className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-line bg-inset">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="bg-white px-5 py-4">
-              <div className="h-2.5 w-16 animate-pulse rounded bg-slate-100" />
-              <div className="mt-2 h-6 w-12 animate-pulse rounded bg-slate-100" />
+            <div key={i} className="bg-surface px-5 py-4">
+              <div className="h-2.5 w-16 animate-pulse rounded bg-inset" />
+              <div className="mt-2 h-6 w-12 animate-pulse rounded bg-inset" />
             </div>
           ))}
         </div>
       </div>
 
-      <div className="mt-6 flex min-h-0 flex-1 border-t border-slate-200">
-        <div className="flex min-h-0 w-full flex-col lg:w-[340px] lg:shrink-0 lg:border-r lg:border-slate-200">
+      <div className="mt-6 flex min-h-0 flex-1 border-t border-line">
+        <div className="flex min-h-0 w-full flex-col lg:w-[340px] lg:shrink-0 lg:border-r lg:border-line">
           <div className="shrink-0 space-y-2 px-3 py-4">
-            <div className="h-10 w-full animate-pulse rounded-lg bg-slate-100" />
-            <div className="h-10 w-full animate-pulse rounded-lg bg-slate-100" />
+            <div className="h-10 w-full animate-pulse rounded-lg bg-inset" />
+            <div className="h-10 w-full animate-pulse rounded-lg bg-inset" />
           </div>
-          <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-hidden">
+          <div className="min-h-0 flex-1 divide-y divide-line overflow-hidden">
             {ROWS.map((_, i) => (
               <div key={i} className="flex items-start gap-3 px-4 py-3">
-                <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-slate-100" />
+                <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-inset" />
                 <div className="min-w-0 flex-1">
-                  <div className="h-3.5 w-32 animate-pulse rounded bg-slate-100" />
-                  <div className="mt-2 h-3 w-48 max-w-full animate-pulse rounded bg-slate-100" />
+                  <div className="h-3.5 w-32 animate-pulse rounded bg-inset" />
+                  <div className="mt-2 h-3 w-48 max-w-full animate-pulse rounded bg-inset" />
                 </div>
               </div>
             ))}

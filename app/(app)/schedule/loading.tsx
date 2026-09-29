@@ -13,10 +13,10 @@ export default function ScheduleLoading() {
     <SkeletonPage gap="gap-6">
       <SkeletonPageHeader />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Bone className="h-8 w-16 rounded-lg" />
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <Bone className="h-8 w-16 rounded-md" />
           <Bone className="h-6 w-40" />
-          <Bone className="h-8 w-16 rounded-lg" />
+          <Bone className="h-8 w-16 rounded-md" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Bone className="h-9 w-56 rounded-lg" />
@@ -24,13 +24,13 @@ export default function ScheduleLoading() {
           <Bone className="h-9 w-36 rounded-lg" />
         </div>
       </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="grid grid-cols-7 gap-px border-b border-slate-100 px-4 py-3">
+      <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <div className="grid grid-cols-7 gap-px border-b border-line px-4 py-3">
           {Array.from({ length: 7 }).map((_, i) => (
             <Bone key={i} className="mx-auto h-3 w-12" />
           ))}
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-line">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex h-16 items-start gap-4 px-4 py-2">
               <Bone className="h-2.5 w-10" />

@@ -35,15 +35,15 @@ export function ConversationsList({
   if (conversations.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-        <SearchX className="h-5 w-5 text-slate-300" aria-hidden />
-        <p className="text-sm font-medium text-slate-900">No conversations match your filters.</p>
-        {hasActiveFilters ? <p className="text-xs text-slate-500">Try clearing your filters.</p> : null}
+        <SearchX className="h-5 w-5 text-ink-4" aria-hidden />
+        <p className="text-sm font-medium text-ink">No conversations match your filters.</p>
+        {hasActiveFilters ? <p className="text-xs text-ink-3">Try clearing your filters.</p> : null}
       </div>
     );
   }
 
   return (
-    <ul className="divide-y divide-slate-100">
+    <ul className="divide-y divide-line">
       {conversations.map((conversation) => {
         const name = conversation.contact ? contactDisplayName(conversation.contact) : "No contact";
         const isActive = conversation.id === activeId;
@@ -54,41 +54,41 @@ export function ConversationsList({
             <Link
               href={`/conversations/${conversation.id}`}
               aria-current={isActive ? "page" : undefined}
-              className={`flex items-start gap-3 px-4 py-3 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-slate-900 ${
+              className={`flex items-start gap-3 px-4 py-3 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ink ${
                 isActive
-                  ? "bg-slate-100 shadow-[inset_2px_0_0_0_#0f172a]"
+                  ? "bg-inset shadow-[inset_2px_0_0_0_#0f172a]"
                   : awaitingReply
-                    ? "bg-blue-50/70 hover:bg-blue-50"
-                    : "hover:bg-slate-50"
+                    ? "bg-info-muted/70 hover:bg-info-muted"
+                    : "hover:bg-hover"
               }`}
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                 {conversation.contact ? contactInitials(conversation.contact) : "?"}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
                   <span
-                    className={`truncate text-sm text-slate-900 ${awaitingReply ? "font-semibold" : "font-medium"}`}
+                    className={`truncate text-sm text-ink ${awaitingReply ? "font-semibold" : "font-medium"}`}
                   >
                     {name}
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5">
                     {awaitingReply ? (
                       <>
-                        <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />
+                        <span className="h-2 w-2 rounded-full bg-info" aria-hidden />
                         <span className="sr-only">Awaiting your reply</span>
                       </>
                     ) : null}
-                    <span className="text-[11px] text-slate-400">{formatRelativeTime(conversation.lastActivityAt)}</span>
+                    <span className="text-[11px] text-ink-3">{formatRelativeTime(conversation.lastActivityAt)}</span>
                   </span>
                 </span>
                 <span
-                  className={`mt-0.5 block truncate text-xs ${awaitingReply ? "text-slate-700" : "text-slate-500"}`}
+                  className={`mt-0.5 block truncate text-xs ${awaitingReply ? "text-ink-2" : "text-ink-3"}`}
                 >
                   {lastMessagePreview(conversation)}
                 </span>
                 <span className="mt-1.5 flex items-center gap-2">
-                  <span className="text-[11px] text-slate-400">{CHANNEL_LABELS[conversation.channel]}</span>
+                  <span className="text-[11px] text-ink-3">{CHANNEL_LABELS[conversation.channel]}</span>
                   <ConversationStatusBadge status={conversation.status} />
                   {conversation.ai_enabled ? (
                     <Badge tone="info" icon={Bot}>

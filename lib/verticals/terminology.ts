@@ -16,12 +16,12 @@ export type VerticalTerminology = {
  * it doesn't need a new mechanism.
  */
 const TERMINOLOGY: Record<OrganizationVertical, VerticalTerminology> = {
-  // Trackpr 2.0, Phase 5: "Customers" retired as the contractor-facing nav
-  // label in favor of "People" (the Phase 3/5 umbrella noun - the merged
-  // Lead/Contact list at /people) - the underlying field name
-  // (contactsLabel) is unchanged, since nothing outside nav-items.ts reads
-  // it (verified directly - this dictionary has exactly one consumer).
-  contractor: { contactsLabel: "People", contactSingular: "contact" },
+  // Trackpr 2.0 (step 2C): the /people list is labelled "Contacts" in
+  // navigation, under the new Customers group (Leads sits beside it as the
+  // hot-lead view of the same list). Nothing outside nav-items.ts reads
+  // contactsLabel (verified directly - this dictionary has exactly one
+  // consumer), so this is a navigation label change only.
+  contractor: { contactsLabel: "Contacts", contactSingular: "contact" },
   gym: { contactsLabel: "Members", contactSingular: "member" },
 };
 

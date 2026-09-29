@@ -1,72 +1,64 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrganizationHealth } from "@/lib/automation-health/health";
-import type { OrganizationHealthStatus } from "@/lib/automation-health/types";
-import { Breadcrumb } from "./breadcrumb";
+import { Breadcrumb, MobilePageTitle } from "./breadcrumb";
+import { BrandMark } from "./sidebar-content";
+import { SystemStatus } from "./system-status";
+import { describeSystemStatus } from "./system-status-model";
 
 /**
- * Pass 5A: widened to the full OrganizationHealthStatus union (paused and
- * payment_blocked joined the original 3) so this indicator can never
- * misreport an intentional pause or a payment block as a random
- * infrastructure issue - see lib/automation-health/health.ts's own
- * organizationStatus() for the precedence rule this mirrors.
+ * Trackpr 2.0 (step 2D): the one header above page content, on every screen
+ * size - light, 48px, aligned with the sidebar's own header row so the two
+ * read as one hairline across the shell.
+ *
+ *   Desktop (lg+): where you are (Breadcrumb) on the left; system status on
+ *   the right. The sidebar already carries the brand and workspace.
+ *   Mobile/tablet: the brand mark with the current page and workspace on the
+ *   left, status on the right - this replaces the separate mobile brand bar,
+ *   so there is exactly one header above the content (the 2C bottom tab bar
+ *   stays below it).
+ *
+ * Status reuses lib/automation-health/health.ts's getOrganizationHealth - a
+ * request-cached read the shell already paid for (never a new query path) -
+ * and fails silently to no indicator (never a broken page) if it errors.
+ * No global search box: no record search index exists, so a search field
+ * would be fake functionality; Cmd/Ctrl+K (lib/ui/command-menu.tsx) remains
+ * the global command surface.
+ *
+ * `actions` is an optional right-side slot for a page's own contextual
+ * controls - nothing passes it yet.
  */
-const STATUS_CONFIG: Record<OrganizationHealthStatus, { dot: string; label: string; ring: string; text: string }> = {
-  healthy: { dot: "bg-emerald-500", label: "All systems healthy", ring: "ring-accent-border hover:bg-accent-muted", text: "text-accent-text" },
-  degraded: { dot: "bg-amber-500", label: "Needs attention", ring: "ring-amber-200 hover:bg-amber-50", text: "text-amber-700" },
-  unhealthy: { dot: "bg-red-500", label: "Critical issue", ring: "ring-red-200 hover:bg-red-50", text: "text-red-700" },
-  paused: { dot: "bg-slate-400", label: "Automation paused", ring: "ring-slate-200 hover:bg-slate-50", text: "text-slate-600" },
-  payment_blocked: { dot: "bg-red-500", label: "Payment action needed", ring: "ring-red-200 hover:bg-red-50", text: "text-red-700" },
-};
-
-/**
- * The persistent top bar - present above page content on every screen size,
- * answering "where am I" (Breadcrumb) and "are my automations working"
- * (the one health signal the product brief specifically calls out for the
- * global shell) without repeating what each page's own header already
- * says. Deliberately does not duplicate the sidebar's own org/user/logout
- * block, and deliberately has no "global search" - no search index exists
- * anywhere in this app today, and a search box that searches nothing would
- * be exactly the fake functionality the redesign brief prohibits.
- *
- * Reuses lib/automation-health/health.ts's existing, already-bounded
- * getOrganizationHealth (3 parallel indexed queries, the same ones the
- * Automation Health page itself already pays on every load) - never a new
- * query path. Fails silently to no indicator (never a broken page) if the
- * health read errors for any reason.
- *
- * Performance Pass A: the health indicator links straight to /automations,
- * where Automation Health lives now - /automation-health is only a
- * compatibility redirect kept for old bookmarks, and linking to it cost every
- * click an extra server round trip.
- *
- * Trackpr 2.0, Phase 3A: `actions` is a new, optional right-side slot for a
- * future page's own contextual controls (e.g. a page-level primary action
- * that should live in the persistent top bar rather than scroll away with
- * page content) - foundation only, nothing passes it yet, so it renders
- * nothing and changes no existing page's appearance until a future phase
- * actually uses it.
- */
-export async function TopBar({ supabase, organizationId, actions }: { supabase: SupabaseClient; organizationId: string; actions?: ReactNode }) {
+export async function TopBar({
+  supabase,
+  organizationId,
+  organizationName,
+  actions,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  organizationName: string;
+  actions?: ReactNode;
+}) {
   const health = await getOrganizationHealth(supabase, organizationId).catch(() => null);
-  const status = health ? STATUS_CONFIG[health.status] : null;
+  const status = health ? describeSystemStatus(health) : null;
 
   return (
-    <div className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 sm:px-6 lg:px-10">
-      <Breadcrumb />
-      <div className="flex shrink-0 items-center gap-3">
-        {actions}
-        {status ? (
-          <Link
-            href="/automations"
-            className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/25 focus-visible:ring-offset-2 ${status.ring} ${status.text}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden />
-            {status.label}
-          </Link>
-        ) : null}
+    <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-line bg-surface pl-4 pr-2 sm:pr-4 lg:px-10">
+      <div className="flex min-w-0 items-center gap-2.5 lg:hidden">
+        <BrandMark />
+        <div className="min-w-0 leading-tight">
+          <MobilePageTitle />
+          <p className="truncate text-[11.5px] text-ink-3">{organizationName}</p>
+        </div>
       </div>
-    </div>
+      <div className="hidden min-w-0 lg:block">
+        <Breadcrumb />
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
+        {actions}
+        {status ? <SystemStatus view={status} /> : null}
+      </div>
+    </header>
   );
 }

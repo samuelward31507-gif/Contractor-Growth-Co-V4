@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
 import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
 import { SmsRoutingSection } from "./_components/sms-routing-section";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 /**
  * Now reachable from the main Settings page via the "Communications" group
@@ -31,9 +32,9 @@ export default async function SmsRoutingPage() {
   const smsPhoneNumber = await getOrganizationSmsNumber(supabase, membership.organizationId);
 
   return (
-    <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
       <div>
-        <Link href="/settings" className="inline-flex items-center gap-1 rounded text-xs font-medium text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
+        <Link href="/settings" className="-my-3 inline-flex min-h-11 items-center gap-1 rounded text-xs font-medium text-ink-3 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:my-0 sm:min-h-0">
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
           Settings
         </Link>

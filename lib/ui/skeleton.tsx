@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "./page";
 
 /**
  * Performance Pass A: the building blocks for route-level loading.tsx
@@ -17,16 +18,18 @@ import type { ReactNode } from "react";
  */
 
 /** The shared page container every authenticated page uses. */
-export const SKELETON_PAGE_CLASS = "flex flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10";
+// The skeleton uses the exact page container, so swapping to content never
+// shifts the layout.
+export const SKELETON_PAGE_CLASS = PAGE_CONTAINER_CLASS;
 
 export function Bone({ className = "" }: { className?: string }) {
-  return <div aria-hidden className={`animate-pulse rounded bg-slate-100 ${className}`} />;
+  return <div aria-hidden className={`animate-pulse rounded bg-inset ${className}`} />;
 }
 
 /** The page wrapper: the real container plus an accessible, screen-reader-only loading status. */
-export function SkeletonPage({ gap = "gap-8", children }: { gap?: "gap-6" | "gap-8"; children: ReactNode }) {
+export function SkeletonPage({ gap = "gap-8", width = "full", children }: { gap?: "gap-6" | "gap-8"; width?: "content" | "full"; children: ReactNode }) {
   return (
-    <div className={`${SKELETON_PAGE_CLASS} ${gap}`} role="status" aria-busy="true" aria-live="polite">
+    <div className={`${SKELETON_PAGE_CLASS} ${gap} ${width === "content" ? PAGE_MAX_WIDTH_CLASS : ""}`} role="status" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>
       {children}
     </div>
@@ -50,10 +53,10 @@ export function SkeletonPageHeader({ action = false }: { action?: boolean }) {
 /** Mirrors lib/ui/stat-card.tsx: label + icon, value, description. */
 export function SkeletonStatCard() {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5">
+    <div className="rounded-lg border border-line bg-surface p-5">
       <div className="flex items-start justify-between gap-3">
         <Bone className="h-3 w-24" />
-        <Bone className="h-7 w-7 rounded-full" />
+        <Bone className="h-7 w-7 rounded-md" />
       </div>
       <Bone className="mt-3 h-7 w-20" />
       <Bone className="mt-2.5 h-3 w-36 max-w-full" />
@@ -64,8 +67,8 @@ export function SkeletonStatCard() {
 /** Rows inside a bordered white card - the shape of every list/table on these pages. */
 export function SkeletonRows({ count = 6, leading = true }: { count?: number; leading?: boolean }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="divide-y divide-slate-100">
+    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+      <div className="divide-y divide-line">
         {Array.from({ length: count }).map((_, i) => (
           <div key={i} className="flex items-center gap-3 px-4 py-3.5">
             {leading ? <Bone className="h-8 w-8 shrink-0 rounded-full" /> : null}

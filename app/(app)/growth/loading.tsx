@@ -8,7 +8,7 @@ import { Bone, SkeletonPage, SkeletonPageHeader, SkeletonRows } from "@/lib/ui/s
  */
 export default function GrowthLoading() {
   return (
-    <SkeletonPage>
+    <SkeletonPage width="content">
       <SkeletonPageHeader />
       {[0, 1].map((section) => (
         <div key={section}>

@@ -28,12 +28,12 @@ export function OperationsDetailSection({
           {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>Operations details saved.</p> : null}
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex min-h-11 items-center gap-2 text-sm text-ink-2 sm:min-h-0">
             <input
               type="checkbox"
               name="emergencyService"
               defaultChecked={profile.emergency_service}
-              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
+              className="h-4 w-4 shrink-0 rounded border-line-strong accent-accent focus:ring-accent/20"
             />
             We offer emergency service
           </label>
@@ -73,13 +73,13 @@ export function OperationsDetailSection({
             <p className={metaClass}>Where your leads currently come from.</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {LEAD_SOURCE_OPTIONS.map((option) => (
-                <label key={option.value} className="flex items-center gap-2 text-sm text-slate-700">
+                <label key={option.value} className="flex min-h-11 items-center gap-2 text-sm text-ink-2 sm:min-h-0">
                   <input
                     type="checkbox"
                     name="leadSources"
                     value={option.value}
                     defaultChecked={selectedSources.has(option.value)}
-                    className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
+                    className="h-4 w-4 shrink-0 rounded border-line-strong accent-accent focus:ring-accent/20"
                   />
                   {option.label}
                 </label>

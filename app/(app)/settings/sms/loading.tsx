@@ -7,7 +7,7 @@ import { SkeletonPage, SkeletonPageHeader, SkeletonRows } from "@/lib/ui/skeleto
  */
 export default function SmsSettingsLoading() {
   return (
-    <SkeletonPage gap="gap-6">
+    <SkeletonPage gap="gap-6" width="content">
       <SkeletonPageHeader />
       <SkeletonRows count={4} leading={false} />
     </SkeletonPage>

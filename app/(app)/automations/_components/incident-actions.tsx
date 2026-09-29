@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { acknowledgeIncident, resolveIncident } from "../health-actions";
 import type { IncidentStatus } from "@/lib/automation-health/types";
+import { secondaryButtonSmallClass } from "@/lib/ui/form";
 
 /**
  * Manual acknowledge/resolve controls - only rendered for an open/
@@ -43,7 +44,7 @@ export function IncidentActions({ incidentId, status }: { incidentId: string; st
   }
 
   if (localStatus === "resolved") {
-    return <span className="text-xs text-emerald-700">Resolved</span>;
+    return <span className="text-xs text-accent-text">Resolved</span>;
   }
 
   return (
@@ -54,7 +55,7 @@ export function IncidentActions({ incidentId, status }: { incidentId: string; st
             type="button"
             onClick={handleAcknowledge}
             disabled={isPending}
-            className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40"
+            className={secondaryButtonSmallClass}
           >
             {isPending ? "Acknowledging…" : "Acknowledge"}
           </button>
@@ -63,12 +64,12 @@ export function IncidentActions({ incidentId, status }: { incidentId: string; st
           type="button"
           onClick={handleResolve}
           disabled={isPending}
-          className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-900/10 disabled:cursor-not-allowed disabled:opacity-40"
+          className={secondaryButtonSmallClass}
         >
           {isPending ? "Resolving…" : "Resolve"}
         </button>
       </div>
-      {error ? <span className="text-xs text-red-600">{error}</span> : null}
+      {error ? <span className="text-xs text-danger">{error}</span> : null}
     </div>
   );
 }

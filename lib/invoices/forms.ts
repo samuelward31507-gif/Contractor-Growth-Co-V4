@@ -1,4 +1,4 @@
-import { applyPayment, generatePaymentClientKey, isTwoDecimalAmount, parseAmountInput, PAYMENT_METHODS, type InvoiceMoney, type PaymentMethod } from "./domain";
+import { applyPayment, generatePaymentClientKey, isManualPaymentMethod, isTwoDecimalAmount, parseAmountInput, PAYMENT_METHODS, type InvoiceMoney } from "./domain";
 import type { CreateInvoiceFromJobInput, RecordCustomerPaymentInput } from "./service";
 
 /**
@@ -94,10 +94,9 @@ export function dateTimeLocalToIso(value: string): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-const METHOD_VALUES = new Set<string>(PAYMENT_METHODS.map((method) => method.value));
-
 export function buildRecordPaymentInput(values: RecordPaymentFormValues, invoice: InvoiceMoney & { id: string }, now: Date = new Date()): BuildResult<RecordCustomerPaymentInput> {
-  if (!METHOD_VALUES.has(values.method)) return { error: "Choose how this payment was received." };
+  // Manual methods only: card_online is recorded by the Stripe webhook alone.
+  if (!isManualPaymentMethod(values.method)) return { error: "Choose how this payment was received." };
 
   const parsed = parseAmountInput(values.amountRaw);
   if (parsed.error !== undefined) return { error: parsed.error };
@@ -115,7 +114,7 @@ export function buildRecordPaymentInput(values: RecordPaymentFormValues, invoice
     input: {
       invoiceId: invoice.id,
       amount: parsed.amount,
-      method: values.method as PaymentMethod,
+      method: values.method,
       reference: values.reference.trim() || null,
       receivedAt,
       notes: values.notes.trim() || null,

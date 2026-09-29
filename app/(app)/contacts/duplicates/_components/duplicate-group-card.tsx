@@ -10,7 +10,7 @@ import type { DuplicateMatchReason, ContactRelationshipCounts } from "@/lib/cont
 import { mergeContacts } from "../actions";
 
 const secondaryBtn =
-  "inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center justify-center rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50";
 
 const REASON_LABEL: Record<DuplicateMatchReason, string> = {
   phone: "Same phone number",
@@ -87,7 +87,7 @@ export function DuplicateGroupCard({
       description={`${contacts.length} contacts share this identity. Pick the contact to keep, then merge the others into it - every lead, conversation, appointment, estimate, job, and review/referral request moves to the surviving contact. The survivor keeps its own details; anything it's missing is filled in from the merged contact.`}
       icon={Users2}
     >
-      <div className="-mx-4 divide-y divide-slate-100 sm:-mx-5">
+      <div className="-mx-4 divide-y divide-line sm:-mx-5">
         {contacts.map((contact) => {
           const isTarget = contact.id === targetId;
           return (
@@ -103,18 +103,18 @@ export function DuplicateGroupCard({
                   />
                 ) : null}
                 <div>
-                  <p className="text-sm font-medium text-slate-900">{contactLabel(contact)}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-sm font-medium text-ink">{contactLabel(contact)}</p>
+                  <p className="text-xs text-ink-3">
                     {[contact.phone, contact.email, contact.company_name].filter(Boolean).join(" · ") || "No additional details"}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">{relationshipSummary(relationshipCounts[contact.id])}</p>
+                  <p className="mt-0.5 text-[11px] text-ink-3">{relationshipSummary(relationshipCounts[contact.id])}</p>
                 </div>
               </div>
 
               {canMerge && !isTarget ? (
                 confirmingSourceId === contact.id ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">Merge into {target ? contactLabel(target) : "the selected contact"}?</span>
+                    <span className="text-xs text-ink-3">Merge into {target ? contactLabel(target) : "the selected contact"}?</span>
                     <button type="button" disabled={isPending} onClick={() => runMerge(contact.id)} className={primaryButtonAutoClass}>
                       {isPending && pendingSourceId === contact.id ? "Merging…" : "Confirm merge"}
                     </button>

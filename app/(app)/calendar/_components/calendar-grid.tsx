@@ -94,13 +94,13 @@ export function CalendarGrid({
   }
 
   return (
-    <div className="flex overflow-x-auto rounded-xl border border-slate-200 bg-white">
+    <div className="flex overflow-x-auto rounded-lg border border-line bg-surface">
       {/* Hour gutter */}
-      <div className="sticky left-0 z-10 w-16 shrink-0 border-r border-slate-100 bg-white">
-        <div className="h-10 border-b border-slate-100" />
+      <div className="sticky left-0 z-10 w-16 shrink-0 border-r border-line bg-surface">
+        <div className="h-10 border-b border-line" />
         {hours.map((hour) => (
-          <div key={hour} style={{ height: HOUR_HEIGHT_PX }} className="relative border-b border-slate-50 text-right">
-            <span className="absolute -top-2 right-2 text-[11px] font-medium text-slate-400">{formatHourLabel(hour)}</span>
+          <div key={hour} style={{ height: HOUR_HEIGHT_PX }} className="relative border-b border-line text-right">
+            <span className="absolute -top-2 right-2 text-[11px] font-medium text-ink-3">{formatHourLabel(hour)}</span>
           </div>
         ))}
       </div>
@@ -122,8 +122,8 @@ export function CalendarGrid({
         // pure width number, no grid/date logic touched - and lets a full
         // week fit on one common laptop width without scrolling.
         return (
-          <div key={key} className="min-w-[140px] flex-1 border-r border-slate-100 last:border-r-0">
-            <div className={`flex h-10 items-center justify-center border-b border-slate-100 text-sm font-medium ${isToday ? "text-accent-text" : "text-slate-600"}`}>
+          <div key={key} className="min-w-[140px] flex-1 border-r border-line last:border-r-0">
+            <div className={`flex h-10 items-center justify-center border-b border-line text-sm font-medium ${isToday ? "text-accent-text" : "text-ink-2"}`}>
               {new Intl.DateTimeFormat("en-US", { timeZone, weekday: days.length > 1 ? "short" : "long", month: "short", day: "numeric" }).format(
                 new Date(Date.UTC(date.year, date.month - 1, date.day, 12)),
               )}
@@ -136,7 +136,7 @@ export function CalendarGrid({
                   onClick={() => openCreateAt(date, hour)}
                   aria-label={`Add appointment at ${formatHourLabel(hour)}`}
                   style={{ top: index * HOUR_HEIGHT_PX, height: HOUR_HEIGHT_PX }}
-                  className="absolute left-0 right-0 border-b border-slate-50 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+                  className="absolute left-0 right-0 border-b border-line transition-colors hover:bg-hover focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
                 />
               ))}
 
@@ -146,8 +146,8 @@ export function CalendarGrid({
                     if (nowMinutes < bounds.startHour * 60 || nowMinutes > bounds.endHour * 60) return null;
                     const top = (nowMinutes - bounds.startHour * 60) * (HOUR_HEIGHT_PX / 60);
                     return (
-                      <div className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-red-500" style={{ top }}>
-                        <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-red-500" />
+                      <div className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-danger" style={{ top }}>
+                        <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-danger" />
                       </div>
                     );
                   })()
@@ -163,7 +163,7 @@ export function CalendarGrid({
                     type="button"
                     onClick={() => setOpenBlockedTime(block)}
                     style={{ top: position.topPx, height: position.heightPx }}
-                    className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,theme(colors.slate.200),theme(colors.slate.200)_6px,theme(colors.slate.100)_6px,theme(colors.slate.100)_12px)] px-2 py-1 text-left text-xs font-medium text-slate-600 shadow-sm ring-1 ring-inset ring-slate-300 hover:ring-slate-400 focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent"
+                    className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,theme(colors.slate.200),theme(colors.slate.200)_6px,theme(colors.slate.100)_6px,theme(colors.slate.100)_12px)] px-2 py-1 text-left text-xs font-medium text-ink-2 shadow-sm ring-1 ring-inset ring-line-strong hover:ring-ink-4 focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     {block.reason || "Blocked"}
                   </button>
@@ -181,12 +181,12 @@ export function CalendarGrid({
                     type="button"
                     onClick={() => setOpenAppointment(appointment)}
                     style={{ top: position.topPx, height: position.heightPx }}
-                    className={`absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-2 bg-white px-2 py-1 text-left text-xs shadow-sm ring-1 ring-inset ring-slate-200 transition-shadow hover:shadow-md focus:outline-none focus-visible:z-30 focus-visible:shadow-md focus-visible:ring-2 focus-visible:ring-accent ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
+                    className={`absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-2 bg-surface px-2 py-1 text-left text-xs shadow-sm ring-1 ring-inset ring-line transition-shadow hover:shadow-md focus:outline-none focus-visible:z-30 focus-visible:shadow-md focus-visible:ring-2 focus-visible:ring-accent ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
                   >
-                    <span className="block truncate font-semibold text-slate-900">
+                    <span className="block truncate font-semibold text-ink">
                       {formatAppointmentTime(appointment.start_at, timeZone)} · {name}
                     </span>
-                    <span className="block truncate text-slate-500">{appointment.title}</span>
+                    <span className="block truncate text-ink-3">{appointment.title}</span>
                   </button>
                 );
               })}

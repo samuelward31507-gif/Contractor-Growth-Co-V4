@@ -35,27 +35,27 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
           LeadsTable, sharing column positions across header and rows via a
           grid template. */}
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-slate-200 pl-3 pr-2 pb-3`}>
-          <span className="text-xs text-slate-400">Estimate</span>
-          <span className="text-xs text-slate-400">Status</span>
-          <span className="text-right text-xs text-slate-400">Amount</span>
-          <span className="text-xs text-slate-400">Created</span>
+        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-line pl-3 pr-2 pb-3`}>
+          <span className="text-xs text-ink-3">Estimate</span>
+          <span className="text-xs text-ink-3">Status</span>
+          <span className="text-right text-xs text-ink-3">Amount</span>
+          <span className="text-xs text-ink-3">Created</span>
           <span />
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-line">
           {estimates.map((estimate) => (
             <Link
               key={estimate.id}
               href={`/estimates/${estimate.id}`}
-              className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[ESTIMATE_STATUS_TONE[estimate.status]]}`}
+              className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[ESTIMATE_STATUS_TONE[estimate.status]]}`}
             >
               <span className="flex min-w-0 items-center gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                   {estimate.contact ? contactInitials(estimate.contact) : "?"}
                 </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-slate-900">{estimate.title}</span>
-                  <span className="block truncate text-xs text-slate-500">
+                  <span className="block truncate text-sm font-medium text-ink">{estimate.title}</span>
+                  <span className="block truncate text-xs text-ink-3">
                     {estimate.contact ? contactDisplayName(estimate.contact) : "No contact"}
                     {estimate.contact?.company_name ? ` · ${estimate.contact.company_name}` : ""}
                   </span>
@@ -66,16 +66,16 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
                   {STATUS_LABELS[estimate.status]}
                 </Badge>
                 {isExpiringSoon(estimate) ? (
-                  <Clock aria-label="Expiring soon" className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <Clock aria-label="Expiring soon" className="h-3.5 w-3.5 shrink-0 text-warning" />
                 ) : null}
               </span>
-              <span className="text-right text-sm font-medium tabular-nums text-slate-700">
+              <span className="text-right text-sm font-medium tabular-nums text-ink-2">
                 {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
               </span>
-              <span className="text-xs tabular-nums text-slate-400">{formatContactDate(estimate.created_at)}</span>
+              <span className="text-xs tabular-nums text-ink-3">{formatContactDate(estimate.created_at)}</span>
               <ChevronRight
                 aria-hidden
-                className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
+                className="h-4 w-4 shrink-0 justify-self-end text-ink-4 transition-colors group-hover:text-ink-3"
               />
             </Link>
           ))}
@@ -84,29 +84,29 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
 
       {/* Mobile: a compact two-line stacked row, matching LeadsTable's
           mobile convention. */}
-      <ul className="divide-y divide-slate-100 lg:hidden">
+      <ul className="divide-y divide-line lg:hidden">
         {estimates.map((estimate) => (
           <li key={estimate.id}>
             <Link
               href={`/estimates/${estimate.id}`}
               className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[ESTIMATE_STATUS_TONE[estimate.status]]}`}
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                 {estimate.contact ? contactInitials(estimate.contact) : "?"}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium text-slate-900">{estimate.title}</span>
+                  <span className="truncate text-sm font-medium text-ink">{estimate.title}</span>
                   <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
                     {STATUS_LABELS[estimate.status]}
                   </Badge>
                 </span>
                 <span className="mt-0.5 flex items-center justify-between gap-2">
-                  <span className="truncate text-xs text-slate-500">
+                  <span className="truncate text-xs text-ink-3">
                     {estimate.contact ? contactDisplayName(estimate.contact) : "No contact"}
                   </span>
                   {estimate.amount != null ? (
-                    <span className="shrink-0 text-xs font-medium tabular-nums text-slate-600">
+                    <span className="shrink-0 text-xs font-medium tabular-nums text-ink-2">
                       {formatCurrency(estimate.amount)}
                     </span>
                   ) : null}

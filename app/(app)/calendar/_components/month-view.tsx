@@ -60,10 +60,10 @@ export function MonthView({
   const MAX_CHIPS = 3;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50">
+    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+      <div className="grid grid-cols-7 border-b border-line bg-canvas">
         {WEEKDAY_LABELS.map((label) => (
-          <div key={label} className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div key={label} className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-ink-3">
             {label}
           </div>
         ))}
@@ -78,17 +78,17 @@ export function MonthView({
           const overflow = dayAppointments.length - MAX_CHIPS;
 
           return (
-            <div key={key} className={`flex min-h-[104px] flex-col gap-1 border-b border-r border-slate-100 p-1.5 last:border-r-0 ${isCurrentMonth ? "bg-white" : "bg-slate-50/50"}`}>
+            <div key={key} className={`flex min-h-[104px] flex-col gap-1 border-b border-r border-line p-1.5 last:border-r-0 ${isCurrentMonth ? "bg-surface" : "bg-canvas/50"}`}>
               <div className="flex items-center justify-between">
                 <Link
                   href={buildCalendarHref("day", formatDateOnly(date))}
-                  className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
-                    isToday ? "bg-accent text-accent-foreground hover:bg-accent-strong" : isCurrentMonth ? "text-slate-700" : "text-slate-400"
+                  className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors hover:bg-selected focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+                    isToday ? "bg-accent text-accent-foreground hover:bg-accent-strong" : isCurrentMonth ? "text-ink-2" : "text-ink-3"
                   }`}
                 >
                   {date.day}
                 </Link>
-                {blockedCount > 0 ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" title={`${blockedCount} blocked period${blockedCount > 1 ? "s" : ""}`} /> : null}
+                {blockedCount > 0 ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-line-strong" title={`${blockedCount} blocked period${blockedCount > 1 ? "s" : ""}`} /> : null}
               </div>
 
               <div className="flex flex-col gap-1">
@@ -99,7 +99,7 @@ export function MonthView({
                       key={appointment.id}
                       type="button"
                       onClick={() => setOpenAppointment(appointment)}
-                      className={`truncate rounded border-l-2 bg-slate-50 px-1.5 py-0.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
+                      className={`truncate rounded border-l-2 bg-canvas px-1.5 py-0.5 text-left text-[11px] font-medium text-ink-2 hover:bg-selected focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
                     >
                       {formatAppointmentTime(appointment.start_at, timeZone)} {name}
                     </button>
@@ -108,7 +108,7 @@ export function MonthView({
                 {overflow > 0 ? (
                   <Link
                     href={buildCalendarHref("day", formatDateOnly(date))}
-                    className="rounded px-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                    className="rounded px-1.5 text-[11px] font-medium text-ink-3 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                   >
                     +{overflow} more
                   </Link>

@@ -34,7 +34,7 @@ export function RetryButton({ executionId }: { executionId: string }) {
   }
 
   if (state === "done") {
-    return <span className="text-xs text-emerald-700">{message}</span>;
+    return <span className="text-xs text-accent-text">{message}</span>;
   }
 
   return (
@@ -45,13 +45,13 @@ export function RetryButton({ executionId }: { executionId: string }) {
         disabled={isPending}
         className={
           state === "confirm"
-            ? "rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-900/10 disabled:cursor-not-allowed disabled:opacity-40"
-            : "rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40"
+            ? "rounded-lg border border-warning-border bg-warning-muted px-2.5 py-1 text-xs font-medium text-warning-text transition-colors hover:bg-warning-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-warning/10 disabled:cursor-not-allowed disabled:opacity-40"
+            : "rounded-lg border border-line-strong px-2.5 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10 disabled:cursor-not-allowed disabled:opacity-40"
         }
       >
         {isPending ? "Retrying…" : state === "confirm" ? "Confirm retry?" : "Retry"}
       </button>
-      {state === "error" && message ? <span className="text-xs text-red-600">{message}</span> : null}
+      {state === "error" && message ? <span className="text-xs text-danger">{message}</span> : null}
     </div>
   );
 }

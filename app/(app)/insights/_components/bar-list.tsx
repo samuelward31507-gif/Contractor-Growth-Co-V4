@@ -14,13 +14,13 @@ export function BarList({ items }: { items: { key: string; label: string; value:
     <ul className="space-y-2.5">
       {items.map((item) => (
         <li key={item.key} className="flex items-center gap-3">
-          <span className="w-32 shrink-0 truncate text-xs text-slate-600 sm:w-40" title={item.label}>
+          <span className="w-32 shrink-0 truncate text-xs text-ink-2 sm:w-40" title={item.label}>
             {item.label}
           </span>
-          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100" aria-hidden>
-            <span className="block h-full rounded-full bg-slate-400" style={{ width: `${(item.value / max) * 100}%` }} />
+          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-inset" aria-hidden>
+            <span className="block h-full rounded-full bg-ink-4" style={{ width: `${(item.value / max) * 100}%` }} />
           </span>
-          <span className="w-10 shrink-0 text-right text-xs font-medium tabular-nums text-slate-700">{item.value}</span>
+          <span className="w-10 shrink-0 text-right text-xs font-medium tabular-nums text-ink-2">{item.value}</span>
         </li>
       ))}
     </ul>

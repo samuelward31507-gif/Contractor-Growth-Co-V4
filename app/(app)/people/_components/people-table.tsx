@@ -26,7 +26,7 @@ import { formatCurrency } from "@/lib/dashboard/format";
 // laptop widths (1440px) despite Value/Next step sitting mostly empty on
 // the very same rows. The freed width goes to Details' own `fr` share so
 // a full email/phone pair actually fits before it needs to truncate.
-const ROW_GRID = "grid-cols-[minmax(0,1.5fr)_minmax(0,1.6fr)_90px_125px_100px_185px_20px]";
+const ROW_GRID = "grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_80px_110px_90px_150px_20px]";
 
 function secondaryLine(contact: Contact): string {
   return [contact.phone, contact.email].filter(Boolean).join(" · ") || "No details yet";
@@ -35,19 +35,19 @@ function secondaryLine(contact: Contact): string {
 /** Icon-led detail cell - phone and email now read as distinct, scannable facts rather than one plain-text string joined by a middot. */
 function ContactDetails({ contact }: { contact: Contact }) {
   if (!contact.phone && !contact.email) {
-    return <span className="text-sm text-slate-400">No details yet</span>;
+    return <span className="text-sm text-ink-3">No details yet</span>;
   }
   return (
     <span className="flex flex-col gap-0.5">
       {contact.phone ? (
-        <span className="flex items-center gap-1.5 truncate text-sm text-slate-600">
-          <Phone className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+        <span className="flex items-center gap-1.5 truncate text-sm text-ink-2">
+          <Phone className="h-3 w-3 shrink-0 text-ink-3" aria-hidden />
           {contact.phone}
         </span>
       ) : null}
       {contact.email ? (
-        <span className="flex items-center gap-1.5 truncate text-sm text-slate-600">
-          <Mail className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+        <span className="flex items-center gap-1.5 truncate text-sm text-ink-2">
+          <Mail className="h-3 w-3 shrink-0 text-ink-3" aria-hidden />
           {contact.email}
         </span>
       ) : null}
@@ -58,20 +58,20 @@ function ContactDetails({ contact }: { contact: Contact }) {
 /** Never renders a bare $0 for "no open value known" - matches contact detail's own formatOpenLeadValueDisplay rule, just without a separate open-lead count param (a table row already shows the Lead temperature column, so "no badge + no value" reads as unambiguous). */
 function ValueCell({ value }: { value?: OpenLeadValueSummary }) {
   if (!value || (value.knownValue === 0 && value.unknownValueCount === 0)) {
-    return <span className="text-sm text-slate-300">—</span>;
+    return <span className="text-sm text-ink-4">—</span>;
   }
   if (value.knownValue === 0 && value.unknownValueCount > 0) {
-    return <span className="text-sm text-slate-400">Unknown</span>;
+    return <span className="text-sm text-ink-3">Unknown</span>;
   }
-  return <span className="text-sm font-medium tabular-nums text-slate-900">{formatCurrency(value.knownValue)}</span>;
+  return <span className="text-sm font-medium tabular-nums text-ink">{formatCurrency(value.knownValue)}</span>;
 }
 
 function NextStepCell({ nextStep }: { nextStep?: NextStep | null }) {
-  if (!nextStep) return <span className="text-sm text-slate-300">—</span>;
+  if (!nextStep) return <span className="text-sm text-ink-4">—</span>;
   return (
     <span className="flex min-w-0 flex-col">
-      <span className={`truncate text-sm ${nextStep.attention ? "font-medium text-amber-700" : "text-slate-700"}`}>{nextStep.label}</span>
-      {nextStep.detail ? <span className="truncate text-xs text-slate-400">{nextStep.detail}</span> : null}
+      <span className={`truncate text-sm ${nextStep.attention ? "font-medium text-warning-text" : "text-ink-2"}`}>{nextStep.label}</span>
+      {nextStep.detail ? <span className="truncate text-xs text-ink-3">{nextStep.detail}</span> : null}
     </span>
   );
 }
@@ -138,16 +138,16 @@ export function PeopleTable({
           return (
             <TableRow key={contact.id} href={`/people/${contact.id}`} columns={ROW_GRID} tone={nextStep?.attention ? "warning" : "neutral"}>
               <span className="flex min-w-0 items-center gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                   {contactInitials(contact)}
                 </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-slate-900">
+                  <span className="block truncate text-sm font-medium text-ink">
                     {contactDisplayName(contact)}
                   </span>
                   {contact.company_name ? (
-                    <span className="flex items-center gap-1 truncate text-xs text-slate-500">
-                      <Building2 className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+                    <span className="flex items-center gap-1 truncate text-xs text-ink-3">
+                      <Building2 className="h-3 w-3 shrink-0 text-ink-3" aria-hidden />
                       {contact.company_name}
                     </span>
                   ) : null}
@@ -158,7 +158,7 @@ export function PeopleTable({
                 {temperature ? (
                   <Badge tone={LEAD_TEMPERATURE_TONE[temperature]}>{TEMPERATURE_LABELS[temperature]}</Badge>
                 ) : (
-                  <span className="text-xs text-slate-300">—</span>
+                  <span className="text-xs text-ink-4">—</span>
                 )}
               </span>
               <span>
@@ -169,7 +169,7 @@ export function PeopleTable({
               <ValueCell value={value} />
               <NextStepCell nextStep={nextStep} />
               <ChevronRight
-                className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
+                className="h-4 w-4 shrink-0 justify-self-end text-ink-4 transition-colors group-hover:text-ink-3"
                 aria-hidden
               />
             </TableRow>
@@ -177,7 +177,7 @@ export function PeopleTable({
         })}
       </TableBody>
 
-      <ul className="divide-y divide-slate-100 lg:hidden">
+      <ul className="divide-y divide-line lg:hidden">
         {contacts.map((contact) => {
           const lifecycle = lifecycleByContactId?.get(contact.id) ?? "new";
           const temperature = temperatureByContactId?.get(contact.id);
@@ -189,12 +189,12 @@ export function PeopleTable({
                 href={`/people/${contact.id}`}
                 className="flex items-center gap-3 px-2 py-3.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                   {contactInitials(contact)}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-slate-900">
+                    <span className="truncate text-sm font-medium text-ink">
                       {contactDisplayName(contact)}
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
@@ -205,20 +205,20 @@ export function PeopleTable({
                     </span>
                   </span>
                   <span className="mt-0.5 flex items-center justify-between gap-2">
-                    <span className="truncate text-xs text-slate-500">{contact.company_name || secondaryLine(contact)}</span>
+                    <span className="truncate text-xs text-ink-3">{contact.company_name || secondaryLine(contact)}</span>
                     {value && (value.knownValue > 0 || value.unknownValueCount > 0) ? (
-                      <span className="shrink-0 text-xs font-medium tabular-nums text-slate-600">
+                      <span className="shrink-0 text-xs font-medium tabular-nums text-ink-2">
                         {value.knownValue > 0 ? formatCurrency(value.knownValue) : "Unknown"}
                       </span>
                     ) : null}
                   </span>
                   {nextStep ? (
-                    <span className={`mt-0.5 block truncate text-xs ${nextStep.attention ? "font-medium text-amber-700" : "text-slate-400"}`}>
+                    <span className={`mt-0.5 block truncate text-xs ${nextStep.attention ? "font-medium text-warning-text" : "text-ink-3"}`}>
                       {nextStep.label}
                     </span>
                   ) : null}
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
+                <ChevronRight className="h-4 w-4 shrink-0 text-ink-4" aria-hidden />
               </Link>
             </li>
           );

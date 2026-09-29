@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { filterChipClass } from "@/lib/ui/filter-chip";
 
 export type RevenueRangeKey = "today" | "month" | "lastMonth" | "lifetime";
 
@@ -23,9 +24,8 @@ export function RangeSelector({ active }: { active: RevenueRangeKey }) {
         <Link
           key={option.key}
           href={option.key === "lifetime" ? "/agency/revenue" : `/agency/revenue?range=${option.key}`}
-          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-            active === option.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-          }`}
+          aria-current={active === option.key ? "true" : undefined}
+          className={filterChipClass(active === option.key)}
         >
           {option.label}
         </Link>

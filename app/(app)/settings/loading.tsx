@@ -9,12 +9,12 @@ import { Bone, SkeletonPage, SkeletonPageHeader } from "@/lib/ui/skeleton";
  */
 export default function SettingsLoading() {
   return (
-    <SkeletonPage>
+    <SkeletonPage width="content">
       <SkeletonPageHeader />
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[180px_minmax(0,1fr)]">
         <div className="hidden lg:block">
           <Bone className="h-3 w-16" />
-          <div className="mt-3 space-y-3 border-l border-slate-200 pl-3">
+          <div className="mt-3 space-y-3 border-l border-line pl-3">
             {["w-36", "w-24", "w-32", "w-28", "w-10", "w-24"].map((width, i) => (
               <Bone key={i} className={`h-3.5 ${width}`} />
             ))}

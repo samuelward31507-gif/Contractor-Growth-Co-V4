@@ -25,6 +25,7 @@ import { getGridBounds, localMinutesSinceMidnight } from "./_lib/grid";
 import { CalendarToolbar } from "./_components/calendar-toolbar";
 import { CalendarGrid } from "./_components/calendar-grid";
 import { MonthView } from "./_components/month-view";
+import { PAGE_CONTAINER_CLASS } from "@/lib/ui/page";
 
 const VALID_VIEWS = new Set<string>(["day", "week", "month"]);
 
@@ -136,16 +137,15 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
   const bounds = getGridBounds(businessHours, extraMinutes);
 
   return (
-    <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-6`}>
       {/* Usability audit fix (#6): the old plain "List view" text link here is
           gone - CalendarToolbar's ScheduleViewSwitcher just below now covers
           Day/Week/Month/List as one segmented control, so this header no
           longer needs a second, differently-styled way to reach the same
           destination. */}
       <PageHeader
-        eyebrow="Operate"
-        title="Schedule"
-        description="Your real-time scheduling command center - appointments, availability, and blocked time in one place."
+        title="Calendar"
+        description="Appointments, availability and blocked time, by day, week or month."
       />
 
       {appointmentsResult.failed ? (

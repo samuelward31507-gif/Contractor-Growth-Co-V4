@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
-import { sectionLabelClass, pageTitleClass } from "./typography";
+import { pageTitleClass } from "./typography";
+import { PAGE_MAX_WIDTH_CLASS } from "./page";
 
 /**
  * The shared header for every detail page (Lead/Contact/Appointment/
@@ -42,10 +43,14 @@ export function DetailHeader({
   meta?: ReactNode;
 }) {
   return (
-    <div className="border-b border-slate-200 px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+    // Trackpr 2.0 (step 2G): the header's content sits in the same centered
+    // 1280px column as the page body beneath it (the hairline still spans
+    // the full width), so the two line up on wide screens.
+    <div className="border-b border-line">
+      <div className={`${PAGE_MAX_WIDTH_CLASS} px-4 py-6 sm:px-6 sm:py-8 lg:px-10`}>
       <Link
         href={backHref}
-        className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
+        className="-my-3 inline-flex min-h-11 w-fit items-center gap-1.5 rounded-md text-sm font-medium text-ink-3 transition-colors duration-150 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:my-0 sm:min-h-0"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
         {backLabel}
@@ -55,16 +60,17 @@ export function DetailHeader({
         <div className="flex items-start gap-4">
           {avatar}
           <div className="min-w-0">
-            <p className={sectionLabelClass}>{eyebrow}</p>
+            <p className="text-xs font-medium text-ink-3">{eyebrow}</p>
             <h1 className={`mt-1 ${pageTitleClass}`}>{title}</h1>
-            {subtitle ? <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p> : null}
+            {subtitle ? <p className="mt-0.5 text-sm text-ink-3">{subtitle}</p> : null}
             {badges ? <div className="mt-2.5 flex flex-wrap items-center gap-2">{badges}</div> : null}
           </div>
         </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
+        {action ? <div className="min-w-0 max-w-full sm:shrink-0 [&>*]:flex-wrap">{action}</div> : null}
       </div>
 
-      {meta ? <div className="mt-6 border-t border-slate-100 pt-5">{meta}</div> : null}
+      {meta ? <div className="mt-6 border-t border-line pt-5">{meta}</div> : null}
+      </div>
     </div>
   );
 }

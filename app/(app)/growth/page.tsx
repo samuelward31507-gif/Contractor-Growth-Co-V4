@@ -9,6 +9,7 @@ import { metaClass } from "@/lib/ui/typography";
 import { buildReviewRows, buildReferralRows, isReviewResolvable, isReferralResolvable } from "./_components/rows";
 import { ReviewsSection } from "./_components/reviews-section";
 import { ReferralsSection } from "./_components/referrals-section";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 /**
  * Trackpr 2.0, Phase 3G: the real Growth surface, replacing the Phase 1
@@ -56,14 +57,13 @@ export default async function GrowthPage() {
   const hasActivity = reviewSummary.reviewsRequested > 0 || referralSummary.referralsRequested > 0;
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow="Operate"
         title="Reviews & Referrals"
         description="Turn completed jobs into reviews, referrals, and repeat business."
         badge={
           needsAttentionCount > 0 ? (
-            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium tabular-nums text-slate-600">{needsAttentionCount}</span>
+            <span className="inline-flex items-center rounded-full bg-inset px-2.5 py-0.5 text-xs font-medium tabular-nums text-ink-2">{needsAttentionCount}</span>
           ) : undefined
         }
       />
@@ -97,8 +97,14 @@ export default async function GrowthPage() {
         </p>
       ) : null}
 
-      <ReviewsSection rows={reviewRows} failed={reviewsResult.failed} />
-      <ReferralsSection rows={referralRows} failed={referralsResult.failed} />
+      {/* Trackpr 2.0 (step 2C): anchors for the Reviews and Referrals nav
+          entries (/growth#reviews, /growth#referrals) - two views of this one page. */}
+      <div id="reviews" className="scroll-mt-6">
+        <ReviewsSection rows={reviewRows} failed={reviewsResult.failed} />
+      </div>
+      <div id="referrals" className="scroll-mt-6">
+        <ReferralsSection rows={referralRows} failed={referralsResult.failed} />
+      </div>
     </div>
   );
 }

@@ -37,13 +37,13 @@ export function MoneyEntriesTable({ entries, emptyMessage }: { entries: MoneyTab
   if (entries.length === 0) {
     return (
       <div className={`mt-3 ${surfaceClass} px-6 py-10 text-center`}>
-        <p className="text-sm text-slate-500">{emptyMessage}</p>
+        <p className="text-sm text-ink-3">{emptyMessage}</p>
       </div>
     );
   }
 
   return (
-    <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="mt-3 overflow-hidden rounded-lg border border-line bg-surface">
       <Table columns={COLUMNS} className="px-3 pt-3">
         <TableHeadCell>Customer</TableHeadCell>
         <TableHeadCell align="right">Amount</TableHeadCell>
@@ -63,21 +63,21 @@ export function MoneyEntriesTable({ entries, emptyMessage }: { entries: MoneyTab
         ))}
       </TableBody>
 
-      <ul className="divide-y divide-slate-100 lg:hidden">
+      <ul className="divide-y divide-line lg:hidden">
         {entries.map((entry) => (
           <li key={entry.key}>
             <Link
               href={entry.personHref}
-              className="flex flex-col gap-1 px-4 py-3.5 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+              className="flex flex-col gap-1 px-4 py-3.5 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
             >
               <span className="flex items-center justify-between gap-3">
-                <span className="truncate text-sm font-medium text-slate-900">{entry.personName}</span>
-                {entry.money ? <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">{entry.money}</span> : null}
+                <span className="truncate text-sm font-medium text-ink">{entry.personName}</span>
+                {entry.money ? <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">{entry.money}</span> : null}
               </span>
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-ink-3">
                 {entry.status} · {entry.age}
               </span>
-              <span className="text-xs font-medium text-slate-600">{entry.nextStep}</span>
+              <span className="text-xs font-medium text-ink-2">{entry.nextStep}</span>
             </Link>
           </li>
         ))}

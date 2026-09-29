@@ -23,32 +23,32 @@ export function ClientRevenueTable({ clients }: { clients: ClientRevenueSummary[
       </div>
 
       {sorted.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">No managed clients yet.</p>
+        <p className="mt-3 text-sm text-ink-3">No managed clients yet.</p>
       ) : (
         <div className="mt-2 space-y-3">
           {sorted.map((client) => (
-            <div key={client.organizationId} className="rounded-lg border border-slate-200 px-5 py-4">
+            <div key={client.organizationId} className="rounded-lg border border-line px-5 py-4">
               <div className="flex items-center justify-between gap-3">
-                <Link href={`/agency/organizations/${client.organizationId}`} className="text-sm font-semibold text-slate-900 hover:underline">
+                <Link href={`/agency/organizations/${client.organizationId}`} className="text-sm font-semibold text-ink hover:underline">
                   {client.organizationName}
                 </Link>
                 <span className={metaClass}>{client.eventCount} event{client.eventCount === 1 ? "" : "s"}</span>
               </div>
               {client.eventCount === 0 ? (
-                <p className="mt-1.5 text-xs text-slate-400">No revenue events recorded in this period.</p>
+                <p className="mt-1.5 text-xs text-ink-3">No revenue events recorded in this period.</p>
               ) : (
                 <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs">
-                  <span className="text-slate-500">
-                    Collected <span className="ml-1 font-medium tabular-nums text-slate-800">{formatCurrencyAmounts(client.totals.collected)}</span>
+                  <span className="text-ink-3">
+                    Collected <span className="ml-1 font-medium tabular-nums text-ink">{formatCurrencyAmounts(client.totals.collected)}</span>
                   </span>
-                  <span className="text-slate-500">
-                    Refunded <span className="ml-1 font-medium tabular-nums text-slate-800">{formatCurrencyAmounts(client.totals.refunded)}</span>
+                  <span className="text-ink-3">
+                    Refunded <span className="ml-1 font-medium tabular-nums text-ink">{formatCurrencyAmounts(client.totals.refunded)}</span>
                   </span>
-                  <span className="text-slate-500">
-                    Net <span className="ml-1 font-medium tabular-nums text-slate-800">{formatCurrencyAmounts(client.totals.netCollected)}</span>
+                  <span className="text-ink-3">
+                    Net <span className="ml-1 font-medium tabular-nums text-ink">{formatCurrencyAmounts(client.totals.netCollected)}</span>
                   </span>
-                  <span className="text-slate-500">
-                    Failed attempts <span className="ml-1 font-medium tabular-nums text-slate-800">{formatCurrencyAmounts(client.totals.failedAttempted)}</span>
+                  <span className="text-ink-3">
+                    Failed attempts <span className="ml-1 font-medium tabular-nums text-ink">{formatCurrencyAmounts(client.totals.failedAttempted)}</span>
                   </span>
                 </div>
               )}

@@ -4,42 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeft, LayoutDashboard, TrendingUp, Activity, DollarSign, Receipt, LogOut } from "lucide-react";
 import { logout } from "@/app/(app)/actions";
+import { BrandMark } from "@/app/(app)/_components/sidebar-content";
 
 /**
- * Agency Command Center UI review: the Agency shell previously had no
- * sidebar at all (app/agency/layout.tsx rendered bare white content), so
- * navigating here from the client CRM's own "Agency Command Center" nav
- * link dropped the visual shell entirely. This mirrors
- * app/(app)/_components/sidebar-content.tsx's exact dark-surface language
- * (same bg, same radial glow, same brand lockup, same nav-link active/hover
- * treatment, same account footer) - it is not a new visual system, just the
- * same one used for an internal-operator context instead of a client
- * workspace. The "Back to Trackpr" link above it is a real, explicit route
- * to /dashboard (not browser back) - an agency admin reaching this shell
- * from the client CRM's own nav link needs an equally explicit way back, and
- * it is styled as a muted secondary action (matching the footer's own Log
- * out hover treatment) precisely so it never competes with the primary
- * destinations below it for visual weight.
- *
- * Trackpr Phase 5A: a second real destination (Expansion Intelligence,
- * /agency/expansion) was added alongside Overview, so this now needs actual
- * active-route detection instead of a single hardcoded aria-current="page" -
- * the only reason this file is a client component. No other behavior here
- * changed; client detail pages remain a drill-down from the client list,
- * never a sidebar destination of their own.
- *
- * Trackpr Phase 5B: a third destination (Client Usage, /agency/usage) added
- * the same way - no new logic, just one more entry in the same list the
- * active-route detection below already handles generically.
- *
- * Trackpr Phase 5D-1: a fourth destination (Revenue, /agency/revenue) added
- * the same way - without a nav entry the page would exist but be
- * unreachable from the Agency shell, which the task's own UI requirement
- * ("a real, reachable page") depends on.
- *
- * Trackpr Phase 5D-2: a fifth destination (Costs, /agency/costs) added the
- * same minimal way, for the same reachability reason - no other change to
- * this file.
+ * The Agency Command Center's navigation. Trackpr 2.0 (step 2G): the same
+ * light shell language as the client app's sidebar (app/(app)/_components/
+ * sidebar-content.tsx) - white surface, hairline edges, the small pine mark,
+ * quiet rows, a selected fill with a pine icon for the active page - so
+ * moving from a client workspace into Agency reads as the same product, an
+ * operator area of it rather than a different app. Routes, the explicit
+ * "Back to Trackpr" link, the admin label and logout are unchanged.
  */
 const NAV_ITEMS = [
   { href: "/agency", label: "Overview", icon: LayoutDashboard },
@@ -48,6 +22,9 @@ const NAV_ITEMS = [
   { href: "/agency/revenue", label: "Revenue", icon: DollarSign },
   { href: "/agency/costs", label: "Costs", icon: Receipt },
 ] as const;
+
+const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
+const ROW = `group/nav flex min-h-11 w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors duration-150 lg:min-h-8 ${FOCUS_RING}`;
 
 export function AgencySidebarContent({
   userEmail,
@@ -61,57 +38,34 @@ export function AgencySidebarContent({
   const pathname = usePathname();
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0a120f]">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_40%_at_50%_-15%,rgba(16,185,129,0.10),transparent)]"
-      />
-
-      <div className="relative flex items-center gap-2.5 px-5 pb-4 pt-6">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-500 text-sm font-bold text-slate-950">
-          T
-        </span>
-        <div className="min-w-0">
-          <span className="block text-[15px] font-semibold leading-tight tracking-tight text-white">Trackpr</span>
-          <p className="truncate text-[12px] font-semibold uppercase tracking-[0.02em] text-emerald-400/80">
-            Contractor Growth Co.
-          </p>
+    <div className="flex h-full w-full flex-col bg-surface">
+      <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-4">
+        <BrandMark />
+        <div className="min-w-0 leading-tight">
+          <p className="text-[13px] font-semibold text-ink">Trackpr</p>
+          <p className="truncate text-[11.5px] text-ink-3">Agency Command Center</p>
         </div>
       </div>
 
-      <div className="relative mx-4 mb-3 flex items-center gap-2 truncate rounded-lg bg-white/[0.04] px-3 py-2 ring-1 ring-inset ring-white/[0.07]">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden />
-        <p className="truncate text-xs font-medium text-slate-300">Agency Command Center</p>
-      </div>
+      <nav aria-label="Agency" className="flex-1 overflow-y-auto px-2 py-3">
+        <Link href="/today" onClick={onNavigate} className={`${ROW} text-ink-2 hover:bg-hover hover:text-ink`}>
+          <ArrowLeft className="h-4 w-4 shrink-0 text-ink-3" strokeWidth={1.75} aria-hidden />
+          <span className="truncate">Back to Trackpr</span>
+        </Link>
 
-      <nav className="relative flex-1 space-y-6 overflow-y-auto px-3 pb-4">
-        <div className="space-y-0.5">
-          <Link
-            href="/today"
-            onClick={onNavigate}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white"
-          >
-            <ArrowLeft className="h-[18px] w-[18px] shrink-0 text-slate-500" aria-hidden />
-            <span className="truncate">Back to Trackpr</span>
-          </Link>
-        </div>
-
-        <div className="space-y-0.5">
+        <p className="mb-1 mt-4 px-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3">Agency</p>
+        <div className="space-y-px">
           {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-            const active = href === "/agency" ? pathname === "/agency" : pathname?.startsWith(href);
+            const active = href === "/agency" ? pathname === "/agency" || pathname.startsWith("/agency/organizations") : pathname?.startsWith(href);
             return (
               <Link
                 key={href}
                 href={href}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
-                  active
-                    ? "bg-emerald-500/[0.14] font-semibold text-white ring-1 ring-inset ring-emerald-500/25"
-                    : "text-slate-400 hover:bg-white/[0.05] hover:text-white"
-                }`}
+                className={`${ROW} ${active ? "bg-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
               >
-                <Icon className={`h-[18px] w-[18px] shrink-0 ${active ? "text-emerald-400" : "text-slate-500"}`} aria-hidden />
+                <Icon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-ink-3 group-hover/nav:text-ink-2"}`} strokeWidth={1.75} aria-hidden />
                 <span className="truncate">{label}</span>
               </Link>
             );
@@ -119,22 +73,21 @@ export function AgencySidebarContent({
         </div>
       </nav>
 
-      <div className="relative border-t border-white/[0.07] p-3">
-        <div className="flex items-center gap-3 px-2 py-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-semibold text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+      <div className="border-t border-line px-2 py-2">
+        <div className="flex items-center gap-2.5 px-2.5 py-1.5">
+          <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-inset text-[11px] font-semibold text-ink-2">
             {userEmail.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-white">{userEmail}</p>
-            <p className="text-xs text-slate-500">{isAdmin ? "Agency admin" : "Not an agency admin"}</p>
+          </span>
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="truncate text-[13px] font-medium text-ink" title={userEmail}>
+              {userEmail}
+            </p>
+            <p className="text-[11.5px] text-ink-3">{isAdmin ? "Agency admin" : "Not an agency admin"}</p>
           </div>
         </div>
-        <form action={logout} className="mt-1">
-          <button
-            type="submit"
-            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white"
-          >
-            <LogOut className="h-[18px] w-[18px] shrink-0 text-slate-500" aria-hidden />
+        <form action={logout}>
+          <button type="submit" className={`${ROW} text-ink-2 hover:bg-hover hover:text-ink`}>
+            <LogOut className="h-4 w-4 shrink-0 text-ink-3" strokeWidth={1.75} aria-hidden />
             Log out
           </button>
         </form>

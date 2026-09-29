@@ -23,14 +23,14 @@ export function MoneyTabs({ active }: { active: MoneyTab }) {
   ];
 
   return (
-    <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 sm:w-fit" role="group" aria-label="Money view">
+    <div className="inline-flex gap-0.5 rounded-md bg-inset p-0.5" role="group" aria-label="Money view">
       {items.map((item) => (
         <Link
           key={item.value}
           href={item.href}
           aria-pressed={active === item.value}
-          className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
-            active === item.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
+          className={`inline-flex min-h-11 items-center rounded-[5px] px-3 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:min-h-7 ${
+            active === item.value ? "bg-surface text-ink shadow-[0_1px_2px_rgba(23,25,26,0.08)]" : "text-ink-3 hover:text-ink"
           }`}
         >
           {item.label}

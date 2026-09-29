@@ -31,6 +31,7 @@ import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { InvoiceMoneySummaryCards } from "../invoices/_components/invoice-money-summary";
 import { InvoicesTable } from "../invoices/_components/invoices-table";
 import { InvoicesToolbar } from "../invoices/_components/invoices-toolbar";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 function totalsLine(entries: MoneyEntry[]): string {
   if (entries.length === 0) return "";
@@ -129,7 +130,7 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
   const hasActiveJobFilters = Boolean(query.trim()) || jobStatus !== "all";
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className={pageTitleClass}>Money</h1>
@@ -166,7 +167,7 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
 
           <div>
             <p className={sectionLabelClass}>Invoices &amp; payments</p>
-            <p className="mt-1 text-xs text-slate-500">Invoiced and outstanding are amounts asked for. Collected is money actually received - the only figure here that is.</p>
+            <p className="mt-1 text-xs text-ink-3">Invoiced and outstanding are amounts asked for. Collected is money actually received - the only figure here that is.</p>
             <div className="mt-3">
               <InvoiceMoneySummaryCards summary={invoiceSummary} />
             </div>
@@ -194,9 +195,9 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
           <InvoiceMoneySummaryCards summary={invoiceSummary} />
           {allInvoices.length === 0 ? (
             <Panel>
-              <p className="text-sm font-semibold text-slate-900">No invoices yet</p>
-              <p className="mt-1 text-sm text-slate-500">Open a job and choose Create invoice. It starts as a draft you can review before issuing.</p>
-              <Link href="/money?browse=jobs&status=completed" className="mt-3 inline-block text-sm font-medium text-slate-900 hover:underline">
+              <p className="text-sm font-semibold text-ink">No invoices yet</p>
+              <p className="mt-1 text-sm text-ink-3">Open a job and choose Create invoice. It starts as a draft you can review before issuing.</p>
+              <Link href="/money?browse=jobs&status=completed" className="mt-3 inline-block text-sm font-medium text-ink hover:underline">
                 See completed jobs
               </Link>
             </Panel>

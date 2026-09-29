@@ -49,8 +49,8 @@ export function EnableToggle({ automationId, enabled }: { automationId: string; 
           disabled={isPending}
           className={
             enabled
-              ? "rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40"
-              : "rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-900/10 disabled:cursor-not-allowed disabled:opacity-40"
+              ? "rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10 disabled:cursor-not-allowed disabled:opacity-40"
+              : "rounded-lg border border-accent-border bg-accent-muted px-3 py-1.5 text-xs font-medium text-accent-text transition-colors hover:bg-accent-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
           }
         >
           {isPending ? "Saving…" : confirming ? "Confirm disable?" : enabled ? "Disable" : "Enable"}
@@ -60,16 +60,16 @@ export function EnableToggle({ automationId, enabled }: { automationId: string; 
             type="button"
             onClick={() => setConfirming(false)}
             disabled={isPending}
-            className="rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
+            className="rounded-lg px-2 py-1.5 text-xs font-medium text-ink-3 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10"
           >
             Cancel
           </button>
         ) : null}
       </div>
       {confirming ? (
-        <p className="text-xs text-slate-500">New events won&apos;t be created, but anything already in progress will still finish.</p>
+        <p className="text-xs text-ink-3">New events won&apos;t be created, but anything already in progress will still finish.</p>
       ) : null}
-      {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      {error ? <p className="text-xs text-danger">{error}</p> : null}
     </div>
   );
 }

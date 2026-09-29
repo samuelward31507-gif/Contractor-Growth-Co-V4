@@ -21,15 +21,15 @@ export function RecentExecutions({ executions, retrySupported }: { executions: A
     return (
       <EmptyState
         icon={History}
-        title="No executions yet"
+        title="No runs yet"
         description="This automation is configured but hasn't processed any events yet. Activity will show up here as soon as it runs."
       />
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <ul className="divide-y divide-slate-100">
+    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+      <ul className="divide-y divide-line">
         {executions.map((execution) => (
           <ExecutionRow key={execution.id} execution={execution} retrySupported={retrySupported} />
         ))}

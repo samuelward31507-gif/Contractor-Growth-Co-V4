@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getStripeClient } from "@/lib/billing/stripe";
 import { activateOrganizationPayment, suspendOrganizationPayment, cancelOrganizationPayment } from "@/lib/billing/activation";
+import { isTrackprSubscriptionCheckout } from "@/lib/billing/subscription-checkout";
 
 /**
  * Payment Gate V1 + Subscription Lifecycle Hardening - Stripe's
@@ -265,6 +266,17 @@ export async function POST(request: NextRequest) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
+
+    // Phase 1C, Step 1: only Trackpr's own subscription checkout (subscription
+    // mode, platform account) may activate an organization. A payment-mode
+    // session - e.g. a contractor's customer paying an invoice - or any event
+    // from a connected account is acknowledged and ignored here, never
+    // allowed to touch payment_status or the stored Stripe identifiers. See
+    // lib/billing/subscription-checkout.ts.
+    if (!isTrackprSubscriptionCheckout({ account: event.account, session })) {
+      return NextResponse.json({ ok: true, ignored: "not_trackpr_subscription_checkout" }, { status: 200 });
+    }
+
     const organizationId = session.client_reference_id ?? (session.metadata?.organization_id as string | undefined);
 
     if (!organizationId) {

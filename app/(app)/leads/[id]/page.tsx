@@ -46,6 +46,7 @@ import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointm
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
 import { LeadActions } from "./_components/lead-actions";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [item.value, item.label]));
 
@@ -95,13 +96,13 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
 
   if (!lead) {
     return (
-      <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
         <EmptyState
           icon={FileSearch}
           title="Lead not found"
           description="This lead may have been deleted, or the link is incorrect."
           action={
-            <Link href="/leads" className="text-sm font-medium text-slate-900 hover:underline">
+            <Link href="/leads" className="text-sm font-medium text-ink hover:underline">
               Back to Leads
             </Link>
           }
@@ -273,7 +274,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
         backHref="/leads"
         backLabel="Back to Leads"
         avatar={
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-100 text-base font-medium text-slate-600 ring-1 ring-inset ring-slate-200">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-inset text-base font-medium text-ink-2 ring-1 ring-inset ring-line">
             {lead.contact ? contactInitials(lead.contact) : "?"}
           </span>
         }
@@ -290,39 +291,39 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
         action={<LeadActions lead={lead} contacts={contacts} vertical={membership.vertical} />}
         meta={
           <div>
-            <p className="text-[12.5px] font-medium text-slate-500">Estimated value</p>
-            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
+            <p className="text-xs font-medium text-ink-3">Estimated value</p>
+            <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-ink">
               {lead.estimated_value != null ? formatCurrency(lead.estimated_value) : "—"}
             </p>
           </div>
         }
       />
 
-      <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
         {/* WHAT HAPPENS NEXT - the single most actionable fact on this page,
             derived only from real lead/appointment/estimate/conversation
             state (see the priority chain above) - never invented. */}
         {nextStep ? (
           <div
-            className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-5 py-4 ${
-              nextStep.attention ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"
+            className={`flex flex-wrap items-center justify-between gap-4 rounded-lg border px-5 py-4 ${
+              nextStep.attention ? "border-warning-border bg-warning-muted" : "border-line bg-surface"
             }`}
           >
             <div className="flex items-center gap-3">
               <span
                 className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-                  nextStep.attention ? "bg-amber-100 text-amber-700" : "bg-accent-muted text-accent-text"
+                  nextStep.attention ? "bg-warning-muted text-warning-text" : "bg-accent-muted text-accent-text"
                 }`}
               >
                 {nextStep.attention ? <AlertCircle className="h-4 w-4" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
               </span>
               <div>
-                <p className="text-[12.5px] font-medium text-slate-500">What happens next</p>
-                <p className="text-sm font-semibold text-slate-900">{nextStep.label}</p>
-                {nextStep.detail ? <p className="text-xs text-slate-500">{nextStep.detail}</p> : null}
+                <p className="text-xs font-medium text-ink-3">What happens next</p>
+                <p className="text-sm font-semibold text-ink">{nextStep.label}</p>
+                {nextStep.detail ? <p className="text-xs text-ink-3">{nextStep.detail}</p> : null}
               </div>
             </div>
-            <Link href={nextStep.href} className="shrink-0 text-sm font-medium text-slate-900 hover:underline">
+            <Link href={nextStep.href} className="shrink-0 text-sm font-medium text-ink hover:underline">
               View
             </Link>
           </div>
@@ -333,22 +334,22 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
           <div className="flex flex-col gap-6 lg:col-span-2">
             <SectionCard title="What happened" description="Everything that's happened on this opportunity, most recent first.">
               {timeline.length === 0 ? (
-                <p className="text-sm text-slate-500">No activity recorded yet.</p>
+                <p className="text-sm text-ink-3">No activity recorded yet.</p>
               ) : (
-                <ul className="divide-y divide-slate-100">
+                <ul className="divide-y divide-line">
                   {timeline.map((event) => {
                     const EventIcon = event.icon;
                     return (
                       <li key={event.id} className="flex items-start gap-3 py-2.5">
-                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-inset text-ink-3">
                           <EventIcon className="h-3.5 w-3.5" aria-hidden />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex items-baseline justify-between gap-3">
-                            <span className="text-sm font-medium text-slate-900">{event.label}</span>
-                            <span className="shrink-0 text-xs tabular-nums text-slate-400">{formatRelativeTime(event.at)}</span>
+                            <span className="text-sm font-medium text-ink">{event.label}</span>
+                            <span className="shrink-0 text-xs tabular-nums text-ink-3">{formatRelativeTime(event.at)}</span>
                           </span>
-                          {event.detail ? <span className="block truncate text-xs text-slate-500">{event.detail}</span> : null}
+                          {event.detail ? <span className="block truncate text-xs text-ink-3">{event.detail}</span> : null}
                         </span>
                       </li>
                     );
@@ -359,7 +360,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
 
             <SectionCard title="Conversation" description="Customer communication for this lead." icon={MessagesSquare}>
               {conversations.length === 0 ? (
-                <p className="text-sm text-slate-500">No conversation yet for this lead.</p>
+                <p className="text-sm text-ink-3">No conversation yet for this lead.</p>
               ) : (
                 <div className="space-y-4">
                   {conversations.slice(0, 1).map((conversation) => {
@@ -374,15 +375,15 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                               {conversation.status === "open" ? "Open" : "Closed"}
                             </Badge>
                             {!conversation.ai_enabled ? <Badge tone="warning">Waiting on you</Badge> : null}
-                            <span className="text-xs text-slate-400">{CHANNEL_LABEL[conversation.channel] ?? conversation.channel}</span>
+                            <span className="text-xs text-ink-3">{CHANNEL_LABEL[conversation.channel] ?? conversation.channel}</span>
                           </div>
-                          <Link href={`/conversations/${conversation.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                          <Link href={`/conversations/${conversation.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
                             View full conversation
                           </Link>
                         </div>
                         {latestMessage ? (
-                          <div className="mt-3 rounded-lg bg-slate-50 px-4 py-3">
-                            <p className="text-xs font-medium text-slate-500">
+                          <div className="mt-3 rounded-lg bg-canvas px-4 py-3">
+                            <p className="text-xs font-medium text-ink-3">
                               {latestMessage.direction === "inbound"
                                 ? "Customer"
                                 : latestMessage.sender_type === "ai"
@@ -390,16 +391,16 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                                   : "You"}{" "}
                               · {formatRelativeTime(latestMessage.created_at)}
                             </p>
-                            <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{latestMessage.body}</p>
+                            <p className="mt-1 whitespace-pre-wrap text-sm text-ink-2">{latestMessage.body}</p>
                           </div>
                         ) : (
-                          <p className="mt-3 text-sm text-slate-500">No messages yet in this conversation.</p>
+                          <p className="mt-3 text-sm text-ink-3">No messages yet in this conversation.</p>
                         )}
                       </div>
                     );
                   })}
                   {conversations.length > 1 ? (
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-ink-3">
                       Plus {conversations.length - 1} earlier conversation{conversations.length - 1 === 1 ? "" : "s"} for this lead.
                     </p>
                   ) : null}
@@ -412,18 +413,18 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                 <div>
                   <h3 className={sectionLabelClass}>Appointments</h3>
                   {appointments.length === 0 ? (
-                    <p className="mt-2 text-sm text-slate-500">No appointments scheduled for this lead.</p>
+                    <p className="mt-2 text-sm text-ink-3">No appointments scheduled for this lead.</p>
                   ) : (
-                    <ul className="mt-1 divide-y divide-slate-100">
+                    <ul className="mt-1 divide-y divide-line">
                       {appointments.map((appointment) => (
                         <li key={appointment.id}>
                           <Link
                             href={`/appointments/${appointment.id}`}
-                            className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                            className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-ink"
                           >
                             <span className="min-w-0">
-                              <span className="block truncate font-medium text-slate-900">{appointment.title}</span>
-                              <span className="block text-xs text-slate-500">
+                              <span className="block truncate font-medium text-ink">{appointment.title}</span>
+                              <span className="block text-xs text-ink-3">
                                 {formatAppointmentDate(appointment.start_at, timeZone)} ·{" "}
                                 {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
                               </span>
@@ -441,21 +442,21 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                 <div>
                   <h3 className={sectionLabelClass}>Estimates</h3>
                   {estimates.length === 0 ? (
-                    <p className="mt-2 text-sm text-slate-500">No estimates prepared for this lead yet.</p>
+                    <p className="mt-2 text-sm text-ink-3">No estimates prepared for this lead yet.</p>
                   ) : (
-                    <ul className="mt-1 divide-y divide-slate-100">
+                    <ul className="mt-1 divide-y divide-line">
                       {estimates.map((estimate) => (
                         <li key={estimate.id}>
                           <Link
                             href={`/estimates/${estimate.id}`}
-                            className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                            className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-ink"
                           >
                             <span className="min-w-0">
-                              <span className="block truncate font-medium text-slate-900">{estimate.title}</span>
-                              <span className="block text-xs text-slate-500">{formatContactDate(estimate.created_at)}</span>
+                              <span className="block truncate font-medium text-ink">{estimate.title}</span>
+                              <span className="block text-xs text-ink-3">{formatContactDate(estimate.created_at)}</span>
                             </span>
                             <span className="flex items-center gap-2">
-                              <span className="text-sm font-medium tabular-nums text-slate-700">
+                              <span className="text-sm font-medium tabular-nums text-ink-2">
                                 {estimate.amount != null ? formatCurrency(estimate.amount) : "—"}
                               </span>
                               <Badge tone={ESTIMATE_STATUS_TONE[estimate.status]} icon={ESTIMATE_STATUS_ICON[estimate.status]}>
@@ -474,14 +475,14 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                   {job ? (
                     <Link
                       href={`/jobs/${job.id}`}
-                      className="mt-1 flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900"
+                      className="mt-1 flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-ink"
                     >
                       <span className="min-w-0">
-                        <span className="block truncate font-medium text-slate-900">{job.title}</span>
-                        <span className="block text-xs text-slate-500">{formatContactDate(job.created_at)}</span>
+                        <span className="block truncate font-medium text-ink">{job.title}</span>
+                        <span className="block text-xs text-ink-3">{formatContactDate(job.created_at)}</span>
                       </span>
                       <span className="flex items-center gap-2">
-                        <span className="text-sm font-medium tabular-nums text-slate-700">
+                        <span className="text-sm font-medium tabular-nums text-ink-2">
                           {job.amount != null ? formatCurrency(job.amount) : "—"}
                         </span>
                         <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
@@ -490,7 +491,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                       </span>
                     </Link>
                   ) : (
-                    <p className="mt-2 text-sm text-slate-500">No job created for this lead yet.</p>
+                    <p className="mt-2 text-sm text-ink-3">No job created for this lead yet.</p>
                   )}
                 </div>
               </div>
@@ -505,7 +506,7 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
               <SectionCard
                 title="Contact"
                 action={
-                  <Link href={`/people/${lead.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                  <Link href={`/people/${lead.contact.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
                     View contact
                   </Link>
                 }
@@ -557,12 +558,12 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                   {lead.ai_summary ? (
                     <div>
                       <dt className={detailLabelClass}>Summary</dt>
-                      <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{lead.ai_summary}</dd>
+                      <dd className="mt-1 whitespace-pre-wrap text-sm text-ink-2">{lead.ai_summary}</dd>
                     </div>
                   ) : null}
                 </div>
               ) : (
-                <p className="text-sm text-slate-500">Not analyzed yet.</p>
+                <p className="text-sm text-ink-3">Not analyzed yet.</p>
               )}
             </SectionCard>
           </div>

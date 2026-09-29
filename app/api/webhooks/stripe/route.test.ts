@@ -106,6 +106,9 @@ function checkoutCompletedPayload(orgId: string) {
       object: {
         id: `cs_test_${orgId}`,
         object: "checkout.session",
+        // Phase 1C, Step 1: the webhook only activates subscription-mode
+        // sessions - the real shape createOrganizationCheckoutSession creates.
+        mode: "subscription",
         client_reference_id: orgId,
         metadata: { organization_id: orgId },
       },

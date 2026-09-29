@@ -22,11 +22,11 @@ export const HEALTH_STATUS_BADGE: Record<OrganizationHealthSummary["status"], { 
 };
 
 const STATUS_STYLE: Record<OrganizationHealthSummary["status"], { ring: string; iconBg: string; iconText: string }> = {
-  healthy: { ring: "ring-emerald-100", iconBg: "bg-emerald-50", iconText: "text-emerald-600" },
-  degraded: { ring: "ring-amber-100", iconBg: "bg-amber-50", iconText: "text-amber-600" },
-  unhealthy: { ring: "ring-red-100", iconBg: "bg-red-50", iconText: "text-red-600" },
-  paused: { ring: "ring-slate-200", iconBg: "bg-slate-100", iconText: "text-slate-600" },
-  payment_blocked: { ring: "ring-red-100", iconBg: "bg-red-50", iconText: "text-red-600" },
+  healthy: { ring: "border-accent-border", iconBg: "bg-accent-muted", iconText: "text-accent" },
+  degraded: { ring: "border-warning-border", iconBg: "bg-warning-muted", iconText: "text-warning" },
+  unhealthy: { ring: "border-danger-border", iconBg: "bg-danger-muted", iconText: "text-danger" },
+  paused: { ring: "border-line", iconBg: "bg-inset", iconText: "text-ink-2" },
+  payment_blocked: { ring: "border-danger-border", iconBg: "bg-danger-muted", iconText: "text-danger" },
 };
 
 function formatCount(value: number): string {
@@ -64,37 +64,37 @@ export function HealthSummaryCards({ health, activeAutomationCount }: { health: 
 
   const detail: { key: string; label: string; value: string; alert: boolean }[] = [
     { key: "automations", label: "Active automations", value: formatCount(activeAutomationCount), alert: false },
-    { key: "active", label: "Active incidents", value: formatCount(health.activeIncidentCount), alert: health.activeIncidentCount > 0 },
+    { key: "active", label: "Open issues", value: formatCount(health.activeIncidentCount), alert: health.activeIncidentCount > 0 },
     { key: "critical", label: "Critical", value: formatCount(health.criticalIncidentCount), alert: health.criticalIncidentCount > 0 },
     { key: "warning", label: "Warning", value: formatCount(health.warningIncidentCount), alert: health.warningIncidentCount > 0 },
-    { key: "stuck", label: "Stuck executions", value: formatCount(health.stuckExecutionCount), alert: health.stuckExecutionCount > 0 },
-    { key: "delivery", label: "SMS delivery failures", value: formatCount(health.smsDeliveryFailureCount), alert: health.smsDeliveryFailureCount > 0 },
+    { key: "stuck", label: "Running late", value: formatCount(health.stuckExecutionCount), alert: health.stuckExecutionCount > 0 },
+    { key: "delivery", label: "Undelivered messages", value: formatCount(health.smsDeliveryFailureCount), alert: health.smsDeliveryFailureCount > 0 },
   ];
 
   return (
-    <div className={`grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-5 ring-4 sm:p-6 lg:grid-cols-[auto_1fr] lg:items-center lg:gap-8 ${style.ring}`}>
+    <div className={`grid grid-cols-1 gap-4 rounded-lg border bg-surface p-5 sm:p-6 lg:grid-cols-[auto_1fr] lg:items-center lg:gap-8 ${style.ring}`}>
       <div className="flex items-center gap-4">
-        <span className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${style.iconBg} ${style.iconText}`}>
-          <StatusIcon className="h-7 w-7" aria-hidden />
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${style.iconBg} ${style.iconText}`}>
+          <StatusIcon className="h-5 w-5" aria-hidden />
         </span>
         <div>
-          <p className="text-2xl font-bold tracking-tight text-slate-900">{statusBadge.label}</p>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Success rate (30d): <span className="font-medium text-slate-700">{formatRate(health.automationSuccessRate)}</span>
+          <p className="text-[22px] font-semibold leading-tight tracking-[-0.02em] text-ink">{statusBadge.label}</p>
+          <p className="mt-0.5 text-sm text-ink-3">
+            Success rate (30d): <span className="font-medium text-ink-2">{formatRate(health.automationSuccessRate)}</span>
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-3 border-t border-slate-100 pt-4 sm:grid-cols-3 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 border-t border-line pt-4 sm:grid-cols-3 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
         {detail.map((item) => (
           <div key={item.key}>
-            <p className="text-xs text-slate-500">{item.label}</p>
-            <p className={`mt-0.5 text-lg font-semibold tabular-nums ${item.alert ? "text-red-600" : "text-slate-900"}`}>{item.value}</p>
+            <p className="text-xs text-ink-3">{item.label}</p>
+            <p className={`mt-0.5 text-lg font-semibold tabular-nums ${item.alert ? "text-danger" : "text-ink"}`}>{item.value}</p>
           </div>
         ))}
         <div>
-          <p className="text-xs text-slate-500">Last success</p>
-          <p className="mt-0.5 truncate text-sm font-medium text-slate-700">{formatRelative(health.lastSuccessfulActivityAt)}</p>
+          <p className="text-xs text-ink-3">Last success</p>
+          <p className="mt-0.5 truncate text-sm font-medium text-ink-2">{formatRelative(health.lastSuccessfulActivityAt)}</p>
         </div>
       </div>
     </div>

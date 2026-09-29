@@ -1,90 +1,61 @@
-// Focus state uses the same accent (emerald) tokens as every button tier -
-// every text input, select, and search field in the app shares this class,
-// so a generic slate/black focus ring here was the one place a user's own
-// cursor never met the brand color, in a product whose buttons, active nav
-// state, and hero glow all do.
+// Trackpr 2.0 design system (step 2A): every form control and button tier in
+// the app, built from a few shared parts so a size, radius, focus or disabled
+// rule is decided once. Export names are unchanged - the 80+ importing files
+// inherit the new system without per-page edits.
+//
+// The system:
+//   - Size: 36px on desktop (min-h-9), a 44px touch floor on mobile
+//     (min-h-11 below `sm`) - Apple/Google's recommended minimum. Small
+//     buttons are 32px on desktop, still 44px to the touch.
+//   - Radius: 6px (rounded-md) for every control; cards/panels use 8px.
+//   - Color: the pine accent marks the one primary action per screen or
+//     dialog. Secondary is a white control with the strong hairline; ghost is
+//     text that gains a quiet fill on hover. Destructive is the only red.
+//   - States: hover darkens or fills quietly, press darkens one more step,
+//     focus shows a ring for keyboard focus only (`focus-visible`), disabled
+//     is a plain 50% fade - no off-palette tints.
+
+const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1";
+const DISABLED = "disabled:cursor-not-allowed disabled:opacity-50";
+const TRANSITION = "transition-colors duration-150";
+const SIZE_MD = "min-h-11 px-3.5 py-2 text-sm sm:min-h-9";
+const SIZE_SM = "min-h-11 px-2.5 py-1.5 text-xs sm:min-h-8";
+const BASE = `inline-flex items-center justify-center gap-1.5 rounded-md font-medium ${TRANSITION} ${FOCUS_RING} ${DISABLED}`;
+
+const PRIMARY = `bg-accent text-accent-foreground hover:bg-accent-strong active:bg-accent-strong focus-visible:ring-accent/40`;
+const SECONDARY = `border border-line-strong bg-surface text-ink hover:bg-hover active:bg-selected focus-visible:ring-ink/15`;
+const GHOST = `text-ink-2 hover:bg-hover hover:text-ink active:bg-selected focus-visible:ring-ink/15`;
+const DESTRUCTIVE = `bg-danger text-danger-foreground hover:bg-danger-strong active:bg-danger-strong focus-visible:ring-danger/40`;
+const DESTRUCTIVE_GHOST = `text-danger hover:bg-danger-muted active:bg-danger-muted focus-visible:ring-danger/30`;
+
+// Inputs, selects, textareas and search fields. Focus meets the accent, the
+// same color every primary action uses, so a user's own cursor is always
+// on-brand. min-h rather than h, so textareas keep growing.
 export const inputClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  "w-full min-h-11 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-4 transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:cursor-not-allowed disabled:bg-inset disabled:text-ink-3 sm:min-h-9";
 
-export const labelClass = "text-sm font-medium text-slate-700";
+export const labelClass = "text-sm font-medium text-ink-2";
 
-// Trackpr visual-system redesign: the app's primary-action tier is now the
-// same emerald accent the Contractor Growth Co. marketing site uses for its
-// own primary CTAs ("Get Started") - previously near-black, matching a
-// design philosophy from an earlier pass that reserved emerald for a single
-// "activate"-type action per page (see the now-legacy accentButtonAutoClass
-// below). That philosophy is superseded here: green communicates primary
-// actions app-wide, exactly one per screen/dialog at a time (a Save, a
-// Send, an Add) - secondary/ghost/destructive stay neutral or red, so nothing
-// competes with it. This single change cascades to every route that already
-// imports primaryButtonClass/primaryButtonAutoClass/primaryButtonSmallClass
-// (dialogs, forms, detail-page actions across leads/contacts/appointments/
-// estimates/jobs/settings) rather than needing a per-page edit.
-// Trackpr 2.0, Phase 3A: every button tier below gained a `focus-visible`
-// ring (keyboard/assistive-tech focus only - never shown on a mouse click,
-// via the `:focus-visible` pseudo-class Tailwind's `focus-visible:` variant
-// maps to) - previously none of these five tiers had any custom focus
-// state at all, relying solely on the browser's own default outline, which
-// varies by browser and is easy to miss against a colored button fill.
-// Ring color matches each tier's own semantic color.
-// Phase 1 (components pass): min-h-[52px] on mobile only (sm:min-h-0 lets
-// desktop keep its existing compact py-2.5 sizing, where a mouse pointer
-// doesn't need the same touch-target floor) - Apple/Google both recommend
-// a 44px floor for a touch target; 52px gives real margin above that for
-// the primary action specifically.
-export const primaryButtonClass =
-  "inline-flex w-full min-h-[52px] items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300 sm:min-h-0";
+// The one primary action per screen/dialog (Save, Send, Add). Full-width
+// variant for stacked forms and dialogs; Auto for inline placement.
+export const primaryButtonClass = `${BASE} ${SIZE_MD} w-full ${PRIMARY}`;
+export const primaryButtonAutoClass = `${BASE} ${SIZE_MD} ${PRIMARY}`;
 
-// Same treatment as primaryButtonClass without the forced full width, for
-// buttons placed inline (e.g. a right-aligned section "Save" action) rather
-// than filling a dialog.
-export const primaryButtonAutoClass =
-  "inline-flex min-h-[52px] items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300 sm:min-h-0";
+export const errorBannerClass = "rounded-md border border-danger-border bg-danger-muted px-3.5 py-2.5 text-sm text-danger-text";
+export const successBannerClass = "rounded-md border border-accent-border bg-accent-muted px-3.5 py-2.5 text-sm text-accent-text";
 
-export const errorBannerClass =
-  "rounded-lg border border-danger-border bg-danger-muted px-3.5 py-2.5 text-sm text-danger-text";
+// Legacy name kept for existing callers - identical to primaryButtonAutoClass
+// since the accent became the app-wide primary color.
+export const accentButtonAutoClass = `${BASE} ${SIZE_MD} ${PRIMARY}`;
 
-export const successBannerClass =
-  "rounded-lg border border-accent-border bg-accent-muted px-3.5 py-2.5 text-sm text-accent-text";
+export const secondaryButtonClass = `${BASE} ${SIZE_MD} w-full ${SECONDARY}`;
+export const secondaryButtonAutoClass = `${BASE} ${SIZE_MD} ${SECONDARY}`;
 
-// Legacy alias, identical to primaryButtonAutoClass now that primary IS the
-// accent tier (see that constant's comment) - kept so any existing import
-// keeps working unchanged. Prefer primaryButtonAutoClass in new code.
-export const accentButtonAutoClass =
-  "inline-flex min-h-[52px] items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300 sm:min-h-0";
+export const ghostButtonClass = `${BASE} ${SIZE_MD} ${GHOST}`;
 
-// Premium-polish pass: the button hierarchy every route should reach for
-// instead of hand-rolling its own "secondary"/"destructive" button classes
-// (review-referral-panel.tsx, several dialogs, etc. each had their own
-// near-identical copy). Four tiers - primary, secondary, ghost (tertiary),
-// destructive - so a page never lets every button compete for attention;
-// each has a `*AutoClass` variant (inline width) alongside the full-width
-// default used by single-action dialogs/forms.
-export const secondaryButtonClass =
-  "inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+export const destructiveButtonAutoClass = `${BASE} ${SIZE_MD} ${DESTRUCTIVE}`;
+export const destructiveGhostButtonAutoClass = `${BASE} ${SIZE_MD} ${DESTRUCTIVE_GHOST}`;
 
-export const secondaryButtonAutoClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
-
-/** Tertiary - no border/fill until hovered. For low-emphasis actions (Cancel, Clear filters) that must never visually compete with a primary/secondary action beside them. */
-export const ghostButtonClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
-
-export const destructiveButtonAutoClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-danger px-4 py-2.5 text-sm font-semibold text-danger-foreground transition-colors hover:bg-danger-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-red-300";
-
-export const destructiveGhostButtonAutoClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
-
-// Compact variants for dense inline contexts (a detail-page action row, a
-// table row's actions) where the full py-2.5 buttons above are too tall.
-// Phase 1 (components pass): min-h-[44px] - the tier used to be ~32px
-// tall (py-1.5 + text-xs), well under Apple/Google's shared 44px touch-
-// target floor. The visible padding/text size are unchanged; only the
-// minimum hit area grows, via min-height rather than more padding, so
-// dense contexts don't get visually bulkier than the plan calls for.
-export const primaryButtonSmallClass =
-  "inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300";
-
-export const secondaryButtonSmallClass =
-  "inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+// Compact tiers for dense rows and inline row actions.
+export const primaryButtonSmallClass = `${BASE} ${SIZE_SM} ${PRIMARY}`;
+export const secondaryButtonSmallClass = `${BASE} ${SIZE_SM} ${SECONDARY}`;

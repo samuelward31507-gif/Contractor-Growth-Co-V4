@@ -5,7 +5,7 @@ import type { ReviewRequest, ReferralRequest } from "@/lib/reviews-referrals/que
 
 /** Mirrors lib/ui/badge.tsx's own light-surface TONE_CLASS exactly (not exported there) - the same icon-chip background/text pairing app/(app)/opportunities/_components/opportunities-list.tsx already uses for its own row icon chip. */
 export const TONE_CHIP_STYLE: Record<BadgeTone, string> = {
-  neutral: "bg-slate-100 text-slate-600",
+  neutral: "bg-inset text-ink-2",
   info: "bg-info-muted text-info-text",
   success: "bg-accent-muted text-accent-text",
   warning: "bg-warning-muted text-warning-text",

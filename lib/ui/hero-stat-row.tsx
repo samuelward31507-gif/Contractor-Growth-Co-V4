@@ -23,11 +23,11 @@ import { numericDisplayClass } from "./typography";
 export type HeroStatTone = "danger" | "warning" | "success" | "info" | "neutral";
 
 const HERO_TONE_CLASS: Record<HeroStatTone, { iconBg: string; iconText: string; valueText: string }> = {
-  danger: { iconBg: "bg-danger-muted", iconText: "text-danger-text", valueText: "text-slate-900" },
-  warning: { iconBg: "bg-warning-muted", iconText: "text-warning-text", valueText: "text-slate-900" },
-  success: { iconBg: "bg-accent-muted", iconText: "text-accent-text", valueText: "text-slate-900" },
-  info: { iconBg: "bg-info-muted", iconText: "text-info-text", valueText: "text-slate-900" },
-  neutral: { iconBg: "bg-slate-100", iconText: "text-slate-600", valueText: "text-slate-900" },
+  danger: { iconBg: "bg-danger-muted", iconText: "text-danger-text", valueText: "text-ink" },
+  warning: { iconBg: "bg-warning-muted", iconText: "text-warning-text", valueText: "text-ink" },
+  success: { iconBg: "bg-accent-muted", iconText: "text-accent-text", valueText: "text-ink" },
+  info: { iconBg: "bg-info-muted", iconText: "text-info-text", valueText: "text-ink" },
+  neutral: { iconBg: "bg-inset", iconText: "text-ink-2", valueText: "text-ink" },
 };
 
 // Tailwind needs the full class name present in source to generate it - an
@@ -56,7 +56,7 @@ export function HeroStatRow({
   return (
     <div className={`grid grid-cols-1 gap-6 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center`}>
       <div className="flex items-center gap-4">
-        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${style.iconBg} ${style.iconText}`}>
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${style.iconBg} ${style.iconText}`}>
           <HeroIcon className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0">
@@ -64,8 +64,8 @@ export function HeroStatRow({
               to "AWAITING RESPON…" in the 220px hero column at desktop
               width; a real label losing information reads worse than a
               two-line label. */}
-          <p className="text-[12.5px] font-medium text-slate-500">{hero.label}</p>
-          <p className={`mt-0.5 text-3xl font-semibold tracking-tight ${numericDisplayClass} ${style.valueText}`}>{hero.value}</p>
+          <p className="text-xs font-medium text-ink-3">{hero.label}</p>
+          <p className={`mt-0.5 text-[26px] font-semibold leading-tight tracking-[-0.02em] ${numericDisplayClass} ${style.valueText}`}>{hero.value}</p>
         </div>
       </div>
 
@@ -73,15 +73,15 @@ export function HeroStatRow({
           one row of N on sm+ - a fixed N-wide single row was clipping longer
           labels ("Completed value", "Total estimates") at 390px. */}
       <div
-        className={`grid grid-cols-2 divide-x divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white sm:divide-y-0 ${SECONDARY_SM_COLS[secondary.length] ?? "sm:grid-cols-4"}`}
+        className={`grid grid-cols-2 divide-x divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface sm:divide-y-0 ${SECONDARY_SM_COLS[secondary.length] ?? "sm:grid-cols-4"}`}
       >
         {secondary.map((stat) => (
           <div key={stat.label} className="flex min-w-0 flex-col justify-center gap-1 px-4 py-4 sm:px-5">
-            <p className="flex items-center gap-1 text-[12px] font-medium text-slate-500">
+            <p className="flex items-center gap-1 text-xs font-medium text-ink-3">
               {stat.icon ? <stat.icon className="h-3 w-3 shrink-0" aria-hidden /> : null}
               <span className="truncate">{stat.label}</span>
             </p>
-            <p className={`truncate text-2xl font-semibold text-slate-900 ${numericDisplayClass}`}>{stat.value}</p>
+            <p className={`truncate text-[22px] font-semibold leading-tight tracking-[-0.02em] text-ink ${numericDisplayClass}`}>{stat.value}</p>
           </div>
         ))}
       </div>

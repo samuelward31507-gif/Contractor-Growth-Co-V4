@@ -106,16 +106,16 @@ export function NotificationSettingsSection({
 
           <div className="space-y-3 pt-2">
             {TOGGLES.map((toggle) => (
-              <label key={toggle.name} className="flex items-start gap-2 text-sm text-slate-700">
+              <label key={toggle.name} className="flex items-start gap-2 text-sm text-ink-2">
                 <input
                   type="checkbox"
                   name={toggle.name}
                   defaultChecked={settings[toggle.key] as boolean}
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
+                  className="mt-0.5 h-4 w-4 rounded border-line-strong text-ink focus:ring-accent/20"
                 />
                 <span>
-                  <span className="block font-medium text-slate-900">{toggle.label}</span>
-                  <span className="block text-xs text-slate-500">{toggle.description}</span>
+                  <span className="block font-medium text-ink">{toggle.label}</span>
+                  <span className="block text-xs text-ink-3">{toggle.description}</span>
                 </span>
               </label>
             ))}

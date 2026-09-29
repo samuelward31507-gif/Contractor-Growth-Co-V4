@@ -2,7 +2,7 @@ import { AgencySidebarContent } from "./agency-sidebar-content";
 
 export function AgencySidebar({ userEmail, isAdmin }: { userEmail: string; isAdmin: boolean }) {
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-white/[0.06] bg-[#0a120f] lg:flex">
+    <aside aria-label="Agency navigation" className="hidden w-60 shrink-0 border-r border-line bg-surface lg:flex">
       <AgencySidebarContent userEmail={userEmail} isAdmin={isAdmin} />
     </aside>
   );

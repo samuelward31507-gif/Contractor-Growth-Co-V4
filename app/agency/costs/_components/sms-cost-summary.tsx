@@ -13,8 +13,8 @@ const QUALITY_LABEL: Record<ClientSmsCostSummary["dataQuality"], string> = {
 
 const QUALITY_TONE: Record<ClientSmsCostSummary["dataQuality"], string> = {
   known: "text-accent-text",
-  unknown: "text-slate-400",
-  partial: "text-amber-600",
+  unknown: "text-ink-3",
+  partial: "text-warning",
 };
 
 /**
@@ -31,9 +31,9 @@ export function SmsCostSummary({ totals, clients }: { totals: AgencySmsCostTotal
   const sorted = [...clients].sort((a, b) => b.knownMessageCount + b.unknownMessageCount - (a.knownMessageCount + a.unknownMessageCount));
 
   return (
-    <div className="mt-8 border-t border-slate-200 pt-8">
+    <div className="mt-8 border-t border-line pt-8">
       <p className={sectionLabelClass}>SMS cost</p>
-      <div className="mt-2 divide-y divide-slate-100">
+      <div className="mt-2 divide-y divide-line">
         <Row label="Known SMS cost" value={formatCostAmounts(totals.knownCost)} tone="success" />
         <Row label="Known SMS messages" value={formatCount(totals.knownMessageCount)} description="A real Twilio-confirmed price, for either direction" />
         <Row label="Unknown SMS messages" value={formatCount(totals.unknownMessageCount)} description="No provider SID, a failed fetch, or a price not yet finalized - never shown as $0" />
@@ -46,26 +46,26 @@ export function SmsCostSummary({ totals, clients }: { totals: AgencySmsCostTotal
         </div>
 
         {sorted.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No managed clients yet.</p>
+          <p className="mt-3 text-sm text-ink-3">No managed clients yet.</p>
         ) : (
           <div className="mt-2 space-y-3">
             {sorted.map((client) => (
-              <div key={client.organizationId} className="rounded-lg border border-slate-200 px-5 py-4">
+              <div key={client.organizationId} className="rounded-lg border border-line px-5 py-4">
                 <div className="flex items-center justify-between gap-3">
-                  <Link href={`/agency/organizations/${client.organizationId}`} className="text-sm font-semibold text-slate-900 hover:underline">
+                  <Link href={`/agency/organizations/${client.organizationId}`} className="text-sm font-semibold text-ink hover:underline">
                     {client.organizationName}
                   </Link>
                   <span className={`text-xs font-medium ${QUALITY_TONE[client.dataQuality]}`}>{QUALITY_LABEL[client.dataQuality]}</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs">
-                  <span className="text-slate-500">
-                    Known cost <span className="ml-1 font-medium text-slate-800">{formatCostAmounts(client.knownCost)}</span>
+                  <span className="text-ink-3">
+                    Known cost <span className="ml-1 font-medium text-ink">{formatCostAmounts(client.knownCost)}</span>
                   </span>
-                  <span className="text-slate-500">
-                    Known messages <span className="ml-1 font-medium text-slate-800">{formatCount(client.knownMessageCount)}</span>
+                  <span className="text-ink-3">
+                    Known messages <span className="ml-1 font-medium text-ink">{formatCount(client.knownMessageCount)}</span>
                   </span>
-                  <span className="text-slate-500">
-                    Unknown messages <span className="ml-1 font-medium text-slate-800">{formatCount(client.unknownMessageCount)}</span>
+                  <span className="text-ink-3">
+                    Unknown messages <span className="ml-1 font-medium text-ink">{formatCount(client.unknownMessageCount)}</span>
                   </span>
                 </div>
               </div>

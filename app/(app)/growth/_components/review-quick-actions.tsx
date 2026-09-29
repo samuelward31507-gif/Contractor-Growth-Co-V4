@@ -31,7 +31,7 @@ export function ReviewQuickActions({ jobId }: { jobId: string }) {
   }
 
   if (resolved) {
-    return <span className="text-xs font-medium text-slate-500">{resolved === "completed" ? "Marked left" : "Marked declined"}</span>;
+    return <span className="text-xs font-medium text-ink-3">{resolved === "completed" ? "Marked left" : "Marked declined"}</span>;
   }
 
   return (
@@ -41,7 +41,7 @@ export function ReviewQuickActions({ jobId }: { jobId: string }) {
           type="button"
           onClick={() => resolve("completed")}
           disabled={isPending}
-          className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg border border-line-strong px-2.5 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Mark left
         </button>
@@ -49,7 +49,7 @@ export function ReviewQuickActions({ jobId }: { jobId: string }) {
           type="button"
           onClick={() => resolve("declined")}
           disabled={isPending}
-          className="rounded-lg px-2.5 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg px-2.5 py-1 text-xs font-medium text-ink-3 transition-colors hover:bg-hover hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Mark declined
         </button>

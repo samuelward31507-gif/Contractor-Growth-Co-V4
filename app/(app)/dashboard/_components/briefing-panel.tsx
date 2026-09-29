@@ -23,38 +23,38 @@ import { Badge } from "@/lib/ui/badge";
  * as separate rows.
  */
 function EmptyRow({ label }: { label: string }) {
-  return <p className="py-1.5 text-sm text-slate-400">{label}</p>;
+  return <p className="py-1.5 text-sm text-ink-3">{label}</p>;
 }
 
 export function BriefingPanel({ briefing, endOfDay }: { briefing: OwnerDailyBriefing; endOfDay: EndOfDaySummary }) {
   const hasNewSignals = briefing.jobsRecentlyCompleted.length > 0 || briefing.reviewReferralOpportunities.length > 0;
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-0 lg:divide-x lg:divide-slate-100">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-0 lg:divide-x lg:divide-line">
       <div className="lg:pr-6">
         <h3 className={sectionLabelClass}>Today&apos;s briefing</h3>
-        <p className="mt-1.5 text-sm font-medium text-slate-900">{briefing.summary}</p>
+        <p className="mt-1.5 text-sm font-medium text-ink">{briefing.summary}</p>
 
         {hasNewSignals ? (
-          <ul className="mt-3 divide-y divide-slate-100">
+          <ul className="mt-3 divide-y divide-line">
             {briefing.jobsRecentlyCompleted.map((job) => (
               <li key={job.id} className="flex items-center justify-between gap-3 py-2">
-                <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
-                  <Wrench aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
+                <span className="flex min-w-0 items-center gap-2 text-sm text-ink-2">
+                  <Wrench aria-hidden className="h-4 w-4 shrink-0 text-ink-3" />
                   <span className="truncate">{job.contactName ?? job.title}</span>
                 </span>
-                <Link href={job.href} className="shrink-0 text-xs font-medium text-slate-500 hover:text-slate-900">
+                <Link href={job.href} className="shrink-0 text-xs font-medium text-ink-3 hover:text-ink">
                   Completed
                 </Link>
               </li>
             ))}
             {briefing.reviewReferralOpportunities.map((item) => (
               <li key={item.id} className="flex items-center justify-between gap-3 py-2">
-                <span className="flex items-center gap-2 text-sm text-slate-700">
-                  <Star aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
+                <span className="flex items-center gap-2 text-sm text-ink-2">
+                  <Star aria-hidden className="h-4 w-4 shrink-0 text-ink-3" />
                   {item.kind === "review" ? "Review reply waiting" : "Referral reply waiting"}
                 </span>
-                <Link href={item.href} className="shrink-0 text-xs font-medium text-slate-500 hover:text-slate-900">
+                <Link href={item.href} className="shrink-0 text-xs font-medium text-ink-3 hover:text-ink">
                   View
                 </Link>
               </li>
@@ -67,27 +67,27 @@ export function BriefingPanel({ briefing, endOfDay }: { briefing: OwnerDailyBrie
 
       <div className="lg:pl-6">
         <h3 className={sectionLabelClass}>Today&apos;s activity</h3>
-        <p className="mt-1.5 text-sm font-medium text-slate-900">{endOfDay.summary}</p>
-        <div className="mt-3 divide-y divide-slate-100">
+        <p className="mt-1.5 text-sm font-medium text-ink">{endOfDay.summary}</p>
+        <div className="mt-3 divide-y divide-line">
           <div className="flex items-center justify-between py-2 text-sm">
-            <span className="text-slate-600">Leads received</span>
-            <span className="font-semibold tabular-nums text-slate-900">{endOfDay.leadsReceived}</span>
+            <span className="text-ink-2">Leads received</span>
+            <span className="font-semibold tabular-nums text-ink">{endOfDay.leadsReceived}</span>
           </div>
           <div className="flex items-center justify-between py-2 text-sm">
-            <span className="text-slate-600">Appointments booked</span>
-            <span className="font-semibold tabular-nums text-slate-900">{endOfDay.appointmentsBooked}</span>
+            <span className="text-ink-2">Appointments booked</span>
+            <span className="font-semibold tabular-nums text-ink">{endOfDay.appointmentsBooked}</span>
           </div>
           <div className="flex items-center justify-between py-2 text-sm">
-            <span className="text-slate-600">Estimates sent</span>
-            <span className="font-semibold tabular-nums text-slate-900">{endOfDay.estimatesSent}</span>
+            <span className="text-ink-2">Estimates sent</span>
+            <span className="font-semibold tabular-nums text-ink">{endOfDay.estimatesSent}</span>
           </div>
           <div className="flex items-center justify-between py-2 text-sm">
-            <span className="text-slate-600">Jobs won / completed</span>
-            <span className="font-semibold tabular-nums text-slate-900">{endOfDay.jobsWonOrCompleted}</span>
+            <span className="text-ink-2">Jobs won / completed</span>
+            <span className="font-semibold tabular-nums text-ink">{endOfDay.jobsWonOrCompleted}</span>
           </div>
           {endOfDay.automationIncidentsCount > 0 ? (
             <div className="flex items-center justify-between py-2 text-sm">
-              <span className="text-slate-600">Automation incidents</span>
+              <span className="text-ink-2">Automation incidents</span>
               <Badge tone="warning">{endOfDay.automationIncidentsCount}</Badge>
             </div>
           ) : null}

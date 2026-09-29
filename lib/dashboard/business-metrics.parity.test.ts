@@ -208,8 +208,10 @@ test("regression guard: /today never calls the full BI snapshot path again", () 
   assert.doesNotMatch(page, /getDashboardPipelineValue/);
   assert.match(page, /getDashboardSummary\(supabase, membership\.organizationId\)/);
   assert.match(page, /getDashboardAiHandled\(supabase, membership\.organizationId\)/);
-  assert.match(page, /\{formatCurrency\(summary\.data\.pipeline_value\)\}/);
-  assert.match(page, /<WhatAiHandled snapshot=\{aiHandled\} \/>/);
+  // Trackpr 2.0 (step 2E): the pipeline value now opens the "Where the work
+  // stands" flow, and today's AI metrics feed "Trackpr handled today".
+  assert.match(page, /openLeads: formatCurrency\(summary\.data\.pipeline_value\)/);
+  assert.match(page, /handledItems\(aiHandled\.aiMetrics\)/);
   assert.match(page, /data\.partialData \|\| summary\.failed \|\| aiHandled\.failed \|\| dailyBriefing\.partialData \|\| endOfDaySummary\.partialData \|\| moneyDataFailed/);
 });
 

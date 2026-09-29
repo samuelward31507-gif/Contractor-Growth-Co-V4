@@ -8,6 +8,7 @@ import { Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { metaClass } from "@/lib/ui/typography";
 import { DuplicateGroupCard } from "./_components/duplicate-group-card";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 /**
  * Reachable from the Contacts page ("Review duplicates") as well as
@@ -37,18 +38,18 @@ export default async function ContactDuplicatesPage() {
   );
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <Link
         href="/people"
-        className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
+        className="-my-3 inline-flex min-h-11 w-fit items-center gap-1.5 rounded-md text-sm font-medium text-ink-3 transition-colors hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:my-0 sm:min-h-0"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
-        Back to People
+        Back to Contacts
       </Link>
 
       <div>
         <PageHeader
-          title="Contact Duplicates"
+          title="Duplicate contacts"
           description="Contacts that share an exact phone number or email address. Reviewing and merging is manual - nothing here is merged automatically."
           badge={!canMerge ? <Badge tone="neutral">Read-only</Badge> : undefined}
         />

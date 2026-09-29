@@ -15,19 +15,19 @@ function secondaryLine(contact: Contact): string {
 /** Icon-led detail cell - phone and email now read as distinct, scannable facts rather than one plain-text string joined by a middot. */
 function ContactDetails({ contact }: { contact: Contact }) {
   if (!contact.phone && !contact.email) {
-    return <span className="text-sm text-slate-400">No details yet</span>;
+    return <span className="text-sm text-ink-3">No details yet</span>;
   }
   return (
     <span className="flex flex-col gap-0.5">
       {contact.phone ? (
-        <span className="flex items-center gap-1.5 truncate text-sm text-slate-600">
-          <Phone className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+        <span className="flex items-center gap-1.5 truncate text-sm text-ink-2">
+          <Phone className="h-3 w-3 shrink-0 text-ink-3" aria-hidden />
           {contact.phone}
         </span>
       ) : null}
       {contact.email ? (
-        <span className="flex items-center gap-1.5 truncate text-sm text-slate-600">
-          <Mail className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+        <span className="flex items-center gap-1.5 truncate text-sm text-ink-2">
+          <Mail className="h-3 w-3 shrink-0 text-ink-3" aria-hidden />
           {contact.email}
         </span>
       ) : null}
@@ -58,33 +58,33 @@ export function ContactsTable({
   return (
     <div>
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-6 border-b border-slate-200 px-2 pb-3`}>
-          <span className="text-xs text-slate-400">Contact</span>
-          <span className="text-xs text-slate-400">Details</span>
-          <span className="text-xs text-slate-400">Status</span>
-          <span className="text-xs text-slate-400">Created</span>
+        <div className={`grid ${ROW_GRID} gap-6 border-b border-line px-2 pb-3`}>
+          <span className="text-xs text-ink-3">Contact</span>
+          <span className="text-xs text-ink-3">Details</span>
+          <span className="text-xs text-ink-3">Status</span>
+          <span className="text-xs text-ink-3">Created</span>
           <span />
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-line">
           {contacts.map((contact) => {
             const lifecycle = lifecycleByContactId?.get(contact.id) ?? "new";
             return (
               <Link
                 key={contact.id}
                 href={`/contacts/${contact.id}`}
-                className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset`}
+                className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset`}
               >
                 <span className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                     {contactInitials(contact)}
                   </span>
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-slate-900">
+                    <span className="block truncate text-sm font-medium text-ink">
                       {contactDisplayName(contact)}
                     </span>
                     {contact.company_name ? (
-                      <span className="flex items-center gap-1 truncate text-xs text-slate-500">
-                        <Building2 className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+                      <span className="flex items-center gap-1 truncate text-xs text-ink-3">
+                        <Building2 className="h-3 w-3 shrink-0 text-ink-3" aria-hidden />
                         {contact.company_name}
                       </span>
                     ) : null}
@@ -96,9 +96,9 @@ export function ContactsTable({
                     {CONTACT_LIFECYCLE_LABEL[lifecycle]}
                   </Badge>
                 </span>
-                <span className="text-xs tabular-nums text-slate-400">{formatContactDate(contact.created_at)}</span>
+                <span className="text-xs tabular-nums text-ink-3">{formatContactDate(contact.created_at)}</span>
                 <ChevronRight
-                  className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500"
+                  className="h-4 w-4 shrink-0 justify-self-end text-ink-4 transition-colors group-hover:text-ink-3"
                   aria-hidden
                 />
               </Link>
@@ -107,7 +107,7 @@ export function ContactsTable({
         </div>
       </div>
 
-      <ul className="divide-y divide-slate-100 lg:hidden">
+      <ul className="divide-y divide-line lg:hidden">
         {contacts.map((contact) => {
           const lifecycle = lifecycleByContactId?.get(contact.id) ?? "new";
           return (
@@ -116,23 +116,23 @@ export function ContactsTable({
                 href={`/contacts/${contact.id}`}
                 className="flex items-center gap-3 px-2 py-3.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                   {contactInitials(contact)}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-slate-900">
+                    <span className="truncate text-sm font-medium text-ink">
                       {contactDisplayName(contact)}
                     </span>
                     <Badge tone={CONTACT_LIFECYCLE_TONE[lifecycle]} className={lifecycle === "lost" ? "opacity-70" : undefined}>
                       {CONTACT_LIFECYCLE_LABEL[lifecycle]}
                     </Badge>
                   </span>
-                  <span className="mt-0.5 block truncate text-xs text-slate-500">
+                  <span className="mt-0.5 block truncate text-xs text-ink-3">
                     {contact.company_name || secondaryLine(contact)}
                   </span>
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
+                <ChevronRight className="h-4 w-4 shrink-0 text-ink-4" aria-hidden />
               </Link>
             </li>
           );
