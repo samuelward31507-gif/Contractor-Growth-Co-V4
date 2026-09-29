@@ -155,6 +155,7 @@ function checkoutCompletedPayloadWithStripeIds(orgId: string, customerId: string
       object: {
         id: `cs_test_${orgId}`,
         object: "checkout.session",
+        mode: "subscription",
         client_reference_id: orgId,
         metadata: { organization_id: orgId },
         customer: customerId,
