@@ -10,6 +10,15 @@ import Stripe from "stripe";
  * `new Stripe(...)`. A structural test enforces that for the Phase 1C
  * directories.
  *
+ * Two Stripe accounts: Trackpr's own subscription billing stays on the
+ * existing account (STRIPE_SECRET_KEY, read only by lib/billing/stripe.ts).
+ * Connect and online invoice payments run on a separate Connect platform
+ * account, whose key is STRIPE_CONNECT_SECRET_KEY. There is no fallback from
+ * one to the other: without STRIPE_CONNECT_SECRET_KEY, payments are refused,
+ * and a Connect key identical to the billing key is refused too - that is
+ * almost certainly the billing key pasted into the wrong variable, which
+ * would route payments through the billing account.
+ *
  * The rule: a live Stripe secret key (sk_live_ / rk_live_) is refused unless
  * the process is explicitly running as a Vercel Production deployment
  * (VERCEL === "1" and VERCEL_ENV === "production", both set by Vercel
@@ -25,7 +34,7 @@ import Stripe from "stripe";
 export type StripeKeyMode = "test" | "live";
 
 export class StripeKeyGuardError extends Error {
-  readonly reason: "missing" | "unrecognized" | "live_key_outside_vercel_production";
+  readonly reason: "missing" | "unrecognized" | "same_as_billing_key" | "live_key_outside_vercel_production";
 
   constructor(reason: StripeKeyGuardError["reason"], message: string) {
     super(message);
@@ -46,19 +55,27 @@ export function isVercelProduction(env: NodeJS.ProcessEnv = process.env): boolea
 }
 
 /**
- * Returns the mode of STRIPE_SECRET_KEY when it may be used for Phase 1C
- * payments, and throws StripeKeyGuardError otherwise. The error message
- * never includes the key itself.
+ * Returns the mode of STRIPE_CONNECT_SECRET_KEY when it may be used for
+ * Phase 1C payments, and throws StripeKeyGuardError otherwise. The error
+ * message never includes either key.
  */
 export function assertStripeKeyAllowedForPayments(env: NodeJS.ProcessEnv = process.env): StripeKeyMode {
-  const key = env.STRIPE_SECRET_KEY;
+  const key = env.STRIPE_CONNECT_SECRET_KEY;
   if (!key) {
-    throw new StripeKeyGuardError("missing", "STRIPE_SECRET_KEY is not configured.");
+    throw new StripeKeyGuardError("missing", "STRIPE_CONNECT_SECRET_KEY is not configured.");
   }
 
   const mode = classifyStripeSecretKey(key);
   if (!mode) {
-    throw new StripeKeyGuardError("unrecognized", "STRIPE_SECRET_KEY is not a recognized Stripe secret or restricted key.");
+    throw new StripeKeyGuardError("unrecognized", "STRIPE_CONNECT_SECRET_KEY is not a recognized Stripe secret or restricted key.");
+  }
+
+  // The billing key is read here only to compare - it is never used.
+  if (key === env.STRIPE_SECRET_KEY) {
+    throw new StripeKeyGuardError(
+      "same_as_billing_key",
+      "STRIPE_CONNECT_SECRET_KEY must be the Connect platform account's key, separate from the subscription-billing STRIPE_SECRET_KEY.",
+    );
   }
 
   if (mode === "live" && !isVercelProduction(env)) {
@@ -74,12 +91,13 @@ export function assertStripeKeyAllowedForPayments(env: NodeJS.ProcessEnv = proce
 let paymentsClient: { key: string; client: Stripe } | null = null;
 
 /**
- * The only sanctioned Stripe client for Phase 1C Connect/Checkout code.
+ * The only sanctioned Stripe client for Phase 1C Connect/Checkout code, on
+ * the Connect platform account (STRIPE_CONNECT_SECRET_KEY).
  * Re-checks the guard on every call; rebuilds the client if the key changed.
  */
 export function getPaymentsStripeClient(env: NodeJS.ProcessEnv = process.env): Stripe {
   assertStripeKeyAllowedForPayments(env);
-  const key = env.STRIPE_SECRET_KEY as string;
+  const key = env.STRIPE_CONNECT_SECRET_KEY as string;
   if (!paymentsClient || paymentsClient.key !== key) {
     paymentsClient = { key, client: new Stripe(key) };
   }

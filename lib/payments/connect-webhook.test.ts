@@ -21,7 +21,7 @@ const { getPaymentsStripeClient }: typeof import("@/lib/billing/stripe-mode-guar
 
 const SECRET = "whsec_connect_webhook_unit_tests_only";
 const ENV = { STRIPE_CONNECT_WEBHOOK_SECRET: SECRET } as unknown as NodeJS.ProcessEnv;
-const signer = getPaymentsStripeClient({ STRIPE_SECRET_KEY: "sk_test_placeholder_connect_webhook_tests" } as unknown as NodeJS.ProcessEnv);
+const signer = getPaymentsStripeClient({ STRIPE_CONNECT_SECRET_KEY: "sk_test_placeholder_connect_webhook_tests" } as unknown as NodeJS.ProcessEnv);
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const OTHER_ORG = "22222222-2222-4222-8222-222222222222";

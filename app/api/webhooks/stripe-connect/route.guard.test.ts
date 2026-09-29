@@ -72,13 +72,13 @@ before(async () => {
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = `http://127.0.0.1:${port}`;
   process.env.SUPABASE_SERVICE_ROLE_KEY = "fake-service-role-key-for-local-fake-only";
-  process.env.STRIPE_SECRET_KEY = "sk_test_placeholder_phase1c_connect_guard_never_calls_stripe";
+  process.env.STRIPE_CONNECT_SECRET_KEY = "sk_test_placeholder_phase1c_connect_guard_never_calls_stripe";
   process.env.STRIPE_CONNECT_WEBHOOK_SECRET = CONNECT_SECRET;
   delete process.env.VERCEL;
   delete process.env.VERCEL_ENV;
 
   assert.match(process.env.NEXT_PUBLIC_SUPABASE_URL, /^http:\/\/127\.0\.0\.1:\d+$/, "refusing to run against anything but the local fake");
-  assert.ok(process.env.STRIPE_SECRET_KEY.startsWith("sk_test_"), "refusing to run with a non-test Stripe key");
+  assert.ok(process.env.STRIPE_CONNECT_SECRET_KEY.startsWith("sk_test_"), "refusing to run with a non-test Stripe key");
 
   ({ POST } = require(path.join(REPO_ROOT, "app/api/webhooks/stripe-connect/route.ts")));
   const { getPaymentsStripeClient } = require(path.join(REPO_ROOT, "lib/billing/stripe-mode-guard.ts")) as typeof import("@/lib/billing/stripe-mode-guard");
@@ -92,7 +92,7 @@ after(() => {
 beforeEach(() => {
   requests.length = 0;
   rows = { organizations: [{ id: ORG, stripe_connect_account_id: ACCT }], customer_payments: [] };
-  process.env.STRIPE_SECRET_KEY = "sk_test_placeholder_phase1c_connect_guard_never_calls_stripe";
+  process.env.STRIPE_CONNECT_SECRET_KEY = "sk_test_placeholder_phase1c_connect_guard_never_calls_stripe";
   process.env.STRIPE_CONNECT_WEBHOOK_SECRET = CONNECT_SECRET;
 });
 
@@ -135,11 +135,26 @@ test("route: an unset STRIPE_CONNECT_WEBHOOK_SECRET is 500; a live key is refuse
   delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
   assert.equal((await call(request(body, signature))).status, 500);
   process.env.STRIPE_CONNECT_WEBHOOK_SECRET = CONNECT_SECRET;
-  process.env.STRIPE_SECRET_KEY = "sk_live_guard_unit_test_only";
+  process.env.STRIPE_CONNECT_SECRET_KEY = "sk_live_guard_unit_test_only";
   const refused = await call(request(body, signature));
   assert.equal(refused.status, 500);
   assert.deepEqual(refused.body, { ok: false, outcome: "not_configured" });
   assert.equal(requests.length, 0);
+});
+
+test("route: with only the billing STRIPE_SECRET_KEY configured the Connect webhook is 500 not_configured - no fallback, no database access", async () => {
+  const body = payload("account.updated", { id: ACCT });
+  const signature = signer.webhooks.generateTestHeaderString({ payload: body, secret: CONNECT_SECRET });
+  delete process.env.STRIPE_CONNECT_SECRET_KEY;
+  process.env.STRIPE_SECRET_KEY = "sk_test_placeholder_phase1c_billing_key_only";
+  try {
+    const result = await call(request(body, signature));
+    assert.equal(result.status, 500);
+    assert.deepEqual(result.body, { ok: false, outcome: "not_configured" });
+    assert.equal(requests.length, 0);
+  } finally {
+    delete process.env.STRIPE_SECRET_KEY;
+  }
 });
 
 test("route: a validly signed event without event.account, or of an unrelated type, is 200 ignored with no database access", async () => {

@@ -160,17 +160,17 @@ export function stripeApiError(message: string): Error {
   return Object.assign(new Error(message), { type: "StripeAPIError" });
 }
 
-/** Runs `fn` with STRIPE_SECRET_KEY temporarily set (and Vercel production flags cleared), restoring the environment afterwards. */
+/** Runs `fn` with the payments key, STRIPE_CONNECT_SECRET_KEY, temporarily set (and Vercel production flags cleared), restoring the environment afterwards. */
 export async function withStripeKey<T>(key: string | undefined, fn: () => Promise<T>): Promise<T> {
-  const saved = { key: process.env.STRIPE_SECRET_KEY, vercel: process.env.VERCEL, vercelEnv: process.env.VERCEL_ENV };
-  if (key === undefined) delete process.env.STRIPE_SECRET_KEY;
-  else process.env.STRIPE_SECRET_KEY = key;
+  const saved = { key: process.env.STRIPE_CONNECT_SECRET_KEY, vercel: process.env.VERCEL, vercelEnv: process.env.VERCEL_ENV };
+  if (key === undefined) delete process.env.STRIPE_CONNECT_SECRET_KEY;
+  else process.env.STRIPE_CONNECT_SECRET_KEY = key;
   delete process.env.VERCEL;
   delete process.env.VERCEL_ENV;
   try {
     return await fn();
   } finally {
-    for (const [name, value] of [["STRIPE_SECRET_KEY", saved.key], ["VERCEL", saved.vercel], ["VERCEL_ENV", saved.vercelEnv]] as const) {
+    for (const [name, value] of [["STRIPE_CONNECT_SECRET_KEY", saved.key], ["VERCEL", saved.vercel], ["VERCEL_ENV", saved.vercelEnv]] as const) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
