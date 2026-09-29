@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
-import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
+import { buildAiMetrics, getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
+import { getLeadAndPipelineMetrics, resolveDateRange } from "@/lib/bi/queries";
+import type { BiAiMetrics, BusinessMetricsSnapshot } from "@/lib/bi/types";
 import { INSIGHT_TYPES, INSIGHT_SEVERITIES, INSIGHT_CONFIDENCES, type BusinessInsightsReport } from "@/lib/bi/insights";
 
 /**
@@ -36,6 +37,34 @@ const INSIGHTS_FRESHNESS_MS = 24 * 60 * 60 * 1000;
 
 export async function getDashboardBusinessMetrics(supabase: SupabaseClient, organizationId: string): Promise<BusinessMetricsSnapshot> {
   return getBusinessMetricsSnapshot(supabase, organizationId, DASHBOARD_DEFAULT_RANGE);
+}
+
+/**
+ * Phase 2A-1: the Dashboard renders exactly two things from business
+ * metrics - the pipeline value (last 30 days, the same range
+ * getDashboardBusinessMetrics uses) and the "What AI handled" panel (today's
+ * AI metrics) - so it now computes just those, with the very helpers
+ * getBusinessMetricsSnapshot itself uses for them, instead of two whole
+ * snapshots (~58 queries) whose other figures were never shown.
+ *
+ * Same definitions, same ranges, same numbers: getBusinessMetricsSnapshot's
+ * pipelineMetrics.pipelineValue is getLeadAndPipelineMetrics(range)'s
+ * pipeline.pipelineValue, and its aiMetrics is buildAiMetrics(range).metrics
+ * (parity pinned by lib/dashboard/business-metrics.parity.test.ts).
+ *
+ * `failed` is each read's own failure flag - the same per-read flags the
+ * snapshot's partialData is built from - so the Dashboard's partial-data
+ * notice now reflects the reads behind the values it actually shows.
+ */
+export async function getDashboardPipelineValue(supabase: SupabaseClient, organizationId: string): Promise<{ pipelineValue: number; failed: boolean }> {
+  const { pipeline, failed } = await getLeadAndPipelineMetrics(supabase, organizationId, resolveDateRange(DASHBOARD_DEFAULT_RANGE));
+  return { pipelineValue: pipeline.pipelineValue, failed };
+}
+
+/** Today's AI metrics for the Dashboard's "What AI handled" panel - see getDashboardPipelineValue above. */
+export async function getDashboardAiHandled(supabase: SupabaseClient, organizationId: string): Promise<{ aiMetrics: BiAiMetrics; failed: boolean }> {
+  const { metrics, failed } = await buildAiMetrics(supabase, organizationId, resolveDateRange("today"));
+  return { aiMetrics: metrics, failed };
 }
 
 export type CachedBusinessInsights = {

@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { Phone, MessageCircle, Briefcase, CalendarClock, FileSearch, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles, ArrowRight, AlertCircle, FileX2, Receipt } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getContact, getContacts } from "@/lib/contacts/queries";
 import { getContactRelationshipCounts } from "@/lib/contacts/duplicates";
 import { getLeads, OPEN_LEAD_STATUSES } from "@/lib/leads/queries";
@@ -76,17 +75,13 @@ const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [it
 export default async function PersonDetailPage({ params }: PageProps<"/people/[id]">) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -373,7 +368,10 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                   <ul className="mt-1 divide-y divide-slate-100">
                     {leads.map((lead) => (
                       <li key={lead.id}>
-                        <Link href={`/leads/${lead.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900">
+                        {/* Performance Pass A: /leads/:id only redirects (via /customers/:id) back to
+                            /people/<the lead's contact> - this page - so link there directly. A lead
+                            with no contact keeps the old link and its existing fallback. */}
+                        <Link href={lead.contact_id ? `/people/${lead.contact_id}` : `/leads/${lead.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-slate-900">
                           <span className="min-w-0">
                             <span className="block truncate font-medium text-slate-900">{lead.service || "General inquiry"}</span>
                             <span className="block text-xs text-slate-500">{formatContactDate(lead.created_at)}</span>

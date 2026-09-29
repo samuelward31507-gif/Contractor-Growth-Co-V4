@@ -68,7 +68,11 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "More",
     items: [
-      { href: "/inbox", label: "Inbox", icon: "MessageSquare" },
+      // Performance Pass A: points straight at /conversations - the route the
+      // Inbox actually renders - instead of /inbox, a compatibility redirect
+      // (app/(app)/inbox/page.tsx, kept for bookmarks and old links) that
+      // cost every Inbox click an extra server round trip.
+      { href: "/conversations", label: "Inbox", icon: "MessageSquare" },
       { href: "/growth", label: "Reviews & Referrals", icon: "Star" },
       { href: "/automations", label: "Automations", icon: "Workflow" },
       { href: "/insights", label: "Insights", icon: "BarChart3" },

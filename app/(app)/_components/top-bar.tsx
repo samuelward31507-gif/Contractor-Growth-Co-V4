@@ -36,6 +36,11 @@ const STATUS_CONFIG: Record<OrganizationHealthStatus, { dot: string; label: stri
  * query path. Fails silently to no indicator (never a broken page) if the
  * health read errors for any reason.
  *
+ * Performance Pass A: the health indicator links straight to /automations,
+ * where Automation Health lives now - /automation-health is only a
+ * compatibility redirect kept for old bookmarks, and linking to it cost every
+ * click an extra server round trip.
+ *
  * Trackpr 2.0, Phase 3A: `actions` is a new, optional right-side slot for a
  * future page's own contextual controls (e.g. a page-level primary action
  * that should live in the persistent top bar rather than scroll away with
@@ -54,7 +59,7 @@ export async function TopBar({ supabase, organizationId, actions }: { supabase: 
         {actions}
         {status ? (
           <Link
-            href="/automation-health"
+            href="/automations"
             className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/25 focus-visible:ring-offset-2 ${status.ring} ${status.text}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden />

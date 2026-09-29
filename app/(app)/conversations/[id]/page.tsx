@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { ArrowLeft, ChevronDown, Info, SearchX } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import {
   getContactAppointments,
   getConversation,
@@ -34,17 +33,13 @@ import { MessageThread } from "./_components/message-thread";
 export default async function ConversationDetailPage({ params }: PageProps<"/conversations/[id]">) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

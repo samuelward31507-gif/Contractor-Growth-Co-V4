@@ -85,7 +85,7 @@ export function SystemStatus({
     <div>
       <div className="flex items-baseline justify-between">
         <p className={sectionLabelClass}>System status</p>
-        <Link href={status === "payment_blocked" ? "/onboarding" : "/automation-health"} className="text-xs font-medium text-slate-500 hover:text-slate-900">
+        <Link href={status === "payment_blocked" ? "/onboarding" : "/automations"} className="text-xs font-medium text-slate-500 hover:text-slate-900">
           {status === "payment_blocked" ? "Resolve payment" : "View details"}
         </Link>
       </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { hasSearchChanged } from "@/lib/ui/search-sync";
 import { Search } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import { ACTIVITY_ENTITY_TYPES } from "@/lib/activity/queries";
@@ -18,6 +19,8 @@ export function ActivityToolbar({
   initialTo: string;
 }) {
   const [query, setQuery] = useState(initialQuery);
+  // The search text currently reflected in the URL - see lib/ui/search-sync.ts.
+  const lastSyncedQuery = useRef(initialQuery.trim());
   const [entityType, setEntityType] = useState(initialEntityType);
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
@@ -31,6 +34,7 @@ export function ActivityToolbar({
   // otherwise switching a timeline filter would silently reset the period
   // the contractor picked above.
   function navigate(nextQuery: string, nextEntityType: string, nextFrom: string, nextTo: string) {
+    lastSyncedQuery.current = nextQuery.trim();
     const params = new URLSearchParams();
     const trimmed = nextQuery.trim();
     if (trimmed) params.set("q", trimmed);
@@ -44,6 +48,7 @@ export function ActivityToolbar({
   }
 
   useEffect(() => {
+    if (!hasSearchChanged(query, lastSyncedQuery.current)) return;
     const handle = setTimeout(() => navigate(query, entityType, from, to), 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -67,6 +72,7 @@ export function ActivityToolbar({
   const hasActiveFilters = Boolean(query.trim()) || entityType !== "all" || Boolean(from) || Boolean(to);
 
   function clearFilters() {
+    lastSyncedQuery.current = "";
     setQuery("");
     setEntityType("all");
     setFrom("");

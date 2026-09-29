@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { isAgencyAdmin } from "@/lib/agency/queries";
 import { MobileNav } from "./_components/mobile-nav";
 import { MobileTabBar } from "./_components/mobile-tab-bar";
@@ -11,17 +10,18 @@ import { getNavGroupsForVertical } from "./_components/nav-items";
 import { CommandMenu } from "@/lib/ui/command-menu";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  // Performance Pass B: the agency-admin check (a read-only RPC on the
+  // session) doesn't depend on the membership, so it runs alongside it
+  // instead of after it. Its result is still only used once the user,
+  // membership and payment checks below have passed.
+  const agencyAdminCheck = isAgencyAdmin(supabase).catch(() => false);
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -41,7 +41,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // link is only ever shown to a session-verified agency admin (never
   // unconditionally), and /agency itself independently re-verifies this on
   // every request regardless of what the nav shows.
-  const showAgencyLink = await isAgencyAdmin(supabase);
+  const showAgencyLink = await agencyAdminCheck;
 
   return (
     // App-shell fix: this used to be `h-dvh` with no overflow containment,

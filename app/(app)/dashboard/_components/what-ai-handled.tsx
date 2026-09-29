@@ -34,7 +34,9 @@ function Stat({ icon: Icon, label, value, tone = "neutral" }: { icon: LucideIcon
   );
 }
 
-export function WhatAiHandled({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+// Phase 2A-1: only aiMetrics is read, so only aiMetrics is required - the
+// Dashboard passes just today's AI metrics instead of a whole snapshot.
+export function WhatAiHandled({ snapshot }: { snapshot: Pick<BusinessMetricsSnapshot, "aiMetrics"> }) {
   const { aiMetrics } = snapshot;
   const hasActivity = aiMetrics.aiInteractions > 0;
 

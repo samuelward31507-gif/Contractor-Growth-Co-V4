@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import {
   CalendarClock,
   FileSearch,
@@ -16,8 +17,6 @@ import {
   Ban,
   type LucideIcon,
 } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLead } from "@/lib/leads/queries";
 import { getAppointments } from "@/lib/appointments/queries";
@@ -66,17 +65,13 @@ function truncate(text: string, max = 90): string {
 export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]">) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

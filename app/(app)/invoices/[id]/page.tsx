@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { getInvoiceWithContext } from "@/lib/invoices/queries";
 import { formatInvoiceNumber, formatMoney } from "@/lib/invoices/domain";
 import { contactDisplayName, formatContactDate } from "@/lib/contacts/format";
@@ -26,17 +25,13 @@ import { PaymentHistory } from "./_components/payment-history";
 export default async function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

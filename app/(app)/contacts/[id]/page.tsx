@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { ArrowRight, Briefcase, CalendarClock, FileSearch, FileX2, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getContact } from "@/lib/contacts/queries";
 import { getContactRelationshipCounts } from "@/lib/contacts/duplicates";
 import { getLeads, OPEN_LEAD_STATUSES } from "@/lib/leads/queries";
@@ -52,17 +51,13 @@ const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [it
 export default async function ContactDetailPage({ params }: PageProps<"/contacts/[id]">) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

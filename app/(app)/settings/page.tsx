@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import {
   getAiSettings,
   getAutomationMode,
@@ -67,17 +66,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const calendarReason = typeof params.reason === "string" ? params.reason : null;
   const calendarBannerMessage = calendarParam === "connected" ? CALENDAR_STATUS_MESSAGE.connected : calendarParam === "error" ? (calendarReason && CALENDAR_STATUS_MESSAGE[calendarReason]) || "We couldn't connect Google Calendar. Please try again." : null;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

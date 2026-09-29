@@ -72,9 +72,16 @@ export async function updateSession(request: NextRequest) {
   // (auth vs. no-org vs. has-org) - never trust a client-supplied
   // organization id; it is always resolved from organization_members via the
   // verified auth.uid(). No business authorization logic lives here.
-  const membership = await getUserOrganization(supabase, user.id);
-
+  //
+  // Performance Pass B: the membership lookup is no longer run for every
+  // authenticated request (including every background prefetch) - only on
+  // the two branches below that actually decide something with it. Every
+  // (app) route resolves membership itself and sends a user without an
+  // organization to /onboarding: the (app) layout on a full load, the page
+  // (or its segment layout) on every client-side navigation - enforced for
+  // every (app) page by lib/supabase/middleware.membership.test.ts.
   if (AUTH_PATHS.has(pathname)) {
+    const membership = await getUserOrganization(supabase, user.id);
     const url = request.nextUrl.clone();
     url.pathname = membership ? "/today" : "/onboarding";
     return NextResponse.redirect(url);
@@ -91,10 +98,17 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
-  if (!membership) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/onboarding";
-    return NextResponse.redirect(url);
+  // /agency is outside the (app) route group and its layout checks only the
+  // session and the agency-admin flag, not an organization membership - so
+  // this is still the place that sends an authenticated user without an
+  // organization from /agency to /onboarding, exactly as before.
+  if (pathname === "/agency" || pathname.startsWith("/agency/")) {
+    const membership = await getUserOrganization(supabase, user.id);
+    if (!membership) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/onboarding";
+      return NextResponse.redirect(url);
+    }
   }
 
   return supabaseResponse;

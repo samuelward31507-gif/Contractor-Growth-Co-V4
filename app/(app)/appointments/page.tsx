@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
 import {
@@ -49,17 +48,13 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
   const status = normalizeStatus(typeof params.status === "string" ? params.status : undefined);
   const view = normalizeView(typeof params.view === "string" ? params.view : undefined);
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

@@ -1,7 +1,8 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { hasSearchChanged } from "@/lib/ui/search-sync";
 import { Search } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import { APPOINTMENT_STATUSES, type AppointmentView } from "@/lib/appointments/queries";
@@ -27,6 +28,8 @@ export function AppointmentsToolbar({
   todayCount?: number;
 }) {
   const [query, setQuery] = useState(initialQuery);
+  // The search text currently reflected in the URL - see lib/ui/search-sync.ts.
+  const lastSyncedQuery = useRef(initialQuery.trim());
   const [status, setStatus] = useState(initialStatus);
   const router = useRouter();
   const pathname = usePathname();
@@ -46,6 +49,7 @@ export function AppointmentsToolbar({
   // the exact key SchedulePage's own dispatcher already reads back out for
   // this (see app/(app)/schedule/page.tsx).
   function navigate(nextQuery: string, nextStatus: string, nextView: AppointmentView) {
+    lastSyncedQuery.current = nextQuery.trim();
     const params = new URLSearchParams();
     const trimmed = nextQuery.trim();
     if (trimmed) params.set("q", trimmed);
@@ -56,6 +60,7 @@ export function AppointmentsToolbar({
   }
 
   useEffect(() => {
+    if (!hasSearchChanged(query, lastSyncedQuery.current)) return;
     const handle = setTimeout(() => navigate(query, status, view), 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps

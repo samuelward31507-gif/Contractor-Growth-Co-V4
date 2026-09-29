@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { filterEstimates, getEstimatesResult, summarizeEstimates, ESTIMATE_STATUSES, type EstimateStatus } from "@/lib/estimates/queries";
@@ -89,17 +88,13 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
   const jobStatus = normalizeJobStatus(typeof params.status === "string" ? params.status : undefined);
   const invoiceStatus = normalizeInvoiceStatus(typeof params.status === "string" ? params.status : undefined);
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

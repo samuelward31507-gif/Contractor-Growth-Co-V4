@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { getJob } from "@/lib/jobs/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { getReviewRequestForJob, getReferralRequestForJob } from "@/lib/reviews-referrals/queries";
@@ -25,17 +24,13 @@ import { InvoiceSection } from "./_components/invoice-section";
 export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

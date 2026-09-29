@@ -1,15 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle, Wallet, CalendarClock, Hammer, TrendingUp } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
-import { getDashboardData } from "@/lib/dashboard/queries";
-import { getDashboardBusinessMetrics, getCachedBusinessInsights } from "@/lib/dashboard/business-metrics";
-import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
+import { getDashboardSqlData } from "@/lib/dashboard/queries";
+import { dashboardInvoiceSummary, dashboardMoneyCounts, getDashboardSummary } from "@/lib/dashboard/sql";
+import { getCachedBusinessInsights, getDashboardAiHandled } from "@/lib/dashboard/business-metrics";
 import { getOwnerDailyBriefing, getEndOfDaySummary } from "@/lib/briefing/queries";
-import { getHotLeadCount } from "@/lib/leads/queries";
-import { getAppointments, summarizeAppointments } from "@/lib/appointments/queries";
-import { syncOpportunities } from "@/lib/opportunities/detect";
+import { scheduleOpportunitySync } from "@/lib/opportunities/background-sync";
 import { getOpenOpportunitiesResult } from "@/lib/opportunities/queries";
 import {
   getPrioritizedOpportunities,
@@ -22,11 +19,6 @@ import {
 } from "@/lib/opportunities/intelligence";
 import { OPPORTUNITY_TYPE_LABEL, opportunityActionHref, OPPORTUNITY_ACTION_LABEL } from "../opportunities/_components/opportunity-type";
 import { getContacts } from "@/lib/contacts/queries";
-import { getEstimatesResult } from "@/lib/estimates/queries";
-import { getJobsResult } from "@/lib/jobs/queries";
-import { computeMoneySnapshot } from "@/lib/money/snapshot";
-import { getCustomerPaymentsResult, getInvoicesResult } from "@/lib/invoices/queries";
-import { summarizeInvoiceMoney } from "@/lib/invoices/summary";
 import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { InvoiceMoneySummaryCards } from "../invoices/_components/invoice-money-summary";
@@ -169,90 +161,79 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const params = await searchParams;
   const view = normalizeView(typeof params.view === "string" ? params.view : undefined);
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
 
-  // Same ordering reason dashboard/page.tsx's own call documented: the
-  // Attention Engine and this page's own opportunity read both touch the
-  // opportunities table, so this must finish before the Promise.all below
-  // to avoid racing a freshly-detected opportunity on first render.
-  await syncOpportunities(supabase, membership.organizationId);
-
+  // One `now` for the briefing and the end-of-day summary, so they share a
+  // single dashboard_briefing call (request-scoped - see lib/briefing/queries.ts).
+  const briefingNow = new Date();
   const [
     data,
-    businessMetrics,
+    summary,
     cachedInsights,
-    hotLeadCount,
-    appointments,
     contacts,
-    todaySnapshot,
+    aiHandled,
     dailyBriefing,
     endOfDaySummary,
     opportunitiesResult,
     prioritizedOpportunities,
-    estimatesResult,
-    jobsResult,
-    invoicesResult,
-    paymentsResult,
     timeZone,
   ] = await Promise.all([
-    getDashboardData(supabase, membership.organizationId),
-    getDashboardBusinessMetrics(supabase, membership.organizationId),
+    // Phase 2D: getDashboardData with its conversation attention computed in
+    // SQL, memoized for this request so the briefing and end-of-day summary
+    // below reuse the same load.
+    getDashboardSqlData(supabase, membership.organizationId),
+    // Phase 2D: every header / Money / invoice figure this page shows - hot
+    // leads, pipeline value, appointments today, the estimate/job snapshot,
+    // and the invoice/payment ledger - counted and summed by the database
+    // over the organization's complete data (dashboard_summary, supabase/
+    // pending/dashboard_sql.sql), replacing seven capped row reads. Same
+    // definitions; see lib/dashboard/sql.ts.
+    getDashboardSummary(supabase, membership.organizationId),
     getCachedBusinessInsights(supabase, membership.organizationId),
-    // Final completion program, Phase 13 (Performance): this used to be a
-    // full getLeads() fetch (up to 1000 rows, every column) purely to
-    // compute summarizeLeads(leads).hotCount below - see getHotLeadCount's
-    // own comment in lib/leads/queries.ts.
-    getHotLeadCount(supabase, membership.organizationId),
-    getAppointments(supabase, membership.organizationId),
     getContacts(supabase, membership.organizationId),
-    getBusinessMetricsSnapshot(supabase, membership.organizationId, "today"),
-    getOwnerDailyBriefing(supabase, membership.organizationId),
-    getEndOfDaySummary(supabase, membership.organizationId),
+    // Phase 2A-1: only the "What AI handled" business-metrics value this page
+    // renders - see lib/dashboard/business-metrics.ts.
+    getDashboardAiHandled(supabase, membership.organizationId),
+    getOwnerDailyBriefing(supabase, membership.organizationId, briefingNow, { source: "sql" }),
+    getEndOfDaySummary(supabase, membership.organizationId, briefingNow, { source: "sql" }),
     getOpenOpportunitiesResult(supabase, membership.organizationId),
     // Canonical Opportunity Intelligence Layer: the one prioritized,
     // explained, actionability-checked read every consumer of "what needs
     // attention" now shares - see lib/opportunities/intelligence.ts's own
     // header comment.
     getPrioritizedOpportunities(supabase, membership.organizationId),
-    // Nav-restructure pass: Money is no longer its own nav destination -
-    // Estimates and Jobs are - so Dashboard now carries the one real
-    // cross-entity financial snapshot itself (see lib/money/snapshot.ts's
-    // own header comment for why this is the exact same computation Money's
-    // own detailed page uses, not a second version of it).
-    getEstimatesResult(supabase, membership.organizationId),
-    getJobsResult(supabase, membership.organizationId),
-    // Phase 1B-4 (Financial Visibility): the invoice/payment ledger for the
-    // Collected / Invoiced / Outstanding / Overdue row below - the same
-    // reads and the same summarizeInvoiceMoney computation Money's own
-    // Invoices tab uses, all-time by design (Money stays all-time; Insights
-    // is the period-aware view).
-    getInvoicesResult(supabase, membership.organizationId),
-    getCustomerPaymentsResult(supabase, membership.organizationId),
     getOrganizationTimezone(supabase, membership.organizationId),
+    // Phase 2C: opportunity detection no longer blocks this render. The page
+    // reads the opportunities table as it stands; the sync is scheduled here
+    // and runs after the response (next/server after()), so anything it
+    // detects or updates appears on the next render - see
+    // lib/opportunities/background-sync.ts. Never rejects.
+    scheduleOpportunitySync(supabase, membership.organizationId),
   ]);
 
   const openOpportunities = opportunitiesResult.data;
-  const appointmentSummary = summarizeAppointments(appointments);
   const businessName = membership.organizationName ?? "there";
-  const moneySnapshot = computeMoneySnapshot(estimatesResult.data, jobsResult.data);
-  const moneyDataFailed = estimatesResult.failed || jobsResult.failed || invoicesResult.failed || paymentsResult.failed;
+  const hotLeadCount = summary.data.hot_lead_count;
+  const appointmentsToday = summary.data.appointments_today;
+  // Money at a glance: the counts and known value computeMoneySnapshot
+  // produced, with the same definitions - now summed in SQL.
+  const money = dashboardMoneyCounts(summary.data);
+  // A failed summary is disclosed exactly as the estimate/job/invoice/payment
+  // and pipeline reads it replaces were.
+  const moneyDataFailed = summary.failed;
   // "Overdue" is judged against today's date in the organization's own
   // timezone - the same calendar the issue trigger used for the due date.
   const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
-  const invoiceSummary = summarizeInvoiceMoney({ invoices: invoicesResult.data, payments: paymentsResult.data, jobs: jobsResult.data, today });
+  const invoiceSummary = dashboardInvoiceSummary(summary.data, today);
 
   // Canonical Opportunity Intelligence Layer: getConversationSignals/
   // getOperationalExceptions extract, never re-detect, the Attention Engine
@@ -274,11 +255,13 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
       {/* Same disclosure discipline dashboard/page.tsx's own partialData
           notice used - a failed read here used to silently render as a
           confidently "clean" page. Covers every read this page performs
-          that dashboard/page.tsx also covered (data, businessMetrics,
+          that dashboard/page.tsx also covered (data, the business-metrics
+          reads - Phase 2D: the dashboard_summary read that carries the
+          pipeline value and every Money/invoice figure, plus the AI read -
           dailyBriefing, endOfDaySummary); repeatCustomerSummary/
           dormantCustomersValue aren't read here at all (they fed
           Dashboard's own BusinessGlance, which moved to Insights). */}
-      {data.partialData || businessMetrics.partialData || dailyBriefing.partialData || endOfDaySummary.partialData || moneyDataFailed ? (
+      {data.partialData || summary.failed || aiHandled.failed || dailyBriefing.partialData || endOfDaySummary.partialData || moneyDataFailed ? (
         <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>
@@ -311,15 +294,15 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
           <div className="sm:text-right">
             <p className="text-[12.5px] font-medium text-slate-500">Pipeline value</p>
             <p className={`mt-1 text-[32px] font-semibold tracking-tight text-slate-900 ${numericDisplayClass}`}>
-              {formatCurrency(businessMetrics.pipelineMetrics.pipelineValue)}
+              {formatCurrency(summary.data.pipeline_value)}
             </p>
             <p className="mt-1 text-sm text-slate-500">
               <Link href="/people?temperature=hot" className={hotLeadCount > 0 ? "font-semibold text-danger hover:underline" : "hover:underline"}>
                 {hotLeadCount} hot {hotLeadCount === 1 ? "lead" : "leads"}
               </Link>
               <span className="mx-1.5 text-slate-300">·</span>
-              <Link href="/schedule" className={appointmentSummary.today > 0 ? "font-semibold text-slate-900 hover:underline" : "hover:underline"}>
-                {appointmentSummary.today} today
+              <Link href="/schedule" className={appointmentsToday > 0 ? "font-semibold text-slate-900 hover:underline" : "hover:underline"}>
+                {appointmentsToday} today
               </Link>
             </p>
           </div>
@@ -348,30 +331,30 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
           <StatGrid columns={4}>
             <StatCard
               label="Quotes out"
-              value={moneySnapshot.quotesOut.length}
-              description={moneySnapshot.quotesOut.length > 0 ? "Awaiting a decision" : "Nothing out right now"}
+              value={money.quotesOutCount}
+              description={money.quotesOutCount > 0 ? "Awaiting a decision" : "Nothing out right now"}
               icon={Wallet}
               href="/estimates?status=sent"
             />
             <StatCard
               label="Ready to schedule"
-              value={moneySnapshot.readyToSchedule.length}
-              description={moneySnapshot.readyToSchedule.length > 0 ? "Accepted, no job yet" : "Nothing waiting"}
+              value={money.readyToScheduleCount}
+              description={money.readyToScheduleCount > 0 ? "Accepted, no job yet" : "Nothing waiting"}
               tone="danger"
               icon={CalendarClock}
               href="/estimates?status=accepted"
             />
             <StatCard
               label="Jobs in progress"
-              value={moneySnapshot.wonNotFinished.length}
-              description={moneySnapshot.wonNotFinished.length > 0 ? "Scheduled or underway" : "Nothing in progress"}
+              value={money.wonNotFinishedCount}
+              description={money.wonNotFinishedCount > 0 ? "Scheduled or underway" : "Nothing in progress"}
               tone="success"
               icon={Hammer}
               href="/jobs?status=in_progress"
             />
             <StatCard
               label="Known opportunity value"
-              value={formatCurrency(moneySnapshot.knownOpportunityValue)}
+              value={formatCurrency(money.knownOpportunityValue)}
               description="Across every quote, accepted job, and job in progress"
               icon={TrendingUp}
             />
@@ -451,7 +434,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
       <div className="border-t border-slate-200 pt-8">
         <div className="divide-y divide-slate-200">
           <div className="pb-8">
-            <WhatAiHandled snapshot={todaySnapshot} />
+            <WhatAiHandled snapshot={aiHandled} />
           </div>
           <div className="py-8">
             <BriefingPanel briefing={dailyBriefing} endOfDay={endOfDaySummary} />

@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
 import Link from "next/link";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getJobs } from "@/lib/jobs/queries";
 import { getReviewRequestsResult, getReferralRequestsResult, summarizeReviewRequests, summarizeReferralRequests } from "@/lib/reviews-referrals/queries";
 import { PageHeader } from "@/lib/ui/page-header";
@@ -30,17 +29,13 @@ import { ReferralsSection } from "./_components/referrals-section";
  * uses for these same two tables.
  */
 export default async function GrowthPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

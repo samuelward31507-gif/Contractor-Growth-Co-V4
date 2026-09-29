@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle, ArrowRight, CalendarClock, Clock3, MessageCircle, Phone, Timer } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getContactLeads, getLeads } from "@/lib/leads/queries";
 import { getAppointment } from "@/lib/appointments/queries";
@@ -32,17 +31,13 @@ import { AppointmentActions } from "./_components/appointment-actions";
 export default async function AppointmentDetailPage({ params }: PageProps<"/appointments/[id]">) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -87,7 +82,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
         <p className="text-sm text-slate-500">
           This appointment may have been deleted, or the link is incorrect.
         </p>
-        <Link href="/appointments" className="mt-2 text-sm font-medium text-slate-900 hover:underline">
+        <Link href="/schedule?view=list" className="mt-2 text-sm font-medium text-slate-900 hover:underline">
           Back to Appointments
         </Link>
       </div>
@@ -106,7 +101,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
       */}
       <DetailHeader
         eyebrow="Appointment"
-        backHref="/appointments"
+        backHref="/schedule?view=list"
         backLabel="Back to Appointments"
         title={appointment.title}
         subtitle={customerName}

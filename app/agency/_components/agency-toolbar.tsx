@@ -1,7 +1,8 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { hasSearchChanged } from "@/lib/ui/search-sync";
 import { Search, X } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import type { AgencyClientFilter } from "../page";
@@ -24,11 +25,14 @@ const FILTER_OPTIONS: { value: AgencyClientFilter; label: string }[] = [
  */
 export function AgencyToolbar({ initialQuery, initialFilter }: { initialQuery: string; initialFilter: AgencyClientFilter }) {
   const [query, setQuery] = useState(initialQuery);
+  // The search text currently reflected in the URL - see lib/ui/search-sync.ts.
+  const lastSyncedQuery = useRef(initialQuery.trim());
   const [filter, setFilter] = useState<AgencyClientFilter>(initialFilter);
   const router = useRouter();
   const pathname = usePathname();
 
   function navigate(nextQuery: string, nextFilter: AgencyClientFilter) {
+    lastSyncedQuery.current = nextQuery.trim();
     const params = new URLSearchParams();
     const trimmed = nextQuery.trim();
     if (trimmed) params.set("q", trimmed);
@@ -38,6 +42,7 @@ export function AgencyToolbar({ initialQuery, initialFilter }: { initialQuery: s
   }
 
   useEffect(() => {
+    if (!hasSearchChanged(query, lastSyncedQuery.current)) return;
     const handle = setTimeout(() => navigate(query, filter), 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import {
   ACTIVITY_PAGE_SIZE,
   getActivityEntries,
@@ -59,17 +58,13 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
       ? Math.min(requestedLimit, ACTIVITY_PAGE_SIZE * 10)
       : ACTIVITY_PAGE_SIZE;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

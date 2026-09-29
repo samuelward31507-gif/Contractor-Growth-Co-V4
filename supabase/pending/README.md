@@ -58,3 +58,40 @@ Verified read-only afterwards: the column (text, nullable, no default), the uniq
 ### If it must be undone
 
 Run `payment_idempotency_and_invoice_opportunities_rollback.sql` as one transaction, by a person. It refuses while any keyed payment or new-type opportunity exists; after real payments carry keys, do not roll back.
+
+## dashboard_sql.sql (PENDING - not applied anywhere)
+
+Phase 2D: three read-only functions for the Dashboard (`app/(app)/today/page.tsx`) - `dashboard_summary`, `dashboard_conversation_attention`, `dashboard_briefing` - that count and sum over an organization's complete data instead of the capped row reads summed in TypeScript. Additive only: no tables, indexes or policies. Each function is `language sql stable security invoker set search_path = public`, filters `organization_id` explicitly, and leaves RLS (membership and the payment gate) authoritative. EXECUTE is revoked from PUBLIC and anon and granted to authenticated.
+
+- `dashboard_sql_rollback.sql` drops the three functions. Deploy application code that no longer calls them first.
+- `scratch/validate-dashboard-sql.mjs` builds the full schema in PGlite from `migrations/` (production's schema), seeds five organizations (empty, normal with timezone and boundary cases, isolation, one above every old row cap with 1,000-5,100 rows per table, and one with more than five responded review and referral requests), and proves parity with the TypeScript loaders through a PostgREST-compatible adapter (`scratch/pglite-postgrest.mjs`). Run from the repo root, under both `TZ=UTC` and `TZ=America/Los_Angeles`: `node --import ./lib/automation/test-loader.mjs supabase/pending/scratch/validate-dashboard-sql.mjs verify` (add `EXPLAIN=<dir>` for plans). `capture` re-freezes the pre-2D baseline from the legacy loaders, which still exist.
+- One intentional behavior change: responded review/referral requests on the owner briefing are ordered `created_at ASC, id ASC`. The previous reads had no ORDER BY, so their order - and which five were shown when more than five existed - was undefined.
+
+### Apply procedure
+
+The test project goes first. Production needs separate, explicit approval.
+
+1. Confirm the functions don't exist yet: `select proname from pg_proc where proname like 'dashboard\_%'`.
+2. Apply `dashboard_sql.sql` as one transaction (SQL editor, or MCP `apply_migration` named `dashboard_sql` without the file's `begin;`/`commit;` lines).
+3. Read back the ledger entry and verify: three functions, `prosecdef = false`, `provolatile = 's'`, `proconfig = {search_path=public}`; `has_function_privilege('anon', ...)` false and `('authenticated', ...)` true for each.
+4. Only after production has it: `git mv` the file into `supabase/migrations/<recorded production version>_dashboard_sql.sql`.
+
+### Status
+
+**trackpr-stripe-test (lwofqffxagxiqodqvcfr):** applied on 2026-09-29 through the Supabase SQL Editor, as the file's exact text including its `begin;`/`commit;` (SHA-256 `c838d808ddb3756a7b6a10f44c79f62784a7a339fab26f7eec949782dfce82e4`), one run, "Success. No rows returned." The SQL Editor records no ledger row, so the ledger stays at 70 rows. Read back: the three `prosrc` md5s match the file (`dashboard_summary` ff609e83..., `dashboard_conversation_attention` ca19763c..., `dashboard_briefing` 0542e68c...), all `sql`, SECURITY INVOKER, STABLE, `search_path=public`; EXECUTE held by authenticated and service_role (project default privileges), not by anon or PUBLIC. Live checks as `authenticated`: a member of another organization gets all zeros and empty lists; the owner gets their own figures; anon gets `permission denied`.
+
+**Production (mywznmxtlgajnczjvbmk):** not applied.
+
+## dashboard_attention_sql.sql (PENDING - applied to TEST only)
+
+Phase 2E: one read-only function, `dashboard_record_attention(p_organization_id uuid, p_now timestamptz, p_high_value_threshold numeric) returns jsonb`, replacing the three capped reads left inside `getDashboardData` on the Today page - leads (newest 500), appointments (latest start 200), estimates (500, unordered). It returns the five record-backed attention lists (overdue_appointment, awaiting_confirmation, hot_lead, high_value_lead, pending_estimate; at most 5 each, same order), the uncontacted_lead de-duplication set, the recent-activity inputs, and the overview and pipeline counts - all over complete data. `language sql stable security invoker set search_path = public`, explicit `organization_id` filters, EXECUTE revoked from PUBLIC and anon and granted to authenticated. No tables, indexes or policies. `dashboard_sql.sql` is unchanged and still required.
+
+- `dashboard_attention_sql_rollback.sql` drops the function. Deploy application code whose `getDashboardSqlData` no longer passes `recordAttention: "sql"` first.
+- Parity: `scratch/validate-dashboard-sql.mjs` (same commands as above) adds a boundary org for every rule, a timestamp-tie org, an org above all three caps, and leads-only clones so every mapped attention field is compared with the legacy loader.
+- Approved contract: ties on the ordering timestamp (lead `created_at`; appointment `start_at`, which can only tie on cancelled/no-show rows) are broken by `id ASC`. The legacy reads ordered by the timestamp alone, so tied rows came back in an undefined order.
+
+### Status
+
+**trackpr-stripe-test (lwofqffxagxiqodqvcfr):** applied on 2026-09-29 through the Supabase SQL Editor as the file's exact text (SHA-256 `e39af36f61ffd3cd3b9cfd76f427f2a9c2c65dfc5f972438df0408c26631fa27`), one run, "Success. No rows returned." No ledger row (ledger still 70). Read back: body md5 `f17d4223aee00519901179afd2e82e11` matches the file; `sql`, SECURITY INVOKER, STABLE, `search_path=public`; anon and PUBLIC cannot execute, authenticated can.
+
+**Production (mywznmxtlgajnczjvbmk):** not applied. To promote, production needs both `dashboard_sql.sql` and then `dashboard_attention_sql.sql`, each applied once and moved into `supabase/migrations/` under the ledger version its apply records.

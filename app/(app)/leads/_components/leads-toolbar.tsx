@@ -1,7 +1,8 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { hasSearchChanged } from "@/lib/ui/search-sync";
 import { Search, X } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import { LEAD_STATUSES, LEAD_TEMPERATURES } from "@/lib/leads/queries";
@@ -37,6 +38,8 @@ export function LeadsToolbar({
   from?: string;
 }) {
   const [query, setQuery] = useState(initialQuery);
+  // The search text currently reflected in the URL - see lib/ui/search-sync.ts.
+  const lastSyncedQuery = useRef(initialQuery.trim());
   const [status, setStatus] = useState(initialStatus);
   const [temperature, setTemperature] = useState(initialTemperature);
   const [sort, setSort] = useState<LeadSort>(initialSort);
@@ -44,11 +47,13 @@ export function LeadsToolbar({
   const pathname = usePathname();
 
   function navigate(nextQuery: string, nextStatus: string, nextTemperature: string, nextSort: LeadSort) {
+    lastSyncedQuery.current = nextQuery.trim();
     const queryString = buildLeadsQueryString({ from, query: nextQuery, status: nextStatus, temperature: nextTemperature, sort: nextSort });
     router.replace(queryString ? `${pathname}?${queryString}` : pathname);
   }
 
   useEffect(() => {
+    if (!hasSearchChanged(query, lastSyncedQuery.current)) return;
     const handle = setTimeout(() => navigate(query, status, temperature, sort), 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps

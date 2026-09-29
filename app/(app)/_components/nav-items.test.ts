@@ -30,16 +30,16 @@ function hrefsOf(groups: ReturnType<typeof getNavGroupsForVertical>) {
 
 test("A. every locked canonical destination is present in the unfiltered nav", () => {
   const hrefs = flatten(NAV_GROUPS).map((entry) => entry.split(":")[0]);
-  for (const href of ["/today", "/people", "/jobs", "/estimates", "/schedule", "/inbox", "/growth", "/automations", "/insights", "/settings"]) {
+  for (const href of ["/today", "/people", "/jobs", "/estimates", "/schedule", "/conversations", "/growth", "/automations", "/insights", "/settings"]) {
     assert.ok(hrefs.includes(href), `expected canonical destination ${href} to be present`);
   }
 });
 
-test("A2. Inbox nav href is exactly /inbox, and no nav item points to /conversations as the primary Inbox destination", () => {
+test("A2. Performance Pass A: Inbox nav href is exactly /conversations (the route it renders), never /inbox (a compatibility redirect that cost every click a server round trip)", () => {
   const hrefs = hrefsOf(getNavGroupsForVertical("contractor", true));
   const inboxEntry = flatten(NAV_GROUPS).find((entry) => entry.endsWith(":Inbox"));
-  assert.equal(inboxEntry, "/inbox:Inbox");
-  assert.ok(!hrefs.includes("/conversations"), "/conversations must not appear as a primary nav destination - Inbox now points at /inbox");
+  assert.equal(inboxEntry, "/conversations:Inbox");
+  assert.ok(!hrefs.includes("/inbox"), "/inbox is a redirect to /conversations - navigation must link to the destination directly");
 });
 
 // ===========================================================================
@@ -80,7 +80,7 @@ test("C. every locked label renders exactly as specified, for a contractor", () 
     "/jobs:Jobs",
     "/estimates:Estimates",
     "/schedule:Schedule",
-    "/inbox:Inbox",
+    "/conversations:Inbox",
     "/growth:Reviews & Referrals",
     "/automations:Automations",
     "/insights:Insights",
@@ -121,7 +121,7 @@ test("D3. More contains exactly Inbox, Reviews & Referrals, Automations, Insight
   assert.ok(moreGroup);
   assert.deepEqual(
     moreGroup!.items.map((i) => i.href),
-    ["/inbox", "/growth", "/automations", "/insights", "/settings"],
+    ["/conversations", "/growth", "/automations", "/insights", "/settings"],
   );
 });
 
@@ -165,7 +165,7 @@ test("gym nav excludes Jobs (/jobs) and Estimates (/estimates)", () => {
 
 test("gym nav still includes every vertical-neutral item", () => {
   const hrefs = hrefsOf(getNavGroupsForVertical("gym", false));
-  for (const href of ["/today", "/people", "/schedule", "/inbox", "/growth", "/automations", "/insights", "/settings"]) {
+  for (const href of ["/today", "/people", "/schedule", "/conversations", "/growth", "/automations", "/insights", "/settings"]) {
     assert.ok(hrefs.includes(href), `expected ${href} to remain visible for gym`);
   }
 });

@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, Users2 } from "lucide-react";
 import { redirect } from "next/navigation";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { findPotentialDuplicates, getContactRelationshipCounts, type ContactRelationshipCounts } from "@/lib/contacts/duplicates";
 import { PageHeader } from "@/lib/ui/page-header";
 import { Badge } from "@/lib/ui/badge";
@@ -15,17 +14,13 @@ import { DuplicateGroupCard } from "./_components/duplicate-group-card";
  * directly at /contacts/duplicates.
  */
 export default async function ContactDuplicatesPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

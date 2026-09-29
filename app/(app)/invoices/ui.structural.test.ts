@@ -25,6 +25,7 @@ const createDialog = read("app/(app)/jobs/[id]/_components/create-invoice-dialog
 const moneyPage = read("app/(app)/money/page.tsx");
 const summaryCards = read("app/(app)/invoices/_components/invoice-money-summary.tsx");
 const todayPage = read("app/(app)/today/page.tsx");
+const dashboardSql = read("lib/dashboard/sql.ts");
 const insightsPage = read("app/(app)/insights/page.tsx");
 const insightsSections = read("app/(app)/insights/_components/business-metrics-sections.tsx");
 const personPage = read("app/(app)/people/[id]/page.tsx");
@@ -108,13 +109,17 @@ test("Money's invoice figures keep the terminology line: only Collected is money
 // Phase 1B-4: Financial Visibility
 // ---------------------------------------------------------------------------
 
-test("Dashboard's money row reads the same ledger queries and the same summarizeInvoiceMoney computation as Money, judged against the organization's calendar date", () => {
-  assert.match(todayPage, /getInvoicesResult\(supabase, membership\.organizationId\)/);
-  assert.match(todayPage, /getCustomerPaymentsResult\(supabase, membership\.organizationId\)/);
-  assert.match(todayPage, /summarizeInvoiceMoney\(\{ invoices: invoicesResult\.data, payments: paymentsResult\.data, jobs: jobsResult\.data, today \}\)/);
+test("Dashboard's money row uses summarizeInvoiceMoney's definitions (Phase 2D: summed in SQL), judged against the organization's calendar date", () => {
+  // Phase 2D: dashboard_summary sums the complete invoice/payment ledger;
+  // dashboardInvoiceSummary maps it back to summarizeInvoiceMoney's shape,
+  // with overdue still decided by isOverdue against the org-timezone date.
+  // Parity at cent precision: supabase/pending/scratch/validate-dashboard-sql.mjs.
+  assert.match(todayPage, /getDashboardSummary\(supabase, membership\.organizationId\)/);
+  assert.match(todayPage, /dashboardInvoiceSummary\(summary\.data, today\)/);
   assert.match(todayPage, /calendarDateInTimeZone\(new Date\(\), timeZone \?\? "UTC"\)/);
   assert.match(todayPage, /<InvoiceMoneySummaryCards summary=\{invoiceSummary\} variant="dashboard" \/>/);
-  assert.match(todayPage, /invoicesResult\.failed \|\| paymentsResult\.failed/, "a failed ledger read is disclosed, never rendered as a clean $0");
+  assert.match(todayPage, /const moneyDataFailed = summary\.failed;/, "a failed ledger read is disclosed, never rendered as a clean $0");
+  assert.match(dashboardSql, /isOverdue\(\{ status: "sent", dueDate: bucket\.due_date \}, today\)/);
   assert.match(summaryCards, /variant === "dashboard" \? null : \(/, "the dashboard variant drops only Not yet invoiced");
   assert.match(summaryCards, /INVOICING_LIVE_AT/, "the legacy cutoff is documented where Not yet invoiced is rendered");
 });

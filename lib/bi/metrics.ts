@@ -505,7 +505,10 @@ async function getAiUsageTotals(
 }
 
 /** Trackpr 2.0, Phase 4B (P1 #2): `failed` is true if ANY of the three reads that make up BiAiMetrics failed - see getLeadAndPipelineMetrics's own comment in lib/bi/queries.ts for the full discipline. */
-async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiAiMetrics; failed: boolean }> {
+// Phase 2A-1: exported (unchanged) so the Dashboard's "What AI handled"
+// panel can compute exactly these metrics without building a whole snapshot -
+// see lib/dashboard/business-metrics.ts's getDashboardAiHandled.
+export async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiAiMetrics; failed: boolean }> {
   const [ai, outputFields, usage] = await Promise.all([
     getAiMetrics(supabase, organizationId, range),
     getAiOutputFields(supabase, organizationId, range),

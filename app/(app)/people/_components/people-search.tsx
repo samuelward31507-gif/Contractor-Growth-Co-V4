@@ -1,7 +1,8 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { hasSearchChanged } from "@/lib/ui/search-sync";
 import { Search, X } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import type { PersonSort } from "../page";
@@ -37,11 +38,14 @@ export function PeopleSearch({
   initialTemperature?: string;
 }) {
   const [value, setValue] = useState(initialQuery);
+  // The search text currently reflected in the URL - see lib/ui/search-sync.ts.
+  const lastSyncedQuery = useRef(initialQuery.trim());
   const [sort, setSort] = useState<PersonSort>(initialSort);
   const router = useRouter();
   const pathname = usePathname();
 
   function navigate(nextQuery: string, nextSort: PersonSort) {
+    lastSyncedQuery.current = nextQuery.trim();
     const params = new URLSearchParams();
     const trimmed = nextQuery.trim();
     if (trimmed) params.set("q", trimmed);
@@ -52,6 +56,7 @@ export function PeopleSearch({
   }
 
   useEffect(() => {
+    if (!hasSearchChanged(value, lastSyncedQuery.current)) return;
     const handle = setTimeout(() => navigate(value, sort), 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps

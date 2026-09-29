@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getUserOrganization } from "@/lib/auth/organization";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { getWorkflowNameStats, buildAutomationSummaries, getRecentExecutionsForWorkflows } from "@/lib/automation/queries";
 import { getAutomationEnabledMap } from "@/lib/automation/settings";
 import { getOrganizationHealth, getAutomationHealthSummaries, getLatestHealthCheckRun, isHealthCheckStale } from "@/lib/automation-health/health";
@@ -35,17 +34,13 @@ import { AiActivityFeed } from "./_components/ai-activity-feed";
  * this page never uses a service-role client.
  */
 export default async function AutomationsPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }

@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { ArrowLeft } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getOrganizationSmsNumber } from "@/lib/settings/sms-routing";
 import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
 import { SmsRoutingSection } from "./_components/sms-routing-section";
@@ -17,17 +16,13 @@ import { SmsRoutingSection } from "./_components/sms-routing-section";
  * changing its revalidation target, neither of which this redesign touches.
  */
 export default async function SmsRoutingPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
