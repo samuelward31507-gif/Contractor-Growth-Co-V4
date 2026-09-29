@@ -18,13 +18,13 @@ export function LeadPicker({
   defaultLeadId?: string | null;
 }) {
   if (!contactId) {
-    return <p className={`${inputClass} text-slate-400`}>Select a contact first</p>;
+    return <p className={`${inputClass} text-ink-3`}>Select a contact first</p>;
   }
 
   const contactLeads = leads.filter((lead) => lead.contact_id === contactId);
 
   if (contactLeads.length === 0) {
-    return <p className={`${inputClass} text-slate-400`}>No leads for this contact</p>;
+    return <p className={`${inputClass} text-ink-3`}>No leads for this contact</p>;
   }
 
   return (

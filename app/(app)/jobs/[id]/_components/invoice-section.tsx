@@ -44,13 +44,13 @@ export function InvoiceSection({ job, invoice, today }: { job: Job; invoice: Inv
     <SectionCard
       title="Invoice"
       action={
-        <Link href={`/invoices/${invoice.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+        <Link href={`/invoices/${invoice.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
           View invoice
         </Link>
       }
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold text-slate-900">{formatInvoiceNumber(invoice.number)}</span>
+        <span className="text-sm font-semibold text-ink">{formatInvoiceNumber(invoice.number)}</span>
         <Badge tone={INVOICE_STATUS_TONE[invoice.status]} icon={INVOICE_STATUS_ICON[invoice.status]}>
           {INVOICE_STATUS_LABELS[invoice.status]}
         </Badge>

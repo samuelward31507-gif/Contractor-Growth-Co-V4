@@ -62,27 +62,27 @@ export function ClientExpansionCard({
   const topGroup = groups[0];
 
   return (
-    <div className="border-b border-slate-200 py-6 last:border-b-0">
+    <div className="border-b border-line py-6 last:border-b-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <Link href={`/agency/organizations/${organizationId}`} className="text-base font-semibold text-slate-900 hover:underline">
+        <Link href={`/agency/organizations/${organizationId}`} className="text-base font-semibold text-ink hover:underline">
           {organizationName}
         </Link>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-ink-3">
           {formatCount(opportunities.length)} open opportunit{opportunities.length === 1 ? "y" : "ies"}
           {knownValue > 0 ? ` · ${formatCurrency(knownValue)} known value` : ""}
         </span>
       </div>
 
-      <div className="mt-3 divide-y divide-slate-100">
+      <div className="mt-3 divide-y divide-line">
         {groups.map((group) => (
           <div key={group.service} className="flex items-center justify-between gap-3 py-2">
             <div>
-              <p className="text-sm font-medium text-slate-800">{group.service}</p>
-              <p className="text-xs text-slate-500">
+              <p className="text-sm font-medium text-ink">{group.service}</p>
+              <p className="text-xs text-ink-3">
                 {formatCount(group.count)} opportunit{group.count === 1 ? "y" : "ies"}
               </p>
             </div>
-            <p className="shrink-0 text-sm font-medium tabular-nums text-slate-900">
+            <p className="shrink-0 text-sm font-medium tabular-nums text-ink">
               {group.isContextual
                 ? "Context only"
                 : group.knownValue > 0

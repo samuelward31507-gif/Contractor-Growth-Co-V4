@@ -124,7 +124,13 @@ export function navigateDate(parts: DateParts, view: CalendarView, direction: 1 
  * Component cannot pass a function prop to a Client Component - the fix is
  * to give the client component the plain data it needs and let it compute
  * the href itself, via this same pure function).
+ *
+ * Performance Pass A: builds the /schedule URL directly. /calendar is only a
+ * compatibility redirect now (next.config.ts sends it to /schedule with
+ * view and date passed through unchanged), so linking to it made every
+ * calendar click - prev, next, Today, Day/Week/Month, a month-view day -
+ * pay an extra redirect round trip before landing on this same URL.
  */
 export function buildCalendarHref(view: CalendarView, dateStr: string): string {
-  return `/calendar?view=${view}&date=${dateStr}`;
+  return `/schedule?view=${view}&date=${dateStr}`;
 }

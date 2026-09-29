@@ -17,8 +17,8 @@ import {
 
 /** Mirrors lib/ui/badge.tsx's own light-surface TONE_CLASS exactly (not exported there) - the same icon-chip background/text pairing every other tone-driven icon chip in this app already uses. */
 const OPPORTUNITY_TYPE_STYLE: Record<BadgeTone, string> = {
-  neutral: "bg-slate-100 text-slate-600",
-  info: "bg-blue-50 text-blue-600",
+  neutral: "bg-inset text-ink-2",
+  info: "bg-info-muted text-info-text",
   success: "bg-accent-muted text-accent-text",
   warning: "bg-warning-muted text-warning-text",
   danger: "bg-danger-muted text-danger-text",
@@ -47,18 +47,18 @@ function OpportunityRow({ opportunity }: { opportunity: Opportunity }) {
           <Icon className="h-4 w-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900">{opportunity.title}</p>
-          {opportunity.description ? <p className="mt-0.5 text-sm text-slate-500">{opportunity.description}</p> : null}
+          <p className="truncate text-sm font-semibold text-ink">{opportunity.title}</p>
+          {opportunity.description ? <p className="mt-0.5 text-sm text-ink-3">{opportunity.description}</p> : null}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
             {opportunity.estimatedValue != null ? (
-              <span className="text-sm font-semibold tabular-nums text-slate-700">{formatCurrency(opportunity.estimatedValue)}</span>
+              <span className="text-sm font-semibold tabular-nums text-ink-2">{formatCurrency(opportunity.estimatedValue)}</span>
             ) : (
               <span className={metaClass}>Unknown value</span>
             )}
             {opportunity.contactId ? (
               <Link
                 href={`/people/${opportunity.contactId}`}
-                className="rounded text-xs font-medium text-slate-500 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                className="rounded text-xs font-medium text-ink-3 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
               >
                 View person
               </Link>
@@ -70,7 +70,7 @@ function OpportunityRow({ opportunity }: { opportunity: Opportunity }) {
       <div className="flex shrink-0 items-center gap-2 self-start sm:flex-col sm:items-end">
         <Link
           href={actionHref}
-          className="inline-flex items-center gap-1 rounded text-sm font-medium text-slate-600 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="inline-flex items-center gap-1 rounded text-sm font-medium text-ink-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
           {actionLabel}
           <ArrowRight className="h-3.5 w-3.5" aria-hidden />
@@ -140,7 +140,7 @@ export function OpportunitiesList({ opportunities, failed }: { opportunities: Op
             <p className={sectionLabelClass}>{OPPORTUNITY_TYPE_LABEL[type]}</p>
             <span className={metaClass}>{items.length}</span>
           </div>
-          <ul className="mt-2 divide-y divide-slate-100">
+          <ul className="mt-2 divide-y divide-line">
             {items.map((opportunity) => (
               <OpportunityRow key={opportunity.id} opportunity={opportunity} />
             ))}

@@ -53,25 +53,25 @@ export function CalendarToolbar({
   const [blockOpen, setBlockOpen] = useState(false);
 
   return (
-    <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-4 border-b border-line pb-5 xl:flex-row xl:items-center xl:justify-between">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1">
           <Link
             href={prevHref}
             aria-label="Previous"
-            className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="flex h-11 w-11 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:h-8 sm:w-8"
           >
             <ChevronLeft aria-hidden className="h-4 w-4" />
           </Link>
           <Link
             href={nextHref}
             aria-label="Next"
-            className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="flex h-11 w-11 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:h-8 sm:w-8"
           >
             <ChevronRight aria-hidden className="h-4 w-4" />
           </Link>
         </div>
-        <h2 className="text-lg font-semibold text-slate-900">{label}</h2>
+        <h2 className="whitespace-nowrap text-base font-semibold tabular-nums text-ink">{label}</h2>
         <Link href={todayHref} className={ghostButtonClass}>
           Today
         </Link>

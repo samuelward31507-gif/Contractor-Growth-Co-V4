@@ -19,7 +19,7 @@ export function ReviewReferralSummaryRow({ summary }: { summary: ReviewReferralS
   if (summary.reviewsRequested === 0 && summary.referralsRequested === 0) return null;
 
   return (
-    <div className="border-t border-slate-200 pt-6">
+    <div className="border-t border-line pt-6">
       <p className={sectionLabelClass}>Review &amp; Referral</p>
       <dl className="mt-3 flex flex-wrap gap-x-10 gap-y-4">
         {STATS.map(({ key, label }) => (

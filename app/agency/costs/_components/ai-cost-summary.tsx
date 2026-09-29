@@ -13,9 +13,9 @@ import type { AgencyAiCostTotals } from "@/lib/agency/costs";
  */
 export function AiCostSummary({ totals }: { totals: AgencyAiCostTotals }) {
   return (
-    <div className="mt-6 border-y border-slate-200 py-4">
+    <div className="mt-6 border-y border-line py-4">
       <p className={sectionLabelClass}>AI cost</p>
-      <div className="mt-2 divide-y divide-slate-100">
+      <div className="mt-2 divide-y divide-line">
         <Row label="Known AI cost" value={formatCostAmounts(totals.knownCost)} tone="success" />
         <Row label="Known AI interactions" value={formatCount(totals.knownInteractionCount)} description="Real usage, trusted provider/model, and a matching rate card" />
         <Row label="Unpriced" value={formatCount(totals.unpricedInteractionCount)} description="Real usage from a trusted provider, but no rate card covers this period - never shown as $0" />

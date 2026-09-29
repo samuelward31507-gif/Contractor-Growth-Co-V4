@@ -23,7 +23,7 @@ export function OnboardingPipeline({ byStage }: { byStage: Record<OnboardingStag
 
   if (inProgressCount === 0) {
     return (
-      <p className="mt-3 text-sm text-slate-500">
+      <p className="mt-3 text-sm text-ink-3">
         No clients currently in onboarding — all {formatCount(liveCount)} client{liveCount === 1 ? " is" : "s are"} live.
       </p>
     );
@@ -37,15 +37,15 @@ export function OnboardingPipeline({ byStage }: { byStage: Record<OnboardingStag
         return (
           <div key={stage}>
             <div className="flex items-baseline justify-between">
-              <p className="text-[12.5px] font-medium text-slate-500">{ONBOARDING_STAGE_LABEL[stage]}</p>
+              <p className="text-xs font-medium text-ink-3">{ONBOARDING_STAGE_LABEL[stage]}</p>
               <span className={metaClass}>{clients.length}</span>
             </div>
-            <ul className="mt-1.5 divide-y divide-slate-100">
+            <ul className="mt-1.5 divide-y divide-line">
               {clients.map((client) => (
                 <li key={client.organizationId}>
                   <Link
                     href={`/agency/organizations/${client.organizationId}`}
-                    className="block truncate py-1.5 text-sm text-slate-700 hover:text-slate-900"
+                    className="block truncate py-1.5 text-sm text-ink-2 hover:text-ink"
                   >
                     {client.organizationName}
                   </Link>

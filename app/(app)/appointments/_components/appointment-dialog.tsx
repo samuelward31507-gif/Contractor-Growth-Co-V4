@@ -81,7 +81,7 @@ export function AppointmentDialog({
           ) : null}
 
           {state.success && state.warning ? (
-            <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-700" role="status">
+            <p className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning-muted px-3.5 py-2.5 text-sm text-warning-text" role="status">
               <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{state.warning}</span>
             </p>

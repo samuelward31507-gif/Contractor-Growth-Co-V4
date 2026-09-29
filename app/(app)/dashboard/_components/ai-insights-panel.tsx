@@ -31,22 +31,22 @@ export function AiInsightsPanel({ cached }: { cached: CachedBusinessInsights | n
       </div>
 
       {!cached ? (
-        <p className="mt-4 text-sm text-slate-500">Insights haven&apos;t been generated yet for this period.</p>
+        <p className="mt-4 text-sm text-ink-3">Insights haven&apos;t been generated yet for this period.</p>
       ) : cached.report.insights.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-500">
+        <p className="mt-4 text-sm text-ink-3">
           {cached.report.summary || "Not enough business activity yet to generate meaningful insights."}
         </p>
       ) : (
         <>
-          <p className="mt-4 text-sm text-slate-600">{cached.report.summary}</p>
-          <ul className="mt-4 divide-y divide-slate-100">
+          <p className="mt-4 text-sm text-ink-2">{cached.report.summary}</p>
+          <ul className="mt-4 divide-y divide-line">
             {cached.report.insights.map((insight, index) => (
               <li key={`${insight.type}-${index}`} className="py-3">
                 <div className="flex items-baseline gap-2">
-                  <p className="text-sm font-medium text-slate-900">{insight.title}</p>
+                  <p className="text-sm font-medium text-ink">{insight.title}</p>
                   {insight.severity === "attention" ? <Badge tone="warning">Attention</Badge> : null}
                 </div>
-                <p className="mt-0.5 text-sm text-slate-600">{insight.description}</p>
+                <p className="mt-0.5 text-sm text-ink-2">{insight.description}</p>
               </li>
             ))}
           </ul>

@@ -80,7 +80,7 @@ export function Drawer({
     <div className="fixed inset-0 z-50 flex justify-end">
       <div
         aria-hidden
-        className={`absolute inset-0 bg-slate-900/30 transition-opacity duration-150 ${entered ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 bg-ink/30 transition-opacity duration-150 ${entered ? "opacity-100" : "opacity-0"}`}
         onClick={onClose}
       />
       <div
@@ -89,13 +89,13 @@ export function Drawer({
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className={`relative flex h-full w-full ${widthClassName} flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl outline-none transition-transform duration-200 ease-out ${entered ? "translate-x-0" : "translate-x-full"}`}
+        className={`relative flex h-full w-full ${widthClassName} flex-col overflow-y-auto border-l border-line bg-surface shadow-popover outline-none transition-transform duration-200 ease-out ${entered ? "translate-x-0" : "translate-x-full"}`}
       >
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-selected hover:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
           <X className="h-4 w-4" aria-hidden />
         </button>

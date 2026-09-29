@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import {
   attachLastMessages,
   getConversationsResult,
@@ -21,17 +20,13 @@ import { ConversationsWorkspace } from "./_components/conversations-workspace";
  * list + workspace composition rather than two independent pages.
  */
 export default async function ConversationsLayout({ children }: { children: ReactNode }) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -60,7 +55,7 @@ export default async function ConversationsLayout({ children }: { children: Reac
       ) : null}
       {conversations.length === 0 ? (
         <>
-          <PageHeader eyebrow="Operate" title="Inbox" description="Every customer conversation in one place, organized by activity." />
+          <PageHeader title="Inbox" description="Every customer conversation in one place, organized by activity." />
           <div className="mt-6">
             <ConversationsSummary summary={summary} />
           </div>

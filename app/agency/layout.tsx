@@ -45,11 +45,19 @@ export default async function AgencyLayout({ children }: { children: ReactNode }
   const isAdmin = await isAgencyAdmin(supabase);
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-white">
+    // Trackpr 2.0 (step 2G): the same light canvas and skip link as the
+    // client app's shell (app/(app)/layout.tsx).
+    <div className="flex h-dvh overflow-hidden bg-canvas text-ink">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:shadow-popover focus:outline-none focus:ring-2 focus:ring-accent/40"
+      >
+        Skip to content
+      </a>
       <AgencySidebar userEmail={userEmail} isAdmin={isAdmin} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AgencyMobileNav userEmail={userEmail} isAdmin={isAdmin} />
-        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
+        <main id="main-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col overflow-y-auto focus:outline-none">{children}</main>
       </div>
     </div>
   );

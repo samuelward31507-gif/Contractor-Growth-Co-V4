@@ -1,62 +1,124 @@
 "use client";
 
+import { useState, type FocusEvent, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import type { NavItem } from "./nav-items";
 import { NAV_ICONS } from "./nav-icons";
+import { handleNavClick } from "./use-nav-location";
 
 /**
- * Trackpr visual-system redesign: the active state is now a real filled,
- * emerald-tinted pill - not a thin left rail on a barely-different
- * background. This is meant to be unmistakable at a glance, matching how
- * the marketing site treats its one accent color: reserved, but decisive
- * where it's actually used. Hover stays a barely-there white overlay so it
- * never gets confused with the active state.
+ * Trackpr 2.0 (step 2C): the light navigation row. Quiet by default - ink-2
+ * text, an ink-3 icon - with hover as a faint fill. The active row is the
+ * one place color appears: a selected fill, full-ink text, and the pine
+ * accent on its icon. aria-current marks it for assistive tech.
  */
-export function NavLink({ item, onNavigate, collapsed }: { item: NavItem; onNavigate?: () => void; collapsed?: boolean }) {
-  const pathname = usePathname();
-  const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
+
+export function NavLink({
+  item,
+  active,
+  onNavigate,
+  collapsed = false,
+  touch = false,
+}: {
+  item: NavItem;
+  active: boolean;
+  onNavigate?: () => void;
+  /** Desktop icon rail: icon only, the label in a tooltip and the accessible name. */
+  collapsed?: boolean;
+  /** 44px rows for touch surfaces (the mobile menu sheet). */
+  touch?: boolean;
+}) {
   const Icon = NAV_ICONS[item.icon];
 
+  function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+    handleNavClick(event, item.href);
+    onNavigate?.();
+  }
+
   if (collapsed) {
-    // Rail mode: icon only, centered, with a CSS-only tooltip (no new
-    // dependency - this repo has no tooltip primitive installed) that
-    // reveals the label on hover/focus, per the "tooltips identify
-    // destinations when collapsed" requirement.
     return (
-      <Link
-        href={item.href}
-        onClick={onNavigate}
-        aria-current={isActive ? "page" : undefined}
-        aria-label={item.label}
-        className={`group/tip relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a120f] ${
-          isActive ? "bg-emerald-500/[0.14] ring-1 ring-inset ring-emerald-500/25" : "hover:bg-white/[0.06]"
-        }`}
-      >
-        <Icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? "text-emerald-400" : "text-slate-400"}`} aria-hidden />
-        <span
-          role="tooltip"
-          className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-lg ring-1 ring-white/10 transition-opacity duration-150 group-hover/tip:opacity-100 group-focus-visible/tip:opacity-100"
-        >
-          {item.label}
-        </span>
-      </Link>
+      <RailTooltip label={item.label}>
+        {(tipHandlers) => (
+          <Link
+            href={item.href}
+            onClick={handleClick}
+            aria-current={active ? "page" : undefined}
+            aria-label={item.label}
+            {...tipHandlers}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-150 ${FOCUS_RING} ${
+              active ? "bg-selected text-accent" : "text-ink-3 hover:bg-hover hover:text-ink"
+            }`}
+          >
+            <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+          </Link>
+        )}
+      </RailTooltip>
     );
   }
 
   return (
     <Link
       href={item.href}
-      onClick={onNavigate}
-      aria-current={isActive ? "page" : undefined}
-      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a120f] ${
-        isActive
-          ? "bg-emerald-500/[0.14] font-semibold text-white ring-1 ring-inset ring-emerald-500/25"
-          : "font-medium text-slate-400 hover:bg-white/[0.05] hover:text-slate-100"
+      onClick={handleClick}
+      aria-current={active ? "page" : undefined}
+      className={`group/nav flex w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors duration-150 ${touch ? "min-h-11 text-sm" : "h-8"} ${FOCUS_RING} ${
+        active ? "bg-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
       }`}
     >
-      <Icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? "text-emerald-400" : "text-slate-500"}`} aria-hidden />
+      <Icon
+        className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-ink-3 group-hover/nav:text-ink-2"}`}
+        strokeWidth={1.75}
+        aria-hidden
+      />
       <span className="truncate">{item.label}</span>
     </Link>
+  );
+}
+
+type TipHandlers = {
+  onMouseEnter: (event: MouseEvent<HTMLElement>) => void;
+  onMouseLeave: () => void;
+  onFocus: (event: FocusEvent<HTMLElement>) => void;
+  onBlur: () => void;
+};
+
+/**
+ * The collapsed rail's label tooltip. Rendered `position: fixed` from the
+ * trigger's measured edge, so the sidebar's own overflow clipping (it
+ * scrolls) can never cut it off. Shows on hover and on keyboard focus
+ * (:focus-visible), never on a mouse click's focus. Purely visual: every
+ * trigger carries the same text as its aria-label.
+ */
+export function RailTooltip({ label, children }: { label: string; children: (handlers: TipHandlers) => ReactNode }) {
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+
+  function show(element: HTMLElement) {
+    const rect = element.getBoundingClientRect();
+    setPosition({ top: rect.top + rect.height / 2, left: rect.right + 10 });
+  }
+
+  const handlers: TipHandlers = {
+    onMouseEnter: (event) => show(event.currentTarget),
+    onMouseLeave: () => setPosition(null),
+    onFocus: (event) => {
+      if (event.currentTarget.matches(":focus-visible")) show(event.currentTarget);
+    },
+    onBlur: () => setPosition(null),
+  };
+
+  return (
+    <>
+      {children(handlers)}
+      {position ? (
+        <span
+          aria-hidden
+          style={{ top: position.top, left: position.left }}
+          className="pointer-events-none fixed z-[60] -translate-y-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-xs font-medium text-white shadow-popover"
+        >
+          {label}
+        </span>
+      ) : null}
+    </>
   );
 }

@@ -12,7 +12,7 @@ import {
 const initialState: ConversationActionState = {};
 
 const buttonClass =
-  "inline-flex items-center gap-2 rounded-lg border border-slate-300 px-2.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:px-3.5";
+  "inline-flex items-center gap-2 rounded-lg border border-line-strong px-2.5 py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60 sm:px-3.5";
 
 export function ConversationActions({ conversation }: { conversation: Conversation }) {
   const [statusState, statusAction, statusPending] = useActionState(setConversationStatus, initialState);
@@ -47,8 +47,8 @@ export function ConversationActions({ conversation }: { conversation: Conversati
           </button>
         </form>
       </div>
-      {statusState.error ? <p className="text-xs text-red-600">{statusState.error}</p> : null}
-      {aiState.error ? <p className="text-xs text-red-600">{aiState.error}</p> : null}
+      {statusState.error ? <p className="text-xs text-danger">{statusState.error}</p> : null}
+      {aiState.error ? <p className="text-xs text-danger">{aiState.error}</p> : null}
     </div>
   );
 }

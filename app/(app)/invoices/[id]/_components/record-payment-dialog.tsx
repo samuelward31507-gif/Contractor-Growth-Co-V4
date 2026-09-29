@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { errorBannerClass, ghostButtonClass, inputClass, labelClass, primaryButtonAutoClass } from "@/lib/ui/form";
 import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
-import { formatMoney, PAYMENT_METHODS, type InvoiceMoney } from "@/lib/invoices/domain";
+import { formatMoney, MANUAL_PAYMENT_METHODS, type InvoiceMoney } from "@/lib/invoices/domain";
 import { buildRecordPaymentInput, defaultRecordPaymentForm } from "@/lib/invoices/forms";
 import { recordCustomerPayment } from "../../actions";
 
@@ -54,7 +54,7 @@ export function RecordPaymentDialog({ invoice, onClose }: { invoice: RecordPayme
     <Dialog onClose={onClose} className="max-h-[90vh] max-w-md overflow-y-auto" labelledBy="record-payment-title">
       <DialogTitle id="record-payment-title">Record payment</DialogTitle>
       <DialogDescription>
-        Balance due is <span className="font-medium text-slate-700">{formatMoney(balance)}</span>. Payments are permanent; a mistake is corrected with a reversal, not an edit.
+        Balance due is <span className="font-medium text-ink-2">{formatMoney(balance)}</span>. Payments are permanent; a mistake is corrected with a reversal, not an edit.
       </DialogDescription>
 
       <form onSubmit={submit} className="mt-4 space-y-4" noValidate>
@@ -78,7 +78,7 @@ export function RecordPaymentDialog({ invoice, onClose }: { invoice: RecordPayme
             </label>
             <select id="payment-method" value={values.method} onChange={(e) => setValues({ ...values, method: e.target.value })} className={inputClass} required>
               <option value="">Choose…</option>
-              {PAYMENT_METHODS.map((method) => (
+              {MANUAL_PAYMENT_METHODS.map((method) => (
                 <option key={method.value} value={method.value}>
                   {method.label}
                 </option>
@@ -90,7 +90,7 @@ export function RecordPaymentDialog({ invoice, onClose }: { invoice: RecordPayme
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <label htmlFor="payment-reference" className={labelClass}>
-              Reference <span className="font-normal text-slate-400">(optional)</span>
+              Reference <span className="font-normal text-ink-3">(optional)</span>
             </label>
             <input id="payment-reference" value={values.reference} onChange={(e) => setValues({ ...values, reference: e.target.value })} className={inputClass} placeholder="Check no., last four, transfer id" />
           </div>
@@ -104,7 +104,7 @@ export function RecordPaymentDialog({ invoice, onClose }: { invoice: RecordPayme
 
         <div className="space-y-1.5">
           <label htmlFor="payment-notes" className={labelClass}>
-            Notes <span className="font-normal text-slate-400">(optional)</span>
+            Notes <span className="font-normal text-ink-3">(optional)</span>
           </label>
           <textarea id="payment-notes" rows={2} value={values.notes} onChange={(e) => setValues({ ...values, notes: e.target.value })} className={inputClass} placeholder="Only your team sees these" />
         </div>

@@ -56,13 +56,13 @@ function ScheduleRow({ appointment }: { appointment: DemoAppointment }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3">
       <div className="flex min-w-0 items-center gap-4">
-        <span className="w-[76px] shrink-0 text-xs font-medium tabular-nums text-slate-500">{appointment.time}</span>
-        <span className="min-w-0 truncate text-sm text-slate-700">
+        <span className="w-[76px] shrink-0 text-xs font-medium tabular-nums text-ink-3">{appointment.time}</span>
+        <span className="min-w-0 truncate text-sm text-ink-2">
           {isOpen ? (
-            <span className="text-slate-400">Open slot</span>
+            <span className="text-ink-3">Open slot</span>
           ) : (
             <>
-              <span className="font-medium text-slate-900">{appointment.customer}</span> · {appointment.service}
+              <span className="font-medium text-ink">{appointment.customer}</span> · {appointment.service}
             </>
           )}
         </span>
@@ -77,20 +77,20 @@ function AttentionSection() {
   return (
     <div>
       <h2 className={primarySectionTitleClass}>Needs your attention</h2>
-      <div className="mt-4 divide-y divide-slate-100">
+      <div className="mt-4 divide-y divide-line">
         {DEMO_OPPORTUNITIES.map((item) => (
           <div key={item.id} className="flex items-center gap-3 py-3">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-warning-muted text-warning">
               <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
             </span>
             <span className="min-w-0 flex-1">
               <span className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium text-slate-900">
-                  {item.category} <span className="text-slate-400">— {item.customer}</span>
+                <span className="truncate text-sm font-medium text-ink">
+                  {item.category} <span className="text-ink-3">— {item.customer}</span>
                 </span>
-                <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">{formatCurrency(item.value)}</span>
+                <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">{formatCurrency(item.value)}</span>
               </span>
-              <span className="block truncate text-xs text-slate-500">{item.reason}</span>
+              <span className="block truncate text-xs text-ink-3">{item.reason}</span>
             </span>
           </div>
         ))}
@@ -108,9 +108,9 @@ export function DemoDashboardView() {
           <h1 className={`mt-1.5 ${pageTitleClass}`}>Good morning, {DEMO_BUSINESS_NAME}.</h1>
           <p className={`mt-1.5 ${pageDescriptionClass}`}>Here&rsquo;s what needs your attention today.</p>
         </div>
-        <div className="rounded-xl border border-accent-border bg-accent-muted/60 px-5 py-4 sm:min-w-[240px]">
+        <div className="rounded-lg border border-accent-border bg-accent-muted/60 px-5 py-4 sm:min-w-[240px]">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-accent-text/70">Pipeline value</p>
-          <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-accent-text">{formatCurrency(DEMO_PIPELINE_VALUE)}</p>
+          <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-accent-text">{formatCurrency(DEMO_PIPELINE_VALUE)}</p>
         </div>
       </div>
 
@@ -118,18 +118,18 @@ export function DemoDashboardView() {
 
       <AttentionSection />
 
-      <div className="border-t border-slate-200 pt-8">
+      <div className="border-t border-line pt-8">
         <p className={sectionLabelClass}>Today&rsquo;s schedule</p>
-        <div className="mt-3 divide-y divide-slate-100">
+        <div className="mt-3 divide-y divide-line">
           {DEMO_TODAY_APPOINTMENTS.map((appointment) => (
             <ScheduleRow key={appointment.id} appointment={appointment} />
           ))}
         </div>
       </div>
 
-      <div className="border-t border-slate-200 pt-8">
+      <div className="border-t border-line pt-8">
         <p className={sectionLabelClass}>Intelligence</p>
-        <div className="mt-2 divide-y divide-slate-100">
+        <div className="mt-2 divide-y divide-line">
           {DEMO_SUPPORTING_METRICS.map((metric) => (
             <DemoRow key={metric.label} label={metric.label} value={metric.value} />
           ))}
@@ -167,7 +167,7 @@ export function DemoCustomersView() {
 
       <div>
         <div className="relative max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" aria-hidden />
           <input
             type="search"
             value={query}
@@ -184,40 +184,40 @@ export function DemoCustomersView() {
           ) : (
             <>
               <div className="hidden lg:block">
-                <div className={`grid ${CUSTOMER_ROW_GRID} gap-6 border-b border-slate-200 px-2 pb-3`}>
-                  <span className="text-xs text-slate-400">Customer</span>
-                  <span className="text-xs text-slate-400">Service</span>
-                  <span className="text-xs text-slate-400">Stage</span>
-                  <span className="text-right text-xs text-slate-400">Value</span>
+                <div className={`grid ${CUSTOMER_ROW_GRID} gap-6 border-b border-line px-2 pb-3`}>
+                  <span className="text-xs text-ink-3">Customer</span>
+                  <span className="text-xs text-ink-3">Service</span>
+                  <span className="text-xs text-ink-3">Stage</span>
+                  <span className="text-right text-xs text-ink-3">Value</span>
                 </div>
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-line">
                   {filtered.map((customer) => (
                     <button
                       key={customer.id}
                       type="button"
                       onClick={() => announce(`This is a demo — in your real account this opens ${customer.name}'s full profile.`)}
-                      className={`grid w-full ${CUSTOMER_ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 text-left transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset`}
+                      className={`grid w-full ${CUSTOMER_ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 text-left transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset`}
                     >
                       <span className="flex min-w-0 items-center gap-3">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                           {initials(customer.name)}
                         </span>
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-slate-900">{customer.name}</span>
-                          <span className="block truncate text-xs text-slate-500">{customer.lastActivity}</span>
+                          <span className="block truncate text-sm font-medium text-ink">{customer.name}</span>
+                          <span className="block truncate text-xs text-ink-3">{customer.lastActivity}</span>
                         </span>
                       </span>
-                      <span className="truncate text-sm text-slate-600">{customer.service}</span>
+                      <span className="truncate text-sm text-ink-2">{customer.service}</span>
                       <span>
                         <StageBadge label={customer.stage} tone={customer.stageTone} />
                       </span>
-                      <span className="text-right text-sm font-semibold tabular-nums text-slate-900">{formatCurrency(customer.value)}</span>
+                      <span className="text-right text-sm font-semibold tabular-nums text-ink">{formatCurrency(customer.value)}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <ul className="divide-y divide-slate-100 lg:hidden">
+              <ul className="divide-y divide-line lg:hidden">
                 {filtered.map((customer) => (
                   <li key={customer.id}>
                     <button
@@ -225,17 +225,17 @@ export function DemoCustomersView() {
                       onClick={() => announce(`This is a demo — in your real account this opens ${customer.name}'s full profile.`)}
                       className="flex w-full items-center gap-3 px-2 py-3.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
                     >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                         {initials(customer.name)}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm font-medium text-slate-900">{customer.name}</span>
+                          <span className="truncate text-sm font-medium text-ink">{customer.name}</span>
                           <StageBadge label={customer.stage} tone={customer.stageTone} />
                         </span>
                         <span className="mt-0.5 flex items-center justify-between gap-2">
-                          <span className="truncate text-xs text-slate-500">{customer.service}</span>
-                          <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">{formatCurrency(customer.value)}</span>
+                          <span className="truncate text-xs text-ink-3">{customer.service}</span>
+                          <span className="shrink-0 text-xs font-semibold tabular-nums text-ink">{formatCurrency(customer.value)}</span>
                         </span>
                       </span>
                     </button>
@@ -267,18 +267,18 @@ export function DemoOpportunitiesView() {
       />
 
       <div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-line">
           {DEMO_OPPORTUNITIES.map((item) => (
             <div key={item.id} className="flex items-center gap-3 py-3.5">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning-muted text-warning">
                 <TrendingUp className="h-4 w-4" aria-hidden />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium text-slate-900">{item.category}</span>
-                  <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">{formatCurrency(item.value)}</span>
+                  <span className="truncate text-sm font-medium text-ink">{item.category}</span>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">{formatCurrency(item.value)}</span>
                 </span>
-                <span className="block truncate text-xs text-slate-500">
+                <span className="block truncate text-xs text-ink-3">
                   {item.customer} — {item.reason}
                 </span>
               </span>
@@ -302,16 +302,16 @@ export function DemoScheduleView() {
 
       <div>
         <p className={sectionLabelClass}>Today · {DEMO_DATE_LABEL}</p>
-        <div className="mt-3 divide-y divide-slate-100">
+        <div className="mt-3 divide-y divide-line">
           {DEMO_TODAY_APPOINTMENTS.map((appointment) => (
             <ScheduleRow key={appointment.id} appointment={appointment} />
           ))}
         </div>
       </div>
 
-      <div className="border-t border-slate-200 pt-8">
+      <div className="border-t border-line pt-8">
         <p className={sectionLabelClass}>{DEMO_NEXT_DAY_LABEL}</p>
-        <div className="mt-3 divide-y divide-slate-100">
+        <div className="mt-3 divide-y divide-line">
           {DEMO_NEXT_DAY_APPOINTMENTS.map((appointment) => (
             <ScheduleRow key={appointment.id} appointment={appointment} />
           ))}
@@ -332,40 +332,40 @@ export function DemoWorkView() {
       />
 
       <div className="hidden lg:block">
-        <div className="grid grid-cols-[minmax(0,1fr)_140px_130px_90px_110px] gap-6 border-b border-slate-200 px-2 pb-3">
-          <span className="text-xs text-slate-400">Customer</span>
-          <span className="text-xs text-slate-400">Service</span>
-          <span className="text-xs text-slate-400">Stage</span>
-          <span className="text-xs text-slate-400">Type</span>
-          <span className="text-right text-xs text-slate-400">Value</span>
+        <div className="grid grid-cols-[minmax(0,1fr)_140px_130px_90px_110px] gap-6 border-b border-line px-2 pb-3">
+          <span className="text-xs text-ink-3">Customer</span>
+          <span className="text-xs text-ink-3">Service</span>
+          <span className="text-xs text-ink-3">Stage</span>
+          <span className="text-xs text-ink-3">Type</span>
+          <span className="text-right text-xs text-ink-3">Value</span>
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-line">
           {DEMO_ESTIMATES_JOBS.map((row) => (
             <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_140px_130px_90px_110px] items-center gap-6 px-2 py-3.5">
-              <span className="truncate text-sm font-medium text-slate-900">{row.customer}</span>
-              <span className="truncate text-sm text-slate-600">{row.service}</span>
+              <span className="truncate text-sm font-medium text-ink">{row.customer}</span>
+              <span className="truncate text-sm text-ink-2">{row.service}</span>
               <span>
                 <StageBadge label={row.stage} tone={row.stageTone} />
               </span>
-              <span className="text-sm text-slate-500">{row.type}</span>
-              <span className="text-right text-sm font-semibold tabular-nums text-slate-900">{formatCurrency(row.value)}</span>
+              <span className="text-sm text-ink-3">{row.type}</span>
+              <span className="text-right text-sm font-semibold tabular-nums text-ink">{formatCurrency(row.value)}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <ul className="divide-y divide-slate-100 lg:hidden">
+      <ul className="divide-y divide-line lg:hidden">
         {DEMO_ESTIMATES_JOBS.map((row) => (
           <li key={row.id} className="px-2 py-3.5">
             <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-sm font-medium text-slate-900">{row.customer}</span>
+              <span className="truncate text-sm font-medium text-ink">{row.customer}</span>
               <StageBadge label={row.stage} tone={row.stageTone} />
             </div>
             <div className="mt-0.5 flex items-center justify-between gap-2">
-              <span className="truncate text-xs text-slate-500">
+              <span className="truncate text-xs text-ink-3">
                 {row.service} · {row.type}
               </span>
-              <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">{formatCurrency(row.value)}</span>
+              <span className="shrink-0 text-xs font-semibold tabular-nums text-ink">{formatCurrency(row.value)}</span>
             </div>
           </li>
         ))}
@@ -392,14 +392,14 @@ export function DemoGrowthView() {
                 {Array.from({ length: 5 }).map((_, index) => (
                   <Star
                     key={index}
-                    className={`h-3.5 w-3.5 ${index < review.rating ? "fill-amber-400 text-amber-400" : "text-slate-200"}`}
+                    className={`h-3.5 w-3.5 ${index < review.rating ? "fill-warning text-warning" : "text-ink-4"}`}
                     aria-hidden
                   />
                 ))}
               </div>
-              <p className="mt-2.5 text-sm text-slate-700">&ldquo;{review.quote}&rdquo;</p>
-              <p className="mt-3 text-xs font-medium text-slate-900">{review.customer}</p>
-              <p className="text-xs text-slate-500">{review.service}</p>
+              <p className="mt-2.5 text-sm text-ink-2">&ldquo;{review.quote}&rdquo;</p>
+              <p className="mt-3 text-xs font-medium text-ink">{review.customer}</p>
+              <p className="text-xs text-ink-3">{review.service}</p>
             </Panel>
           ))}
         </div>
@@ -422,20 +422,20 @@ export function DemoAutomationsView() {
       <div>
         <p className={sectionLabelClass}>Active automations</p>
         <Panel className="mt-3 overflow-hidden p-0">
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {DEMO_AUTOMATIONS.map((automation) => (
               <li key={automation.id} className="flex items-center gap-3.5 px-4 py-4">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent-muted text-accent">
                   <Workflow className="h-[18px] w-[18px]" aria-hidden />
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[15px] font-semibold text-slate-900">{automation.name}</p>
+                    <p className="text-sm font-semibold text-ink">{automation.name}</p>
                     <Badge tone="success" icon={CheckCircle2}>
                       Active
                     </Badge>
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-slate-500">{automation.description}</p>
+                  <p className="mt-0.5 truncate text-xs text-ink-3">{automation.description}</p>
                 </div>
               </li>
             ))}

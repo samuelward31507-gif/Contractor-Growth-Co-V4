@@ -37,7 +37,7 @@ export function AppointmentDetailDialog({ appointment, timeZone, onClose }: { ap
         <div>
           <p className={detailLabelClass}>When</p>
           <p className={detailValueClass}>{formatAppointmentDate(appointment.start_at, timeZone)}</p>
-          <p className="mt-0.5 text-sm text-slate-600">
+          <p className="mt-0.5 text-sm text-ink-2">
             {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)} · {formatAppointmentDuration(appointment.start_at, appointment.end_at)}
           </p>
         </div>
@@ -45,7 +45,7 @@ export function AppointmentDetailDialog({ appointment, timeZone, onClose }: { ap
         <div>
           <p className={detailLabelClass}>Customer</p>
           <p className={detailValueClass}>{customerName}</p>
-          <div className="mt-1 flex flex-col gap-0.5 text-sm text-slate-500">
+          <div className="mt-1 flex flex-col gap-0.5 text-sm text-ink-3">
             {appointment.contact?.phone ? (
               <span className="inline-flex items-center gap-1.5">
                 <Phone aria-hidden className="h-3.5 w-3.5" />
@@ -71,7 +71,7 @@ export function AppointmentDetailDialog({ appointment, timeZone, onClose }: { ap
         {appointment.notes ? (
           <div>
             <p className={detailLabelClass}>Notes</p>
-            <p className="whitespace-pre-wrap text-sm text-slate-700">{appointment.notes}</p>
+            <p className="whitespace-pre-wrap text-sm text-ink-2">{appointment.notes}</p>
           </div>
         ) : null}
 
@@ -86,7 +86,7 @@ export function AppointmentDetailDialog({ appointment, timeZone, onClose }: { ap
 
         <Link
           href={`/appointments/${appointment.id}`}
-          className="inline-flex items-center gap-1.5 rounded text-sm font-medium text-slate-600 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="inline-flex items-center gap-1.5 rounded text-sm font-medium text-ink-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
           View full details
           <ExternalLink aria-hidden className="h-3.5 w-3.5" />

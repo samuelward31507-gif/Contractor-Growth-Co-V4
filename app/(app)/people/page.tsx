@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { filterContacts, getContacts, type Contact } from "@/lib/contacts/queries";
 import { getLeads, type Lead, type LeadTemperature } from "@/lib/leads/queries";
 import { getEstimates } from "@/lib/estimates/queries";
@@ -14,12 +13,14 @@ import { summarizeOpenLeadValue } from "@/lib/contacts/open-lead-value";
 import { findPersonNextStep, type NextStep } from "@/lib/people/next-step";
 import Link from "next/link";
 import { PageHeader } from "@/lib/ui/page-header";
+import { getTerminology } from "@/lib/verticals/terminology";
 import { Panel } from "@/lib/ui/section-card";
 import { AddContactButton } from "@/app/(app)/contacts/_components/add-contact-button";
 import { TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { PeopleEmptyState } from "./_components/people-empty-state";
 import { PeopleSearch } from "./_components/people-search";
 import { PeopleTable } from "./_components/people-table";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 function groupByContactId<T extends { contact_id: string | null }>(records: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -91,17 +92,13 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   const sort = normalizeSort(typeof params.sort === "string" ? params.sort : undefined);
   const temperature = normalizeTemperature(typeof params.temperature === "string" ? params.temperature : undefined);
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -166,14 +163,16 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   const contacts = sortContacts(filterContacts(temperatureFiltered, query), sort);
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow="Operate"
-        title="People"
-        description="Everyone your business is currently working with or has worked with."
+        // Trackpr 2.0 (step 2G): the title follows the nav entry that lands
+        // here - Leads is this list filtered to hot leads, Contacts (Members
+        // for a gym) is everyone.
+        title={temperature === "hot" ? "Leads" : getTerminology(membership.vertical).contactsLabel}
+        description={temperature === "hot" ? "Open leads that are ready for a conversation now." : "Everyone your business is currently working with or has worked with."}
         badge={
           allContacts.length > 0 ? (
-            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+            <span className="inline-flex items-center rounded-full bg-inset px-2.5 py-0.5 text-xs font-medium tabular-nums text-ink-2">
               {allContacts.length}
             </span>
           ) : undefined
@@ -182,7 +181,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
           <div className="flex items-center gap-4">
             <Link
               href="/contacts/duplicates"
-              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="inline-flex min-h-11 items-center rounded text-sm font-medium text-ink-3 transition-colors hover:text-ink sm:min-h-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               Review duplicates
             </Link>
@@ -192,9 +191,9 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
       />
 
       {temperature !== "all" ? (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-3">
           Showing {TEMPERATURE_LABELS[temperature].toLowerCase()} leads only ({contacts.length}) ·{" "}
-          <Link href="/people" className="font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900">
+          <Link href="/people" className="font-medium text-ink-2 underline underline-offset-2 hover:text-ink">
             View everyone
           </Link>
         </p>

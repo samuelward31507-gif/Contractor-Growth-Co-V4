@@ -1,25 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { MoreHorizontal, X, LogOut } from "lucide-react";
+import { CalendarDays, LayoutDashboard, Hammer, Inbox, Menu, Users, X, LogOut, type LucideIcon } from "lucide-react";
 import type { OrganizationVertical } from "@/lib/auth/organization";
-import { getNavGroupsForVertical, type NavIconName } from "./nav-items";
+import { getNavGroupsForVertical, resolveActiveNavItem, type NavItem } from "./nav-items";
 import { NavLink } from "./nav-link";
-import { NAV_ICONS } from "./nav-icons";
+import { announceNavClick, useNavLocation } from "./use-nav-location";
 import { logout } from "../actions";
 
+const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40";
+
 /**
- * Phase 5 (nav and mobile pass): replaces the old hamburger-drawer pattern
- * on mobile with a persistent bottom tab bar - the primary destinations
- * (Dashboard/People/Jobs/Estimates/Schedule, per vertical filtering) always
- * one tap away, never behind a menu. Everything else (Inbox, Reviews &
- * Referrals, Automations, Insights, Settings, Agency Command Center when
- * authorized) lives behind the trailing "More" tab, which opens a bottom
- * sheet rather than a second navigation surface - reuses NavLink and
- * getNavGroupsForVertical exactly as the desktop sidebar does, so the two
- * surfaces can never drift out of sync with each other.
+ * A bottom tab: either one nav destination (`href`) or a whole group
+ * (`groupId` - Schedule stays lit on Calendar and Appointments alike).
+ */
+type Tab = { label: string; icon: LucideIcon; href: string; groupId?: string };
+
+/**
+ * The four destinations a contractor reaches for most on a phone - today's
+ * picture, customer messages, the day's schedule, the work itself - in
+ * reach of a thumb; everything else is one tap away in the More sheet.
+ * A vertical without Jobs (gym) gets its member list in that slot.
+ */
+function tabsFor(vertical: OrganizationVertical, contactsLabel: string): Tab[] {
+  return [
+    { label: "Dashboard", icon: LayoutDashboard, href: "/today" },
+    { label: "Inbox", icon: Inbox, href: "/conversations" },
+    { label: "Schedule", icon: CalendarDays, href: "/schedule", groupId: "schedule" },
+    vertical === "contractor" ? { label: "Jobs", icon: Hammer, href: "/jobs" } : { label: contactsLabel, icon: Users, href: "/people" },
+  ];
+}
+
+/**
+ * Trackpr 2.0 (step 2C): the light mobile navigation - a white bottom tab
+ * bar in the same quiet system as the desktop sidebar, and a More sheet
+ * that shows the complete grouped IA (Customers, Schedule, Work, Growth,
+ * Insights, then Settings / Agency Command Center and the account), so
+ * nothing reachable on desktop is out of reach on a phone. Driven by the
+ * same getNavGroupsForVertical + resolveActiveNavItem as the sidebar, so
+ * the two surfaces can never disagree.
  */
 export function MobileTabBar({
   vertical,
@@ -30,101 +50,146 @@ export function MobileTabBar({
   showAgencyLink: boolean;
   userEmail: string;
 }) {
-  const [moreOpen, setMoreOpen] = useState(false);
-  const pathname = usePathname();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const location = useNavLocation();
 
   const groups = getNavGroupsForVertical(vertical, showAgencyLink);
-  const primaryItems = groups.find((group) => group.label === null)?.items ?? [];
-  const moreItems = groups.find((group) => group.label === "More")?.items ?? [];
-  const isMoreActive = moreItems.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+  const allItems = groups.flatMap((group) => group.items);
+  const activeItem = resolveActiveNavItem(allItems, location);
+  const activeGroupId = groups.find((group) => activeItem && group.items.includes(activeItem))?.id;
+  const contactsLabel = allItems.find((item) => item.href === "/people")?.label ?? "Contacts";
+  const tabs = tabsFor(vertical, contactsLabel);
+
+  const isTabActive = (tab: Tab) => (tab.groupId ? activeGroupId === tab.groupId : activeItem?.href === tab.href);
+  const menuActive = activeItem !== null && !tabs.some(isTabActive);
+
+  // Keyboard/screen-reader handling for the sheet: focus moves into it on
+  // open, Escape closes it, and focus returns to the More tab on close.
+  useEffect(() => {
+    if (!menuOpen) return;
+    closeButtonRef.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      menuButtonRef.current?.focus();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen]);
+
+  function closeMenu({ restoreFocus }: { restoreFocus: boolean }) {
+    setMenuOpen(false);
+    if (restoreFocus) menuButtonRef.current?.focus();
+  }
+
+  const sheetGroups = groups.filter((group) => group.id !== "system");
+  const systemGroup = groups.find((group) => group.id === "system");
 
   return (
     <div className="lg:hidden">
       <nav
-        className="relative z-40 flex items-stretch border-t border-white/[0.07] bg-[#0a120f]"
+        aria-label="Primary"
+        className="relative z-40 flex items-stretch border-t border-line bg-surface"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        {primaryItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        {tabs.map((tab) => {
+          const active = isTabActive(tab);
+          const Icon = tab.icon;
           return (
             <Link
-              key={item.href}
-              href={item.href}
-              aria-current={isActive ? "page" : undefined}
-              className="flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium"
+              key={tab.href}
+              href={tab.href}
+              onClick={announceNavClick}
+              aria-current={active ? "page" : undefined}
+              className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors ${FOCUS_RING} ${
+                active ? "text-ink" : "text-ink-3"
+              }`}
             >
-              <NavTabIcon iconName={item.icon} active={isActive} />
-              <span className={isActive ? "text-emerald-400" : "text-slate-500"}>{item.label}</span>
+              <Icon className={`h-5 w-5 shrink-0 ${active ? "text-accent" : ""}`} strokeWidth={1.75} aria-hidden />
+              <span>{tab.label}</span>
             </Link>
           );
         })}
 
         <button
+          ref={menuButtonRef}
           type="button"
-          onClick={() => setMoreOpen(true)}
-          aria-label="More"
+          onClick={() => setMenuOpen(true)}
           aria-haspopup="dialog"
-          aria-expanded={moreOpen}
-          className="flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium"
+          aria-expanded={menuOpen}
+          aria-current={menuActive ? "page" : undefined}
+          className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors ${FOCUS_RING} ${
+            menuActive ? "text-ink" : "text-ink-3"
+          }`}
         >
-          <MoreHorizontal className={`h-[18px] w-[18px] shrink-0 ${isMoreActive ? "text-emerald-400" : "text-slate-500"}`} aria-hidden />
-          <span className={isMoreActive ? "text-emerald-400" : "text-slate-500"}>More</span>
+          <Menu className={`h-5 w-5 shrink-0 ${menuActive ? "text-accent" : ""}`} strokeWidth={1.75} aria-hidden />
+          <span>More</span>
         </button>
       </nav>
 
-      {/* Always mounted so open/close animates, matching the old drawer's
-          own pattern (see the mobile-nav.tsx this replaced). */}
-      <div className={`fixed inset-0 z-50 ${moreOpen ? "" : "pointer-events-none"}`} aria-hidden={!moreOpen}>
+      {/* Always mounted so open/close animates; `inert` while closed keeps
+          every link inside it out of the tab order and the a11y tree. */}
+      <div className={`fixed inset-0 z-50 ${menuOpen ? "" : "pointer-events-none"}`} inert={!menuOpen}>
         <button
           type="button"
           aria-label="Close menu"
-          tabIndex={moreOpen ? 0 : -1}
-          className={`absolute inset-0 bg-slate-950/60 transition-opacity duration-200 ${moreOpen ? "opacity-100" : "opacity-0"}`}
-          onClick={() => setMoreOpen(false)}
+          tabIndex={-1}
+          className={`absolute inset-0 bg-ink/25 transition-opacity duration-200 ${menuOpen ? "opacity-100" : "opacity-0"}`}
+          onClick={() => closeMenu({ restoreFocus: true })}
         />
         <div
           role="dialog"
           aria-modal="true"
           aria-label="More"
-          className={`absolute inset-x-0 bottom-0 max-h-[75vh] overflow-y-auto rounded-t-2xl bg-[#0a120f] shadow-2xl transition-transform duration-200 ease-out ${
-            moreOpen ? "translate-y-0" : "translate-y-full"
+          className={`absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col rounded-t-xl border-t border-line bg-surface shadow-popover transition-transform duration-200 ease-out ${
+            menuOpen ? "translate-y-0" : "translate-y-full"
           }`}
         >
-          <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3">
-            <p className="text-sm font-semibold text-white">More</p>
+          <div className="flex h-14 shrink-0 items-center justify-between border-b border-line pl-4 pr-1.5">
+            <p className="text-sm font-semibold text-ink">More</p>
             <button
+              ref={closeButtonRef}
               type="button"
-              onClick={() => setMoreOpen(false)}
+              onClick={() => closeMenu({ restoreFocus: true })}
               aria-label="Close menu"
-              tabIndex={moreOpen ? 0 : -1}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+              className={`flex h-11 w-11 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink ${FOCUS_RING}`}
             >
-              <X className="h-5 w-5" aria-hidden />
+              <X className="h-5 w-5" strokeWidth={1.75} aria-hidden />
             </button>
           </div>
 
-          <div className="space-y-0.5 px-3 py-3">
-            {moreItems.map((item) => (
-              <NavLink key={item.href} item={item} onNavigate={() => setMoreOpen(false)} />
+          <div className="flex-1 overflow-y-auto px-2 pb-2" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
+            {sheetGroups.map((group) => (
+              <SheetGroup key={group.id} label={group.label} items={group.items} activeItem={activeItem} onNavigate={() => closeMenu({ restoreFocus: false })} />
             ))}
-          </div>
 
-          <div className="border-t border-white/[0.07] p-3">
-            <div className="flex items-center gap-3 px-2 py-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-semibold text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
-                {userEmail.charAt(0).toUpperCase()}
+            {systemGroup ? (
+              <div className="mt-3 space-y-px border-t border-line pt-3">
+                {systemGroup.items.map((item) => (
+                  <NavLink key={item.href} item={item} active={item === activeItem} touch onNavigate={() => closeMenu({ restoreFocus: false })} />
+                ))}
               </div>
-              <p className="truncate text-sm font-medium text-white">{userEmail}</p>
+            ) : null}
+
+            <div className="mt-3 border-t border-line pt-3">
+              <div className="flex items-center gap-2.5 px-2.5 py-1.5">
+                <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-inset text-[11px] font-semibold text-ink-2">
+                  {userEmail.charAt(0).toUpperCase()}
+                </span>
+                <p className="min-w-0 truncate text-sm font-medium text-ink">{userEmail}</p>
+              </div>
+              <form action={logout}>
+                <button
+                  type="submit"
+                  className={`flex min-h-11 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${FOCUS_RING}`}
+                >
+                  <LogOut className="h-4 w-4 shrink-0 text-ink-3" strokeWidth={1.75} aria-hidden />
+                  Log out
+                </button>
+              </form>
             </div>
-            <form action={logout} className="mt-1">
-              <button
-                type="submit"
-                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-white"
-              >
-                <LogOut className="h-[18px] w-[18px] shrink-0 text-slate-500" aria-hidden />
-                Log out
-              </button>
-            </form>
           </div>
         </div>
       </div>
@@ -132,12 +197,15 @@ export function MobileTabBar({
   );
 }
 
-// Renders a primary tab's icon without the full NavLink chrome (this tab
-// bar's own layout - icon above label, no leading gap - doesn't match
-// NavLink's sidebar-row anatomy), while still sourcing the icon from the
-// exact same NavIconName -> component lookup NavLink itself uses, so a tab
-// bar icon can never drift from its sidebar/More-sheet counterpart.
-function NavTabIcon({ iconName, active }: { iconName: NavIconName; active: boolean }) {
-  const Icon = NAV_ICONS[iconName];
-  return <Icon className={`h-[18px] w-[18px] shrink-0 ${active ? "text-emerald-400" : "text-slate-500"}`} aria-hidden />;
+function SheetGroup({ label, items, activeItem, onNavigate }: { label: string | null; items: NavItem[]; activeItem: NavItem | null; onNavigate: () => void }) {
+  return (
+    <div className="pt-3" role="group" aria-label={label ?? "Home"}>
+      {label ? <p className="mb-1 px-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3">{label}</p> : null}
+      <div className="space-y-px">
+        {items.map((item) => (
+          <NavLink key={item.href} item={item} active={item === activeItem} touch onNavigate={onNavigate} />
+        ))}
+      </div>
+    </div>
+  );
 }

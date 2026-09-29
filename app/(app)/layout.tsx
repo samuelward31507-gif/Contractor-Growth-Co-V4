@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { isAgencyAdmin } from "@/lib/agency/queries";
-import { MobileNav } from "./_components/mobile-nav";
 import { MobileTabBar } from "./_components/mobile-tab-bar";
 import { Sidebar } from "./_components/sidebar";
 import { TopBar } from "./_components/top-bar";
@@ -11,17 +9,18 @@ import { getNavGroupsForVertical } from "./_components/nav-items";
 import { CommandMenu } from "@/lib/ui/command-menu";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  // Performance Pass B: the agency-admin check (a read-only RPC on the
+  // session) doesn't depend on the membership, so it runs alongside it
+  // instead of after it. Its result is still only used once the user,
+  // membership and payment checks below have passed.
+  const agencyAdminCheck = isAgencyAdmin(supabase).catch(() => false);
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -41,7 +40,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // link is only ever shown to a session-verified agency admin (never
   // unconditionally), and /agency itself independently re-verifies this on
   // every request regardless of what the nav shows.
-  const showAgencyLink = await isAgencyAdmin(supabase);
+  const showAgencyLink = await agencyAdminCheck;
 
   return (
     // App-shell fix: this used to be `h-dvh` with no overflow containment,
@@ -53,7 +52,16 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     // of <main>, never inside it - simply never move. The bounded height
     // this produces is also what the Conversations route's own
     // internally-scrolling message thread relies on (see its layout.tsx).
-    <div className="flex h-dvh overflow-hidden bg-canvas">
+    <div className="flex h-dvh overflow-hidden bg-canvas text-ink">
+      {/* Trackpr 2.0 (step 2B): the first focusable element in the shell -
+          visible only on keyboard focus - so keyboard and screen-reader users
+          can jump past the navigation straight to the page. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:shadow-popover focus:outline-none focus:ring-2 focus:ring-accent/40"
+      >
+        Skip to content
+      </a>
       <Sidebar
         organizationName={organizationName}
         userEmail={user.email ?? ""}
@@ -62,13 +70,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         showAgencyLink={showAgencyLink}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <MobileNav />
-        <TopBar supabase={supabase} organizationId={membership.organizationId} />
-        {/* The only scrolling region in the shell - sidebar, mobile header,
-            top bar, and the mobile tab bar all sit outside this element, so
+        <TopBar supabase={supabase} organizationId={membership.organizationId} organizationName={organizationName} />
+        {/* The only scrolling region in the shell - sidebar, top bar (also
+            the mobile header, step 2D) and the mobile tab bar all sit outside this element, so
             they stay in place while a page's own content scrolls
             independently beneath them. */}
-        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
+        <main id="main-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col overflow-y-auto focus:outline-none">
+          {children}
+        </main>
         <MobileTabBar vertical={membership.vertical} showAgencyLink={showAgencyLink} userEmail={user.email ?? ""} />
       </div>
       <CommandMenu navGroups={getNavGroupsForVertical(membership.vertical, showAgencyLink)} />

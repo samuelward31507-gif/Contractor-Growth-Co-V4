@@ -26,16 +26,16 @@ const STATUS_LABEL: Record<AutomationHealthStatus, string> = {
  */
 export function AutomationsPanel({ automations }: { automations: AutomationHealthSummary[] }) {
   if (automations.length === 0) {
-    return <p className="mt-3 text-sm text-slate-500">No automations are configured for this client yet.</p>;
+    return <p className="mt-3 text-sm text-ink-3">No automations are configured for this client yet.</p>;
   }
 
   return (
-    <ul className="mt-3 divide-y divide-slate-100">
+    <ul className="mt-3 divide-y divide-line">
       {automations.map((automation) => (
         <li key={automation.automationId} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-900">{automation.automationName}</p>
-            <p className="mt-0.5 text-xs text-slate-500">
+            <p className="text-sm font-medium text-ink">{automation.automationName}</p>
+            <p className="mt-0.5 text-xs text-ink-3">
               {automation.status === "healthy"
                 ? automation.lastExecutionAt
                   ? `Last execution: ${formatRelativeTime(automation.lastExecutionAt)}`

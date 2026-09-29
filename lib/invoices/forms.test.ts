@@ -92,3 +92,14 @@ test("payment form (Phase 1B-5): every new form mints a valid, distinct client k
   const built = buildRecordPaymentInput({ ...explicit, method: "cash" }, invoice, new Date("2026-10-02T15:00:00"));
   assert.equal(built.input?.clientKey, "fixed-key-000001", "a retry of the same form values sends the same key");
 });
+
+test("Phase 1C: the Record payment form refuses card_online - online payments are recorded only by the Stripe webhook", () => {
+  const invoice = { id: "inv-1", status: "sent" as const, total: 100, amountPaid: 0, dueDate: null };
+  const result = buildRecordPaymentInput({ amountRaw: "40", method: "card_online", reference: "", receivedAtLocal: "", notes: "", clientKey: "form-test-key-0002" }, invoice, new Date(2026, 9, 10, 9, 0));
+  assert.equal(result.error, "Choose how this payment was received.");
+  assert.equal(result.input, undefined);
+});
+
+test("Phase 1C: describeReversal still labels a card_online row readably", () => {
+  assert.equal(describeReversal({ amount: 50, method: "card_online", received_at: "2026-10-01T00:00:00.000Z" }).methodLabel, "Card (paid online)");
+});

@@ -34,12 +34,12 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        {eyebrow ? <p className="mb-1.5 text-[12.5px] font-medium text-accent-text">{eyebrow}</p> : null}
+        {eyebrow ? <p className="mb-1 text-xs font-medium text-ink-3">{eyebrow}</p> : null}
         <div className="flex items-center gap-2.5">
           <h1 className={pageTitleClass}>{title}</h1>
           {badge}
         </div>
-        {description ? <p className={`mt-1.5 ${pageDescriptionClass}`}>{description}</p> : null}
+        {description ? <p className={`mt-1 max-w-2xl ${pageDescriptionClass}`}>{description}</p> : null}
       </div>
       {action}
     </div>

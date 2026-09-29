@@ -6,4 +6,4 @@
 // lib/ui/section-card.tsx's SectionCard/Panel, the app's one bordered-
 // container primitive for actual grouped content.
 
-export const surfaceClass = "rounded-lg bg-slate-50";
+export const surfaceClass = "rounded-lg bg-inset";

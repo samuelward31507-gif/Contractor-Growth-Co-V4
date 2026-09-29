@@ -92,7 +92,7 @@ export function InvoiceActions({ invoice }: { invoice: InvoiceActionsInvoice }) 
               Due date
             </label>
             <input id="issue-due-date" type="date" value={issueDueDate} onChange={(e) => setIssueDueDate(e.target.value)} className={inputClass} />
-            <p className="text-xs text-slate-500">Leave blank for 14 days from today.</p>
+            <p className="text-xs text-ink-3">Leave blank for 14 days from today.</p>
           </div>
           {error ? (
             <p className={`mt-4 ${errorBannerClass}`} role="alert">
@@ -118,7 +118,7 @@ export function InvoiceActions({ invoice }: { invoice: InvoiceActionsInvoice }) 
           </DialogDescription>
           <div className="mt-4 space-y-1.5">
             <label htmlFor="void-reason" className={labelClass}>
-              Reason <span className="font-normal text-slate-400">(optional)</span>
+              Reason <span className="font-normal text-ink-3">(optional)</span>
             </label>
             <input id="void-reason" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} className={inputClass} placeholder="Wrong amount, duplicate, work cancelled…" />
           </div>

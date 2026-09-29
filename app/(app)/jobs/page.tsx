@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { filterJobs, getJobsResult, summarizeJobs, type JobStatus } from "@/lib/jobs/queries";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
@@ -15,6 +14,7 @@ import { ReviewReferralSummaryRow } from "./_components/review-referral-summary"
 import { JobsTable } from "./_components/jobs-table";
 import { JobsToolbar } from "./_components/jobs-toolbar";
 import { AddJobButton } from "./_components/add-job-button";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 const VALID_STATUSES = new Set<string>(["scheduled", "in_progress", "completed", "cancelled"]);
 
@@ -34,17 +34,13 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
   const query = typeof params.q === "string" ? params.q : "";
   const status = normalizeStatus(typeof params.status === "string" ? params.status : undefined);
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -70,16 +66,15 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
   const hasActiveFilters = Boolean(query.trim()) || status !== "all";
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow="Operate"
         title="Jobs"
         description="Track work from an accepted estimate through completion."
         action={
           <div className="flex items-center gap-4">
             <Link
               href="/estimates"
-              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="inline-flex min-h-11 items-center rounded text-sm font-medium text-ink-3 transition-colors hover:text-ink sm:min-h-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               View estimates
             </Link>

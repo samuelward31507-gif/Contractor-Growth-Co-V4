@@ -1,7 +1,8 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { hasSearchChanged } from "@/lib/ui/search-sync";
 import { Search } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import { APPOINTMENT_STATUSES, type AppointmentView } from "@/lib/appointments/queries";
@@ -27,6 +28,8 @@ export function AppointmentsToolbar({
   todayCount?: number;
 }) {
   const [query, setQuery] = useState(initialQuery);
+  // The search text currently reflected in the URL - see lib/ui/search-sync.ts.
+  const lastSyncedQuery = useRef(initialQuery.trim());
   const [status, setStatus] = useState(initialStatus);
   const router = useRouter();
   const pathname = usePathname();
@@ -46,6 +49,7 @@ export function AppointmentsToolbar({
   // the exact key SchedulePage's own dispatcher already reads back out for
   // this (see app/(app)/schedule/page.tsx).
   function navigate(nextQuery: string, nextStatus: string, nextView: AppointmentView) {
+    lastSyncedQuery.current = nextQuery.trim();
     const params = new URLSearchParams();
     const trimmed = nextQuery.trim();
     if (trimmed) params.set("q", trimmed);
@@ -56,6 +60,7 @@ export function AppointmentsToolbar({
   }
 
   useEffect(() => {
+    if (!hasSearchChanged(query, lastSyncedQuery.current)) return;
     const handle = setTimeout(() => navigate(query, status, view), 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,23 +85,23 @@ export function AppointmentsToolbar({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 sm:w-fit">
+      <div className="inline-flex gap-0.5 rounded-md bg-inset p-0.5">
         {VIEWS.map((item) => (
           <button
             key={item.value}
             type="button"
             aria-pressed={view === item.value}
             onClick={() => handleViewChange(item.value)}
-            className={`flex-1 rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:flex-none ${
+            className={`inline-flex min-h-11 flex-1 items-center justify-center rounded-[5px] px-3 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:min-h-7 sm:flex-none ${
               view === item.value
-                ? "bg-white text-slate-900 shadow-sm"
-                : "text-slate-500 hover:text-slate-900"
+                ? "bg-surface text-ink shadow-[0_1px_2px_rgba(23,25,26,0.08)]"
+                : "text-ink-3 hover:text-ink"
             }`}
           >
             <span className="inline-flex items-center gap-1.5">
               {item.label}
               {item.value === "today" && todayCount ? (
-                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-slate-900 px-1 text-[12px] font-semibold text-white">
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-ink px-1 text-[11px] font-semibold tabular-nums text-white">
                   {todayCount}
                 </span>
               ) : null}
@@ -109,7 +114,7 @@ export function AppointmentsToolbar({
         <div className="relative flex-1 sm:max-w-sm">
           <Search
             aria-hidden
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3"
           />
           <input
             type="search"
@@ -139,7 +144,7 @@ export function AppointmentsToolbar({
           <button
             type="button"
             onClick={clearFilters}
-            className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="inline-flex min-h-11 items-center rounded text-sm font-medium text-ink-3 transition-colors hover:text-ink sm:min-h-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           >
             Clear filters
           </button>

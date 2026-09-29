@@ -79,16 +79,16 @@ export function ConversationContext({
       ) : null}
 
       {nextStep ? (
-        <div className={`rounded-xl border px-4 py-3 ${nextStep.attention ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}>
+        <div className={`rounded-lg border px-4 py-3 ${nextStep.attention ? "border-warning-border bg-warning-muted" : "border-line bg-surface"}`}>
           <div className="flex items-start gap-2.5">
-            <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${nextStep.attention ? "bg-amber-100 text-amber-700" : "bg-accent-muted text-accent-text"}`}>
+            <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${nextStep.attention ? "bg-warning-muted text-warning-text" : "bg-accent-muted text-accent-text"}`}>
               {nextStep.attention ? <AlertCircle className="h-3.5 w-3.5" aria-hidden /> : <ArrowRight className="h-3.5 w-3.5" aria-hidden />}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[12.5px] font-medium text-slate-500">What happens next</p>
-              <p className="text-sm font-semibold text-slate-900">{nextStep.label}</p>
-              {nextStep.detail ? <p className="text-xs text-slate-500">{nextStep.detail}</p> : null}
-              <Link href={nextStep.href} className="mt-1 inline-block text-xs font-medium text-slate-900 hover:underline">
+              <p className="text-xs font-medium text-ink-3">What happens next</p>
+              <p className="text-sm font-semibold text-ink">{nextStep.label}</p>
+              {nextStep.detail ? <p className="text-xs text-ink-3">{nextStep.detail}</p> : null}
+              <Link href={nextStep.href} className="mt-1 inline-block text-xs font-medium text-ink hover:underline">
                 View
               </Link>
             </div>
@@ -101,7 +101,7 @@ export function ConversationContext({
           title="Contact"
           icon={User}
           action={
-            <Link href={`/people/${contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+            <Link href={`/people/${contact.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
               View
             </Link>
           }
@@ -115,10 +115,10 @@ export function ConversationContext({
             ) : null}
           </div>
           {openLeadValueDisplay ? (
-            <div className="mb-3 flex items-center gap-1.5 text-sm text-slate-700">
-              <Wallet className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+            <div className="mb-3 flex items-center gap-1.5 text-sm text-ink-2">
+              <Wallet className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />
               <span className="font-medium tabular-nums">{openLeadValueDisplay}</span>
-              <span className="text-slate-400">open opportunity</span>
+              <span className="text-ink-3">open opportunity</span>
             </div>
           ) : null}
           {hasContactDetails ? (
@@ -143,7 +143,7 @@ export function ConversationContext({
               ) : null}
             </dl>
           ) : (
-            <p className="text-sm text-slate-500">No contact details provided yet.</p>
+            <p className="text-sm text-ink-3">No contact details provided yet.</p>
           )}
         </SectionCard>
       ) : null}
@@ -155,7 +155,7 @@ export function ConversationContext({
           action={
             <Link
               href={`/leads/${conversation.lead.id}`}
-              className="text-xs font-medium text-slate-600 hover:text-slate-900"
+              className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0"
             >
               View
             </Link>
@@ -191,17 +191,17 @@ export function ConversationContext({
           action={
             <Link
               href={`/appointments/${relevantAppointment.id}`}
-              className="text-xs font-medium text-slate-600 hover:text-slate-900"
+              className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0"
             >
               View
             </Link>
           }
         >
-          <p className="text-sm font-medium text-slate-900">{relevantAppointment.title}</p>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <p className="text-sm font-medium text-ink">{relevantAppointment.title}</p>
+          <p className="mt-0.5 text-sm text-ink-3">
             {formatAppointmentDate(relevantAppointment.start_at, timeZone)} · {formatAppointmentTime(relevantAppointment.start_at, timeZone)}
           </p>
-          <p className="mt-1 text-xs text-slate-400">{APPOINTMENT_STATUS_LABELS[relevantAppointment.status]}</p>
+          <p className="mt-1 text-xs text-ink-3">{APPOINTMENT_STATUS_LABELS[relevantAppointment.status]}</p>
         </SectionCard>
       ) : null}
 
@@ -210,15 +210,15 @@ export function ConversationContext({
           title="Invoice"
           icon={Receipt}
           action={
-            <Link href={`/invoices/${relevantInvoice.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+            <Link href={`/invoices/${relevantInvoice.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
               View
             </Link>
           }
         >
-          <p className="text-sm font-medium text-slate-900">
-            <span className="text-slate-500">{formatInvoiceNumber(relevantInvoice.number)}</span> · {relevantInvoice.title}
+          <p className="text-sm font-medium text-ink">
+            <span className="text-ink-3">{formatInvoiceNumber(relevantInvoice.number)}</span> · {relevantInvoice.title}
           </p>
-          <p className="mt-0.5 text-sm font-medium tabular-nums text-slate-700">
+          <p className="mt-0.5 text-sm font-medium tabular-nums text-ink-2">
             {relevantInvoice.status === "paid" ? `${formatMoney(relevantInvoice.total)} paid` : `${formatMoney(relevantInvoice.balance_due)} due`}
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -235,14 +235,14 @@ export function ConversationContext({
           title="Estimate"
           icon={FileSearch}
           action={
-            <Link href={`/estimates/${relevantEstimate.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+            <Link href={`/estimates/${relevantEstimate.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
               View
             </Link>
           }
         >
-          <p className="text-sm font-medium text-slate-900">{relevantEstimate.title}</p>
-          <p className="mt-0.5 text-sm font-medium tabular-nums text-slate-700">{relevantEstimate.amount != null ? formatCurrency(relevantEstimate.amount) : "—"}</p>
-          <p className="mt-1 text-xs text-slate-400">{ESTIMATE_STATUS_LABELS[relevantEstimate.status]}</p>
+          <p className="text-sm font-medium text-ink">{relevantEstimate.title}</p>
+          <p className="mt-0.5 text-sm font-medium tabular-nums text-ink-2">{relevantEstimate.amount != null ? formatCurrency(relevantEstimate.amount) : "—"}</p>
+          <p className="mt-1 text-xs text-ink-3">{ESTIMATE_STATUS_LABELS[relevantEstimate.status]}</p>
         </SectionCard>
       ) : null}
 

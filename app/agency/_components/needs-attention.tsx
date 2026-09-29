@@ -21,25 +21,25 @@ function ItemRow({ item }: { item: NeedsAttentionItem }) {
     <Link
       key={item.id}
       href={item.actionHref}
-      className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-slate-50"
+      className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-hover"
     >
       <span
         className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-          item.severity === "critical" ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"
+          item.severity === "critical" ? "bg-danger-muted text-danger" : "bg-warning-muted text-warning"
         }`}
       >
         <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium text-slate-900">
-            {item.problem} <span className="text-slate-400">— {item.organizationName}</span>
+          <span className="truncate text-sm font-medium text-ink">
+            {item.problem} <span className="text-ink-3">— {item.organizationName}</span>
           </span>
-          <span className="shrink-0 text-xs tabular-nums text-slate-400">{formatRelativeTime(item.timestamp)}</span>
+          <span className="shrink-0 text-xs tabular-nums text-ink-3">{formatRelativeTime(item.timestamp)}</span>
         </span>
-        <span className="block truncate text-xs text-slate-500">{item.why}</span>
+        <span className="block truncate text-xs text-ink-3">{item.why}</span>
       </span>
-      <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+      <ChevronRight className="h-4 w-4 shrink-0 text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
     </Link>
   );
 }
@@ -85,8 +85,8 @@ export function NeedsAttention({ items }: { items: NeedsAttentionItem[] }) {
 
       {items.length === 0 ? (
         <div className={`${surfaceClass} mt-5 px-6 py-14 text-center`}>
-          <p className="text-base font-medium text-slate-900">All clients are operating normally.</p>
-          <p className="mt-1.5 text-sm text-slate-500">Nothing needs your attention right now.</p>
+          <p className="text-base font-medium text-ink">All clients are operating normally.</p>
+          <p className="mt-1.5 text-sm text-ink-3">Nothing needs your attention right now.</p>
         </div>
       ) : (
         <div className="mt-5 flex flex-col gap-6">
@@ -94,10 +94,10 @@ export function NeedsAttention({ items }: { items: NeedsAttentionItem[] }) {
             const categoryItems = byCategory.get(category)!;
             return (
               <div key={category}>
-                <p className="text-[12.5px] font-medium text-slate-500">
-                  {CATEGORY_LABEL[category]} <span className="text-slate-300">· {categoryItems.length}</span>
+                <p className="text-xs font-medium text-ink-3">
+                  {CATEGORY_LABEL[category]} <span className="text-ink-4">· {categoryItems.length}</span>
                 </p>
-                <div className="mt-1 divide-y divide-slate-100">
+                <div className="mt-1 divide-y divide-line">
                   {categoryItems.map((item) => (
                     <ItemRow key={item.id} item={item} />
                   ))}

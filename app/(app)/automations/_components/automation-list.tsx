@@ -28,11 +28,11 @@ function AutomationRow({ summary, activeIncidentCount }: { summary: AutomationSu
     <li>
       <Link
         href={`/automations/${definition.id}`}
-        className="group flex items-start gap-3.5 px-4 py-4 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:bg-slate-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-900/10 sm:items-center"
+        className="group flex items-start gap-3.5 px-4 py-4 transition-colors hover:bg-hover focus:outline-none focus-visible:bg-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/10 sm:items-center"
       >
         <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-            status === "active" ? "bg-emerald-50 text-emerald-600" : status === "attention" ? "bg-amber-50 text-amber-600" : "bg-slate-100 text-slate-500"
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+            status === "active" ? "bg-accent-muted text-accent" : status === "attention" ? "bg-warning-muted text-warning" : "bg-inset text-ink-3"
           }`}
         >
           <Icon className="h-[18px] w-[18px]" aria-hidden />
@@ -40,27 +40,27 @@ function AutomationRow({ summary, activeIncidentCount }: { summary: AutomationSu
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[15px] font-semibold text-slate-900">{definition.name}</p>
+            <p className="text-sm font-semibold text-ink">{definition.name}</p>
             <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
               {statusBadge.label}
             </Badge>
           </div>
-          <p className="mt-0.5 truncate text-xs text-slate-500">{definition.description}</p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+          <p className="mt-0.5 truncate text-xs text-ink-3">{definition.description}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-3">
             <span>
-              Trigger: <span className="text-slate-700">{definition.trigger}</span>
+              Trigger: <span className="text-ink-2">{definition.trigger}</span>
             </span>
             <span>Last activity: {lastExecutionAt ? formatRelativeTime(lastExecutionAt) : "—"}</span>
-            <span className={failedExecutions > 0 ? "font-medium text-red-600" : ""}>{formatCount(failedExecutions)} failures</span>
+            <span className={failedExecutions > 0 ? "font-medium text-danger" : ""}>{formatCount(failedExecutions)} failures</span>
             {activeIncidentCount > 0 ? (
-              <span className="font-medium text-red-600">
+              <span className="font-medium text-danger">
                 {formatCount(activeIncidentCount)} active incident{activeIncidentCount === 1 ? "" : "s"}
               </span>
             ) : null}
           </div>
         </div>
 
-        <ChevronRight className="h-4 w-4 shrink-0 self-center text-slate-300 transition-transform group-hover:translate-x-0.5" aria-hidden />
+        <ChevronRight className="h-4 w-4 shrink-0 self-center text-ink-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
       </Link>
     </li>
   );
@@ -75,11 +75,11 @@ export function AutomationList({ summaries, healthByAutomationId }: { summaries:
         if (items.length === 0) return null;
         return (
           <div key={group.label}>
-            <p className="mb-2 px-1 text-[12.5px] font-medium text-slate-500">
-              {group.label} <span className="text-slate-300">· {items.length}</span>
+            <p className="mb-2 px-1 text-xs font-medium text-ink-3">
+              {group.label} <span className="text-ink-4">· {items.length}</span>
             </p>
             <Panel className="overflow-hidden p-0">
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-line">
                 {items.map((summary) => (
                   <AutomationRow
                     key={summary.definition.id}

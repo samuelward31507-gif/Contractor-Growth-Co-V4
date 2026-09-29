@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle, ArrowRight, CalendarClock, Clock3, MessageCircle, Phone, Timer } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getContactLeads, getLeads } from "@/lib/leads/queries";
 import { getAppointment } from "@/lib/appointments/queries";
@@ -28,21 +27,18 @@ import { DetailHeader } from "@/lib/ui/detail-header";
 import { primaryButtonAutoClass, secondaryButtonAutoClass } from "@/lib/ui/form";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../_components/status";
 import { AppointmentActions } from "./_components/appointment-actions";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 export default async function AppointmentDetailPage({ params }: PageProps<"/appointments/[id]">) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -83,11 +79,11 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
   if (!appointment) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-        <h1 className="text-lg font-semibold text-slate-900">Appointment not found</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-lg font-semibold text-ink">Appointment not found</h1>
+        <p className="text-sm text-ink-3">
           This appointment may have been deleted, or the link is incorrect.
         </p>
-        <Link href="/appointments" className="mt-2 text-sm font-medium text-slate-900 hover:underline">
+        <Link href="/schedule?view=list" className="mt-2 text-sm font-medium text-ink hover:underline">
           Back to Appointments
         </Link>
       </div>
@@ -106,7 +102,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
       */}
       <DetailHeader
         eyebrow="Appointment"
-        backHref="/appointments"
+        backHref="/schedule?view=list"
         backLabel="Back to Appointments"
         title={appointment.title}
         subtitle={customerName}
@@ -119,54 +115,54 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
         meta={
           <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
             <div>
-              <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-ink-3">
                 <CalendarClock className="h-3 w-3 shrink-0" aria-hidden />
                 Date
               </p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">{formatAppointmentDate(appointment.start_at, timeZone)}</p>
+              <p className="mt-1 text-lg font-semibold text-ink">{formatAppointmentDate(appointment.start_at, timeZone)}</p>
             </div>
             <div>
-              <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-ink-3">
                 <Clock3 className="h-3 w-3 shrink-0" aria-hidden />
                 Time
               </p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">
+              <p className="mt-1 text-lg font-semibold text-ink">
                 {formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timeZone)}
               </p>
             </div>
             <div>
-              <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-500">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-ink-3">
                 <Timer className="h-3 w-3 shrink-0" aria-hidden />
                 Duration
               </p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">{formatAppointmentDuration(appointment.start_at, appointment.end_at)}</p>
+              <p className="mt-1 text-lg font-semibold text-ink">{formatAppointmentDuration(appointment.start_at, appointment.end_at)}</p>
             </div>
           </div>
         }
       />
 
-      <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
       {nextStep ? (
         <div
-          className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border px-5 py-4 ${
-            nextStep.attention ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"
+          className={`flex flex-wrap items-center justify-between gap-4 rounded-lg border px-5 py-4 ${
+            nextStep.attention ? "border-warning-border bg-warning-muted" : "border-line bg-surface"
           }`}
         >
           <div className="flex items-center gap-3">
             <span
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-                nextStep.attention ? "bg-amber-100 text-amber-700" : "bg-accent-muted text-accent-text"
+                nextStep.attention ? "bg-warning-muted text-warning-text" : "bg-accent-muted text-accent-text"
               }`}
             >
               {nextStep.attention ? <AlertCircle className="h-4 w-4" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
             </span>
             <div>
-              <p className="text-[12.5px] font-medium text-slate-500">What happens next</p>
-              <p className="text-sm font-semibold text-slate-900">{nextStep.label}</p>
-              {nextStep.detail ? <p className="text-xs text-slate-500">{nextStep.detail}</p> : null}
+              <p className="text-xs font-medium text-ink-3">What happens next</p>
+              <p className="text-sm font-semibold text-ink">{nextStep.label}</p>
+              {nextStep.detail ? <p className="text-xs text-ink-3">{nextStep.detail}</p> : null}
             </div>
           </div>
-          <Link href={nextStep.href} className="shrink-0 text-sm font-medium text-slate-900 hover:underline">
+          <Link href={nextStep.href} className="shrink-0 text-sm font-medium text-ink hover:underline">
             View
           </Link>
         </div>
@@ -175,7 +171,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
         <div className="flex flex-col gap-6 lg:col-span-2">
           {appointment.notes ? (
             <SectionCard title="Notes">
-              <p className="whitespace-pre-wrap text-sm text-slate-700">{appointment.notes}</p>
+              <p className="whitespace-pre-wrap text-sm text-ink-2">{appointment.notes}</p>
             </SectionCard>
           ) : null}
 
@@ -183,7 +179,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
             <SectionCard
               title="Lead"
               action={
-                <Link href={`/leads/${appointment.lead.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/leads/${appointment.lead.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
                   View lead
                 </Link>
               }
@@ -217,7 +213,7 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
             <SectionCard
               title="Customer"
               action={
-                <Link href={`/people/${appointment.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/people/${appointment.contact.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
                   View contact
                 </Link>
               }

@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { Users2 } from "lucide-react";
 import { redirect } from "next/navigation";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { filterContacts, getContacts, type Contact } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { getEstimates } from "@/lib/estimates/queries";
@@ -16,6 +15,7 @@ import { AddContactButton } from "./_components/add-contact-button";
 import { ContactsEmptyState } from "./_components/contacts-empty-state";
 import { ContactsSearch } from "./_components/contacts-search";
 import { ContactsTable } from "./_components/contacts-table";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 export type ContactSort = "newest" | "oldest" | "name_asc";
 const VALID_SORTS = new Set<string>(["newest", "oldest", "name_asc"]);
@@ -62,17 +62,13 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
   const query = typeof params.q === "string" ? params.q : "";
   const sort = normalizeSort(typeof params.sort === "string" ? params.sort : undefined);
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -97,14 +93,13 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
   );
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow="Operate"
         title="Customers"
         description="Everyone your business is currently working with or has worked with."
         badge={
           allContacts.length > 0 ? (
-            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+            <span className="inline-flex items-center rounded-full bg-inset px-2.5 py-0.5 text-xs font-medium tabular-nums text-ink-2">
               {allContacts.length}
             </span>
           ) : undefined
@@ -120,13 +115,13 @@ export default async function ContactsPage({ searchParams }: PageProps<"/contact
                 separate legacy URLs. */}
             <Link
               href="/customers?from=lead"
-              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="inline-flex min-h-11 items-center rounded text-sm font-medium text-ink-3 transition-colors hover:text-ink sm:min-h-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               Active leads
             </Link>
             <Link
               href="/contacts/duplicates"
-              className="inline-flex items-center gap-2 rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="inline-flex items-center gap-2 rounded text-sm font-medium text-ink-3 transition-colors hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               <Users2 className="h-4 w-4" aria-hidden />
               Review duplicates

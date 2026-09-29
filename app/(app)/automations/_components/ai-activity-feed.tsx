@@ -39,18 +39,18 @@ export function AiActivityFeed({ executions }: { executions: AutomationExecution
 
   return (
     <Panel className="overflow-hidden p-0">
-      <ul className="divide-y divide-slate-100">
+      <ul className="divide-y divide-line">
         {executions.map((execution) => {
           const definition = getAutomationForWorkflowName(execution.workflowName);
           const statusBadge = STATUS_BADGE[execution.status];
           return (
             <li key={execution.id} className="flex items-center justify-between gap-4 px-4 py-2.5">
-              <span className="min-w-0 truncate text-sm text-slate-700">{definition?.name ?? execution.workflowName}</span>
+              <span className="min-w-0 truncate text-sm text-ink-2">{definition?.name ?? execution.workflowName}</span>
               <span className="flex shrink-0 items-center gap-3">
                 <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
                   {statusBadge.label}
                 </Badge>
-                <span className="text-xs tabular-nums text-slate-400">{formatRelativeTime(execution.startedAt)}</span>
+                <span className="text-xs tabular-nums text-ink-3">{formatRelativeTime(execution.startedAt)}</span>
               </span>
             </li>
           );

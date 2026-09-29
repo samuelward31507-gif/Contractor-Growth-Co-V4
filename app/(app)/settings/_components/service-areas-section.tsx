@@ -56,13 +56,13 @@ export function ServiceAreasSection({ areas, canEdit }: { areas: ServiceArea[]; 
         {state.error ? <p className={`mb-4 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
 
         {areas.length === 0 ? (
-          <p className="text-sm text-slate-500">No service areas added yet.</p>
+          <p className="text-sm text-ink-3">No service areas added yet.</p>
         ) : (
           <ul className="flex flex-wrap gap-2">
             {areas.map((area) => (
               <li
                 key={area.id}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 py-1 pl-3 pr-1.5 text-sm text-slate-700"
+                className="inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas py-1 pl-3 pr-1.5 text-sm text-ink-2"
               >
                 {area.name}
                 {canEdit ? (
@@ -70,7 +70,7 @@ export function ServiceAreasSection({ areas, canEdit }: { areas: ServiceArea[]; 
                     type="button"
                     onClick={() => setDeleting(area)}
                     aria-label={`Remove ${area.name}`}
-                    className="flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                    className="flex h-5 w-5 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-selected hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                   >
                     <X className="h-3 w-3" aria-hidden />
                   </button>
@@ -86,7 +86,7 @@ export function ServiceAreasSection({ areas, canEdit }: { areas: ServiceArea[]; 
             <button
               type="submit"
               disabled={isPending}
-              className="inline-flex shrink-0 items-center gap-2 rounded-md border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex shrink-0 items-center gap-2 rounded-md border border-line-strong px-3.5 py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Plus className="h-4 w-4" aria-hidden />
               {isPending ? "Adding…" : "Add area"}

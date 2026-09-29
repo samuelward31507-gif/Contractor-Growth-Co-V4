@@ -31,11 +31,11 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
   }, [state.success]);
 
   return (
-    <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
+    <div className="shrink-0 border-t border-line bg-canvas px-4 py-4 sm:px-6">
       {state.error ? <p className={`mb-2 ${errorBannerClass}`} role="alert">{state.error}</p> : null}
       <form ref={formRef} action={formAction} className="space-y-2">
         <input type="hidden" name="conversationId" value={conversationId} />
-        <label htmlFor={fieldId} className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+        <label htmlFor={fieldId} className="flex items-center gap-1.5 text-xs font-medium text-ink-3">
           <NotebookPen className="h-3.5 w-3.5 shrink-0" aria-hidden />
           Internal note
         </label>
@@ -48,7 +48,7 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
           className={`${inputClass} resize-none`}
         />
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-ink-3">
             This adds an internal record to the conversation history. It is not sent to the
             customer through SMS, email, or any other channel.
           </p>

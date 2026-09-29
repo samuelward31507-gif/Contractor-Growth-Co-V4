@@ -1,5 +1,22 @@
 import type { LucideIcon } from "lucide-react";
-import { Sparkles, Users, Wallet, MessageSquare, CalendarClock, Star, Workflow, BarChart3, Building2, Settings, Hammer, FileText } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  Target,
+  Inbox,
+  CalendarDays,
+  CalendarClock,
+  FileText,
+  Hammer,
+  Wallet,
+  TrendingUp,
+  Star,
+  Handshake,
+  BarChart3,
+  Workflow,
+  Settings,
+  Building2,
+} from "lucide-react";
 import type { NavIconName } from "./nav-items";
 
 /**
@@ -10,16 +27,20 @@ import type { NavIconName } from "./nav-items";
  * components.
  */
 export const NAV_ICONS: Record<NavIconName, LucideIcon> = {
-  Sparkles,
+  LayoutDashboard,
   Users,
-  Wallet,
-  MessageSquare,
+  Target,
+  Inbox,
+  CalendarDays,
   CalendarClock,
-  Star,
-  Workflow,
-  BarChart3,
-  Building2,
-  Settings,
-  Hammer,
   FileText,
+  Hammer,
+  Wallet,
+  TrendingUp,
+  Star,
+  Handshake,
+  BarChart3,
+  Workflow,
+  Settings,
+  Building2,
 };

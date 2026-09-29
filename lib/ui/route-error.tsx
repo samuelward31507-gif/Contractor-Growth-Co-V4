@@ -38,15 +38,15 @@ export function RouteError({
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 text-center">
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50">
-        <AlertTriangle className="h-6 w-6 text-red-500" aria-hidden />
+      <span className="flex h-10 w-10 items-center justify-center rounded-md border border-danger-border bg-danger-muted">
+        <AlertTriangle className="h-5 w-5 text-danger-text" aria-hidden />
       </span>
-      <h1 className="mt-4 text-lg font-semibold text-slate-900">Something went wrong</h1>
-      <p className="mt-1.5 max-w-sm text-sm text-slate-500">
+      <h1 className="mt-4 text-base font-semibold text-ink">Something went wrong</h1>
+      <p className="mt-1.5 max-w-sm text-sm text-ink-3">
         This page ran into an unexpected error. It&apos;s been logged - try again, or head back and pick up where you left off.
       </p>
       {error.digest ? (
-        <p className="mt-3 rounded-md bg-slate-50 px-2.5 py-1 font-mono text-[11px] text-slate-400">Reference: {error.digest}</p>
+        <p className="mt-3 rounded-md bg-inset px-2.5 py-1 font-mono text-[11px] text-ink-3">Reference: {error.digest}</p>
       ) : null}
       <div className="mt-6 flex items-center gap-3">
         <button type="button" onClick={reset} className={primaryButtonAutoClass}>

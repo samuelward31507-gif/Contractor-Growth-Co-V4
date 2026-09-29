@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getUserOrganization } from "@/lib/auth/organization";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { getWorkflowNameStats, buildAutomationSummaries, getRecentExecutionsForWorkflows } from "@/lib/automation/queries";
 import { getAutomationEnabledMap } from "@/lib/automation/settings";
 import { getOrganizationHealth, getAutomationHealthSummaries, getLatestHealthCheckRun, isHealthCheckStale } from "@/lib/automation-health/health";
@@ -15,6 +14,7 @@ import { AutomationList } from "./_components/automation-list";
 import { ScheduledLivenessList } from "./_components/scheduled-liveness-list";
 import { AiAgents, getAiAgentWorkflowNames } from "./_components/ai-agents";
 import { AiActivityFeed } from "./_components/ai-activity-feed";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 /**
  * Trackpr 2.0 Phase 4: the Automation Control Center, consolidating what
@@ -35,17 +35,13 @@ import { AiActivityFeed } from "./_components/ai-activity-feed";
  * this page never uses a service-role client.
  */
 export default async function AutomationsPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -78,9 +74,8 @@ export default async function AutomationsPage() {
   const healthCheckIsStale = isHealthCheckStale(lastHealthCheck?.checkedAt ?? null);
 
   return (
-    <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow="Automate"
         title="Automations"
         description="What's running, whether it's healthy, and the controls to manage it - all in one place."
         badge={
@@ -111,7 +106,7 @@ export default async function AutomationsPage() {
             : "Activity reflects the last 30 days. No automated health check has run yet."}
         </p>
         {healthCheckIsStale ? (
-          <Badge tone="warning">Automated health checks appear to have stopped - the scheduler may be down</Badge>
+          <Badge tone="warning">Automated health checks haven&apos;t run recently</Badge>
         ) : null}
       </div>
 
@@ -127,7 +122,7 @@ export default async function AutomationsPage() {
         <ScheduledLivenessList liveness={scheduledLiveness} />
       </div>
 
-      <div className="flex flex-col gap-6 border-t border-slate-200 pt-8">
+      <div className="flex flex-col gap-6 border-t border-line pt-8">
         <IncidentList incidents={incidents} />
 
         <div className="flex flex-col gap-2">

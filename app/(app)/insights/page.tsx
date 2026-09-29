@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import {
   ACTIVITY_PAGE_SIZE,
   getActivityEntries,
@@ -39,6 +38,7 @@ import {
   AutomationSection,
   DataQualitySection,
 } from "./_components/business-metrics-sections";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 const VALID_RANGES = new Set<string>(["today", "last7Days", "last30Days", "currentMonth", "previousMonth", "allTime"]);
 
@@ -59,17 +59,13 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
       ? Math.min(requestedLimit, ACTIVITY_PAGE_SIZE * 10)
       : ACTIVITY_PAGE_SIZE;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -117,10 +113,9 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
   const loadMoreHref = buildHref({ limit: limit + ACTIVITY_PAGE_SIZE });
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow="Intelligence"
-        title="Insights"
+        title="Analytics"
         description="Understand your pipeline, conversion, revenue, and business performance."
       />
 
@@ -186,17 +181,17 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
               <BusinessAtAGlance snapshot={snapshot} />
             </div>
             <TrendSection series={leadSeries.data} failed={leadSeries.failed} isFallbackWindow={chartRangeIsFallback} />
-            <div className="mt-6 divide-y divide-slate-200">
+            <div className="mt-6 divide-y divide-line">
               <BillingSection snapshot={snapshot} />
               <EstimatesSection snapshot={snapshot} />
               <JobsSection snapshot={snapshot} />
             </div>
           </div>
 
-          <div className="border-t border-slate-200 pt-10">
+          <div className="border-t border-line pt-10">
             <h2 className={primarySectionTitleClass}>Pipeline, conversion &amp; opportunities</h2>
             <p className={`mt-1 ${metaClass}`}>Current-state opportunity and lead-stage data, movement through the lifecycle, and real, quoted work that may be slipping away - never guaranteed revenue or a close probability.</p>
-            <div className="divide-y divide-slate-200">
+            <div className="divide-y divide-line">
               <LeadsPipelineSection snapshot={snapshot} />
               <ConversionSection snapshot={snapshot} />
               <HistoricalFunnelSection snapshot={snapshot} />
@@ -204,10 +199,10 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
             </div>
           </div>
 
-          <div className="border-t border-slate-200 pt-16">
+          <div className="border-t border-line pt-16">
             <p className={sectionLabelClass}>Trends &amp; supporting insights</p>
             <p className={`mt-1 ${metaClass}`}>Scheduling, follow-up, communication, reviews, AI, and automation health for the period above. Repeat customers is the one exception - always all-time, since &ldquo;has this customer come back, ever&rdquo; isn&apos;t a date-range question.</p>
-            <div className="mt-3 divide-y divide-slate-200">
+            <div className="mt-3 divide-y divide-line">
               <AppointmentsSection snapshot={snapshot} />
               <FollowUpSection snapshot={snapshot} />
               <CommunicationSection snapshot={snapshot} />
@@ -219,13 +214,13 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
             </div>
           </div>
 
-          <div className="border-t border-slate-200 pt-10">
+          <div className="border-t border-line pt-10">
             <DataQualitySection snapshot={snapshot} />
           </div>
         </div>
       </div>
 
-      <div className="border-t border-slate-200 pt-8">
+      <div className="border-t border-line pt-8">
         <p className={sectionLabelClass}>Activity timeline</p>
         <p className={`mt-1 ${metaClass}`}>A history of important actions and events across your business.</p>
 
@@ -238,7 +233,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
             <ActivityEmptyState />
           </div>
         ) : (
-          <div className="mt-6 border-t border-slate-200 pt-6">
+          <div className="mt-6 border-t border-line pt-6">
             <ActivityToolbar
               initialQuery={query}
               initialEntityType={entityType}

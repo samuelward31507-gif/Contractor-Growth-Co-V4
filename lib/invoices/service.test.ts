@@ -914,3 +914,22 @@ test("lifecycle: an automation RPC failure is logged and never turns a committed
   assert.equal(result.ok, true);
   assert.equal(fake.tables.invoices[0].status, "void");
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1C: card_online is never a manual method
+// ---------------------------------------------------------------------------
+
+test("Phase 1C record: card_online is refused before any read or write - only the Stripe webhook records online payments", async () => {
+  const fake = makeFakeSupabase({ invoices: [invoice()], customer_payments: [] });
+  assert.deepEqual(await recordCustomerPaymentForOrganization(fake.client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 100, method: "card_online" }), { ok: false, error: "Choose how this payment was received." });
+  assert.equal(fake.calls.length, 0);
+  assert.equal(fake.rpcCalls.length, 0);
+});
+
+test("Phase 1C reverse: an online card payment is refunded in Stripe, never reversed manually - refused before any write", async () => {
+  const fake = makeFakeSupabase({ invoices: [invoice({ status: "paid", amount_paid: 1300.25, balance_due: 0 })], customer_payments: [payment({ id: "pay-online", amount: 1300.25, method: "card_online", reference: null, recorded_by: null })] });
+  const result = await reverseCustomerPaymentForOrganization(fake.client, ORG_A, USER_A, { paymentId: "pay-online" });
+  assert.deepEqual(result, { ok: false, error: "This payment was made online by card. Refund it from your Stripe dashboard instead of reversing it here." });
+  assert.equal(writes(fake.calls, "customer_payments").length, 0);
+  assert.equal(fake.rpcCalls.length, 0);
+});

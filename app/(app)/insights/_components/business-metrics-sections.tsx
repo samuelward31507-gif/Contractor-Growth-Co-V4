@@ -44,7 +44,7 @@ function StatRow({ stats }: { stats: Stat[] }) {
         <div key={stat.key}>
           <dt className={statLabelClass}>{stat.label}</dt>
           <dd className={statValueClass}>{stat.value}</dd>
-          {stat.detail ? <p className="mt-0.5 text-xs text-slate-500">{stat.detail}</p> : null}
+          {stat.detail ? <p className="mt-0.5 text-xs text-ink-3">{stat.detail}</p> : null}
         </div>
       ))}
     </dl>
@@ -125,7 +125,7 @@ export function BillingSection({ snapshot }: { snapshot: BusinessMetricsSnapshot
   if (dataQuality.collectedRevenueUnavailable) {
     return (
       <Section label="Invoices & payments" note={SANCTIONED_COLLECTED_REVENUE_DEFINITION}>
-        <p className="mt-3 text-sm text-slate-500">The invoice and payment ledger could not be read for this period. Nothing below is estimated in its place.</p>
+        <p className="mt-3 text-sm text-ink-3">The invoice and payment ledger could not be read for this period. Nothing below is estimated in its place.</p>
       </Section>
     );
   }
@@ -257,9 +257,9 @@ export function RevenueOpportunitySection({ snapshot }: { snapshot: BusinessMetr
           place that already has the real per-item action - one source of
           truth per concept, not a duplicate intelligence surface. */}
       {hasOpenItems ? (
-        <p className="mt-3 text-sm text-slate-500">
+        <p className="mt-3 text-sm text-ink-3">
           This is work you already have - a real quote, a qualified conversation, a finished visit - not speculative pipeline.{" "}
-          <Link href="/today?view=by-type" className="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500">
+          <Link href="/today?view=by-type" className="font-medium text-ink-2 underline decoration-line-strong underline-offset-2 hover:decoration-ink-3">
             Review these in Today
           </Link>
           .
@@ -365,7 +365,7 @@ export function LeadsPipelineSection({ snapshot }: { snapshot: BusinessMetricsSn
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div>
-          <p className="text-xs font-medium text-slate-700">Lead stage</p>
+          <p className="text-xs font-medium text-ink-2">Lead stage</p>
           <div className="mt-3">
             <BarList items={stageBreakdown} />
           </div>
@@ -373,11 +373,11 @@ export function LeadsPipelineSection({ snapshot }: { snapshot: BusinessMetricsSn
 
         {sourceEntries.length > 0 ? (
           <div>
-            <p className="text-xs font-medium text-slate-700">Lead sources</p>
+            <p className="text-xs font-medium text-ink-2">Lead sources</p>
             <div className="mt-3">
               <BarList items={sourceEntries} />
             </div>
-            <p className="mt-2 text-xs text-slate-400">
+            <p className="mt-2 text-xs text-ink-3">
               Source is free-text and not standardized - shown for visibility only, never ranked by performance.
             </p>
           </div>
@@ -385,19 +385,19 @@ export function LeadsPipelineSection({ snapshot }: { snapshot: BusinessMetricsSn
       </div>
 
       <div className="mt-6">
-        <p className="text-xs font-medium text-slate-700">Temperature</p>
+        <p className="text-xs font-medium text-ink-2">Temperature</p>
         <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
           <div>
-            <dt className="text-xs text-slate-500">Hot</dt>
-            <dd className="text-sm font-semibold tabular-nums text-slate-900">{leadMetrics.hotLeads}</dd>
+            <dt className="text-xs text-ink-3">Hot</dt>
+            <dd className="text-sm font-semibold tabular-nums text-ink">{leadMetrics.hotLeads}</dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">Warm</dt>
-            <dd className="text-sm font-semibold tabular-nums text-slate-900">{leadMetrics.warmLeads}</dd>
+            <dt className="text-xs text-ink-3">Warm</dt>
+            <dd className="text-sm font-semibold tabular-nums text-ink">{leadMetrics.warmLeads}</dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">Cold</dt>
-            <dd className="text-sm font-semibold tabular-nums text-slate-900">{leadMetrics.coldLeads}</dd>
+            <dt className="text-xs text-ink-3">Cold</dt>
+            <dd className="text-sm font-semibold tabular-nums text-ink">{leadMetrics.coldLeads}</dd>
           </div>
         </dl>
       </div>
@@ -530,19 +530,19 @@ export function CommunicationSection({ snapshot }: { snapshot: BusinessMetricsSn
       />
 
       <div className="mt-6">
-        <p className="text-xs font-medium text-slate-700">Outbound sent by</p>
+        <p className="text-xs font-medium text-ink-2">Outbound sent by</p>
         <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
           <div>
-            <dt className="text-xs text-slate-500">AI</dt>
-            <dd className="text-sm font-semibold tabular-nums text-slate-900">{communicationMetrics.aiOutboundMessages}</dd>
+            <dt className="text-xs text-ink-3">AI</dt>
+            <dd className="text-sm font-semibold tabular-nums text-ink">{communicationMetrics.aiOutboundMessages}</dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">Your team</dt>
-            <dd className="text-sm font-semibold tabular-nums text-slate-900">{communicationMetrics.userOutboundMessages}</dd>
+            <dt className="text-xs text-ink-3">Your team</dt>
+            <dd className="text-sm font-semibold tabular-nums text-ink">{communicationMetrics.userOutboundMessages}</dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">System</dt>
-            <dd className="text-sm font-semibold tabular-nums text-slate-900">{communicationMetrics.systemOutboundMessages}</dd>
+            <dt className="text-xs text-ink-3">System</dt>
+            <dd className="text-sm font-semibold tabular-nums text-ink">{communicationMetrics.systemOutboundMessages}</dd>
           </div>
         </dl>
       </div>
@@ -585,7 +585,7 @@ export function ResponseTimeSection({ snapshot }: { snapshot: BusinessMetricsSna
 
       {hasAnyResponse ? (
         <div className="mt-6 max-w-md">
-          <p className="text-xs font-medium text-slate-700">Response time</p>
+          <p className="text-xs font-medium text-ink-2">Response time</p>
           <div className="mt-3">
             <BarList
               items={[
@@ -627,7 +627,7 @@ export function AutomationSection({ snapshot }: { snapshot: BusinessMetricsSnaps
   return (
     <Section label="Automation health">
       <div>
-        <p className="text-xs font-medium text-slate-700">Automation events</p>
+        <p className="text-xs font-medium text-ink-2">Automation events</p>
         <StatRow
           stats={[
             { key: "events", label: "Total", value: String(automationMetrics.automationEvents) },
@@ -639,7 +639,7 @@ export function AutomationSection({ snapshot }: { snapshot: BusinessMetricsSnaps
       </div>
 
       <div className="mt-6">
-        <p className="text-xs font-medium text-slate-700">Workflow executions</p>
+        <p className="text-xs font-medium text-ink-2">Workflow executions</p>
         <StatRow
           stats={[
             { key: "executions", label: "Total", value: String(automationMetrics.workflowExecutions) },
@@ -657,10 +657,10 @@ export function AutomationSection({ snapshot }: { snapshot: BusinessMetricsSnaps
 export function DataQualitySection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
   return (
     <Section label="Data quality notes">
-      <ul className="mt-3 space-y-1.5 text-xs text-slate-500">
+      <ul className="mt-3 space-y-1.5 text-xs text-ink-3">
         {snapshot.dataQuality.notes.map((note) => (
           <li key={note} className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             {note}
           </li>
         ))}

@@ -24,14 +24,14 @@ const STATE_BADGE: Record<ScheduledAutomationLivenessState, { label: string; ton
 export function ScheduledLivenessList({ liveness }: { liveness: ScheduledAutomationLiveness[] }) {
   return (
     <Panel className="overflow-hidden p-0">
-      <ul className="divide-y divide-slate-100">
+      <ul className="divide-y divide-line">
         {liveness.map((item) => {
           const badge = STATE_BADGE[item.state];
           return (
             <li key={item.automationId} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900">{item.automationName}</p>
-                <p className="mt-0.5 text-xs text-slate-500">
+                <p className="text-sm font-medium text-ink">{item.automationName}</p>
+                <p className="mt-0.5 text-xs text-ink-3">
                   {item.lastRanAt
                     ? `Last observed ${formatRelativeTime(item.lastRanAt)} · ${formatCount(item.lastCandidateCount ?? 0)} candidate${item.lastCandidateCount === 1 ? "" : "s"} that run`
                     : "No scheduled run has been observed yet"}

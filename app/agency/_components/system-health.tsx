@@ -51,7 +51,7 @@ export function SystemHealth({
           problem should stand out immediately, not compete with five other
           zeroes for the same visual weight. */}
       {hasIssues ? (
-        <div className="mt-1.5 divide-y divide-slate-100">
+        <div className="mt-1.5 divide-y divide-line">
           <Row label="Organizations degraded" value={formatCount(rollup.organizationsDegraded)} tone={rollup.organizationsDegraded > 0 ? "warning" : "default"} />
           <Row label="Organizations unhealthy" value={formatCount(rollup.organizationsUnhealthy)} tone={rollup.organizationsUnhealthy > 0 ? "danger" : "default"} />
           <Row label="Critical incidents" value={formatCount(rollup.criticalIncidents)} tone={rollup.criticalIncidents > 0 ? "danger" : "default"} />
@@ -62,12 +62,12 @@ export function SystemHealth({
           <Row label="Automation paused" value={formatCount(automationPausedCount)} tone={automationPausedCount > 0 ? "warning" : "default"} />
         </div>
       ) : (
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 text-sm text-ink-3">
           All {formatCount(rollup.organizationsHealthy)} organization{rollup.organizationsHealthy === 1 ? "" : "s"} healthy. No incidents, delivery failures, payment issues, or AI escalations open.
         </p>
       )}
 
-      <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100 pt-1">
+      <div className="mt-4 divide-y divide-line border-t border-line pt-1">
         <Row label="Scheduler last ran" value={heartbeatValue} tone={schedulerHeartbeat.stale ? "danger" : "default"} description={schedulerHeartbeat.stale ? "Stale - scheduled follow-ups may be delayed." : undefined} />
         <Row label="n8n" value="External" description="Not independently monitored" />
       </div>

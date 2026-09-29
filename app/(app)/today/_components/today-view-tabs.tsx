@@ -3,28 +3,26 @@ import Link from "next/link";
 export type TodayView = "priority" | "by-type";
 
 /**
- * IA consolidation pass: Opportunities is no longer its own primary nav
- * destination - this is the "view/filter within Today" the audit called
- * for. Same segmented-control pattern WorkTabs/RangeTabs/Appointments'
- * Upcoming-Today-Past tabs already use (rounded-lg border bg-slate-50 p-1,
- * pressed segment gets bg-white shadow-sm) - a real view switch under one
- * persistent "Today" header, not a navigation to a different page.
+ * The two views of "Needs your attention": the priority order, and every
+ * open opportunity grouped by type (the Opportunities nav entry lands here,
+ * /today?view=by-type). Trackpr 2.0 (step 2E): restyled onto the tokens -
+ * a quiet segmented control, 44px targets on touch.
  */
 export function TodayViewTabs({ active, opportunityCount }: { active: TodayView; opportunityCount: number }) {
   const items: { value: TodayView; label: string; href: string }[] = [
-    { value: "priority", label: "Priority queue", href: "/today" },
+    { value: "priority", label: "Priority", href: "/today" },
     { value: "by-type", label: `By type${opportunityCount > 0 ? ` (${opportunityCount})` : ""}`, href: "/today?view=by-type" },
   ];
 
   return (
-    <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 sm:w-fit" role="group" aria-label="Today view">
+    <div className="inline-flex gap-0.5 rounded-md bg-inset p-0.5" role="group" aria-label="Attention view">
       {items.map((item) => (
         <Link
           key={item.value}
           href={item.href}
           aria-pressed={active === item.value}
-          className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
-            active === item.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
+          className={`inline-flex min-h-11 items-center rounded-[5px] px-3 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:min-h-7 ${
+            active === item.value ? "bg-surface text-ink shadow-[0_1px_2px_rgba(23,25,26,0.08)]" : "text-ink-3 hover:text-ink"
           }`}
         >
           {item.label}

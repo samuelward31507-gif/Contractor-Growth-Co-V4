@@ -74,7 +74,7 @@ export default async function AgencyUsagePage() {
 
   return (
     <div className="mx-auto w-full max-w-[1150px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
         Agency Command Center
       </Link>
@@ -99,7 +99,7 @@ export default async function AgencyUsagePage() {
         </div>
       ) : null}
 
-      <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-slate-200 py-4">
+      <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-line py-4">
         <Row label="Clients monitored" value={formatCount(totals.organizationCount)} />
         <Row label="Total messages" value={formatCount(totals.totalMessages)} />
         <Row label="Total AI interactions" value={formatCount(totals.totalAiInteractions)} />
@@ -119,23 +119,23 @@ export default async function AgencyUsagePage() {
 
       <CostReadinessSection clients={result.costReadiness.clients} />
 
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <p className={sectionLabelClass}>About this page</p>
-        <ul className="mt-2 space-y-1.5 text-xs text-slate-500">
+        <ul className="mt-2 space-y-1.5 text-xs text-ink-3">
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             This is usage visibility, not billing — no dollar cost is calculated or shown anywhere on this page. No pricing or rate data exists in Trackpr today for SMS, AI, voice, or automation.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             &ldquo;Unavailable&rdquo; means the underlying data could not be confirmed — never treated the same as a genuine 0.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             Missed calls are the one fact Trackpr can confirm about voice activity — Trackpr does not answer calls, so duration, voicemail, and answered calls are not tracked.
           </li>
           <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             Leads, appointments, estimates, and jobs are shown as business activity for context — not platform usage, and never a billable figure.
           </li>
         </ul>

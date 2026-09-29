@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { getAppointmentsInRangeResult } from "@/lib/appointments/queries";
@@ -26,6 +25,7 @@ import { getGridBounds, localMinutesSinceMidnight } from "./_lib/grid";
 import { CalendarToolbar } from "./_components/calendar-toolbar";
 import { CalendarGrid } from "./_components/calendar-grid";
 import { MonthView } from "./_components/month-view";
+import { PAGE_CONTAINER_CLASS } from "@/lib/ui/page";
 
 const VALID_VIEWS = new Set<string>(["day", "week", "month"]);
 
@@ -75,16 +75,16 @@ function formatRangeLabel(view: CalendarView, parts: ReturnType<typeof parseDate
  */
 export default async function CalendarPage({ searchParams }: PageProps<"/calendar">) {
   const params = await searchParams;
-  const supabase = await createClient();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) {
+    redirect("/login");
+  }
 
-  const membership = await getUserOrganization(supabase, user.id);
-  if (!membership) redirect("/onboarding");
-
+  if (!membership) {
+    redirect("/onboarding");
+  }
   const organizationId = membership.organizationId;
   const timeZone = (await getOrganizationTimezone(supabase, organizationId)) ?? "UTC";
 
@@ -93,13 +93,6 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
   const todayParts = localDateParts(new Date(), timeZone);
   const activeParts = requestedDate ?? todayParts;
   const todayKey = formatDateOnly(todayParts);
-
-  const [businessHours, bookingSettings, contacts, leads] = await Promise.all([
-    getBusinessHours(supabase, organizationId),
-    getBookingSettings(supabase, organizationId),
-    getContacts(supabase, organizationId),
-    getLeads(supabase, organizationId),
-  ]);
 
   let dataRangeStart: Date;
   let dataRangeEnd: Date;
@@ -124,7 +117,14 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     days = [];
   }
 
-  const [appointmentsResult, blockedTime] = await Promise.all([
+  // Performance Pass B: the visible range depends only on the timezone and
+  // the URL (computed above, not on any fetched data), so every read for
+  // this page runs in one batch instead of two back-to-back batches.
+  const [businessHours, bookingSettings, contacts, leads, appointmentsResult, blockedTime] = await Promise.all([
+    getBusinessHours(supabase, organizationId),
+    getBookingSettings(supabase, organizationId),
+    getContacts(supabase, organizationId),
+    getLeads(supabase, organizationId),
     getAppointmentsInRangeResult(supabase, organizationId, dataRangeStart, dataRangeEnd),
     getBlockedTimeInRange(supabase, organizationId, dataRangeStart, dataRangeEnd),
   ]);
@@ -137,16 +137,15 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
   const bounds = getGridBounds(businessHours, extraMinutes);
 
   return (
-    <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-6`}>
       {/* Usability audit fix (#6): the old plain "List view" text link here is
           gone - CalendarToolbar's ScheduleViewSwitcher just below now covers
           Day/Week/Month/List as one segmented control, so this header no
           longer needs a second, differently-styled way to reach the same
           destination. */}
       <PageHeader
-        eyebrow="Operate"
-        title="Schedule"
-        description="Your real-time scheduling command center - appointments, availability, and blocked time in one place."
+        title="Calendar"
+        description="Appointments, availability and blocked time, by day, week or month."
       />
 
       {appointmentsResult.failed ? (

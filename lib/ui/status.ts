@@ -29,15 +29,15 @@ export type StatusStyle = {
 export const STATUS_STYLES: Record<StatusTone, StatusStyle> = {
   urgent: {
     label: "Urgent",
-    bandClass: "bg-[#B3261E] text-white",
-    tintClass: "bg-[#B3261E] text-white",
-    textClass: "text-[#B3261E]",
+    bandClass: "bg-danger text-danger-foreground",
+    tintClass: "bg-danger-muted text-danger-text",
+    textClass: "text-danger-text",
   },
   soon: {
     label: "Soon",
-    bandClass: "bg-[#FBF1DE] text-[#8A5A00]",
-    tintClass: "bg-[#FBF1DE] text-[#8A5A00]",
-    textClass: "text-[#8A5A00]",
+    bandClass: "bg-warning-muted text-warning-text",
+    tintClass: "bg-warning-muted text-warning-text",
+    textClass: "text-warning-text",
   },
   good: {
     label: "Good",

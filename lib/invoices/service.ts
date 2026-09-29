@@ -4,11 +4,11 @@ import {
   applyPayment,
   canIssue,
   formatInvoiceNumber,
+  isManualPaymentMethod,
   isTwoDecimalAmount,
   isValidClientKey,
   labelStatus,
   parseAmountInput,
-  PAYMENT_METHODS,
   reversePayment,
   transitionInvoice,
   type PaymentMethod,
@@ -331,8 +331,6 @@ export type RecordedPayment = {
   replayed: boolean;
 };
 
-const METHOD_VALUES = new Set<string>(PAYMENT_METHODS.map((method) => method.value));
-
 export async function recordCustomerPaymentForOrganization(
   supabase: SupabaseClient,
   organizationId: string,
@@ -343,8 +341,11 @@ export async function recordCustomerPaymentForOrganization(
   const invoiceId = typeof input.invoiceId === "string" ? input.invoiceId.trim() : "";
   if (!invoiceId) return { ok: false, error: "Missing invoice." };
 
+  // Manual methods only. card_online is recorded exclusively by the Stripe
+  // Connect webhook (lib/payments/online-payment.ts); the database refuses it
+  // from a user session anyway (customer_payments_online_guard).
   const method = typeof input.method === "string" ? input.method.trim() : "";
-  if (!METHOD_VALUES.has(method)) return { ok: false, error: "Choose how this payment was received." };
+  if (!isManualPaymentMethod(method)) return { ok: false, error: "Choose how this payment was received." };
 
   const parsed = parseAmountInput(input.amount);
   if (parsed.error !== undefined) return { ok: false, error: parsed.error };
@@ -483,6 +484,11 @@ export async function reverseCustomerPaymentForOrganization(
 
   const original = await getCustomerPayment(supabase, organizationId, paymentId);
   if (!original) return { ok: false, error: "This payment could not be found." };
+  // Phase 1C: an online card payment is refunded in the contractor's Stripe
+  // dashboard, which Trackpr reconciles through an incident - never by a
+  // manual reversal here, which would change the ledger while the money
+  // stayed with the contractor.
+  if (original.method === "card_online") return { ok: false, error: "This payment was made online by card. Refund it from your Stripe dashboard instead of reversing it here." };
 
   const invoice = await getInvoice(supabase, organizationId, original.invoice_id);
   if (!invoice) return { ok: false, error: "This payment's invoice could not be found." };

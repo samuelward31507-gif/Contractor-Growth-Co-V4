@@ -65,12 +65,12 @@ export function ServiceDialog({
           </div>
 
           {mode === "edit" ? (
-            <label className="flex items-center gap-2 text-sm text-slate-700">
+            <label className="flex min-h-11 items-center gap-2 text-sm text-ink-2 sm:min-h-0">
               <input
                 type="checkbox"
                 name="isActive"
                 defaultChecked={service?.is_active ?? true}
-                className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
+                className="h-4 w-4 shrink-0 rounded border-line-strong accent-accent focus:ring-accent/20"
               />
               Active
             </label>

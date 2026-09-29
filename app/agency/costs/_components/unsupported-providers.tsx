@@ -19,14 +19,14 @@ const UNSUPPORTED_PROVIDERS = [
  */
 export function UnsupportedProviders() {
   return (
-    <div className="mt-8 border-t border-slate-200 pt-8">
+    <div className="mt-8 border-t border-line pt-8">
       <p className={sectionLabelClass}>Unsupported providers</p>
-      <p className="mt-1.5 text-xs text-slate-500">These are not costed yet - never shown as $0, never estimated.</p>
+      <p className="mt-1.5 text-xs text-ink-3">These are not costed yet - never shown as $0, never estimated.</p>
       <ul className="mt-3 space-y-2">
         {UNSUPPORTED_PROVIDERS.map((provider) => (
           <li key={provider.name} className="flex items-baseline justify-between gap-4 text-xs">
-            <span className="font-medium text-slate-700">{provider.name}</span>
-            <span className="text-right text-slate-500">{provider.reason}</span>
+            <span className="font-medium text-ink-2">{provider.name}</span>
+            <span className="text-right text-ink-3">{provider.reason}</span>
           </li>
         ))}
       </ul>

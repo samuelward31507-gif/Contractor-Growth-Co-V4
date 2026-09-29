@@ -83,14 +83,14 @@ export function ReviewReferralFollowupConfigForm({
           type="button"
           onClick={handleReset}
           disabled={isPending || savedValue === false}
-          className="rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-slate-500"
+          className="rounded-lg px-2 py-1.5 text-xs font-medium text-ink-3 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-ink-3"
         >
           Reset to default
         </button>
       </div>
-      <p className="mt-2 text-xs text-slate-400">Changes apply to future sends only - anything already sent or in progress is unaffected.</p>
-      {success && !error ? <p className="mt-1.5 text-xs text-emerald-700">Saved.</p> : null}
-      {error ? <p className="mt-1.5 text-xs text-red-600">{error}</p> : null}
+      <p className="mt-2 text-xs text-ink-3">Changes apply to future sends only - anything already sent or in progress is unaffected.</p>
+      {success && !error ? <p className="mt-1.5 text-xs text-accent-text">Saved.</p> : null}
+      {error ? <p className="mt-1.5 text-xs text-danger">{error}</p> : null}
     </SectionCard>
   );
 }

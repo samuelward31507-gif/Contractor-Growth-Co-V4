@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import { getContacts } from "@/lib/contacts/queries";
 import {
   filterLeads,
@@ -22,6 +21,7 @@ import { LeadsSummary } from "./_components/leads-summary";
 import { LeadsTable } from "./_components/leads-table";
 import { LeadsToolbar } from "./_components/leads-toolbar";
 import { LEAD_STATUS_TONE, LEAD_TEMPERATURE_TONE } from "./_components/lead-status";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 const VALID_STATUSES = new Set<string>(["new", "contacted", "qualified", "appointment", "estimate", "won", "lost"]);
 const VALID_TEMPERATURES = new Set<string>(["cold", "warm", "hot"]);
@@ -105,17 +105,13 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   // change silently drops the request back into ContactsPage.
   const from = typeof params.from === "string" ? params.from : undefined;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -145,9 +141,8 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   const filterBadgeTone = temperature !== "all" ? LEAD_TEMPERATURE_TONE[temperature] : LEAD_STATUS_TONE[status as LeadStatus];
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow="Operate"
         title={isFilteredView ? filterTitle : "Customers"}
         description={
           isFilteredView
@@ -168,7 +163,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
                 customer directory, not a new route. */}
             <Link
               href="/customers"
-              className="rounded text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="inline-flex min-h-11 items-center rounded text-sm font-medium text-ink-3 transition-colors hover:text-ink sm:min-h-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               All customers
             </Link>

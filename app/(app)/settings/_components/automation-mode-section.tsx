@@ -6,6 +6,7 @@ import { Badge } from "@/lib/ui/badge";
 import { detailLabelClass, detailValueClass, metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { updateAutomationMode, type SettingsActionState } from "../actions";
 import type { AutomationMode } from "@/lib/settings/queries";
+import { secondaryButtonAutoClass } from "@/lib/ui/form";
 
 const initialState: SettingsActionState = {};
 
@@ -36,7 +37,7 @@ export function AutomationModeSection({ mode, canEdit }: { mode: AutomationMode;
         <Badge tone={isLive ? "success" : "neutral"}>{isLive ? "Live" : "Test"}</Badge>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-canvas/60 px-4 py-3">
         <div>
           <p className={detailLabelClass}>Current mode</p>
           <p className={detailValueClass}>
@@ -49,7 +50,7 @@ export function AutomationModeSection({ mode, canEdit }: { mode: AutomationMode;
             <button
               type="submit"
               disabled={pending}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+              className={`${secondaryButtonAutoClass} shrink-0`}
             >
               <Radio className="h-4 w-4 shrink-0" aria-hidden />
               {pending ? "Updating…" : isLive ? "Switch to Test" : "Go Live"}

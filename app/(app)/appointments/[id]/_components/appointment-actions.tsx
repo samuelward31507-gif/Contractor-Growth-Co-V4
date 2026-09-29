@@ -27,7 +27,7 @@ export function AppointmentActions({
       <button
         type="button"
         onClick={() => setEditOpen(true)}
-        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+        className="inline-flex items-center gap-2 rounded-lg border border-line-strong px-3.5 py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-hover"
       >
         <Pencil aria-hidden className="h-4 w-4" />
         Edit
@@ -35,7 +35,7 @@ export function AppointmentActions({
       <button
         type="button"
         onClick={() => setDeleteOpen(true)}
-        className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3.5 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+        className="inline-flex items-center gap-2 rounded-lg border border-danger-border px-3.5 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger-muted"
       >
         <Trash2 aria-hidden className="h-4 w-4" />
         Delete

@@ -26,7 +26,7 @@ export function SmsSummarySection({ smsPhoneNumber }: { smsPhoneNumber: string |
 
       <Link
         href="/settings/sms"
-        className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-canvas/60 px-4 py-3 transition-colors hover:border-line-strong hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
       >
         <div>
           <p className={detailLabelClass}>Routing number</p>
@@ -34,7 +34,7 @@ export function SmsSummarySection({ smsPhoneNumber }: { smsPhoneNumber: string |
             {smsPhoneNumber ?? "Not set — inbound texts to your business won't reach Trackpr"}
           </p>
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-slate-700">
+        <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-ink-2">
           <MessageSquare className="h-4 w-4" aria-hidden />
           Manage SMS settings
           <ChevronRight className="h-3.5 w-3.5" aria-hidden />

@@ -14,18 +14,29 @@
      #F6F4F0 - this is the plan's "--paper," reusing the already-wired
      --canvas variable/bg-canvas class rather than introducing a second,
      parallel token for the same role. */
-  --canvas: #f6f4f0;
+  /* Trackpr 2.0 (design system, step 2A): pulled back from the warm paper
+     #F6F4F0 to a near-neutral off-white with only a trace of warmth - calm
+     and clean rather than tinted, so the few meaningful colors (accent,
+     status) carry the emphasis. Still one step off the white surface, so a
+     panel lifts off the canvas by contrast alone, never by shadow. */
+  --canvas: #f7f7f5;
   /* Card/panel surface - equals --background, given an explicit name for
      contexts (the new typography/status/card primitives) that want to talk
      about "the surface a card sits on" rather than "the page background." */
   --surface: #ffffff;
-  /* Muted fill - a tone between --surface and --line, for filled (not
-     bordered) low-emphasis regions. No consumer yet in this pass. */
-  --inset: #efebe4;
-  /* Hairline border/divider color, warmer than the app's existing
-     slate-200 borders - not yet swept in; existing border-slate-200
-     usages are unchanged by this pass. */
-  --line: #e0dad1;
+  /* Muted fill for filled (not bordered) low-emphasis regions: empty
+     states, inset wells, neutral badges. */
+  --inset: #f1f0ed;
+  /* Interaction fills: --hover for pointer hover on rows/nav items,
+     --selected for the current item (active nav, selected tab). Kept
+     deliberately close to the canvas - state is shown by a quiet fill plus
+     text weight, never by a bright color. */
+  --hover: #f2f1ee;
+  --selected: #ebeae6;
+  /* Hairline border/divider (cards, dividers, table rows) and the stronger
+     control border (inputs, secondary buttons) - two steps, no more. */
+  --line: #e6e4df;
+  --line-strong: #d3d0c9;
 
   /* Phase 0 (foundations pass): the new 3-step text scale lib/ui/
      typography.ts's rungs are built on. Distinct from --foreground (which
@@ -36,6 +47,13 @@
   --ink: #17191a; /* 16.5:1 on --canvas - headings, primary text */
   --ink-2: #4c5154; /* 7.5:1 - body copy */
   --ink-3: #6b7175; /* 4.6:1 - meta/labels, the contrast floor */
+  /* Placeholders and disabled text only - below the body-text contrast
+     floor by design, never used for information a user must read. */
+  --ink-4: #9ba0a3;
+
+  /* Popovers, menus and tooltips are the only surfaces that float, so they
+     are the only surfaces with a shadow - soft and short, never a glow. */
+  --shadow-popover: 0 1px 2px rgba(23, 25, 26, 0.06), 0 8px 24px -6px rgba(23, 25, 26, 0.14);
 
   /* Trackpr 2.0 redesign: the accent moves from a bright emerald to a
      deeper, more restrained pine green - same role as before (the ~10-15%
@@ -88,10 +106,15 @@
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-inset: var(--inset);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --shadow-popover: var(--shadow-popover);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-foreground: var(--accent-foreground);

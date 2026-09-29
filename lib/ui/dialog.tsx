@@ -115,7 +115,7 @@ export function Dialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         aria-hidden
-        className={`absolute inset-0 bg-slate-900/40 transition-opacity duration-[120ms] ${entered ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 bg-ink/40 transition-opacity duration-[120ms] ${entered ? "opacity-100" : "opacity-0"}`}
         onClick={onClose}
       />
       <div
@@ -124,7 +124,7 @@ export function Dialog({
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className={`relative w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-xl outline-none transition-all duration-[120ms] ease-out ${
+        className={`relative w-full max-w-sm rounded-lg border border-line bg-surface p-6 shadow-popover outline-none transition-all duration-[120ms] ease-out ${
           entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
         } ${className}`}
       >
@@ -132,7 +132,7 @@ export function Dialog({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-selected hover:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
           <X className="h-4 w-4" aria-hidden />
         </button>
@@ -144,14 +144,14 @@ export function Dialog({
 
 export function DialogTitle({ children, id }: { children: ReactNode; id?: string }) {
   return (
-    <h2 id={id} className="pr-8 text-lg font-semibold tracking-tight text-slate-900">
+    <h2 id={id} className="pr-8 text-base font-semibold tracking-[-0.01em] text-ink">
       {children}
     </h2>
   );
 }
 
 export function DialogDescription({ children }: { children: ReactNode }) {
-  return <p className="mt-2 text-sm text-slate-500">{children}</p>;
+  return <p className="mt-2 text-sm text-ink-3">{children}</p>;
 }
 
 export function DialogFooter({ children }: { children: ReactNode }) {

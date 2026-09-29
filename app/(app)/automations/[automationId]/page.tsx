@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { ArrowLeft, Zap, Workflow, History } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
-import { getUserOrganization } from "@/lib/auth/organization";
 import { getAutomationDefinition } from "@/lib/automation/catalog";
 import { getWorkflowNameStats, getRecentExecutionsForWorkflows, buildAutomationSummaries } from "@/lib/automation/queries";
 import { listIncidents } from "@/lib/automation-health/queries";
@@ -44,6 +43,7 @@ import { AppointmentLifecycleConfigForm } from "../_components/appointment-lifec
 import { JobLifecycleConfigForm } from "../_components/job-lifecycle-config";
 import { ReviewReferralFollowupConfigForm } from "../_components/review-referral-followup-config";
 import { SAFE_RETRY_AUTOMATION_IDS } from "@/lib/automation/retry-eligibility";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 const CONFIGURABLE_AUTOMATION_IDS = new Set([
   "appointment-reminders",
@@ -84,17 +84,13 @@ export default async function AutomationDetailPage({ params }: { params: Promise
     notFound();
   }
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -140,15 +136,15 @@ export default async function AutomationDetailPage({ params }: { params: Promise
   const statusBadge = AUTOMATION_STATUS_BADGE[summary.status];
 
   return (
-    <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+    <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
       <div>
-        <Link href="/automations" className="inline-flex items-center gap-1 rounded text-xs font-medium text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10">
+        <Link href="/automations" className="inline-flex items-center gap-1 rounded text-xs font-medium text-ink-3 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10">
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
           Automations
         </Link>
 
         <div className="mt-2 flex items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink">
             <Icon className="h-4 w-4 text-white" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
@@ -179,7 +175,7 @@ export default async function AutomationDetailPage({ params }: { params: Promise
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <SectionCard title="Trigger" icon={Zap} className="lg:col-span-1">
-          <p className="text-sm text-slate-900">{definition.trigger}</p>
+          <p className="text-sm text-ink">{definition.trigger}</p>
           {definition.eventTypes.length > 0 ? (
             <p className={`mt-3 ${metaClass}`}>
               Event type{definition.eventTypes.length === 1 ? "" : "s"}: {definition.eventTypes.join(", ")}
@@ -259,8 +255,8 @@ export default async function AutomationDetailPage({ params }: { params: Promise
         {definition.workflowNames.length === 0 ? (
           <EmptyState
             icon={Icon}
-            title="No execution log of its own"
-            description="Safe AI Outbound has no dedicated workflow - its checks run inline as part of every other automation's execution."
+            title="No run history of its own"
+            description="Safe AI Outbound has no runs of its own - its checks happen inside every other automation's runs."
           />
         ) : (
           <RecentExecutions executions={executions} retrySupported={SAFE_RETRY_AUTOMATION_IDS.has(definition.id)} />

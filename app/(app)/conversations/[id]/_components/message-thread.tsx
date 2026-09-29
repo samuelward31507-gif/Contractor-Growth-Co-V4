@@ -33,9 +33,9 @@ import { MESSAGE_STATUS_LABEL } from "../../_components/status-tone";
 // chosen so every combination clears AA contrast (slate-400's own avatar
 // color fails white-on-slate-400, so "System" gets a light bubble instead).
 const OUTBOUND_BUBBLE_CLASS: Record<"ai" | "user" | "system", string> = {
-  ai: "bg-blue-600 text-white",
-  user: "bg-slate-900 text-white",
-  system: "bg-slate-200 text-slate-700",
+  ai: "bg-info text-white",
+  user: "bg-ink text-white",
+  system: "bg-selected text-ink-2",
 };
 
 function DeliveryStatus({ message }: { message: Message }) {
@@ -43,7 +43,7 @@ function DeliveryStatus({ message }: { message: Message }) {
 
   if (message.status === "failed" || message.status === "undelivered") {
     return (
-      <span className="inline-flex items-center gap-1 text-red-600" title={message.status_reason ?? undefined}>
+      <span className="inline-flex items-center gap-1 text-danger" title={message.status_reason ?? undefined}>
         <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
         {label}
       </span>
@@ -52,7 +52,7 @@ function DeliveryStatus({ message }: { message: Message }) {
 
   if (message.status === "delivered") {
     return (
-      <span className="inline-flex items-center gap-1 text-slate-400">
+      <span className="inline-flex items-center gap-1 text-ink-3">
         <CheckCheck className="h-3 w-3 shrink-0" aria-hidden />
         {label}
       </span>
@@ -61,7 +61,7 @@ function DeliveryStatus({ message }: { message: Message }) {
 
   if (message.status === "queued") {
     return (
-      <span className="inline-flex items-center gap-1 text-slate-400">
+      <span className="inline-flex items-center gap-1 text-ink-3">
         <Clock className="h-3 w-3 shrink-0" aria-hidden />
         {label}
       </span>
@@ -69,11 +69,11 @@ function DeliveryStatus({ message }: { message: Message }) {
   }
 
   if (message.status === "logged") {
-    return <span className="italic text-slate-400">{label}</span>;
+    return <span className="italic text-ink-3">{label}</span>;
   }
 
   return (
-    <span className="inline-flex items-center gap-1 text-slate-400">
+    <span className="inline-flex items-center gap-1 text-ink-3">
       <Check className="h-3 w-3 shrink-0" aria-hidden />
       {label}
     </span>
@@ -93,10 +93,10 @@ function MessageRow({ message }: { message: Message }) {
           {SENDER_INITIALS[message.sender_type]}
         </span>
         <div className="max-w-[85%] sm:max-w-[75%]">
-          <div className="rounded-2xl rounded-bl-sm bg-slate-100 px-3.5 py-2 text-sm text-slate-900">
+          <div className="rounded-2xl rounded-bl-sm bg-inset px-3.5 py-2 text-sm text-ink">
             <p className="whitespace-pre-wrap break-words">{message.body}</p>
           </div>
-          <div className="mt-1 flex items-center gap-1.5 px-1 text-[11px] text-slate-400">
+          <div className="mt-1 flex items-center gap-1.5 px-1 text-[11px] text-ink-3">
             <span>{SENDER_LABELS[message.sender_type]}</span>
             <span aria-hidden>·</span>
             <span>{time}</span>
@@ -116,7 +116,7 @@ function MessageRow({ message }: { message: Message }) {
         >
           <p className="whitespace-pre-wrap break-words">{message.body}</p>
         </div>
-        <div className="mt-1 flex items-center justify-end gap-1.5 px-1 text-[11px] text-slate-400">
+        <div className="mt-1 flex items-center justify-end gap-1.5 px-1 text-[11px] text-ink-3">
           <span>{SENDER_LABELS[message.sender_type]}</span>
           <span aria-hidden>·</span>
           <span>{time}</span>
@@ -141,7 +141,7 @@ export function MessageThread({ messages }: { messages: Message[] }) {
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
-        <p className="text-sm text-slate-500">No messages in this conversation yet.</p>
+        <p className="text-sm text-ink-3">No messages in this conversation yet.</p>
       </div>
     );
   }
@@ -174,7 +174,7 @@ export function MessageThread({ messages }: { messages: Message[] }) {
         {orderedGroups.map(([label, items]) => (
           <div key={label} className="space-y-4">
             <div className="flex items-center justify-center">
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+              <span className="rounded-full bg-inset px-2.5 py-1 text-[11px] font-medium text-ink-3">
                 {label}
               </span>
             </div>

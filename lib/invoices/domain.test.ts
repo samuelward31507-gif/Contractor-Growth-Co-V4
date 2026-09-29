@@ -10,6 +10,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   addAmounts,
+  isManualPaymentMethod,
+  MANUAL_PAYMENT_METHODS,
+  PAYMENT_METHODS,
   applyPayment,
   assertTotalsEditable,
   calendarDateInTimeZone,
@@ -221,4 +224,12 @@ test("money formatting shows cents only when present", () => {
   assert.equal(formatMoney(12400), "$12,400");
   assert.equal(formatMoney(1234.56), "$1,234.56");
   assert.equal(formatMoney(0), "$0");
+});
+
+test("Phase 1C: card_online is labelled for ledger display but is never a manual method", () => {
+  assert.equal(PAYMENT_METHODS.find((method) => method.value === "card_online")?.label, "Card (paid online)");
+  assert.deepEqual(MANUAL_PAYMENT_METHODS.map((method) => method.value), ["cash", "check", "card_elsewhere", "bank_transfer", "other"]);
+  assert.equal(isManualPaymentMethod("card_online"), false);
+  for (const method of ["cash", "check", "card_elsewhere", "bank_transfer", "other"]) assert.equal(isManualPaymentMethod(method), true, method);
+  for (const bogus of ["", "CASH", "stripe", null, undefined, 3]) assert.equal(isManualPaymentMethod(bogus), false, String(bogus));
 });

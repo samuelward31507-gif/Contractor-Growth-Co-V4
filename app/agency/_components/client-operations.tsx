@@ -16,7 +16,7 @@ function AutomationCell({ health }: { health: AgencyOrganizationHealth | undefin
   if (health?.automationPaused) {
     return <Badge tone="neutral">Paused</Badge>;
   }
-  return <span className="text-sm text-slate-500">On</span>;
+  return <span className="text-sm text-ink-3">On</span>;
 }
 
 // Usability audit fix (#4): "PIPELINE SIGNAL" column - the org's own open
@@ -71,7 +71,7 @@ function attentionReasons(health: AgencyOrganizationHealth | undefined): string[
 
 function HealthBadge({ health }: { health: AgencyOrganizationHealth | undefined }) {
   const reasons = attentionReasons(health);
-  if (reasons.length === 0) return <span className="text-sm text-slate-500">Healthy</span>;
+  if (reasons.length === 0) return <span className="text-sm text-ink-3">Healthy</span>;
   return (
     <Badge tone="danger">
       {reasons[0]}
@@ -125,27 +125,27 @@ export function ClientOperations({ rows, totalCount }: { rows: ClientRow[]; tota
   return (
     <div>
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} items-center gap-3 border-b border-l-2 border-l-transparent border-slate-200 pl-3 pr-2 pb-3`}>
-          <span className="text-xs text-slate-400">Client</span>
-          <span className="text-xs text-slate-400">Status</span>
-          <span className="text-xs text-slate-400">Health</span>
-          <span className="text-xs text-slate-400">Automation</span>
-          <span className="text-right text-xs text-slate-400">Pipeline</span>
-          <span className="hidden text-right text-xs text-slate-400 xl:block">Leads</span>
-          <span className="hidden text-right text-xs text-slate-400 xl:block">Appts</span>
-          <span className="hidden text-right text-xs text-slate-400 xl:block">Jobs</span>
-          <span className="text-xs text-slate-400 whitespace-nowrap">Last activity</span>
-          <span className="text-xs text-slate-400">Next action</span>
+        <div className={`grid ${ROW_GRID} items-center gap-3 border-b border-l-2 border-l-transparent border-line pl-3 pr-2 pb-3`}>
+          <span className="text-xs text-ink-3">Client</span>
+          <span className="text-xs text-ink-3">Status</span>
+          <span className="text-xs text-ink-3">Health</span>
+          <span className="text-xs text-ink-3">Automation</span>
+          <span className="text-right text-xs text-ink-3">Pipeline</span>
+          <span className="hidden text-right text-xs text-ink-3 xl:block">Leads</span>
+          <span className="hidden text-right text-xs text-ink-3 xl:block">Appts</span>
+          <span className="hidden text-right text-xs text-ink-3 xl:block">Jobs</span>
+          <span className="text-xs text-ink-3 whitespace-nowrap">Last activity</span>
+          <span className="text-xs text-ink-3">Next action</span>
           <span />
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-line">
           {rows.map((row) => (
             <ClientRowDesktop key={row.organization.organizationId} row={row} />
           ))}
         </div>
       </div>
 
-      <ul className="divide-y divide-slate-100 lg:hidden">
+      <ul className="divide-y divide-line lg:hidden">
         {rows.map((row) => (
           <ClientRowMobile key={row.organization.organizationId} row={row} />
         ))}
@@ -173,12 +173,12 @@ function ClientRowDesktop({ row }: { row: ClientRow }) {
   return (
     <Link
       href={`/agency/organizations/${organization.organizationId}`}
-      className={`group grid ${ROW_GRID} items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[railTone(row)]}`}
+      className={`group grid ${ROW_GRID} items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-hover ${RAIL_TONE_CLASS[railTone(row)]}`}
     >
-      <span className="min-w-0 truncate text-sm font-medium text-slate-900">{organization.organizationName}</span>
+      <span className="min-w-0 truncate text-sm font-medium text-ink">{organization.organizationName}</span>
       <span>
         <Badge tone={STAGE_TONE[stage]}>{ONBOARDING_STAGE_LABEL[stage]}</Badge>
-        {note ? <span className="ml-1.5 text-xs text-slate-400">{note}</span> : null}
+        {note ? <span className="ml-1.5 text-xs text-ink-3">{note}</span> : null}
       </span>
       <span>
         <HealthBadge health={health} />
@@ -186,15 +186,15 @@ function ClientRowDesktop({ row }: { row: ClientRow }) {
       <span>
         <AutomationCell health={health} />
       </span>
-      <span className="text-right text-xs font-medium tabular-nums text-slate-700">{pipelineSignal(organization)}</span>
-      <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.leadMetrics.totalLeads)}</span>
-      <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.appointmentMetrics.totalAppointments)}</span>
-      <span className="hidden text-right text-xs tabular-nums text-slate-500 xl:block">{formatCount(m.jobMetrics.totalJobs)}</span>
-      <span className="text-xs tabular-nums text-slate-400">
+      <span className="text-right text-xs font-medium tabular-nums text-ink-2">{pipelineSignal(organization)}</span>
+      <span className="hidden text-right text-xs tabular-nums text-ink-3 xl:block">{formatCount(m.leadMetrics.totalLeads)}</span>
+      <span className="hidden text-right text-xs tabular-nums text-ink-3 xl:block">{formatCount(m.appointmentMetrics.totalAppointments)}</span>
+      <span className="hidden text-right text-xs tabular-nums text-ink-3 xl:block">{formatCount(m.jobMetrics.totalJobs)}</span>
+      <span className="text-xs tabular-nums text-ink-3">
         {row.lastActivityAt ? formatRelativeTime(row.lastActivityAt) : "No activity yet"}
       </span>
-      <span className="truncate text-xs text-slate-500">{row.nextAction ?? "—"}</span>
-      <ChevronRight className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+      <span className="truncate text-xs text-ink-3">{row.nextAction ?? "—"}</span>
+      <ChevronRight className="h-4 w-4 shrink-0 justify-self-end text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
     </Link>
   );
 }
@@ -212,33 +212,33 @@ function ClientRowMobile({ row }: { row: ClientRow }) {
       >
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-2">
-            <span className="truncate text-sm font-medium text-slate-900">{organization.organizationName}</span>
+            <span className="truncate text-sm font-medium text-ink">{organization.organizationName}</span>
             <Badge tone={STAGE_TONE[stage]}>{ONBOARDING_STAGE_LABEL[stage]}</Badge>
           </span>
           <span className="mt-0.5 flex items-center justify-between gap-2">
-            <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-slate-500">
+            <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-3">
               {attentionReasons(health).length > 0 ? (
-                <span className="font-medium text-red-600">{attentionReasons(health).join(", ")}</span>
+                <span className="font-medium text-danger">{attentionReasons(health).join(", ")}</span>
               ) : (
                 "Healthy"
               )}
               {note ? ` · ${note}` : ""}
             </span>
-            <span className="shrink-0 text-xs tabular-nums text-slate-400">
+            <span className="shrink-0 text-xs tabular-nums text-ink-3">
               {row.lastActivityAt ? formatRelativeTime(row.lastActivityAt) : "—"}
             </span>
           </span>
-          <span className="mt-1 flex items-center gap-2 text-xs tabular-nums text-slate-400">
+          <span className="mt-1 flex items-center gap-2 text-xs tabular-nums text-ink-3">
             <AutomationCell health={health} />
             <span>·</span>
-            <span className="font-medium text-slate-600">{pipelineSignal(organization)}</span>
+            <span className="font-medium text-ink-2">{pipelineSignal(organization)}</span>
             <span>pipeline</span>
           </span>
-          <span className="mt-0.5 block text-xs tabular-nums text-slate-400">
+          <span className="mt-0.5 block text-xs tabular-nums text-ink-3">
             {formatCount(m.leadMetrics.totalLeads)} leads · {formatCount(m.appointmentMetrics.totalAppointments)} appts · {formatCount(m.jobMetrics.totalJobs)} jobs
-            {row.escalationCount > 0 ? <span className="font-medium text-amber-600"> · {formatCount(row.escalationCount)} AI escalation{row.escalationCount === 1 ? "" : "s"}</span> : null}
+            {row.escalationCount > 0 ? <span className="font-medium text-warning"> · {formatCount(row.escalationCount)} AI escalation{row.escalationCount === 1 ? "" : "s"}</span> : null}
           </span>
-          {row.nextAction ? <span className="mt-0.5 block truncate text-xs text-slate-500">{row.nextAction}</span> : null}
+          {row.nextAction ? <span className="mt-0.5 block truncate text-xs text-ink-3">{row.nextAction}</span> : null}
         </span>
       </Link>
     </li>

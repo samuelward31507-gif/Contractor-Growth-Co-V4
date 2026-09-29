@@ -83,9 +83,9 @@ export function ExecutionRow({ execution, retrySupported }: { execution: Automat
           onClick={toggle}
           aria-expanded={expanded}
           aria-controls={detailId}
-          className="group flex min-w-0 flex-1 items-start gap-3 rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
+          className="group flex min-w-0 flex-1 items-start gap-3 rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10"
         >
-          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-slate-400 group-hover:text-slate-600">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-ink-3 group-hover:text-ink-2">
             {expanded ? <ChevronDown className="h-3.5 w-3.5" aria-hidden /> : <ChevronRight className="h-3.5 w-3.5" aria-hidden />}
           </span>
           <div className="min-w-0 flex-1">
@@ -93,9 +93,9 @@ export function ExecutionRow({ execution, retrySupported }: { execution: Automat
               <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
                 {statusBadge.label}
               </Badge>
-              <span className="text-xs text-slate-500">{TRIGGER_LABEL[execution.triggerSource]}</span>
+              <span className="text-xs text-ink-3">{TRIGGER_LABEL[execution.triggerSource]}</span>
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-slate-500">
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-ink-3">
               <span>Started {formatDateTime(execution.startedAt)}</span>
               <span>{execution.completedAt ? `Completed ${formatDateTime(execution.completedAt)}` : "In progress"}</span>
               {durationMs !== null ? <span>{formatDurationMs(durationMs)}</span> : null}
@@ -110,9 +110,9 @@ export function ExecutionRow({ execution, retrySupported }: { execution: Automat
       {expanded ? (
         <div id={detailId}>
           {isPending ? (
-            <p className="border-t border-slate-100 px-4 py-4 text-xs text-slate-400">Loading details…</p>
+            <p className="border-t border-line px-4 py-4 text-xs text-ink-3">Loading details…</p>
           ) : detailError ? (
-            <p className="border-t border-slate-100 px-4 py-4 text-xs text-danger-text">{detailError}</p>
+            <p className="border-t border-line px-4 py-4 text-xs text-danger-text">{detailError}</p>
           ) : detail ? (
             <ExecutionDetailView detail={detail} />
           ) : null}

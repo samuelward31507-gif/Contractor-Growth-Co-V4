@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAutomationEvent } from "./events";
-import { startWorkflowExecution, completeWorkflowExecution } from "./executions";
+import { createAutomationEvent, createAutomationEventAsService } from "./events";
+import { startWorkflowExecution, completeWorkflowExecution, startWorkflowExecutionAsService, completeWorkflowExecutionAsService } from "./executions";
 
 /**
  * Phase 1B-5 (Close the Money Loop - Lifecycle Signals): internal lifecycle
@@ -14,9 +14,12 @@ import { startWorkflowExecution, completeWorkflowExecution } from "./executions"
  * types (lib/automation/catalog.ts), so createAutomationEvent never gates
  * them on an enable toggle or automation_paused - an audit trail is always
  * recorded - and nothing here dispatches to n8n, drafts a message, sends
- * SMS or email, or touches Stripe. Every caller is a Server Action with a
- * real user session (app/(app)/invoices/actions.ts via
- * lib/invoices/service.ts), hence the plain (non-service) helpers.
+ * SMS or email, or touches Stripe. Contractor-initiated transitions come
+ * from a Server Action with a real user session (app/(app)/invoices/
+ * actions.ts via lib/invoices/service.ts) and use the plain helpers;
+ * Phase 1C's online card payments are recorded by the Stripe Connect webhook
+ * with no user session, so they use emitInvoiceLifecycleEventAsService below
+ * - same events, same idempotency keys, same payloads.
  *
  * Idempotency keys are derived from the business fact, never from time:
  *   invoice.issued   invoice.issued:<invoice_id>
@@ -94,3 +97,49 @@ export const emitInvoiceLifecycleEvent: EmitInvoiceLifecycleEvent = async (supab
     console.error(`[automation] ${input.eventType} lifecycle marker threw`, { entityId, error: error instanceof Error ? error.message : String(error) });
   }
 };
+
+/**
+ * Phase 1C: the service-role twin of emitInvoiceLifecycleEvent for the Stripe
+ * Connect webhook (lib/payments/online-payment.ts), which has no Supabase Auth
+ * session - the same shape as emitJobCreatedFromEstimateAsService. The event,
+ * idempotency key and payload are exactly what the session path records, so
+ * an online payment and a manually recorded one read identically downstream.
+ *
+ * `organizationId` must already be trusted: the caller derives it from the
+ * signed Stripe event's connected account and the invoice row it verified,
+ * never from input. Never throws - the ledger row already committed.
+ */
+export async function emitInvoiceLifecycleEventAsService(supabase: SupabaseClient, organizationId: string, input: InvoiceLifecycleEventInput): Promise<void> {
+  const { entityType, entityId } = entityOf(input);
+  const idempotencyKey = invoiceLifecycleIdempotencyKey(input);
+
+  try {
+    const eventResult = await createAutomationEventAsService(supabase, organizationId, {
+      eventType: input.eventType,
+      entityType,
+      entityId,
+      payload: input.payload,
+      idempotencyKey,
+    });
+
+    if (!eventResult.ok) {
+      console.error(`[automation] failed to create ${input.eventType} event (service)`, { entityId, error: eventResult.error });
+      return;
+    }
+    if (eventResult.duplicate) return;
+    if (eventResult.skipped) return;
+
+    const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, `${input.eventType.replace(".", "_")}_lifecycle`);
+    if (!executionResult.ok) {
+      console.error(`[automation] failed to start ${input.eventType} execution (service)`, { entityId, error: executionResult.error });
+      return;
+    }
+
+    const completed = await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, { lifecycle_only: true, [entityType === "invoice" ? "invoice_id" : "payment_id"]: entityId });
+    if (!completed.ok) {
+      console.error(`[automation] failed to complete ${input.eventType} execution (service)`, { entityId, error: completed.error });
+    }
+  } catch (error) {
+    console.error(`[automation] ${input.eventType} lifecycle marker threw (service)`, { entityId, error: error instanceof Error ? error.message : String(error) });
+  }
+}

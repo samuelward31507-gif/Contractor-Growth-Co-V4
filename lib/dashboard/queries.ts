@@ -4,6 +4,8 @@ import { getCalendarConnection } from "@/lib/calendar/connection";
 import { getConversations, getLastMessagesByConversation, attachLastMessages } from "@/lib/conversations/queries";
 import type { IncidentStatus } from "@/lib/automation-health/types";
 import { getOpenOpportunities } from "@/lib/opportunities/queries";
+import { cache } from "react";
+import { getDashboardConversationAttention, getDashboardRecordAttention, type DashboardRecordAttention } from "./sql";
 
 /**
  * Q7 (pre-launch lead-leak audit): a lead below "hot" temperature but at or
@@ -224,6 +226,70 @@ function contactName(contact: ContactRef): string | null {
   return name || null;
 }
 
+/**
+ * Phase 2E: the SQL record-attention rows mapped to exactly the items the
+ * legacy builders in getDashboardData produce (same ids, titles, details,
+ * values, hrefs, order). contactName is applied to the joined contact's
+ * names, as the legacy `contacts(first_name, last_name)` embed was.
+ */
+const sqlContact = (row: { contact_first_name: string | null; contact_last_name: string | null }) => contactName({ first_name: row.contact_first_name, last_name: row.contact_last_name });
+
+function sqlRecordItems(record: DashboardRecordAttention) {
+  const overdueAppointments: AttentionItem[] = record.overdue_appointments.map((appointment) => ({
+    id: `apt-${appointment.id}`,
+    kind: "overdue_appointment",
+    title: sqlContact(appointment) ?? appointment.title,
+    detail: `Was scheduled ${formatRelativeTime(appointment.start_at)}`,
+    value: null,
+    href: `/appointments/${appointment.id}`,
+  }));
+  const awaitingConfirmation: AttentionItem[] = record.awaiting_confirmation.map((appointment) => ({
+    id: `apt-confirm-${appointment.id}`,
+    kind: "awaiting_confirmation",
+    title: sqlContact(appointment) ?? appointment.title,
+    detail: `Confirmation requested ${formatRelativeTime(appointment.confirmation_requested_at)} - no response yet`,
+    value: null,
+    href: `/appointments/${appointment.id}`,
+  }));
+  const hotLeads: AttentionItem[] = record.hot_leads.map((lead) => ({
+    id: `hot-${lead.id}`,
+    kind: "hot_lead",
+    title: sqlContact(lead) ?? lead.service ?? "Marked hot",
+    detail: "Marked hot - follow up soon",
+    value: lead.estimated_value != null ? formatCurrency(Number(lead.estimated_value)) : null,
+    href: `/leads/${lead.id}`,
+  }));
+  const highValueLeads: AttentionItem[] = record.high_value_leads.map((lead) => ({
+    id: `value-${lead.id}`,
+    kind: "high_value_lead",
+    title: sqlContact(lead) ?? lead.service ?? "High-value lead",
+    detail: "High-value opportunity - follow up soon",
+    value: formatCurrency(Number(lead.estimated_value)),
+    href: `/leads/${lead.id}`,
+  }));
+  const pendingEstimateLeads: AttentionItem[] = record.pending_estimate_leads.map((lead) => ({
+    id: `est-${lead.id}`,
+    kind: "pending_estimate",
+    title: sqlContact(lead) ?? lead.service ?? "Pending estimate",
+    detail: "At the estimate stage - needs follow-up",
+    value: lead.estimated_value != null ? formatCurrency(Number(lead.estimated_value)) : null,
+    href: "/estimates",
+  }));
+  const leadActivity: ActivityItem[] = record.recent_leads.map((lead) => ({
+    id: `lead-${lead.id}`,
+    message: `New lead${sqlContact(lead) ? `: ${sqlContact(lead)}` : lead.service ? `: ${lead.service}` : ""}`,
+    timestamp: lead.created_at,
+  }));
+  const appointmentActivity: ActivityItem[] = record.recent_appointments.map((appointment) => ({
+    id: `apt-created-${appointment.id}`,
+    message: `Appointment scheduled${sqlContact(appointment) ? `: ${sqlContact(appointment)}` : appointment.title ? `: ${appointment.title}` : ""}`,
+    timestamp: appointment.created_at,
+  }));
+  const overview = { newLeads: record.new_leads, upcomingAppointments: record.upcoming_appointments, pendingEstimates: record.pending_estimates, openOpportunities: record.open_leads };
+  const pipeline: PipelineCounts = { new: record.pipeline.new, contacted: record.pipeline.contacted, qualified: record.pipeline.qualified, appointment: record.pipeline.appointment, estimate: record.pipeline.estimate, won: record.pipeline.won };
+  return { overdueAppointments, awaitingConfirmation, hotLeads, highValueLeads, pendingEstimateLeads, leadActivity, appointmentActivity, overview, pipeline, hotOrHighValueLeadIds: new Set(record.uncontacted_dedup_lead_ids) };
+}
+
 function formatAuditAction(action: string, entityType: string | null): string {
   const readable = action.replace(/_/g, " ");
   const subject = entityType ? ` (${entityType})` : "";
@@ -237,18 +303,44 @@ function formatAuditAction(action: string, entityType: string | null): string {
  * every metric, pipeline count, attention item, and activity entry from that
  * real data - nothing here is fabricated or hardcoded.
  */
+export type DashboardDataOptions = {
+  /**
+   * Phase 2D: "sql" derives awaiting_reply / abandoned_conversation from
+   * dashboard_conversation_attention (supabase/pending/dashboard_sql.sql)
+   * over every conversation, instead of the 500-conversation / 2,000-message
+   * reads. The default stays "legacy" so callers not moved in 2D (Agency)
+   * are unchanged.
+   */
+  conversationAttention?: "legacy" | "sql";
+  /**
+   * Phase 2E: "sql" derives every item, count and activity entry this
+   * function built from its leads (500) / appointments (200) / estimates
+   * (500) reads from dashboard_record_attention (supabase/pending/
+   * dashboard_attention_sql.sql) over complete data, and skips those three
+   * reads. Same definitions, same ids/titles/details/values/hrefs. Default
+   * "legacy".
+   */
+  recordAttention?: "legacy" | "sql";
+};
+
+/** A read the SQL record-attention path replaces: resolved empty, never sent. */
+const SKIPPED_READ = Promise.resolve({ data: null, error: null });
+
 export async function getDashboardData(
   supabase: SupabaseClient,
   organizationId: string,
+  options: DashboardDataOptions = {},
 ): Promise<DashboardData> {
-  const [leadsResult, appointmentsResult, estimatesResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities] = await Promise.all([
-    supabase
+  const sqlConversationAttention = options.conversationAttention === "sql";
+  const sqlRecordAttention = options.recordAttention === "sql";
+  const [leadsResult, appointmentsResult, estimatesResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities, sqlAttention, sqlRecord] = await Promise.all([
+    sqlRecordAttention ? SKIPPED_READ : supabase
       .from("leads")
       .select("id, status, temperature, estimated_value, service, created_at, contacts(first_name, last_name)")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
       .limit(500),
-    supabase
+    sqlRecordAttention ? SKIPPED_READ : supabase
       .from("appointments")
       .select("id, lead_id, title, status, start_at, created_at, confirmed_at, confirmation_requested_at, contacts(first_name, last_name)")
       .eq("organization_id", organizationId)
@@ -261,7 +353,7 @@ export async function getDashboardData(
     // (this query is only ever used to derive lead ids, never displayed
     // directly - the lead's own already-fetched contact is reused for
     // display).
-    supabase
+    sqlRecordAttention ? SKIPPED_READ : supabase
       .from("estimates")
       .select("lead_id, status")
       .eq("organization_id", organizationId)
@@ -301,13 +393,15 @@ export async function getDashboardData(
     // itself already uses to derive "awaiting reply" (see
     // app/(app)/conversations/_components/conversations-list.tsx's own
     // needsReply) - real, already-proven logic, not a new derivation.
-    getConversations(supabase, organizationId),
-    getLastMessagesByConversation(supabase, organizationId),
+    sqlConversationAttention ? Promise.resolve([]) : getConversations(supabase, organizationId),
+    sqlConversationAttention ? Promise.resolve(new Map()) : getLastMessagesByConversation(supabase, organizationId),
     // Pass 3 (Revenue Intelligence Foundation): the real, persisted result
     // of the opportunity detectors (lib/opportunities/detect.ts), synced by
     // the caller (see app/(app)/dashboard/page.tsx) before this function is
     // called - a read here, never a second detection pass.
     getOpenOpportunities(supabase, organizationId),
+    sqlConversationAttention ? getDashboardConversationAttention(supabase, organizationId) : Promise.resolve(null),
+    sqlRecordAttention ? getDashboardRecordAttention(supabase, organizationId, HIGH_VALUE_THRESHOLD) : Promise.resolve(null),
   ]);
 
   const leads = leadsResult.data ?? [];
@@ -321,10 +415,13 @@ export async function getDashboardData(
   // corresponding section above silently fell back to an empty array - real
   // data may be missing, not merely absent. See DashboardData.partialData's
   // own doc comment for the exact, disclosed scope (5 of 9 total reads).
-  const partialDataSourceCount = [leadsResult, appointmentsResult, estimatesResult, auditResult, escalationIncidentsResult].filter((result) => result.error != null).length;
+  // Phase 2E: a failed dashboard_record_attention stands in for all three
+  // reads it replaces (leads, appointments, estimates).
+  const partialDataSourceCount = [leadsResult, appointmentsResult, estimatesResult, auditResult, escalationIncidentsResult].filter((result) => result.error != null).length + (sqlRecord?.failed ? 3 : 0);
   const partialData = partialDataSourceCount > 0;
 
   const now = Date.now();
+  const sqlItems = sqlRecord ? sqlRecordItems(sqlRecord.data) : null;
 
   // Pass 5C, Batch 3A: the real cross-references replacing the
   // leads.status === 'appointment'/'estimate' proxy - see
@@ -333,7 +430,7 @@ export async function getDashboardData(
   const leadIdsWithBookedAppointment = distinctLeadIdsWithBookedAppointment(appointments);
   const leadIdsWithPendingEstimate = distinctLeadIdsWithPendingEstimate(estimates);
 
-  const overview: OverviewMetrics = {
+  const overview: OverviewMetrics = sqlItems ? sqlItems.overview : {
     newLeads: leads.filter((lead) => lead.status === "new").length,
     upcomingAppointments: appointments.filter(
       (appointment) =>
@@ -354,7 +451,7 @@ export async function getDashboardData(
     openOpportunities: leads.filter((lead) => ACTIVE_LEAD_STATUSES.has(lead.status)).length,
   };
 
-  const pipeline = Object.fromEntries(
+  const pipeline = sqlItems ? sqlItems.pipeline : Object.fromEntries(
     PIPELINE_STAGES.map(({ stage }) => {
       if (stage === "appointment") return [stage, leads.filter((lead) => leadIdsWithBookedAppointment.has(lead.id)).length];
       if (stage === "estimate") return [stage, leads.filter((lead) => leadIdsWithPendingEstimate.has(lead.id)).length];
@@ -362,7 +459,7 @@ export async function getDashboardData(
     }),
   ) as PipelineCounts;
 
-  const overdueAppointments: AttentionItem[] = appointments
+  const overdueAppointments: AttentionItem[] = sqlItems ? sqlItems.overdueAppointments : appointments
     .filter((appointment) => appointment.status === "scheduled" && new Date(appointment.start_at).getTime() < now)
     .slice(0, 5)
     .map((appointment) => ({
@@ -384,7 +481,7 @@ export async function getDashboardData(
   // and the customer hasn't said yes yet (confirmed_at still null), for an
   // appointment that's still upcoming and still 'scheduled' - never surfaced
   // once it's already confirmed, cancelled, completed, or auto-no-showed.
-  const awaitingConfirmation: AttentionItem[] = appointments
+  const awaitingConfirmation: AttentionItem[] = sqlItems ? sqlItems.awaitingConfirmation : appointments
     .filter(
       (appointment) =>
         appointment.status === "scheduled" &&
@@ -402,7 +499,7 @@ export async function getDashboardData(
       href: `/appointments/${appointment.id}`,
     }));
 
-  const hotLeads: AttentionItem[] = leads
+  const hotLeads: AttentionItem[] = sqlItems ? sqlItems.hotLeads : leads
     .filter((lead) => lead.temperature === "hot" && ACTIVE_LEAD_STATUSES.has(lead.status))
     .slice(0, 5)
     .map((lead) => ({
@@ -427,7 +524,7 @@ export async function getDashboardData(
   // idle - estimated_value was previously never factored into attention at
   // all. Excludes anything already caught by hotLeads above, so a hot AND
   // high-value lead appears once, not twice.
-  const highValueLeads: AttentionItem[] = leads
+  const highValueLeads: AttentionItem[] = sqlItems ? sqlItems.highValueLeads : leads
     .filter((lead) => lead.temperature !== "hot" && ACTIVE_LEAD_STATUSES.has(lead.status) && lead.estimated_value != null && Number(lead.estimated_value) >= HIGH_VALUE_THRESHOLD)
     .slice(0, 5)
     .map((lead) => ({
@@ -449,13 +546,13 @@ export async function getDashboardData(
   // trimmed off the visible hot/high-value list by that cap still correctly
   // excludes it here - the underlying lead is already represented above,
   // full stop, regardless of whether it made the visible slice.
-  const hotOrHighValueLeadIds = new Set(
+  const hotOrHighValueLeadIds = sqlItems ? sqlItems.hotOrHighValueLeadIds : new Set(
     leads
       .filter((lead) => ACTIVE_LEAD_STATUSES.has(lead.status) && (lead.temperature === "hot" || (lead.estimated_value != null && Number(lead.estimated_value) >= HIGH_VALUE_THRESHOLD)))
       .map((lead) => lead.id),
   );
 
-  const pendingEstimateLeads: AttentionItem[] = leads
+  const pendingEstimateLeads: AttentionItem[] = sqlItems ? sqlItems.pendingEstimateLeads : leads
     .filter((lead) => leadIdsWithPendingEstimate.has(lead.id))
     .slice(0, 5)
     .map((lead) => ({
@@ -489,17 +586,19 @@ export async function getDashboardData(
   // Conversations page's own needsReply logic), just never aggregated onto
   // the dashboard before now.
   const conversationsWithLastMessage = attachLastMessages(conversations, lastMessages);
-  const awaitingReply: AttentionItem[] = conversationsWithLastMessage
-    .filter((conversation) => conversation.status === "open" && conversation.lastMessage?.direction === "inbound")
-    .slice(0, 5)
-    .map((conversation) => ({
-      id: `reply-${conversation.id}`,
-      kind: "awaiting_reply",
-      title: contactName(conversation.contact) ?? "Customer",
-      detail: `Waiting for a reply ${formatRelativeTime(conversation.lastActivityAt)}`,
-      value: null,
-      href: `/conversations/${conversation.id}`,
-    }));
+  const awaitingReply: AttentionItem[] = sqlAttention
+    ? sqlAttention.awaitingReply
+    : conversationsWithLastMessage
+        .filter((conversation) => conversation.status === "open" && conversation.lastMessage?.direction === "inbound")
+        .slice(0, 5)
+        .map((conversation) => ({
+          id: `reply-${conversation.id}`,
+          kind: "awaiting_reply",
+          title: contactName(conversation.contact) ?? "Customer",
+          detail: `Waiting for a reply ${formatRelativeTime(conversation.lastActivityAt)}`,
+          value: null,
+          href: `/conversations/${conversation.id}`,
+        }));
 
   // Pass 5C, Batch 1: the mirror-image case awaitingReply above doesn't
   // cover - Trackpr/the business sent the LAST message, the conversation is
@@ -526,23 +625,25 @@ export async function getDashboardData(
   // that has already progressed to appointment/estimate/won, or is marked
   // lost, makes a quiet conversation expected/healthy, not abandoned.
   const CONVERSATION_STILL_ACTIONABLE_LEAD_STATUSES = new Set(["new", "contacted", "qualified"]);
-  const abandonedConversations: AttentionItem[] = conversationsWithLastMessage
-    .filter(
-      (conversation) =>
-        conversation.status === "open" &&
-        conversation.lastMessage?.direction === "outbound" &&
-        now - new Date(conversation.lastActivityAt).getTime() >= ABANDONED_CONVERSATION_THRESHOLD_MS &&
-        (conversation.lead == null || CONVERSATION_STILL_ACTIONABLE_LEAD_STATUSES.has(conversation.lead.status)),
-    )
-    .slice(0, 5)
-    .map((conversation) => ({
-      id: `abandoned-${conversation.id}`,
-      kind: "abandoned_conversation",
-      title: contactName(conversation.contact) ?? "Customer",
-      detail: `No reply since we last reached out, ${formatRelativeTime(conversation.lastActivityAt)}`,
-      value: null,
-      href: `/conversations/${conversation.id}`,
-    }));
+  const abandonedConversations: AttentionItem[] = sqlAttention
+    ? sqlAttention.abandonedConversations
+    : conversationsWithLastMessage
+        .filter(
+          (conversation) =>
+            conversation.status === "open" &&
+            conversation.lastMessage?.direction === "outbound" &&
+            now - new Date(conversation.lastActivityAt).getTime() >= ABANDONED_CONVERSATION_THRESHOLD_MS &&
+            (conversation.lead == null || CONVERSATION_STILL_ACTIONABLE_LEAD_STATUSES.has(conversation.lead.status)),
+        )
+        .slice(0, 5)
+        .map((conversation) => ({
+          id: `abandoned-${conversation.id}`,
+          kind: "abandoned_conversation",
+          title: contactName(conversation.contact) ?? "Customer",
+          detail: `No reply since we last reached out, ${formatRelativeTime(conversation.lastActivityAt)}`,
+          value: null,
+          href: `/conversations/${conversation.id}`,
+        }));
 
   // Pass 3: three new, genuinely distinct attention kinds backed by the
   // opportunities table - deliberately NOT surfacing qualified_lead_unbooked
@@ -735,13 +836,13 @@ export async function getDashboardData(
     ...completedJobNoReferralRequestOpportunities,
   ].slice(0, 10);
 
-  const leadActivity: ActivityItem[] = leads.slice(0, 5).map((lead) => ({
+  const leadActivity: ActivityItem[] = sqlItems ? sqlItems.leadActivity : leads.slice(0, 5).map((lead) => ({
     id: `lead-${lead.id}`,
     message: `New lead${contactName(lead.contacts) ? `: ${contactName(lead.contacts)}` : lead.service ? `: ${lead.service}` : ""}`,
     timestamp: lead.created_at,
   }));
 
-  const appointmentActivity: ActivityItem[] = appointments.slice(0, 5).map((appointment) => ({
+  const appointmentActivity: ActivityItem[] = sqlItems ? sqlItems.appointmentActivity : appointments.slice(0, 5).map((appointment) => ({
     id: `apt-created-${appointment.id}`,
     message: `Appointment scheduled${contactName(appointment.contacts) ? `: ${contactName(appointment.contacts)}` : appointment.title ? `: ${appointment.title}` : ""}`,
     timestamp: appointment.created_at,
@@ -759,3 +860,16 @@ export async function getDashboardData(
 
   return { overview, pipeline, attentionItems, recentActivity, partialData, partialDataSourceCount };
 }
+
+/**
+ * Phase 2D: the Today page's getDashboardData, memoized for the request so
+ * the page, the owner briefing and the end-of-day summary share one load
+ * (the SQL attention read is a POST, which fetch de-duplication never
+ * covered). React.cache is request-scoped - nothing is shared across
+ * requests.
+ *
+ * Phase 2E: also takes its record attention (leads/appointments/estimates)
+ * from dashboard_record_attention. Agency still calls getDashboardData with
+ * the legacy defaults.
+ */
+export const getDashboardSqlData = cache((supabase: SupabaseClient, organizationId: string) => getDashboardData(supabase, organizationId, { conversationAttention: "sql", recordAttention: "sql" }));

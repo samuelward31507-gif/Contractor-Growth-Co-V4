@@ -21,7 +21,7 @@ import type { ReactNode } from "react";
 export function Table({ columns, children, className = "" }: { columns: string; children: ReactNode; className?: string }) {
   return (
     <div className={`hidden lg:block ${className}`}>
-      <div className={`grid ${columns} gap-6 border-b border-slate-200 px-2 pb-2.5`}>{children}</div>
+      <div className={`grid ${columns} gap-6 border-b border-line px-2 pb-2.5`}>{children}</div>
     </div>
   );
 }
@@ -32,7 +32,7 @@ export function TableHeadCell({ children, align = "left" }: { children?: ReactNo
 
 /** The scrollable/divided row list beneath a Table's header - a separate component (not nested inside Table) so a page can render its own header once and a filtered/empty row list independently. */
 export function TableBody({ children }: { children: ReactNode }) {
-  return <div className="hidden divide-y divide-slate-100 lg:block">{children}</div>;
+  return <div className="hidden divide-y divide-line lg:block">{children}</div>;
 }
 
 const ROW_TONE_RAIL: Record<"neutral" | "urgent" | "warning" | "success", string> = {
@@ -64,7 +64,7 @@ export function TableRow({
   return (
     <Link
       href={href}
-      className={`group grid ${columns} items-center gap-6 border-l-2 py-3 pl-3 pr-2 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${ROW_TONE_RAIL[tone]}`}
+      className={`group grid ${columns} items-center gap-6 border-l-2 py-3 pl-3 pr-2 transition-colors duration-150 hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${ROW_TONE_RAIL[tone]}`}
     >
       {children}
     </Link>
@@ -72,5 +72,5 @@ export function TableRow({
 }
 
 export function TableCell({ children, muted = false, align = "left", className = "" }: { children?: ReactNode; muted?: boolean; align?: "left" | "right"; className?: string }) {
-  return <span className={`min-w-0 truncate text-sm ${muted ? "text-slate-500" : "text-slate-900"} ${align === "right" ? "text-right tabular-nums" : ""} ${className}`}>{children}</span>;
+  return <span className={`min-w-0 truncate text-sm ${muted ? "text-ink-3" : "text-ink"} ${align === "right" ? "text-right tabular-nums" : ""} ${className}`}>{children}</span>;
 }

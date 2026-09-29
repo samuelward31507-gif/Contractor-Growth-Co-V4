@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const require = createRequire(import.meta.url);
-const { emitInvoiceLifecycleEvent, invoiceLifecycleIdempotencyKey, INVOICE_LIFECYCLE_EVENT_TYPES }: typeof import("./invoices") = require("./invoices.ts");
+const { emitInvoiceLifecycleEvent, emitInvoiceLifecycleEventAsService, invoiceLifecycleIdempotencyKey, INVOICE_LIFECYCLE_EVENT_TYPES }: typeof import("./invoices") = require("./invoices.ts");
 const { getAutomationForEventType }: typeof import("./catalog") = require("./catalog.ts");
 
 type Row = Record<string, unknown>;
@@ -107,4 +107,35 @@ test("no session, an RPC failure, or a thrown error never propagates - the ledge
 
   const throwing = makeFakeClient({ throwOn: "start_workflow_execution" });
   await assert.doesNotReject(() => emitInvoiceLifecycleEvent(throwing.client, ISSUED));
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1C: the service-role twin, used by the Stripe Connect webhook
+// ---------------------------------------------------------------------------
+
+const RECORDED_ONLINE = { eventType: "payment.recorded" as const, paymentId: "pay-online", payload: { payment_id: "pay-online", invoice_id: "inv-1", number: 7, job_id: "job-1", contact_id: null, amount: 1300.25, method: "card_online", received_at: "2026-10-05T12:00:00.000Z", invoice_status_after: "paid", amount_paid_after: 1300.25 } };
+
+test("service variant: records the same event, key and payload WITHOUT a user session, passing the trusted organization id to the RPC", async () => {
+  const { client, rpcCalls } = makeFakeClient({ user: null });
+  await emitInvoiceLifecycleEventAsService(client, "org-a", RECORDED_ONLINE);
+  // completeWorkflowExecutionAsService then runs its existing, shared
+  // failure-resolution step (the same as every service-role lifecycle path).
+  assert.deepEqual(rpcCalls.map((call) => call.fn), ["create_automation_event", "start_workflow_execution", "complete_workflow_execution", "resolve_automation_incidents_by_fingerprint"]);
+  assert.equal(rpcCalls[0].args.p_organization_id, "org-a");
+  assert.equal(rpcCalls[0].args.p_event_type, "payment.recorded");
+  assert.equal(rpcCalls[0].args.p_idempotency_key, invoiceLifecycleIdempotencyKey(RECORDED_ONLINE));
+  assert.deepEqual(rpcCalls[0].args.p_payload, RECORDED_ONLINE.payload);
+  assert.equal(rpcCalls[1].args.p_workflow_name, "payment_recorded_lifecycle");
+  assert.deepEqual(rpcCalls[2].args.p_metadata, { lifecycle_only: true, payment_id: "pay-online" });
+});
+
+test("service variant: a duplicate creates no execution, and failures never propagate", async () => {
+  const duplicate = makeFakeClient({ user: null, duplicate: true });
+  await emitInvoiceLifecycleEventAsService(duplicate.client, "org-a", ISSUED);
+  assert.deepEqual(duplicate.rpcCalls.map((call) => call.fn), ["create_automation_event"]);
+
+  const failing = makeFakeClient({ user: null, failCreate: true });
+  await assert.doesNotReject(() => emitInvoiceLifecycleEventAsService(failing.client, "org-a", ISSUED));
+  const throwing = makeFakeClient({ user: null, throwOn: "complete_workflow_execution" });
+  await assert.doesNotReject(() => emitInvoiceLifecycleEventAsService(throwing.client, "org-a", ISSUED));
 });

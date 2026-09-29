@@ -27,14 +27,16 @@ function Stat({ icon: Icon, label, value, tone = "neutral" }: { icon: LucideIcon
         <Icon className="h-4 w-4" aria-hidden />
       </span>
       <div className="min-w-0">
-        <p className={`text-xl font-bold tabular-nums leading-tight ${tone === "attention" ? "text-danger-text" : "text-slate-900"}`}>{value}</p>
-        <p className="truncate text-xs text-slate-500">{label}</p>
+        <p className={`text-xl font-semibold tabular-nums leading-tight ${tone === "attention" ? "text-danger-text" : "text-ink"}`}>{value}</p>
+        <p className="truncate text-xs text-ink-3">{label}</p>
       </div>
     </div>
   );
 }
 
-export function WhatAiHandled({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+// Phase 2A-1: only aiMetrics is read, so only aiMetrics is required - the
+// Dashboard passes just today's AI metrics instead of a whole snapshot.
+export function WhatAiHandled({ snapshot }: { snapshot: Pick<BusinessMetricsSnapshot, "aiMetrics"> }) {
   const { aiMetrics } = snapshot;
   const hasActivity = aiMetrics.aiInteractions > 0;
 
@@ -42,13 +44,13 @@ export function WhatAiHandled({ snapshot }: { snapshot: BusinessMetricsSnapshot 
     <div>
       <div className="flex items-baseline justify-between gap-3">
         <h3 className={sectionLabelClass}>What AI handled today</h3>
-        <Link href="/automations" className="shrink-0 text-xs font-medium text-slate-500 hover:text-slate-900">
+        <Link href="/automations" className="shrink-0 text-xs font-medium text-ink-3 hover:text-ink">
           View
         </Link>
       </div>
 
       {!hasActivity ? (
-        <p className="mt-3 text-sm text-slate-500">No AI activity yet today.</p>
+        <p className="mt-3 text-sm text-ink-3">No AI activity yet today.</p>
       ) : (
         <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
           <Stat icon={MessageCircle} label="Conversations handled" value={aiMetrics.aiInteractions} />

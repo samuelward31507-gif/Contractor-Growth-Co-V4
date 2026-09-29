@@ -39,24 +39,24 @@ export function ClientUsageRows({ clients }: { clients: ClientUsageSummary[] }) 
   return (
     <div>
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} items-center gap-3 border-b border-l-2 border-l-transparent border-slate-200 pl-3 pr-2 pb-3`}>
-          <span className="text-xs text-slate-400">Client</span>
-          <span className="text-right text-xs text-slate-400">Messages</span>
-          <span className="text-right text-xs text-slate-400">AI interactions</span>
-          <span className="text-right text-xs text-slate-400">Automation</span>
-          <span className="text-right text-xs text-slate-400">Missed calls</span>
-          <span className="text-xs text-slate-400">Business activity</span>
-          <span className="text-xs text-slate-400">Data</span>
+        <div className={`grid ${ROW_GRID} items-center gap-3 border-b border-l-2 border-l-transparent border-line pl-3 pr-2 pb-3`}>
+          <span className="text-xs text-ink-3">Client</span>
+          <span className="text-right text-xs text-ink-3">Messages</span>
+          <span className="text-right text-xs text-ink-3">AI interactions</span>
+          <span className="text-right text-xs text-ink-3">Automation</span>
+          <span className="text-right text-xs text-ink-3">Missed calls</span>
+          <span className="text-xs text-ink-3">Business activity</span>
+          <span className="text-xs text-ink-3">Data</span>
           <span />
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-line">
           {clients.map((client) => (
             <ClientUsageRowDesktop key={client.organizationId} client={client} />
           ))}
         </div>
       </div>
 
-      <ul className="divide-y divide-slate-100 lg:hidden">
+      <ul className="divide-y divide-line lg:hidden">
         {clients.map((client) => (
           <ClientUsageRowMobile key={client.organizationId} client={client} />
         ))}
@@ -76,45 +76,45 @@ function ClientUsageRowDesktop({ client }: { client: ClientUsageSummary }) {
   return (
     <Link
       href={`/agency/organizations/${client.organizationId}`}
-      className={`group grid ${ROW_GRID} items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-slate-50 ${RAIL_TONE_CLASS[railTone]}`}
+      className={`group grid ${ROW_GRID} items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-hover ${RAIL_TONE_CLASS[railTone]}`}
     >
-      <span className="min-w-0 truncate text-sm font-medium text-slate-900">{client.organizationName}</span>
+      <span className="min-w-0 truncate text-sm font-medium text-ink">{client.organizationName}</span>
 
-      <span className="text-right text-xs tabular-nums text-slate-700">
+      <span className="text-right text-xs tabular-nums text-ink-2">
         {formatCount(client.messaging.total)}
-        <span className="block text-[11px] text-slate-400">
+        <span className="block text-[11px] text-ink-3">
           {formatCount(client.messaging.inbound)} in / {formatCount(client.messaging.outbound)} out
         </span>
       </span>
 
-      <span className="text-right text-xs tabular-nums text-slate-700">
+      <span className="text-right text-xs tabular-nums text-ink-2">
         {formatCount(client.ai.interactions)}
-        <span className="block text-[11px] text-slate-400">{formatNullableCount(client.ai.tokens)} tokens</span>
+        <span className="block text-[11px] text-ink-3">{formatNullableCount(client.ai.tokens)} tokens</span>
       </span>
 
-      <span className="text-right text-xs tabular-nums text-slate-700">
+      <span className="text-right text-xs tabular-nums text-ink-2">
         {formatCount(client.automation.executions)}
-        <span className="block text-[11px] text-slate-400">{formatRate(client.automation.successRate)} success</span>
+        <span className="block text-[11px] text-ink-3">{formatRate(client.automation.successRate)} success</span>
       </span>
 
-      <span className="text-right text-xs tabular-nums text-slate-700">
-        {client.voice.missedCalls === null ? <span className="text-slate-400">Unavailable</span> : formatCount(client.voice.missedCalls)}
+      <span className="text-right text-xs tabular-nums text-ink-2">
+        {client.voice.missedCalls === null ? <span className="text-ink-3">Unavailable</span> : formatCount(client.voice.missedCalls)}
       </span>
 
-      <span className="truncate text-xs text-slate-500">{operationalSummary(client)}</span>
+      <span className="truncate text-xs text-ink-3">{operationalSummary(client)}</span>
 
       <span>
         {client.dataQuality.partialData ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-warning">
             <AlertTriangle className="h-3 w-3" aria-hidden />
             Partial
           </span>
         ) : (
-          <span className="text-xs text-slate-300">—</span>
+          <span className="text-xs text-ink-4">—</span>
         )}
       </span>
 
-      <ChevronRight className="h-4 w-4 shrink-0 justify-self-end text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+      <ChevronRight className="h-4 w-4 shrink-0 justify-self-end text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
     </Link>
   );
 }
@@ -127,19 +127,19 @@ function ClientUsageRowMobile({ client }: { client: ClientUsageSummary }) {
       <Link href={`/agency/organizations/${client.organizationId}`} className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 ${RAIL_TONE_CLASS[railTone]}`}>
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-2">
-            <span className="truncate text-sm font-medium text-slate-900">{client.organizationName}</span>
+            <span className="truncate text-sm font-medium text-ink">{client.organizationName}</span>
             {client.dataQuality.partialData ? (
-              <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-amber-600">
+              <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-warning">
                 <AlertTriangle className="h-3 w-3" aria-hidden />
                 Partial
               </span>
             ) : null}
           </span>
-          <span className="mt-1 block text-xs tabular-nums text-slate-500">
+          <span className="mt-1 block text-xs tabular-nums text-ink-3">
             {formatCount(client.messaging.total)} messages · {formatCount(client.ai.interactions)} AI · {formatCount(client.automation.executions)} automation ·{" "}
             {client.voice.missedCalls === null ? "missed calls unavailable" : `${formatCount(client.voice.missedCalls)} missed calls`}
           </span>
-          <span className="mt-0.5 block text-xs text-slate-400">{operationalSummary(client)}</span>
+          <span className="mt-0.5 block text-xs text-ink-3">{operationalSummary(client)}</span>
         </span>
       </Link>
     </li>

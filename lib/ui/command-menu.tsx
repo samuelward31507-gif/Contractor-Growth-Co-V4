@@ -30,7 +30,7 @@ function buildActions(navGroups: NavGroup[]): CommandAction[] {
   );
 
   return [
-    { id: "search-people", label: "Search People", hint: "Open People and filter", href: "/people", icon: Search },
+    { id: "search-people", label: "Search contacts", hint: "Open Contacts and filter", href: "/people", icon: Search },
     ...navActions,
     { id: "add-contact", label: "Add contact", href: "/people?new=contact", icon: UserPlus },
     { id: "add-lead", label: "Add lead", href: "/today?new=lead", icon: Target },
@@ -112,15 +112,15 @@ export function CommandMenu({ navGroups }: { navGroups: NavGroup[] }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
-      <div aria-hidden className="absolute inset-0 bg-slate-900/30" onClick={() => setOpen(false)} />
+      <div aria-hidden className="absolute inset-0 bg-ink/30" onClick={() => setOpen(false)} />
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Command menu"
-        className="relative flex w-full max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        className="relative flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-popover"
       >
-        <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
-          <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+          <Search className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
           <input
             ref={inputRef}
             value={query}
@@ -128,13 +128,13 @@ export function CommandMenu({ navGroups }: { navGroups: NavGroup[] }) {
             onKeyDown={handleKeyDown}
             placeholder="Search or jump to..."
             aria-label="Command menu search"
-            className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
+            className="w-full bg-transparent text-sm text-ink placeholder:text-ink-4 focus:outline-none"
           />
-          <kbd className="shrink-0 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">Esc</kbd>
+          <kbd className="shrink-0 rounded-[4px] border border-line px-1.5 py-0.5 text-[10px] font-medium text-ink-3">Esc</kbd>
         </div>
         <ul role="listbox" className="max-h-80 overflow-y-auto py-2">
           {filtered.length === 0 ? (
-            <li className="px-4 py-6 text-center text-sm text-slate-400">No matching actions.</li>
+            <li className="px-4 py-6 text-center text-sm text-ink-3">No matching actions.</li>
           ) : (
             filtered.map((action, index) => {
               const Icon = action.icon;
@@ -147,12 +147,12 @@ export function CommandMenu({ navGroups }: { navGroups: NavGroup[] }) {
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => runAction(action)}
                     className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors ${
-                      index === activeIndex ? "bg-slate-50 text-slate-900" : "text-slate-700"
+                      index === activeIndex ? "bg-selected text-ink" : "text-ink-2"
                     }`}
                   >
-                    <Icon className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                    <Icon className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
                     <span className="min-w-0 truncate">{action.label}</span>
-                    {action.hint ? <span className="ml-auto shrink-0 truncate text-xs text-slate-400">{action.hint}</span> : null}
+                    {action.hint ? <span className="ml-auto shrink-0 truncate text-xs text-ink-3">{action.hint}</span> : null}
                   </button>
                 </li>
               );

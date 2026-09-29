@@ -23,7 +23,7 @@ export function LeadCaptureSection({ intakeUrl }: { intakeUrl: string | null }) 
         <Badge tone={intakeUrl ? "success" : "neutral"}>{intakeUrl ? "Ready" : "Unavailable"}</Badge>
       </div>
 
-      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
+      <div className="mt-4 rounded-lg border border-line bg-canvas/60 px-4 py-3">
         <p className={detailLabelClass}>Intake URL (POST, JSON body)</p>
         {intakeUrl ? (
           <code className={`mt-1 block break-all text-xs ${detailValueClass}`}>{intakeUrl}</code>

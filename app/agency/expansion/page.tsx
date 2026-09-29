@@ -91,7 +91,7 @@ export default async function AgencyExpansionPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
         Agency Command Center
       </Link>
@@ -114,7 +114,7 @@ export default async function AgencyExpansionPage() {
         </div>
       ) : null}
 
-      <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-slate-200 py-4">
+      <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-line py-4">
         <Row label="Clients with opportunities" value={formatCount(summary.organizationsWithOpportunities)} />
         <Row label="Open opportunities" value={formatCount(summary.openOpportunityCount)} />
         <Row label="Known opportunity value" value={formatCurrency(summary.knownOpportunityValue)} />
@@ -154,13 +154,13 @@ export default async function AgencyExpansionPage() {
         )}
       </div>
 
-      <div className="mt-8 border-t border-slate-200 pt-8">
+      <div className="mt-8 border-t border-line pt-8">
         <p className={sectionLabelClass}>Client system readiness</p>
         <p className={`mt-1.5 ${metaClass}`}>Real, verified configuration state per client - never a guessed or fabricated connection status.</p>
         {clients.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No managed clients yet.</p>
+          <p className="mt-3 text-sm text-ink-3">No managed clients yet.</p>
         ) : (
-          <div className="mt-3 divide-y divide-slate-100">
+          <div className="mt-3 divide-y divide-line">
             {clients.map((client) => (
               <ClientReadinessRow key={client.organizationId} client={client} />
             ))}

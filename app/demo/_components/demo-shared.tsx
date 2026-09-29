@@ -8,10 +8,10 @@ import type { StageTone } from "./demo-data";
 export function DemoRow({ label, value, description }: { label: string; value: ReactNode; description?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2">
-      <span className="text-sm text-slate-600">{label}</span>
+      <span className="text-sm text-ink-2">{label}</span>
       <span className="text-right">
-        <span className="text-sm font-semibold tabular-nums text-slate-900">{value}</span>
-        {description ? <span className="ml-1.5 text-xs text-slate-400">{description}</span> : null}
+        <span className="text-sm font-semibold tabular-nums text-ink">{value}</span>
+        {description ? <span className="ml-1.5 text-xs text-ink-3">{description}</span> : null}
       </span>
     </div>
   );
@@ -20,11 +20,11 @@ export function DemoRow({ label, value, description }: { label: string; value: R
 /** Horizontal inline label/value strip - mirrors the flex-wrap border-y band used at the top of /dashboard, /agency, and other pages for a quiet reference-metric row. */
 export function DemoMetricStrip({ items, className = "" }: { items: { label: string; value: string }[]; className?: string }) {
   return (
-    <div className={`flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-slate-200 py-4 ${className}`}>
+    <div className={`flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-line py-4 ${className}`}>
       {items.map((item) => (
         <div key={item.label} className="flex items-baseline gap-2">
-          <span className="text-sm text-slate-600">{item.label}</span>
-          <span className="text-sm font-semibold tabular-nums text-slate-900">{item.value}</span>
+          <span className="text-sm text-ink-2">{item.label}</span>
+          <span className="text-sm font-semibold tabular-nums text-ink">{item.value}</span>
         </div>
       ))}
     </div>
@@ -78,7 +78,7 @@ export function DemoActionProvider({ children }: { children: ReactNode }) {
         }`}
       >
         {message ? (
-          <div className="pointer-events-auto rounded-lg border border-slate-200 bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg">
+          <div className="pointer-events-auto rounded-lg border border-line bg-ink px-4 py-2.5 text-sm font-medium text-white shadow-popover">
             {message}
           </div>
         ) : null}

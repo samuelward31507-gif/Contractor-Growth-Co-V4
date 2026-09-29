@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAutomationOverview, getWorkflowNameStats } from "@/lib/automation/queries";
 import { AUTOMATION_CATALOG } from "@/lib/automation/catalog";
@@ -43,7 +44,7 @@ export function organizationStatus(params: {
   return "healthy";
 }
 
-export async function getOrganizationHealth(supabase: SupabaseClient, organizationId: string): Promise<OrganizationHealthSummary> {
+async function computeOrganizationHealth(supabase: SupabaseClient, organizationId: string): Promise<OrganizationHealthSummary> {
   const [overview, statsByName, activeIncidents, organizationRow, scheduledLiveness] = await Promise.all([
     getAutomationOverview(supabase, organizationId),
     getWorkflowNameStats(supabase, organizationId),
@@ -224,3 +225,17 @@ export async function getLatestHealthCheckRun(supabase: SupabaseClient): Promise
   if (error || !data) return null;
   return { checkedAt: data.checked_at, stuckCount: data.stuck_count, incidentsOpened: data.incidents_opened, incidentsResolved: data.incidents_resolved };
 }
+
+/**
+ * Phase 2A-1: request-scoped memoization (React.cache, the Pass B pattern in
+ * lib/auth/request-context.ts). Within one server request, callers that ask
+ * for the same organization's health through the same Supabase client - the
+ * top bar, the daily briefing and the end-of-day summary on the Dashboard -
+ * now share one computation instead of each running it. The cache key is
+ * the (client, organizationId) pair, so a different client (e.g. the
+ * service-role client) or a different organization never shares a result,
+ * and nothing is kept once the request ends. Outside a React server render
+ * (route handlers, scripts, tests) it simply calls through. The health
+ * computation itself is unchanged.
+ */
+export const getOrganizationHealth = cache(computeOrganizationHealth);

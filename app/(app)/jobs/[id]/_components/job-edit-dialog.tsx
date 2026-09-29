@@ -64,7 +64,7 @@ export function JobEditDialog({ job, onClose }: { job: Job; onClose: () => void 
             className={inputClass}
             placeholder="Leave blank if unknown"
           />
-          <p className="text-xs text-slate-500">The contracted amount for this job. Leave blank if it isn&rsquo;t known yet.</p>
+          <p className="text-xs text-ink-3">The contracted amount for this job. Leave blank if it isn&rsquo;t known yet.</p>
         </div>
 
         <div className="space-y-1.5">

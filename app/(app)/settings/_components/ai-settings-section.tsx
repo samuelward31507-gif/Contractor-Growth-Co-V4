@@ -21,17 +21,17 @@ export function AiSettingsSection({ settings, canEdit }: { settings: AiSettings;
           {state.error ? <p className={errorBannerClass} role="alert">{state.error}</p> : null}
           {state.success ? <p className={successBannerClass}>AI settings saved.</p> : null}
 
-          <div className="rounded-md border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-700">
+          <div className="rounded-md border border-info-border bg-info-muted px-3.5 py-2.5 text-xs text-info-text">
             These settings are sent to every automated lead reply, follow-up, and customer conversation - a change
             here takes effect on the next message AI sends, not just future ones.
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex min-h-11 items-center gap-2 text-sm text-ink-2 sm:min-h-0">
             <input
               type="checkbox"
               name="aiEnabled"
               defaultChecked={settings.ai_enabled}
-              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
+              className="h-4 w-4 shrink-0 rounded border-line-strong accent-accent focus:ring-accent/20"
             />
             Allow AI to represent this business
           </label>

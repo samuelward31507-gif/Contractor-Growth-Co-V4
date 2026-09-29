@@ -32,15 +32,21 @@ export const heroClass = "font-display text-[42px] font-bold tracking-[-0.026em]
 // letting every real metric on the page carry the actual visual weight.
 // Tracking eased from -0.024em to -0.015em to match: very tight negative
 // tracking reads as considered at 34px+ but starts to look cramped at 24px.
-export const pageTitleClass = "font-display text-[24px] font-semibold tracking-[-0.015em] text-ink";
-export const pageDescriptionClass = "text-sm text-slate-500";
+//
+// Trackpr 2.0 design system (step 2A): in-app page titles move off the
+// Rubik display face onto Geist at 22px. Rubik's rounded forms read as
+// friendly-marketing next to dense operational data; the product sans at a
+// modest size reads as a calm, confident tool - the Linear/Stripe register.
+// Rubik stays on heroClass for marketing/demo surfaces only.
+export const pageTitleClass = "text-[22px] font-semibold leading-tight tracking-[-0.016em] text-ink";
+export const pageDescriptionClass = "text-sm text-ink-3";
 
 /**
  * Phase 0 (foundations pass): a rung for the one or two card-level titles
  * on a page that need more presence than a plain sectionTitleClass heading
  * but sit below the page title itself (e.g. a hero stat card's own title).
  */
-export const cardTitleClass = "font-display text-[22px] font-semibold tracking-[-0.014em] text-ink";
+export const cardTitleClass = "text-[19px] font-semibold tracking-[-0.013em] text-ink";
 
 /**
  * Phase 0 (foundations pass): the rung that was missing between the old
@@ -65,7 +71,7 @@ export const bodyClass = "text-base text-ink-2";
  * specifically because they read as generic-admin-template filler: this
  * tier keeps the same "why" that decision established, at a new size.
  */
-export const labelClass = "text-xs font-bold tracking-[0.09em] text-ink-3";
+export const labelClass = "text-xs font-semibold text-ink-3";
 
 /**
  * Reserved for the one (or two) sections on a page that should genuinely
@@ -73,14 +79,15 @@ export const labelClass = "text-xs font-bold tracking-[0.09em] text-ink-3";
  * for every section; that would just recreate uniform-heading syndrome with
  * a different font size.
  */
-export const primarySectionTitleClass = "text-sm font-semibold text-slate-900";
+export const primarySectionTitleClass = "text-sm font-semibold text-ink";
 
 /**
- * Every other named section. The label recedes so the section's own content
- * (numbers, names, rows) carries the visual weight instead of its heading.
+ * Every other named section. Trackpr 2.0 (step 2G): the one section-heading
+ * standard across the app - 14px semibold ink, the same as the Dashboard's
+ * section headings (2E) - so every page's sections read at one level.
  * Sentence case, not uppercase - see this file's own header comment.
  */
-export const sectionLabelClass = "text-[13px] font-medium text-slate-500";
+export const sectionLabelClass = "text-sm font-semibold text-ink";
 
 // Phase 0 (foundations pass): moved onto --ink-3 (4.6:1, the contrast
 // floor) rather than raw slate-500 - same size, token-driven color.
@@ -93,12 +100,12 @@ export const metaClass = "text-xs text-ink-3";
  * lib/ui/stat-card.tsx's StatGrid/StatCard instead - see its own header
  * comment for why boxed cards replaced the old integrated-row convention.
  */
-export const statLabelClass = "text-xs text-slate-500";
-export const statValueClass = "mt-1 text-2xl font-semibold tracking-tight tabular-nums text-slate-900";
+export const statLabelClass = "text-xs text-ink-3";
+export const statValueClass = "mt-1 text-2xl font-semibold tracking-tight tabular-nums text-ink";
 
 /** The label/value pair inside a StatCard - kept as named tokens (not
  * inlined in stat-card.tsx) so any bespoke stat layout can match it exactly. */
-export const kpiLabelClass = "text-[12.5px] font-medium text-slate-500";
+export const kpiLabelClass = "text-[12.5px] font-medium text-ink-3";
 /**
  * `leading-[1.15]` rather than `leading-none`: most values here are short
  * numbers/currency that read fine either way, but a genuine few (e.g. "Not
@@ -107,16 +114,16 @@ export const kpiLabelClass = "text-[12.5px] font-medium text-slate-500";
  * lines visually collide at this font size, `leading-[1.15]` keeps single
  * numbers just as tight while giving wrapped text room to breathe.
  */
-export const kpiValueClass = "mt-2 text-[28px] leading-[1.15] font-semibold tracking-tight tabular-nums text-slate-900 break-words";
-export const kpiDescriptionClass = "mt-2 text-xs text-slate-500";
+export const kpiValueClass = "mt-2 text-[26px] leading-[1.15] font-semibold tracking-[-0.02em] tabular-nums text-ink break-words";
+export const kpiDescriptionClass = "mt-1.5 text-xs text-ink-3";
 
 /**
  * The label/value pair used by every detail-page field group (a lead,
  * contact, appointment, or conversation's identity/status/value facts) -
  * previously duplicated verbatim across four detail pages.
  */
-export const detailLabelClass = "text-xs font-medium text-slate-500";
-export const detailValueClass = "mt-1 text-sm text-slate-900";
+export const detailLabelClass = "text-xs font-medium text-ink-3";
+export const detailValueClass = "mt-1 text-sm text-ink";
 
 /**
  * A named sub-section heading within a page (e.g. a Settings section).
@@ -137,4 +144,10 @@ export const subsectionTitleClass = "text-[15px] font-semibold tracking-[-0.006e
  * considered rather than merely "large text" - reserve this for genuine
  * headline numbers, never body copy or labels.
  */
-export const numericDisplayClass = "font-mono tabular-nums";
+//
+// Trackpr 2.0 design system (step 2A): headline numbers move from the
+// monospace face back to the product sans with tabular figures and tight
+// tracking. Monospace money reads as a developer console; tabular sans
+// reads as a financial product (the Stripe register) while keeping digits
+// aligned.
+export const numericDisplayClass = "tabular-nums tracking-[-0.02em]";

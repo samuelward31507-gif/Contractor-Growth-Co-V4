@@ -1,0 +1,911 @@
+{
+  "tz": "UTC",
+  "now": "2026-10-15T15:30:00.000Z",
+  "orgs": {
+    "E": {
+      "page": {
+        "hotLeadCount": 0,
+        "pipelineValue": 0,
+        "appointmentsToday": 0,
+        "money": {
+          "quotesOutCount": 0,
+          "readyToScheduleCount": 0,
+          "wonNotFinishedCount": 0,
+          "knownOpportunityValue": 0
+        },
+        "invoiceSummary": {
+          "invoiced": 0,
+          "invoicedCount": 0,
+          "collected": 0,
+          "paymentCount": 0,
+          "outstanding": 0,
+          "outstandingCount": 0,
+          "overdue": 0,
+          "overdueCount": 0,
+          "draftCount": 0,
+          "notYetInvoicedCount": 0,
+          "notYetInvoicedKnownValue": 0,
+          "notYetInvoicedUnknownCount": 0
+        },
+        "moneyDataFailed": false
+      },
+      "sections": {
+        "attentionItems": [],
+        "operationalExceptions": [],
+        "conversationSignals": [],
+        "overview": {
+          "newLeads": 0,
+          "upcomingAppointments": 0,
+          "pendingEstimates": 0,
+          "openOpportunities": 0
+        },
+        "recentActivity": [],
+        "partialData": false,
+        "dailyBriefing": {
+          "organizationId": "7d8aefaf-bd07-b423-d678-e5c8d3262384",
+          "newLeadsCount": 0,
+          "hotLeads": [],
+          "appointmentsToday": [],
+          "appointmentsNeedingAttention": [],
+          "estimatesAwaitingAction": [],
+          "jobsRecentlyCompleted": [],
+          "reviewReferralOpportunities": [],
+          "automationProblems": [],
+          "aiEscalationsCount": 0,
+          "summary": "You're all caught up.",
+          "partialData": false
+        },
+        "endOfDay": {
+          "organizationId": "7d8aefaf-bd07-b423-d678-e5c8d3262384",
+          "leadsReceived": 0,
+          "appointmentsBooked": 0,
+          "estimatesSent": 0,
+          "jobsWonOrCompleted": 0,
+          "valueRepresented": 0,
+          "unresolvedItemsCount": 0,
+          "automationIncidentsCount": 0,
+          "aiEscalationsCount": 0,
+          "summary": "A quiet day - nothing new to report.",
+          "partialData": false
+        }
+      },
+      "cost": {
+        "pageRequests": 9,
+        "pageRows": 1,
+        "sectionRequests": 50,
+        "sectionRows": 2
+      }
+    },
+    "A": {
+      "page": {
+        "hotLeadCount": 3,
+        "pipelineValue": 17401.15,
+        "appointmentsToday": 5,
+        "money": {
+          "quotesOutCount": 3,
+          "readyToScheduleCount": 2,
+          "wonNotFinishedCount": 5,
+          "knownOpportunityValue": 1094.09
+        },
+        "invoiceSummary": {
+          "invoiced": 1140.3,
+          "invoicedCount": 7,
+          "collected": 475.55,
+          "paymentCount": 6,
+          "outstanding": 665.05,
+          "outstandingCount": 6,
+          "overdue": 475.05,
+          "overdueCount": 4,
+          "draftCount": 1,
+          "notYetInvoicedCount": 3,
+          "notYetInvoicedKnownValue": 130.11,
+          "notYetInvoicedUnknownCount": 1
+        },
+        "moneyDataFailed": false
+      },
+      "sections": {
+        "attentionItems": [
+          {
+            "id": "escalation-67440059-e546-cd98-13aa-9cb365d3385a",
+            "kind": "human_escalation",
+            "title": "AI needs your attention",
+            "detail": "Customer asked for a person",
+            "value": null,
+            "href": "/conversations/a6f6ed5f-cffd-ee61-5467-1f35f51b4c49",
+            "incidentId": "67440059-e546-cd98-13aa-9cb365d3385a",
+            "incidentStatus": "open"
+          },
+          {
+            "id": "escalation-7530c5bb-f1d8-8ac3-008a-1bed4be1d83a",
+            "kind": "human_escalation",
+            "title": "AI needs your attention",
+            "detail": "A conversation needs a human reply.",
+            "value": null,
+            "href": "/conversations",
+            "incidentId": "7530c5bb-f1d8-8ac3-008a-1bed4be1d83a",
+            "incidentStatus": "acknowledged"
+          },
+          {
+            "id": "reply-a6f6ed5f-cffd-ee61-5467-1f35f51b4c49",
+            "kind": "awaiting_reply",
+            "title": "Ann Able",
+            "detail": "Waiting for a reply 1 hour ago",
+            "value": null,
+            "href": "/conversations/a6f6ed5f-cffd-ee61-5467-1f35f51b4c49"
+          },
+          {
+            "id": "reply-7b0a165b-cbae-4b9c-124b-a5f742f4725e",
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "detail": "Waiting for a reply 3 hours ago",
+            "value": null,
+            "href": "/conversations/7b0a165b-cbae-4b9c-124b-a5f742f4725e"
+          },
+          {
+            "id": "reply-ecfaa1ac-fa13-0b1a-2f4a-d841582c8c8e",
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "detail": "Waiting for a reply yesterday",
+            "value": null,
+            "href": "/conversations/ecfaa1ac-fa13-0b1a-2f4a-d841582c8c8e"
+          },
+          {
+            "id": "reply-f6198919-4a23-2c3e-e9cf-35cd647f1c96",
+            "kind": "awaiting_reply",
+            "title": "Bob Baker",
+            "detail": "Waiting for a reply yesterday",
+            "value": null,
+            "href": "/conversations/f6198919-4a23-2c3e-e9cf-35cd647f1c96"
+          },
+          {
+            "id": "reply-ab461256-a6ce-9b08-b138-bd4d7e89b811",
+            "kind": "awaiting_reply",
+            "title": "Gus Gray",
+            "detail": "Waiting for a reply yesterday",
+            "value": null,
+            "href": "/conversations/ab461256-a6ce-9b08-b138-bd4d7e89b811"
+          },
+          {
+            "id": "abandoned-6f19d2aa-ce8a-ffcd-bdc2-c066206ef247",
+            "kind": "abandoned_conversation",
+            "title": "Eve Ely",
+            "detail": "No reply since we last reached out, 2 days ago",
+            "value": null,
+            "href": "/conversations/6f19d2aa-ce8a-ffcd-bdc2-c066206ef247"
+          },
+          {
+            "id": "abandoned-a3db5bc2-788c-b0fd-6dfd-06ca4f685466",
+            "kind": "abandoned_conversation",
+            "title": "Bob Baker",
+            "detail": "No reply since we last reached out, 2 days ago",
+            "value": null,
+            "href": "/conversations/a3db5bc2-788c-b0fd-6dfd-06ca4f685466"
+          },
+          {
+            "id": "calendar-26fb0177-8a72-6e77-2528-86677acd06db",
+            "kind": "calendar_disconnected",
+            "title": "Google Calendar sync failed",
+            "detail": "Reconnect your calendar to keep bookings in sync.",
+            "value": null,
+            "href": "/settings"
+          }
+        ],
+        "operationalExceptions": [
+          {
+            "kind": "human_escalation",
+            "title": "AI needs your attention",
+            "detail": "Customer asked for a person",
+            "href": "/conversations/a6f6ed5f-cffd-ee61-5467-1f35f51b4c49",
+            "incidentId": "67440059-e546-cd98-13aa-9cb365d3385a",
+            "incidentStatus": "open"
+          },
+          {
+            "kind": "human_escalation",
+            "title": "AI needs your attention",
+            "detail": "A conversation needs a human reply.",
+            "href": "/conversations",
+            "incidentId": "7530c5bb-f1d8-8ac3-008a-1bed4be1d83a",
+            "incidentStatus": "acknowledged"
+          },
+          {
+            "kind": "calendar_disconnected",
+            "title": "Google Calendar sync failed",
+            "detail": "Reconnect your calendar to keep bookings in sync.",
+            "href": "/settings"
+          }
+        ],
+        "conversationSignals": [
+          {
+            "kind": "awaiting_reply",
+            "title": "Ann Able",
+            "href": "/conversations/a6f6ed5f-cffd-ee61-5467-1f35f51b4c49",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "href": "/conversations/7b0a165b-cbae-4b9c-124b-a5f742f4725e",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "href": "/conversations/ecfaa1ac-fa13-0b1a-2f4a-d841582c8c8e",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "awaiting_reply",
+            "title": "Bob Baker",
+            "href": "/conversations/f6198919-4a23-2c3e-e9cf-35cd647f1c96",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "awaiting_reply",
+            "title": "Gus Gray",
+            "href": "/conversations/ab461256-a6ce-9b08-b138-bd4d7e89b811",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "abandoned_conversation",
+            "title": "Eve Ely",
+            "href": "/conversations/6f19d2aa-ce8a-ffcd-bdc2-c066206ef247",
+            "tier": "at_risk",
+            "recommendedAction": "follow_up"
+          },
+          {
+            "kind": "abandoned_conversation",
+            "title": "Bob Baker",
+            "href": "/conversations/a3db5bc2-788c-b0fd-6dfd-06ca4f685466",
+            "tier": "at_risk",
+            "recommendedAction": "follow_up"
+          }
+        ],
+        "overview": {
+          "newLeads": 3,
+          "upcomingAppointments": 6,
+          "pendingEstimates": 3,
+          "openOpportunities": 7
+        },
+        "recentActivity": [
+          {
+            "id": "apt-created-0920c22b-19aa-92c6-1e1a-b01c3a8c2403",
+            "message": "Appointment scheduled: UTC day last ms",
+            "timestamp": "2026-10-15T14:00:00+00:00"
+          },
+          {
+            "id": "lead-72bf92b4-8233-508d-4d75-3b765492d137",
+            "message": "New lead: Ann Able",
+            "timestamp": "2026-10-15T10:00:00+00:00"
+          },
+          {
+            "id": "audit-86b842e4-3543-0892-052f-29183e984e86",
+            "message": "Lead.created (lead)",
+            "timestamp": "2026-10-15T09:00:00+00:00"
+          },
+          {
+            "id": "lead-0951953a-5920-f6b5-ba78-34f207d9d07b",
+            "message": "New lead: Addition",
+            "timestamp": "2026-10-15T07:00:00+00:00"
+          },
+          {
+            "id": "lead-cd234d2d-1fe1-22e5-1ea9-786b864f2717",
+            "message": "New lead",
+            "timestamp": "2026-10-15T00:00:00+00:00"
+          },
+          {
+            "id": "apt-created-048de2c4-4357-ad46-6f63-1f35b54f6d65",
+            "message": "Appointment scheduled: UTC next day start",
+            "timestamp": "2026-10-13T09:00:00+00:00"
+          },
+          {
+            "id": "audit-6be085fc-27a4-35e0-4504-16057bd6e938",
+            "message": "Job.completed (job)",
+            "timestamp": "2026-10-12T15:00:00+00:00"
+          },
+          {
+            "id": "apt-created-55814011-7416-c677-bb83-8bede1c65ffa",
+            "message": "Appointment scheduled: Bob Baker",
+            "timestamp": "2026-10-11T09:00:00+00:00"
+          }
+        ],
+        "partialData": false,
+        "dailyBriefing": {
+          "organizationId": "7269b486-6e39-d17c-35b2-1187477dcbba",
+          "newLeadsCount": 3,
+          "hotLeads": [],
+          "appointmentsToday": [
+            {
+              "id": "f483ecda-a02f-44a7-51c0-26940fa28506",
+              "title": "UTC day start",
+              "time": "2026-10-15T00:00:00+00:00",
+              "contactName": "Ann Able",
+              "href": "/appointments/f483ecda-a02f-44a7-51c0-26940fa28506"
+            },
+            {
+              "id": "b5e08bc6-e138-2c99-dd06-a4e407624238",
+              "title": "Midday today",
+              "time": "2026-10-15T18:00:00+00:00",
+              "contactName": "Ann Able",
+              "href": "/appointments/b5e08bc6-e138-2c99-dd06-a4e407624238"
+            },
+            {
+              "id": "0920c22b-19aa-92c6-1e1a-b01c3a8c2403",
+              "title": "UTC day last ms",
+              "time": "2026-10-15T23:59:59.999+00:00",
+              "contactName": null,
+              "href": "/appointments/0920c22b-19aa-92c6-1e1a-b01c3a8c2403"
+            }
+          ],
+          "appointmentsNeedingAttention": [],
+          "estimatesAwaitingAction": [
+            {
+              "id": "3f8f58f8-1fd8-a635-12ed-262d8ab3dea3",
+              "title": "Sent A",
+              "value": "$100",
+              "contactName": "Ann Able",
+              "href": "/estimates/3f8f58f8-1fd8-a635-12ed-262d8ab3dea3"
+            },
+            {
+              "id": "48d59c29-e833-5f07-40e2-8b677f8caef9",
+              "title": "Sent no amount",
+              "value": null,
+              "contactName": null,
+              "href": "/estimates/48d59c29-e833-5f07-40e2-8b677f8caef9"
+            },
+            {
+              "id": "0a116421-61fc-b74a-0ef2-9bd87265bb37",
+              "title": "Sent B",
+              "value": "$200",
+              "contactName": "Unnamed contact",
+              "href": "/estimates/0a116421-61fc-b74a-0ef2-9bd87265bb37"
+            }
+          ],
+          "jobsRecentlyCompleted": [
+            {
+              "id": "405d73cd-83ed-9e5d-eb87-23ec265705b8",
+              "title": "Completed recently",
+              "value": "$701",
+              "contactName": "Ann Able",
+              "href": "/jobs/405d73cd-83ed-9e5d-eb87-23ec265705b8"
+            },
+            {
+              "id": "a3f062ab-f492-9323-6f53-3e2ef7743c0f",
+              "title": "Completed today",
+              "value": "$551",
+              "contactName": null,
+              "href": "/jobs/a3f062ab-f492-9323-6f53-3e2ef7743c0f"
+            }
+          ],
+          "reviewReferralOpportunities": [
+            {
+              "id": "212a53dd-d01c-6781-edf8-be3fa1573e09",
+              "kind": "review",
+              "status": "responded",
+              "href": "/jobs/405d73cd-83ed-9e5d-eb87-23ec265705b8"
+            },
+            {
+              "id": "23696d13-893f-b22b-2b4c-b6cf0ce4bfeb",
+              "kind": "review",
+              "status": "responded",
+              "href": "/jobs/ba2b32ba-ce36-8a73-cd79-c9f19e369bcc"
+            },
+            {
+              "id": "aec1a10b-0dbd-3868-7f59-2fd410e582c4",
+              "kind": "referral",
+              "status": "responded",
+              "href": "/jobs/405d73cd-83ed-9e5d-eb87-23ec265705b8"
+            },
+            {
+              "id": "4b7c8ca3-adc8-ac0c-d783-b2202839d440",
+              "kind": "referral",
+              "status": "responded",
+              "href": "/jobs/a3f062ab-f492-9323-6f53-3e2ef7743c0f"
+            },
+            {
+              "id": "0e9499ea-eb62-7e9e-cac5-86d7c32630bb",
+              "kind": "referral",
+              "status": "responded",
+              "href": "/jobs/a4f5e6c2-fb95-7712-cc85-aee66b535d59"
+            }
+          ],
+          "automationProblems": [],
+          "aiEscalationsCount": 2,
+          "summary": "3 new leads, 3 hot, 3 appointments today, 3 estimates awaiting a reply, 2 conversations waiting on you.",
+          "partialData": false
+        },
+        "endOfDay": {
+          "organizationId": "7269b486-6e39-d17c-35b2-1187477dcbba",
+          "leadsReceived": 3,
+          "appointmentsBooked": 4,
+          "estimatesSent": 2,
+          "jobsWonOrCompleted": 2,
+          "valueRepresented": 1291.29,
+          "unresolvedItemsCount": 10,
+          "automationIncidentsCount": 0,
+          "aiEscalationsCount": 2,
+          "summary": "3 leads received, 4 appointments booked, 2 estimates sent, 2 jobs won/completed.",
+          "partialData": false
+        }
+      },
+      "cost": {
+        "pageRequests": 9,
+        "pageRows": 67,
+        "sectionRequests": 50,
+        "sectionRows": 248
+      }
+    },
+    "B": {
+      "page": {
+        "hotLeadCount": 1,
+        "pipelineValue": 777777.77,
+        "appointmentsToday": 1,
+        "money": {
+          "quotesOutCount": 1,
+          "readyToScheduleCount": 0,
+          "wonNotFinishedCount": 1,
+          "knownOpportunityValue": 155555.54
+        },
+        "invoiceSummary": {
+          "invoiced": 55555.55,
+          "invoicedCount": 1,
+          "collected": 44444.44,
+          "paymentCount": 1,
+          "outstanding": 55555.55,
+          "outstandingCount": 1,
+          "overdue": 55555.55,
+          "overdueCount": 1,
+          "draftCount": 0,
+          "notYetInvoicedCount": 1,
+          "notYetInvoicedKnownValue": 1,
+          "notYetInvoicedUnknownCount": 0
+        },
+        "moneyDataFailed": false
+      },
+      "sections": {
+        "attentionItems": [
+          {
+            "id": "reply-2f5dadc6-a9f7-900d-dbeb-6dea7faa5788",
+            "kind": "awaiting_reply",
+            "title": "Zed Other",
+            "detail": "Waiting for a reply 20 minutes ago",
+            "value": null,
+            "href": "/conversations/2f5dadc6-a9f7-900d-dbeb-6dea7faa5788"
+          },
+          {
+            "id": "hot-16f25a11-4538-6fba-4ef2-fbd8e1c805f9",
+            "kind": "hot_lead",
+            "title": "Zed Other",
+            "detail": "Marked hot - follow up soon",
+            "value": "$777,778",
+            "href": "/leads/16f25a11-4538-6fba-4ef2-fbd8e1c805f9"
+          }
+        ],
+        "operationalExceptions": [],
+        "conversationSignals": [
+          {
+            "kind": "awaiting_reply",
+            "title": "Zed Other",
+            "href": "/conversations/2f5dadc6-a9f7-900d-dbeb-6dea7faa5788",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          }
+        ],
+        "overview": {
+          "newLeads": 1,
+          "upcomingAppointments": 1,
+          "pendingEstimates": 1,
+          "openOpportunities": 1
+        },
+        "recentActivity": [
+          {
+            "id": "lead-16f25a11-4538-6fba-4ef2-fbd8e1c805f9",
+            "message": "New lead: Zed Other",
+            "timestamp": "2026-10-15T09:00:00+00:00"
+          },
+          {
+            "id": "apt-created-6186c29c-36b8-4ba4-20d8-cf9db72eade4",
+            "message": "Appointment scheduled: Zed Other",
+            "timestamp": "2026-10-15T09:00:00+00:00"
+          }
+        ],
+        "partialData": false,
+        "dailyBriefing": {
+          "organizationId": "9f9a88b7-57c5-0c60-2dab-95a754518f51",
+          "newLeadsCount": 1,
+          "hotLeads": [
+            {
+              "id": "hot-16f25a11-4538-6fba-4ef2-fbd8e1c805f9",
+              "name": "Zed Other",
+              "detail": "Marked hot - follow up soon",
+              "value": "$777,778",
+              "href": "/leads/16f25a11-4538-6fba-4ef2-fbd8e1c805f9"
+            }
+          ],
+          "appointmentsToday": [
+            {
+              "id": "6186c29c-36b8-4ba4-20d8-cf9db72eade4",
+              "title": "B today",
+              "time": "2026-10-15T17:00:00+00:00",
+              "contactName": "Zed Other",
+              "href": "/appointments/6186c29c-36b8-4ba4-20d8-cf9db72eade4"
+            }
+          ],
+          "appointmentsNeedingAttention": [],
+          "estimatesAwaitingAction": [
+            {
+              "id": "e58759b4-e72f-0d35-4eec-a9d1d1a99e8f",
+              "title": "B sent",
+              "value": "$88,889",
+              "contactName": null,
+              "href": "/estimates/e58759b4-e72f-0d35-4eec-a9d1d1a99e8f"
+            }
+          ],
+          "jobsRecentlyCompleted": [
+            {
+              "id": "76ca9226-0c4e-c11f-ff93-88906202971a",
+              "title": "B done",
+              "value": "$1",
+              "contactName": null,
+              "href": "/jobs/76ca9226-0c4e-c11f-ff93-88906202971a"
+            }
+          ],
+          "reviewReferralOpportunities": [
+            {
+              "id": "3ffca6cb-0f4e-e341-dc31-7c0df725c115",
+              "kind": "review",
+              "status": "responded",
+              "href": "/jobs/null"
+            }
+          ],
+          "automationProblems": [],
+          "aiEscalationsCount": 1,
+          "summary": "1 new lead, 1 hot, 1 appointment today, 1 estimate awaiting a reply, 1 conversation waiting on you.",
+          "partialData": false
+        },
+        "endOfDay": {
+          "organizationId": "9f9a88b7-57c5-0c60-2dab-95a754518f51",
+          "leadsReceived": 1,
+          "appointmentsBooked": 1,
+          "estimatesSent": 1,
+          "jobsWonOrCompleted": 1,
+          "valueRepresented": 155555.54,
+          "unresolvedItemsCount": 2,
+          "automationIncidentsCount": 0,
+          "aiEscalationsCount": 1,
+          "summary": "1 lead received, 1 appointment booked, 1 estimate sent, 1 job won/completed.",
+          "partialData": false
+        }
+      },
+      "cost": {
+        "pageRequests": 9,
+        "pageRows": 9,
+        "sectionRequests": 50,
+        "sectionRows": 26
+      }
+    },
+    "BIG": {
+      "page": {
+        "hotLeadCount": 0,
+        "pipelineValue": 0,
+        "appointmentsToday": 0,
+        "money": {
+          "quotesOutCount": 1000,
+          "readyToScheduleCount": 0,
+          "wonNotFinishedCount": 1000,
+          "knownOpportunityValue": 15000
+        },
+        "invoiceSummary": {
+          "invoiced": 10000,
+          "invoicedCount": 1000,
+          "collected": 5000,
+          "paymentCount": 5000,
+          "outstanding": 10000,
+          "outstandingCount": 1000,
+          "overdue": 10000,
+          "overdueCount": 1000,
+          "draftCount": 0,
+          "notYetInvoicedCount": 0,
+          "notYetInvoicedKnownValue": 0,
+          "notYetInvoicedUnknownCount": 0
+        },
+        "moneyDataFailed": false
+      },
+      "sections": {
+        "attentionItems": [
+          {
+            "id": "reply-fb994fb7-2326-10f8-25d8-870a1fe6d68d",
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "detail": "Waiting for a reply 3 weeks ago",
+            "value": null,
+            "href": "/conversations/fb994fb7-2326-10f8-25d8-870a1fe6d68d"
+          },
+          {
+            "id": "reply-56a0bf92-c50e-8568-41cb-dcd25aa071a0",
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "detail": "Waiting for a reply 3 weeks ago",
+            "value": null,
+            "href": "/conversations/56a0bf92-c50e-8568-41cb-dcd25aa071a0"
+          },
+          {
+            "id": "reply-96b1bb95-cd0c-5a6f-d98a-d6847c37e7bb",
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "detail": "Waiting for a reply 3 weeks ago",
+            "value": null,
+            "href": "/conversations/96b1bb95-cd0c-5a6f-d98a-d6847c37e7bb"
+          },
+          {
+            "id": "reply-74f56990-7985-9b96-e45d-21c994a2fa8b",
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "detail": "Waiting for a reply 3 weeks ago",
+            "value": null,
+            "href": "/conversations/74f56990-7985-9b96-e45d-21c994a2fa8b"
+          },
+          {
+            "id": "reply-2b49c31a-5113-4dda-463a-e47f365f07f7",
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "detail": "Waiting for a reply 3 weeks ago",
+            "value": null,
+            "href": "/conversations/2b49c31a-5113-4dda-463a-e47f365f07f7"
+          },
+          {
+            "id": "abandoned-bed7361c-bd6d-04f9-d903-ee9112998ca9",
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "detail": "No reply since we last reached out, 3 weeks ago",
+            "value": null,
+            "href": "/conversations/bed7361c-bd6d-04f9-d903-ee9112998ca9"
+          },
+          {
+            "id": "abandoned-f1653203-3d13-a02a-e586-f05642d4af91",
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "detail": "No reply since we last reached out, 3 weeks ago",
+            "value": null,
+            "href": "/conversations/f1653203-3d13-a02a-e586-f05642d4af91"
+          },
+          {
+            "id": "abandoned-be1726f6-aab1-9e4a-b55c-a4f3aae6f47f",
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "detail": "No reply since we last reached out, 3 weeks ago",
+            "value": null,
+            "href": "/conversations/be1726f6-aab1-9e4a-b55c-a4f3aae6f47f"
+          },
+          {
+            "id": "abandoned-8cb3247b-0c4b-c758-0b8a-90d5891a54e5",
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "detail": "No reply since we last reached out, 3 weeks ago",
+            "value": null,
+            "href": "/conversations/8cb3247b-0c4b-c758-0b8a-90d5891a54e5"
+          },
+          {
+            "id": "abandoned-1a97889b-303b-d513-4d0d-33c98efafc76",
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "detail": "No reply since we last reached out, 3 weeks ago",
+            "value": null,
+            "href": "/conversations/1a97889b-303b-d513-4d0d-33c98efafc76"
+          }
+        ],
+        "operationalExceptions": [],
+        "conversationSignals": [
+          {
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "href": "/conversations/fb994fb7-2326-10f8-25d8-870a1fe6d68d",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "href": "/conversations/56a0bf92-c50e-8568-41cb-dcd25aa071a0",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "href": "/conversations/96b1bb95-cd0c-5a6f-d98a-d6847c37e7bb",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "href": "/conversations/74f56990-7985-9b96-e45d-21c994a2fa8b",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "awaiting_reply",
+            "title": "Customer",
+            "href": "/conversations/2b49c31a-5113-4dda-463a-e47f365f07f7",
+            "tier": "needs_reply",
+            "recommendedAction": "respond"
+          },
+          {
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "href": "/conversations/bed7361c-bd6d-04f9-d903-ee9112998ca9",
+            "tier": "at_risk",
+            "recommendedAction": "follow_up"
+          },
+          {
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "href": "/conversations/f1653203-3d13-a02a-e586-f05642d4af91",
+            "tier": "at_risk",
+            "recommendedAction": "follow_up"
+          },
+          {
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "href": "/conversations/be1726f6-aab1-9e4a-b55c-a4f3aae6f47f",
+            "tier": "at_risk",
+            "recommendedAction": "follow_up"
+          },
+          {
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "href": "/conversations/8cb3247b-0c4b-c758-0b8a-90d5891a54e5",
+            "tier": "at_risk",
+            "recommendedAction": "follow_up"
+          },
+          {
+            "kind": "abandoned_conversation",
+            "title": "Customer",
+            "href": "/conversations/1a97889b-303b-d513-4d0d-33c98efafc76",
+            "tier": "at_risk",
+            "recommendedAction": "follow_up"
+          }
+        ],
+        "overview": {
+          "newLeads": 0,
+          "upcomingAppointments": 3,
+          "pendingEstimates": 500,
+          "openOpportunities": 0
+        },
+        "recentActivity": [
+          {
+            "id": "apt-created-3ba467bb-14bc-7116-8415-1180b47ccf4e",
+            "message": "Appointment scheduled: Person 2",
+            "timestamp": "2026-10-15T10:10:00+00:00"
+          },
+          {
+            "id": "apt-created-34efeb2f-e5f2-a704-26e7-85eb6444ffae",
+            "message": "Appointment scheduled: Today 2",
+            "timestamp": "2026-10-15T10:05:00+00:00"
+          },
+          {
+            "id": "apt-created-2c683c99-0a00-a7a7-62fc-8c03d01481c6",
+            "message": "Appointment scheduled: Person 1",
+            "timestamp": "2026-10-15T10:00:00+00:00"
+          },
+          {
+            "id": "apt-created-5a13faa6-6c45-6765-9c72-c725979c0e4a",
+            "message": "Appointment scheduled: Old 1100",
+            "timestamp": "2025-02-15T20:00:00+00:00"
+          },
+          {
+            "id": "apt-created-7edd5ee6-1022-9b2c-53eb-da4fdc7462f0",
+            "message": "Appointment scheduled: Old 1099",
+            "timestamp": "2025-02-15T19:00:00+00:00"
+          }
+        ],
+        "partialData": false,
+        "dailyBriefing": {
+          "organizationId": "c8385cbf-f38a-2ea8-b74c-d95c5ed27030",
+          "newLeadsCount": 0,
+          "hotLeads": [],
+          "appointmentsToday": [],
+          "appointmentsNeedingAttention": [],
+          "estimatesAwaitingAction": [
+            {
+              "id": "329594e6-53ac-438a-5214-5dbfb3a6915c",
+              "title": "Est 1050",
+              "value": "$10",
+              "contactName": null,
+              "href": "/estimates/329594e6-53ac-438a-5214-5dbfb3a6915c"
+            },
+            {
+              "id": "4f5815b1-f91c-b0bf-eb87-c6d7e2972d78",
+              "title": "Est 1049",
+              "value": "$10",
+              "contactName": null,
+              "href": "/estimates/4f5815b1-f91c-b0bf-eb87-c6d7e2972d78"
+            },
+            {
+              "id": "7ee65ada-491c-12d8-1015-116efc5f1dc8",
+              "title": "Est 1048",
+              "value": "$10",
+              "contactName": null,
+              "href": "/estimates/7ee65ada-491c-12d8-1015-116efc5f1dc8"
+            },
+            {
+              "id": "d633c285-23ff-969e-fc0b-682cb8eca545",
+              "title": "Est 1047",
+              "value": "$10",
+              "contactName": null,
+              "href": "/estimates/d633c285-23ff-969e-fc0b-682cb8eca545"
+            },
+            {
+              "id": "19a7bf49-40ab-accf-d489-396ec0b0192e",
+              "title": "Est 1046",
+              "value": "$10",
+              "contactName": null,
+              "href": "/estimates/19a7bf49-40ab-accf-d489-396ec0b0192e"
+            }
+          ],
+          "jobsRecentlyCompleted": [],
+          "reviewReferralOpportunities": [
+            {
+              "id": "ffa9cd25-9686-2281-f0a6-5b5e7919c3ac",
+              "kind": "review",
+              "status": "responded",
+              "href": "/jobs/78c22f44-a45f-280b-f851-3584eb6883be"
+            },
+            {
+              "id": "f659e4b4-023c-ccad-4d56-7da660add58a",
+              "kind": "review",
+              "status": "responded",
+              "href": "/jobs/fa94a989-43da-6bad-efc3-c9abec73c09d"
+            },
+            {
+              "id": "611410b4-f448-fb1b-8a89-6ca225721601",
+              "kind": "review",
+              "status": "responded",
+              "href": "/jobs/d78e1c2b-e6a8-cbb9-fe2f-c1c3bae61e1b"
+            },
+            {
+              "id": "baad3348-bf3d-59d3-b61f-50974a042bfd",
+              "kind": "review",
+              "status": "responded",
+              "href": "/jobs/1a461af1-1b66-e6aa-f5fb-77b52fbbb0ec"
+            },
+            {
+              "id": "3104c038-3fd2-b3da-7507-fe856d2d0803",
+              "kind": "review",
+              "status": "responded",
+              "href": "/jobs/157cb7a0-e8c2-0efa-2ee6-98515df11e7d"
+            }
+          ],
+          "automationProblems": [],
+          "aiEscalationsCount": 0,
+          "summary": "5 estimates awaiting a reply.",
+          "partialData": false
+        },
+        "endOfDay": {
+          "organizationId": "c8385cbf-f38a-2ea8-b74c-d95c5ed27030",
+          "leadsReceived": 0,
+          "appointmentsBooked": 0,
+          "estimatesSent": 0,
+          "jobsWonOrCompleted": 0,
+          "valueRepresented": 0,
+          "unresolvedItemsCount": 10,
+          "automationIncidentsCount": 0,
+          "aiEscalationsCount": 0,
+          "summary": "A quiet day - nothing new to report.",
+          "partialData": false
+        }
+      },
+      "cost": {
+        "pageRequests": 9,
+        "pageRows": 9001,
+        "sectionRequests": 50,
+        "sectionRows": 15610
+      }
+    }
+  }
+}

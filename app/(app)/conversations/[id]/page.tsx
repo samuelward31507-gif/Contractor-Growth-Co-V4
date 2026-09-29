@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { ArrowLeft, ChevronDown, Info, SearchX } from "lucide-react";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
 import {
   getContactAppointments,
   getConversation,
@@ -34,17 +33,13 @@ import { MessageThread } from "./_components/message-thread";
 export default async function ConversationDetailPage({ params }: PageProps<"/conversations/[id]">) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -170,21 +165,21 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 px-4 py-3 sm:px-6">
+      <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3 sm:px-6">
         <Link
           href="/conversations"
           aria-label="Back to Conversations"
-          className="-m-2 rounded-md p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 lg:hidden"
+          className="-m-2 rounded-md p-2 text-ink-3 transition-colors hover:bg-selected hover:text-ink-2 lg:hidden"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />
         </Link>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
           {conversation.contact ? contactInitials(conversation.contact) : "?"}
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-medium text-slate-900">{contactName}</h2>
+          <h2 className="truncate text-sm font-medium text-ink">{contactName}</h2>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-slate-500">{CHANNEL_LABELS[conversation.channel]}</span>
+            <span className="text-xs text-ink-3">{CHANNEL_LABELS[conversation.channel]}</span>
             <ConversationStatusBadge status={conversation.status} />
             {conversation.ai_enabled ? <Badge tone="info">AI enabled</Badge> : null}
             {smsOptOut ? <Badge tone="warning">Opted out</Badge> : null}
@@ -204,15 +199,15 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
             view - the thread and composer keep the space by default, and
             details are one tap away. At xl+ this is hidden in favor of the
             persistent sidebar below. */}
-        <details className="group shrink-0 border-t border-slate-200 xl:hidden">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-slate-900 sm:px-6">
+        <details className="group shrink-0 border-t border-line xl:hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-ink sm:px-6">
             <span className="inline-flex items-center gap-2">
-              <Info className="h-4 w-4 text-slate-400" aria-hidden />
+              <Info className="h-4 w-4 text-ink-3" aria-hidden />
               Conversation details
             </span>
-            <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+            <ChevronDown className="h-4 w-4 shrink-0 text-ink-3 transition-transform group-open:rotate-180" aria-hidden />
           </summary>
-          <div className="max-h-[50vh] overflow-y-auto border-t border-slate-100">
+          <div className="max-h-[50vh] overflow-y-auto border-t border-line">
             <ConversationContext
               conversation={conversation}
               relevantAppointment={relevantAppointment}
@@ -229,7 +224,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
           </div>
         </details>
 
-        <div className="hidden shrink-0 overflow-y-auto border-l border-slate-200 xl:block xl:w-72">
+        <div className="hidden shrink-0 overflow-y-auto border-l border-line xl:block xl:w-72">
           <ConversationContext
             conversation={conversation}
             relevantAppointment={relevantAppointment}

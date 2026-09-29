@@ -60,7 +60,7 @@ export function CreateInvoiceDialog({ job, onClose }: { job: CreateInvoiceJobCon
     <Dialog onClose={onClose} className="max-h-[90vh] max-w-md overflow-y-auto" labelledBy="create-invoice-title">
       <DialogTitle id="create-invoice-title">Create invoice</DialogTitle>
       <DialogDescription>
-        Creates a draft for <span className="font-medium text-slate-700">{job.title}</span>. You can review it before issuing; nothing is sent to the customer.
+        Creates a draft for <span className="font-medium text-ink-2">{job.title}</span>. You can review it before issuing; nothing is sent to the customer.
       </DialogDescription>
 
       <form onSubmit={submit} className="mt-4 space-y-4" noValidate>
@@ -94,7 +94,7 @@ export function CreateInvoiceDialog({ job, onClose }: { job: CreateInvoiceJobCon
             placeholder="0.00"
             required
           />
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-3">
             {jobHasAmount
               ? `Prefilled from the job's contracted amount (${formatMoney(job.amount as number)}). Changing it here does not change the job.`
               : "This job has no contracted amount yet, so the total is required."}
@@ -102,31 +102,31 @@ export function CreateInvoiceDialog({ job, onClose }: { job: CreateInvoiceJobCon
         </div>
 
         {!jobHasAmount ? (
-          <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+          <label className="flex items-start gap-2.5 rounded-lg border border-line bg-canvas px-3 py-2.5 text-sm text-ink-2">
             <input
               type="checkbox"
               checked={values.alsoSetJobAmount}
               onChange={(e) => setValues({ ...values, alsoSetJobAmount: e.target.checked })}
-              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-accent focus:ring-accent/30"
+              className="mt-0.5 h-4 w-4 rounded border-line-strong text-accent focus:ring-accent/30"
             />
             <span>
               Also set this as the job&rsquo;s contracted amount
-              <span className="block text-xs text-slate-500">Fills in the job&rsquo;s empty amount so Money and Insights stop showing it as unknown.</span>
+              <span className="block text-xs text-ink-3">Fills in the job&rsquo;s empty amount so Money and Insights stop showing it as unknown.</span>
             </span>
           </label>
         ) : null}
 
         <div className="space-y-1.5">
           <label htmlFor="create-invoice-due" className={labelClass}>
-            Due date <span className="font-normal text-slate-400">(optional)</span>
+            Due date <span className="font-normal text-ink-3">(optional)</span>
           </label>
           <input id="create-invoice-due" type="date" value={values.dueDate} onChange={(e) => setValues({ ...values, dueDate: e.target.value })} className={inputClass} />
-          <p className="text-xs text-slate-500">Leave blank to use 14 days from the day you issue it.</p>
+          <p className="text-xs text-ink-3">Leave blank to use 14 days from the day you issue it.</p>
         </div>
 
         <div className="space-y-1.5">
           <label htmlFor="create-invoice-notes" className={labelClass}>
-            Internal notes <span className="font-normal text-slate-400">(optional)</span>
+            Internal notes <span className="font-normal text-ink-3">(optional)</span>
           </label>
           <textarea id="create-invoice-notes" rows={3} value={values.notes} onChange={(e) => setValues({ ...values, notes: e.target.value })} className={inputClass} placeholder="Only your team sees these" />
         </div>

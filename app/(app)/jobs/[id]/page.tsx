@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getUserOrganization } from "@/lib/auth/organization";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { getJob } from "@/lib/jobs/queries";
 import { getLeads } from "@/lib/leads/queries";
 import { getReviewRequestForJob, getReferralRequestForJob } from "@/lib/reviews-referrals/queries";
@@ -21,21 +20,18 @@ import { getLiveInvoiceForJob } from "@/lib/invoices/queries";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { InvoiceSection } from "./_components/invoice-section";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">) {
   const { id } = await params;
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRequestSupabase();
+  const { user, membership } = await getRequestMembership();
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getUserOrganization(supabase, user.id);
   if (!membership) {
     redirect("/onboarding");
   }
@@ -45,9 +41,9 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
   if (!job) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-        <h1 className="text-lg font-semibold text-slate-900">Job not found</h1>
-        <p className="text-sm text-slate-500">This job may have been deleted, or the link is incorrect.</p>
-        <Link href="/jobs" className="mt-2 text-sm font-medium text-slate-900 hover:underline">
+        <h1 className="text-lg font-semibold text-ink">Job not found</h1>
+        <p className="text-sm text-ink-3">This job may have been deleted, or the link is incorrect.</p>
+        <Link href="/jobs" className="mt-2 text-sm font-medium text-ink hover:underline">
           Back to Jobs
         </Link>
       </div>
@@ -91,15 +87,15 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
         action={<JobActions job={job} />}
         meta={
           <div>
-            <p className="text-[12.5px] font-medium text-slate-500">Amount</p>
-            <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-900">
+            <p className="text-xs font-medium text-ink-3">Amount</p>
+            <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-ink">
               {job.amount != null ? formatCurrency(job.amount) : "—"}
             </p>
           </div>
         }
       />
 
-      <div className="flex flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+      <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
         <div className="flex flex-col gap-6 lg:col-span-2">
           <SectionCard title="Job">
@@ -120,7 +116,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
             {job.notes ? (
               <div className="mt-4">
                 <dt className={detailLabelClass}>Notes</dt>
-                <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{job.notes}</dd>
+                <dd className="mt-1 whitespace-pre-wrap text-sm text-ink-2">{job.notes}</dd>
               </div>
             ) : null}
           </SectionCard>
@@ -131,7 +127,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
             <SectionCard
               title="Estimate"
               action={
-                <Link href={`/estimates/${job.estimate.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/estimates/${job.estimate.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
                   View estimate
                 </Link>
               }
@@ -159,7 +155,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
             <SectionCard
               title="Lead"
               action={
-                <Link href={`/leads/${job.lead.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/leads/${job.lead.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
                   View lead
                 </Link>
               }
@@ -193,7 +189,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
             <SectionCard
               title="Customer"
               action={
-                <Link href={`/people/${job.contact.id}`} className="text-xs font-medium text-slate-600 hover:text-slate-900">
+                <Link href={`/people/${job.contact.id}`} className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0">
                   View contact
                 </Link>
               }

@@ -96,9 +96,9 @@ export function AiAgents({ summaries }: { summaries: AutomationSummary[] }) {
 
   return (
     <div>
-      <p className="mb-2 px-1 text-[12.5px] font-medium text-slate-500">AI agents</p>
+      <p className="mb-2 px-1 text-sm font-semibold text-ink">AI agents</p>
       <Panel className="overflow-hidden p-0">
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line">
           {agents.map((agent) => {
             const Icon = agent.icon;
             const statusBadge = AUTOMATION_STATUS_BADGE[agent.status];
@@ -106,27 +106,27 @@ export function AiAgents({ summaries }: { summaries: AutomationSummary[] }) {
               <li key={agent.name}>
                 <Link
                   href={agent.href}
-                  className="group flex items-start gap-3.5 px-4 py-4 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:bg-slate-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-900/10 sm:items-center"
+                  className="group flex items-start gap-3.5 px-4 py-4 transition-colors hover:bg-hover focus:outline-none focus-visible:bg-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/10 sm:items-center"
                 >
                   <span
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                      agent.status === "active" ? "bg-emerald-50 text-emerald-600" : agent.status === "attention" ? "bg-amber-50 text-amber-600" : "bg-slate-100 text-slate-500"
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                      agent.status === "active" ? "bg-accent-muted text-accent" : agent.status === "attention" ? "bg-warning-muted text-warning" : "bg-inset text-ink-3"
                     }`}
                   >
                     <Icon className="h-[18px] w-[18px]" aria-hidden />
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[15px] font-semibold text-slate-900">{agent.name}</p>
+                      <p className="text-sm font-semibold text-ink">{agent.name}</p>
                       <Badge tone={statusBadge.tone} icon={statusBadge.icon}>
                         {statusBadge.label}
                       </Badge>
                     </div>
-                    <p className="mt-0.5 truncate text-xs text-slate-500">{agent.description}</p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <p className="mt-0.5 truncate text-xs text-ink-3">{agent.description}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-3">
                       <span>{formatCount(agent.totalExecutions)} handled (30d)</span>
                       <span>Last activity: {agent.lastExecutionAt ? formatRelativeTime(agent.lastExecutionAt) : "—"}</span>
-                      {agent.failedExecutions > 0 ? <span className="font-medium text-red-600">{formatCount(agent.failedExecutions)} failures</span> : null}
+                      {agent.failedExecutions > 0 ? <span className="font-medium text-danger">{formatCount(agent.failedExecutions)} failures</span> : null}
                     </div>
                   </div>
                 </Link>
