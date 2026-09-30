@@ -8,6 +8,7 @@ import {
   failWorkflowExecution,
   startWorkflowExecutionAsService,
   completeWorkflowExecutionAsService,
+  failWorkflowExecutionAsService,
 } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
 import { evaluateOutboundGate } from "./outbound-gate";
@@ -305,7 +306,12 @@ async function dispatchAppointmentWorkflow(
   after(async () => {
     const dispatch = await triggerN8nWorkflow(contract);
     if (!dispatch.ok) {
-      const failed = await failWorkflowExecution(supabase, input.executionId, dispatch.error, "n8n_dispatch_failed");
+      // The scheduled no-show path has no Supabase Auth session, so it must
+      // record the failure through the service-role variant - the user-session
+      // one returns "Not authenticated." and leaves the execution running.
+      const failed = input.asService
+        ? await failWorkflowExecutionAsService(supabase, input.executionId, dispatch.error, "n8n_dispatch_failed")
+        : await failWorkflowExecution(supabase, input.executionId, dispatch.error, "n8n_dispatch_failed");
       if (!failed.ok) {
         console.error("[automation] failed to record appointment workflow dispatch failure", {
           executionId: input.executionId,
