@@ -48,7 +48,7 @@ export async function sendOutboundMessage(
 
   const { data: contact } = await supabase
     .from("contacts")
-    .select("phone, sms_opt_out")
+    .select("phone, phone_normalized, sms_opt_out")
     .eq("id", input.contactId)
     .eq("organization_id", input.organizationId)
     .maybeSingle();
@@ -56,6 +56,10 @@ export async function sendOutboundMessage(
   if (!contact?.phone) {
     return { ok: false, error: "The contact has no phone number on file.", messageId: null, conversationId: null };
   }
+  // phone is stored as typed (often 10 digits); phone_normalized is the
+  // E.164 form every contact writer keeps in sync. Fall back to phone for
+  // rows that predate it.
+  const destination: string = contact.phone_normalized ?? contact.phone;
 
   const conversation = input.conversationId
     ? { id: input.conversationId }
@@ -142,7 +146,7 @@ export async function sendOutboundMessage(
   }
 
   const sendFn = input.sendSmsFn ?? sendSms;
-  const result = await sendFn({ organizationId: input.organizationId, to: contact.phone, body: input.body });
+  const result = await sendFn({ organizationId: input.organizationId, to: destination, body: input.body });
 
   if (!result.ok) {
     await recordProviderOutcome(queued.id, input.organizationId, {
