@@ -29,6 +29,17 @@ import { syncOpportunities } from "./detect";
  * tabs) are safe - the partial unique index on (organization_id, type,
  * source_entity_id) WHERE status = 'open' turns a duplicate insert into a
  * tolerated 23505, and refresh/resolve updates are scoped to open rows.
+ *
+ * Performance Pass 2: at most one sync per organization per 5 minutes. The
+ * after() task first calls claim_opportunity_sync (supabase/migrations/
+ * 20260930025936_opportunity_sync_state.sql) on the same token-scoped client - an atomic,
+ * SECURITY DEFINER claim that returns true for exactly one caller per
+ * organization per 5 minutes, and only for a member of an organization whose
+ * payment is active (the sync's own existing rules). A lost claim skips the
+ * sync quietly; a claim that errors or throws skips it and logs - never a
+ * blind sync. The claim runs inside the after() task, so the Dashboard's
+ * response never waits for it either. A sync that fails or aborts keeps its
+ * claim until the cooldown expires.
  */
 
 export type OpportunitySyncDeps = {
@@ -59,8 +70,23 @@ export async function scheduleOpportunitySync(requestSupabase: SupabaseClient, o
 
   const token = accessToken;
   schedule(async () => {
+    const client = makeClient(token);
+
+    let claimed: boolean;
     try {
-      await sync(makeClient(token), organizationId);
+      const { data, error } = await client.rpc("claim_opportunity_sync", { p_organization_id: organizationId });
+      if (error) throw new Error(error.message);
+      claimed = data === true;
+    } catch (error) {
+      log("[opportunities] background sync skipped: claim failed", { organizationId, error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    // Another request already synced this organization within the cooldown
+    // (or it isn't eligible) - nothing to do, and nothing worth logging.
+    if (!claimed) return;
+
+    try {
+      await sync(client, organizationId);
     } catch (error) {
       log("[opportunities] background sync failed", { organizationId, error: error instanceof Error ? error.message : String(error) });
     }

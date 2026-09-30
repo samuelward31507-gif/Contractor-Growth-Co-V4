@@ -160,3 +160,40 @@ Phase 2E: one read-only function, `dashboard_record_attention(p_organization_id 
 **trackpr-stripe-test (lwofqffxagxiqodqvcfr):** applied on 2026-09-29 through the Supabase SQL Editor as the file's exact text (SHA-256 `e39af36f61ffd3cd3b9cfd76f427f2a9c2c65dfc5f972438df0408c26631fa27`), one run, "Success. No rows returned." No ledger row (ledger still 70). Read back: body md5 `f17d4223aee00519901179afd2e82e11` matches the file; `sql`, SECURITY INVOKER, STABLE, `search_path=public`; anon and PUBLIC cannot execute, authenticated can.
 
 **Production (mywznmxtlgajnczjvbmk):** not applied. To promote, production needs both `dashboard_sql.sql` and then `dashboard_attention_sql.sql`, each applied once and moved into `supabase/migrations/` under the ledger version its apply records.
+
+## opportunity_sync_state.sql (moved to supabase/migrations/20260930025936_opportunity_sync_state.sql)
+
+Performance Pass 2 (Opportunity Sync Throttling): an atomic, per-organization 5-minute cooldown for the Dashboard's background opportunity sync (`after()` -> `syncOpportunities`, ~28 reads per Dashboard view with no cross-request dedup). Two additive objects; nothing existing is altered:
+
+1. `public.opportunity_sync_state (organization_id uuid primary key references organizations on delete cascade, last_started_at timestamptz not null)`: RLS enabled with no policies, and every table privilege revoked from PUBLIC, anon and authenticated (the project's default privileges would otherwise grant them ALL). service_role keeps its default grants and is never used by the feature.
+2. `public.claim_opportunity_sync(p_organization_id uuid) returns boolean`: `plpgsql volatile security definer set search_path = 'public'`, EXECUTE revoked from PUBLIC and anon and granted to authenticated. Returns false (never an error, so no existence signal) unless `auth.uid()` is set, `is_org_member()` and `organization_payment_active()` - the existing helpers, called rather than copied - both hold. Then one `INSERT ... ON CONFLICT (organization_id) DO UPDATE ... WHERE last_started_at <= now() - interval '5 minutes' RETURNING true`: exactly one concurrent caller wins per organization per 5 minutes. The cooldown is fixed inside the function; a failed or aborted sync keeps its claim until it expires.
+
+Application side: `lib/opportunities/background-sync.ts` calls the claim first inside the existing `after()` task, on the same user-JWT client, and skips the sync on false (quietly) or on an error/throw (logged as `[opportunities] background sync skipped: claim failed`). `/today`, `syncOpportunities` and the detectors are unchanged.
+
+Companion files:
+
+- `opportunity_sync_state_rollback.sql` drops the function, then the table.
+- `scratch/validate-opportunity-sync-state.mjs` (`cd supabase/pending/scratch && npm run validate:opportunity-sync-state`) reproduces the starting state in PGlite, including the project's default privileges, and proves: idempotent apply; owner/admin/member win, a second claim inside the cooldown loses, a claim after >5 minutes wins; non-member, payment_required, suspended, cancelled, null organization, nonexistent organization and no `auth.uid()` all get false and write nothing; a cross-organization claim loses and leaves the other row untouched; anon and PUBLIC cannot execute; direct SELECT/INSERT/UPDATE/DELETE is denied to authenticated and anon; the cooldown can't be passed in; organization deletion cascades; rollback and re-apply. It cannot prove concurrency (single connection) - that is `lib/opportunities/sync-claim.integration.test.ts`, run against the test project after it is applied there.
+
+### Deploy order (critical)
+
+The application code depends on the function: deployed without it, every claim fails and every sync is skipped - opportunities would stop refreshing. So: apply to the test project, run the integration test, apply to production and verify, and only then merge the application code. To undo, revert the application code first; the table and function are inert without it, so the rollback script is optional.
+
+### Apply procedure (a person does this, not tooling)
+
+1. Confirm neither object exists: `select to_regclass('public.opportunity_sync_state'), to_regprocedure('public.claim_opportunity_sync(uuid)')` should both be null.
+2. Apply `opportunity_sync_state.sql` as one transaction (MCP `apply_migration` named `opportunity_sync_state`, or the SQL editor wrapped in `begin;`/`commit;`). The file is idempotent.
+3. Read back the ledger entry, if the mechanism records one: `select version, name from supabase_migrations.schema_migrations order by version desc limit 1`.
+4. Verify read-only: the table exists with `relrowsecurity = true`, zero policies, and no privileges for anon or authenticated; the function has `prosecdef = true`, `provolatile = 'v'`, `proconfig = {search_path=public}`, one argument; `has_function_privilege('anon', ...)` false and `('authenticated', ...)` true; all other public policies and functions unchanged.
+5. On the test project, run `lib/opportunities/sync-claim.integration.test.ts`.
+6. Only after production has it: `git mv` the file into `supabase/migrations/<recorded production version>_opportunity_sync_state.sql`.
+
+### Status
+
+Written and validated locally (PGlite, 48 checks). File SHA-256 `454449e80dfad8922597a908b7c68da106abbebfbd51fb1936a32665a2e33d87`.
+
+**trackpr-stripe-test (lwofqffxagxiqodqvcfr):** applied on 2026-09-30 via the MCP `apply_migration` mechanism with the name `opportunity_sync_state`, once, as the file's exact text. Recorded as ledger version `20260930025545` (ledger 70 -> 71). Verified read-only afterwards: table owned by postgres, RLS enabled and not forced, zero policies, primary key plus `on delete cascade`, privileges held only by postgres and service_role (none for anon or authenticated); function `plpgsql`, SECURITY DEFINER, VOLATILE, `search_path=public`, one argument, the fixed `interval '5 minutes'`, EXECUTE for authenticated and not for anon or PUBLIC (service_role also holds EXECUTE through the project's default privileges; the feature never uses it). All 125 public policies (md5 `4e9dfbad32a15c0dea507874bc25ec37`) and the other 228 public functions (md5 `0f82023ae2960fe5483e5bfa5bfd4820`) are byte-identical before and after. `lib/opportunities/sync-claim.integration.test.ts`: 9/9, including 10 simultaneous claims -> exactly one winner (twice), the real 5-minute boundary, organization independence, membership and payment gating, and anon/direct-table denial (a fresh anonymous client gets `42501 permission denied`); its fixtures cleaned up completely.
+
+**Production (mywznmxtlgajnczjvbmk):** applied on 2026-09-30 via the MCP `apply_migration` mechanism with the name `opportunity_sync_state`, once, as the same exact text (file SHA-256 `454449e8...`; the ledger's recorded statements hash `8f124231aa63e81f700dde1d9ab0ad7d` is identical to the test project's). Recorded as ledger version `20260930025936` (ledger 54 -> 55). Verified read-only afterwards: the same table, grants and function as on the test project (body md5 `9bccaaf212ac9779dd3ff6f490379627`, identical), zero rows. Unchanged, by before/after fingerprints: all 125 public policies (md5 `4e9dfbad32a15c0dea507874bc25ec37`), the other 228 public functions including their ACLs, the other 39 public tables' columns, constraints, indexes, triggers, table grants and RLS flags. The only new public relations are the table and its primary-key index. The integration test was not run against production (it creates disposable users and organizations). The application code that calls the claim is not yet deployed; the table and function are inert until it is.
+
+The file now lives at `supabase/migrations/20260930025936_opportunity_sync_state.sql`, unmodified (md5 `643adae268109b827b8ab698bf08ee6f`, identical to the statement production's ledger recorded); its header comment still reads "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback file and the PGlite harness stay here; the harness now reads the migration from its `supabase/migrations/` location.
