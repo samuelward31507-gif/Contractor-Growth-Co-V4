@@ -6,12 +6,11 @@ import {
   ACTIVE_ESTIMATE_STATUSES,
   ACTIVE_JOB_STATUSES,
 } from "@/lib/automation/customer-reactivation";
-import { getAutomationConfigByOrganization, readCustomerReactivationConfig, getAutomationEnabled } from "@/lib/automation/settings";
+import { readCustomerReactivationConfig } from "@/lib/automation/settings";
 import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
 import { HIGH_VALUE_THRESHOLD } from "@/lib/dashboard/queries";
 import { calendarDateInTimeZone, formatInvoiceNumber, formatMoney, isOverdue, type InvoiceStatus } from "@/lib/invoices/domain";
 import { isLegacyCompletedJob } from "@/lib/invoices/summary";
-import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { getOpportunityById, type OpportunityType, type OpportunityStatus, type OpportunityResolutionReason } from "./queries";
 
 /**
@@ -208,6 +207,62 @@ import { getOpportunityById, type OpportunityType, type OpportunityStatus, type 
 
 const MAX_ROWS = 5000;
 
+/**
+ * Pass 1 (sync failure-safety): a read this sync depends on failed. Every
+ * detector and sync read goes through checked() below, so a failed query can
+ * no longer be mistaken for "zero rows" - the old `data ?? []` shape turned
+ * any error (PostgREST or network: postgrest-js returns both as
+ * { data: null, error }) into an empty result, which could resolve real open
+ * opportunities, insert false ones, or re-open dismissed ones.
+ * syncOpportunities catches this and aborts before its first write.
+ * Module-private: callers only ever see OpportunitySyncResult.failed.
+ */
+class OpportunityReadError extends Error {
+  readonly read: string;
+  readonly detail: string;
+  constructor(read: string, detail: string) {
+    super(`opportunity sync read failed: ${read}`);
+    this.name = "OpportunityReadError";
+    this.read = read;
+    this.detail = detail;
+  }
+}
+
+/** Returns a Supabase read's data unchanged (zero rows and a null single row stay exactly as they were) - throws OpportunityReadError instead when the read failed. */
+function checked<T>(read: string, result: { data: T; error: { message: string } | null }): T {
+  if (result.error) throw new OpportunityReadError(read, result.error.message);
+  return result.data;
+}
+
+// Error-observing copies of three shared helpers (lib/automation/settings.ts,
+// lib/settings/queries.ts). Same queries and the same results and defaults on
+// success; the only difference is that a failed read throws instead of
+// silently becoming the default - getAutomationEnabled's `?? true` would
+// otherwise turn a failed read into "enabled". The shared helpers themselves
+// are untouched: they have many other callers.
+
+async function readAutomationConfigByOrganization(supabase: SupabaseClient, automationId: string): Promise<Map<string, unknown>> {
+  const map = new Map<string, unknown>();
+  const data = checked(`automation_settings.config (${automationId})`, await supabase.from("automation_settings").select("organization_id, config").eq("automation_id", automationId));
+  for (const row of (data ?? []) as { organization_id: string; config: unknown }[]) {
+    map.set(row.organization_id, row.config);
+  }
+  return map;
+}
+
+async function readAutomationEnabled(supabase: SupabaseClient, organizationId: string, automationId: string): Promise<boolean> {
+  const data = checked(
+    `automation_settings.enabled (${automationId})`,
+    await supabase.from("automation_settings").select("enabled").eq("organization_id", organizationId).eq("automation_id", automationId).maybeSingle(),
+  );
+  return (data?.enabled as boolean | undefined) ?? true;
+}
+
+async function readOrganizationTimezone(supabase: SupabaseClient, organizationId: string): Promise<string | undefined> {
+  const data = checked("organizations.timezone", await supabase.from("organizations").select("timezone").eq("id", organizationId).maybeSingle());
+  return data?.timezone ?? undefined;
+}
+
 export type OpportunityCandidate = {
   type: OpportunityType;
   sourceEntityType: "lead" | "estimate" | "appointment" | "contact" | "job";
@@ -256,23 +311,23 @@ function displayNameOrFallback(contact: ContactRef, fallback: string): string {
 const ACTIVE_BOOKING_STATUSES = ["scheduled", "confirmed", "completed"] as const;
 
 async function detectQualifiedLeadsUnbooked(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
-  const { data: leadRows } = await supabase
-    .from("leads")
-    .select("id, contact_id, service, estimated_value, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "qualified")
-    .limit(MAX_ROWS);
+  const leadRows = checked(
+    "qualified_lead_unbooked.leads",
+    await supabase
+      .from("leads")
+      .select("id, contact_id, service, estimated_value, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "qualified")
+      .limit(MAX_ROWS),
+  );
 
   const leads = (leadRows ?? []) as { id: string; contact_id: string | null; service: string | null; estimated_value: number | null; contacts: ContactRef }[];
   if (leads.length === 0) return [];
 
-  const { data: appointmentRows } = await supabase
-    .from("appointments")
-    .select("lead_id")
-    .eq("organization_id", organizationId)
-    .not("lead_id", "is", null)
-    .in("status", ACTIVE_BOOKING_STATUSES)
-    .limit(MAX_ROWS);
+  const appointmentRows = checked(
+    "qualified_lead_unbooked.appointments",
+    await supabase.from("appointments").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).in("status", ACTIVE_BOOKING_STATUSES).limit(MAX_ROWS),
+  );
   const bookedLeadIds = new Set(((appointmentRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id));
 
   return leads
@@ -296,12 +351,15 @@ async function detectQualifiedLeadsUnbooked(supabase: SupabaseClient, organizati
 // ---------------------------------------------------------------------------
 
 async function detectStaleEstimates(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
-  const { data } = await supabase
-    .from("estimates")
-    .select("id, contact_id, title, amount, sent_at, expires_at, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "expired")
-    .limit(MAX_ROWS);
+  const data = checked(
+    "stale_estimate.estimates",
+    await supabase
+      .from("estimates")
+      .select("id, contact_id, title, amount, sent_at, expires_at, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "expired")
+      .limit(MAX_ROWS),
+  );
 
   const rows = (data ?? []) as { id: string; contact_id: string | null; title: string; amount: number | null; sent_at: string | null; expires_at: string | null; contacts: ContactRef }[];
 
@@ -327,19 +385,22 @@ async function detectStaleEstimates(supabase: SupabaseClient, organizationId: st
 // ---------------------------------------------------------------------------
 
 async function detectCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
-  const { data: appointmentRows } = await supabase
-    .from("appointments")
-    .select("id, contact_id, lead_id, title, start_at, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "completed")
-    .not("lead_id", "is", null)
-    .limit(MAX_ROWS);
+  const appointmentRows = checked(
+    "completed_appointment_no_estimate.appointments",
+    await supabase
+      .from("appointments")
+      .select("id, contact_id, lead_id, title, start_at, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "completed")
+      .not("lead_id", "is", null)
+      .limit(MAX_ROWS),
+  );
 
   const appointments = (appointmentRows ?? []) as { id: string; contact_id: string | null; lead_id: string | null; title: string; start_at: string; contacts: ContactRef }[];
   if (appointments.length === 0) return [];
 
   const leadIds = [...new Set(appointments.map((row) => row.lead_id).filter((id): id is string => id !== null))];
-  const { data: estimateRows } = await supabase.from("estimates").select("lead_id").eq("organization_id", organizationId).in("lead_id", leadIds).limit(MAX_ROWS);
+  const estimateRows = checked("completed_appointment_no_estimate.estimates", await supabase.from("estimates").select("lead_id").eq("organization_id", organizationId).in("lead_id", leadIds).limit(MAX_ROWS));
   const leadsWithEstimate = new Set(((estimateRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id));
 
   return appointments
@@ -369,18 +430,21 @@ async function detectCompletedAppointmentsWithoutEstimate(supabase: SupabaseClie
 // ---------------------------------------------------------------------------
 
 async function detectDormantCustomers(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
-  const configByOrg = await getAutomationConfigByOrganization(supabase, "customer-reactivation");
+  const configByOrg = await readAutomationConfigByOrganization(supabase, "customer-reactivation");
   const config = readCustomerReactivationConfig(configByOrg.get(organizationId) ?? null);
 
-  const { data: jobRows } = await supabase
-    .from("jobs")
-    .select("id, contact_id, title, completed_at")
-    .eq("organization_id", organizationId)
-    .eq("status", "completed")
-    .not("contact_id", "is", null)
-    .not("completed_at", "is", null)
-    .order("completed_at", { ascending: false })
-    .limit(MAX_ROWS);
+  const jobRows = checked(
+    "dormant_customer.jobs",
+    await supabase
+      .from("jobs")
+      .select("id, contact_id, title, completed_at")
+      .eq("organization_id", organizationId)
+      .eq("status", "completed")
+      .not("contact_id", "is", null)
+      .not("completed_at", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(MAX_ROWS),
+  );
 
   const jobs = (jobRows ?? []) as { id: string; contact_id: string; title: string; completed_at: string }[];
   if (jobs.length === 0) return [];
@@ -396,13 +460,18 @@ async function detectDormantCustomers(supabase: SupabaseClient, organizationId: 
   const dueContactIds = [...latestJobByContact.values()].filter((job) => isReactivationDue(job.completed_at, config, now)).map((job) => job.contact_id);
   if (dueContactIds.length === 0) return [];
 
-  const [{ data: leadRows }, { data: appointmentRows }, { data: estimateRows }, { data: activeJobRows }, { data: contactRows }] = await Promise.all([
+  const [leadResult, appointmentResult, estimateResult, activeJobResult, contactResult] = await Promise.all([
     supabase.from("leads").select("contact_id, status").eq("organization_id", organizationId).in("contact_id", dueContactIds).limit(MAX_ROWS),
     supabase.from("appointments").select("contact_id").eq("organization_id", organizationId).in("contact_id", dueContactIds).in("status", ACTIVE_APPOINTMENT_STATUSES).limit(MAX_ROWS),
     supabase.from("estimates").select("contact_id").eq("organization_id", organizationId).in("contact_id", dueContactIds).in("status", ACTIVE_ESTIMATE_STATUSES).limit(MAX_ROWS),
     supabase.from("jobs").select("contact_id").eq("organization_id", organizationId).in("contact_id", dueContactIds).in("status", ACTIVE_JOB_STATUSES).limit(MAX_ROWS),
     supabase.from("contacts").select("id, first_name, last_name, company_name").eq("organization_id", organizationId).in("id", dueContactIds).limit(MAX_ROWS),
   ]);
+  const leadRows = checked("dormant_customer.leads", leadResult);
+  const appointmentRows = checked("dormant_customer.appointments", appointmentResult);
+  const estimateRows = checked("dormant_customer.estimates", estimateResult);
+  const activeJobRows = checked("dormant_customer.active_jobs", activeJobResult);
+  const contactRows = checked("dormant_customer.contacts", contactResult);
 
   const contactsWithOpenLead = new Set(((leadRows ?? []) as { contact_id: string | null; status: LeadStatus }[]).filter((row) => row.contact_id && OPEN_LEAD_STATUSES.has(row.status)).map((row) => row.contact_id as string));
   const contactsWithActiveAppointment = new Set(((appointmentRows ?? []) as { contact_id: string | null }[]).map((row) => row.contact_id));
@@ -440,12 +509,15 @@ async function detectDormantCustomers(supabase: SupabaseClient, organizationId: 
 // ---------------------------------------------------------------------------
 
 async function detectNoShows(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
-  const { data } = await supabase
-    .from("appointments")
-    .select("id, contact_id, title, start_at, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "no_show")
-    .limit(MAX_ROWS);
+  const data = checked(
+    "no_show.appointments",
+    await supabase
+      .from("appointments")
+      .select("id, contact_id, title, start_at, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "no_show")
+      .limit(MAX_ROWS),
+  );
 
   const rows = (data ?? []) as { id: string; contact_id: string | null; title: string; start_at: string; contacts: ContactRef }[];
 
@@ -475,18 +547,24 @@ async function detectNoShows(supabase: SupabaseClient, organizationId: string): 
 const REFERRAL_REQUEST_OPEN_STATUSES = new Set<string | undefined>([undefined, "failed"]);
 
 async function detectCompletedJobsWithoutReferralRequest(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
-  const { data: jobRows } = await supabase
-    .from("jobs")
-    .select("id, contact_id, title, completed_at, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "completed")
-    .limit(MAX_ROWS);
+  const jobRows = checked(
+    "completed_job_no_referral_request.jobs",
+    await supabase
+      .from("jobs")
+      .select("id, contact_id, title, completed_at, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "completed")
+      .limit(MAX_ROWS),
+  );
 
   const jobs = (jobRows ?? []) as { id: string; contact_id: string | null; title: string; completed_at: string | null; contacts: ContactRef }[];
   if (jobs.length === 0) return [];
 
   const jobIds = jobs.map((job) => job.id);
-  const { data: referralRows } = await supabase.from("referral_requests").select("job_id, status").eq("organization_id", organizationId).in("job_id", jobIds).limit(MAX_ROWS);
+  const referralRows = checked(
+    "completed_job_no_referral_request.referral_requests",
+    await supabase.from("referral_requests").select("job_id, status").eq("organization_id", organizationId).in("job_id", jobIds).limit(MAX_ROWS),
+  );
   const referralStatusByJob = new Map(((referralRows ?? []) as { job_id: string; status: string }[]).map((row) => [row.job_id, row.status]));
 
   return jobs
@@ -532,21 +610,27 @@ async function detectCompletedJobsWithoutReviewRequest(supabase: SupabaseClient,
   // an opportunity - there is nothing to ask with) and "a genuine gap".
   // Checked once per organization, before any job is even fetched - an org
   // with no review_url produces zero candidates, full stop.
-  const { data: organizationRow } = await supabase.from("organizations").select("review_url").eq("id", organizationId).maybeSingle();
+  const organizationRow = checked("completed_job_no_review_request.organizations", await supabase.from("organizations").select("review_url").eq("id", organizationId).maybeSingle());
   if (!organizationRow?.review_url) return [];
 
-  const { data: jobRows } = await supabase
-    .from("jobs")
-    .select("id, contact_id, title, amount, completed_at, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "completed")
-    .limit(MAX_ROWS);
+  const jobRows = checked(
+    "completed_job_no_review_request.jobs",
+    await supabase
+      .from("jobs")
+      .select("id, contact_id, title, amount, completed_at, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "completed")
+      .limit(MAX_ROWS),
+  );
 
   const jobs = (jobRows ?? []) as { id: string; contact_id: string | null; title: string; amount: number | null; completed_at: string | null; contacts: ContactRef }[];
   if (jobs.length === 0) return [];
 
   const jobIds = jobs.map((job) => job.id);
-  const { data: reviewRows } = await supabase.from("review_requests").select("job_id, status").eq("organization_id", organizationId).in("job_id", jobIds).limit(MAX_ROWS);
+  const reviewRows = checked(
+    "completed_job_no_review_request.review_requests",
+    await supabase.from("review_requests").select("job_id, status").eq("organization_id", organizationId).in("job_id", jobIds).limit(MAX_ROWS),
+  );
   const reviewStatusByJob = new Map(((reviewRows ?? []) as { job_id: string; status: string }[]).map((row) => [row.job_id, row.status]));
 
   return jobs
@@ -605,13 +689,16 @@ const REBOOKING_ELIGIBLE_STATUSES = ["scheduled", "confirmed"];
  * above already uses) - never N+1 per cancelled appointment.
  */
 async function detectCancelledAppointmentsWithoutRebooking(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
-  const { data: cancelledRows } = await supabase
-    .from("appointments")
-    .select("id, contact_id, title, start_at, updated_at, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "cancelled")
-    .not("contact_id", "is", null)
-    .limit(MAX_ROWS);
+  const cancelledRows = checked(
+    "cancelled_appointment_no_rebooking.cancelled_appointments",
+    await supabase
+      .from("appointments")
+      .select("id, contact_id, title, start_at, updated_at, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "cancelled")
+      .not("contact_id", "is", null)
+      .limit(MAX_ROWS),
+  );
 
   const cancelled = (cancelledRows ?? []) as { id: string; contact_id: string; title: string; start_at: string; updated_at: string; contacts: ContactRef }[];
   if (cancelled.length === 0) return [];
@@ -619,13 +706,10 @@ async function detectCancelledAppointmentsWithoutRebooking(supabase: SupabaseCli
   const pastGracePeriod = cancelled.filter((appointment) => now.getTime() - new Date(appointment.updated_at).getTime() >= CANCELLED_APPOINTMENT_REBOOKING_GRACE_PERIOD_MS);
   if (pastGracePeriod.length === 0) return [];
 
-  const { data: activeRows } = await supabase
-    .from("appointments")
-    .select("contact_id, start_at")
-    .eq("organization_id", organizationId)
-    .in("status", REBOOKING_ELIGIBLE_STATUSES)
-    .not("contact_id", "is", null)
-    .limit(MAX_ROWS);
+  const activeRows = checked(
+    "cancelled_appointment_no_rebooking.active_appointments",
+    await supabase.from("appointments").select("contact_id, start_at").eq("organization_id", organizationId).in("status", REBOOKING_ELIGIBLE_STATUSES).not("contact_id", "is", null).limit(MAX_ROWS),
+  );
 
   const activeStartsByContact = new Map<string, string[]>();
   for (const row of (activeRows ?? []) as { contact_id: string; start_at: string }[]) {
@@ -724,10 +808,11 @@ function oneUncontactedLeadContact(value: UncontactedLeadContactRef): Uncontacte
  * uses. Never N+1 per lead.
  */
 async function detectUncontactedLeads(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
-  const [{ data: organizationRow }, automationEnabled] = await Promise.all([
+  const [organizationResult, automationEnabled] = await Promise.all([
     supabase.from("organizations").select("automation_mode, payment_status, automation_paused").eq("id", organizationId).maybeSingle(),
-    getAutomationEnabled(supabase, organizationId, INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID),
+    readAutomationEnabled(supabase, organizationId, INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID),
   ]);
+  const organizationRow = checked("uncontacted_lead.organizations", organizationResult);
 
   // Mirrors evaluateOutboundGate's own organization_not_live/
   // organization_payment_inactive/organization_automation_paused checks -
@@ -740,14 +825,17 @@ async function detectUncontactedLeads(supabase: SupabaseClient, organizationId: 
 
   const thresholdIso = new Date(now.getTime() - UNCONTACTED_LEAD_AGE_THRESHOLD_MS).toISOString();
 
-  const { data: leadRows } = await supabase
-    .from("leads")
-    .select("id, contact_id, service, estimated_value, created_at, contacts(id, first_name, last_name, company_name, sms_opt_out)")
-    .eq("organization_id", organizationId)
-    .eq("status", "new")
-    .not("contact_id", "is", null)
-    .lte("created_at", thresholdIso)
-    .limit(MAX_ROWS);
+  const leadRows = checked(
+    "uncontacted_lead.leads",
+    await supabase
+      .from("leads")
+      .select("id, contact_id, service, estimated_value, created_at, contacts(id, first_name, last_name, company_name, sms_opt_out)")
+      .eq("organization_id", organizationId)
+      .eq("status", "new")
+      .not("contact_id", "is", null)
+      .lte("created_at", thresholdIso)
+      .limit(MAX_ROWS),
+  );
 
   const leads = (leadRows ?? []) as { id: string; contact_id: string; service: string | null; estimated_value: number | null; created_at: string; contacts: UncontactedLeadContactRef }[];
   if (leads.length === 0) return [];
@@ -760,16 +848,16 @@ async function detectUncontactedLeads(supabase: SupabaseClient, organizationId: 
 
   const contactIds = [...new Set(eligibleLeads.map((lead) => lead.contact_id))];
 
-  const { data: conversationRows } = await supabase.from("conversations").select("id, contact_id").eq("organization_id", organizationId).in("contact_id", contactIds).limit(MAX_ROWS);
+  const conversationRows = checked("uncontacted_lead.conversations", await supabase.from("conversations").select("id, contact_id").eq("organization_id", organizationId).in("contact_id", contactIds).limit(MAX_ROWS));
   const conversations = (conversationRows ?? []) as { id: string; contact_id: string | null }[];
 
   const conversationIdToContactId = new Map(conversations.map((row) => [row.id, row.contact_id]));
   const conversationIds = conversations.map((row) => row.id);
 
-  const { data: messageRows } =
+  const messageRows =
     conversationIds.length > 0
-      ? await supabase.from("messages").select("conversation_id, direction, status").eq("organization_id", organizationId).in("conversation_id", conversationIds).limit(MAX_ROWS)
-      : { data: [] as { conversation_id: string; direction: string; status: string }[] };
+      ? checked("uncontacted_lead.messages", await supabase.from("messages").select("conversation_id, direction, status").eq("organization_id", organizationId).in("conversation_id", conversationIds).limit(MAX_ROWS))
+      : ([] as { conversation_id: string; direction: string; status: string }[]);
 
   const contactsWithInbound = new Set<string>();
   const contactsWithSuccessfulOutbound = new Set<string>();
@@ -841,20 +929,23 @@ const ACCEPTED_ESTIMATE_NO_JOB_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 async function detectAcceptedEstimatesWithoutJob(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
   const thresholdIso = new Date(now.getTime() - ACCEPTED_ESTIMATE_NO_JOB_THRESHOLD_MS).toISOString();
 
-  const { data: estimateRows } = await supabase
-    .from("estimates")
-    .select("id, contact_id, title, amount, responded_at, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "accepted")
-    .not("responded_at", "is", null)
-    .lte("responded_at", thresholdIso)
-    .limit(MAX_ROWS);
+  const estimateRows = checked(
+    "accepted_estimate_no_job.estimates",
+    await supabase
+      .from("estimates")
+      .select("id, contact_id, title, amount, responded_at, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "accepted")
+      .not("responded_at", "is", null)
+      .lte("responded_at", thresholdIso)
+      .limit(MAX_ROWS),
+  );
 
   const estimates = (estimateRows ?? []) as { id: string; contact_id: string | null; title: string; amount: number | null; responded_at: string; contacts: ContactRef }[];
   if (estimates.length === 0) return [];
 
   const estimateIds = estimates.map((estimate) => estimate.id);
-  const { data: jobRows } = await supabase.from("jobs").select("estimate_id").eq("organization_id", organizationId).in("estimate_id", estimateIds).limit(MAX_ROWS);
+  const jobRows = checked("accepted_estimate_no_job.jobs", await supabase.from("jobs").select("estimate_id").eq("organization_id", organizationId).in("estimate_id", estimateIds).limit(MAX_ROWS));
   const estimateIdsWithJob = new Set(((jobRows ?? []) as { estimate_id: string | null }[]).map((row) => row.estimate_id).filter((id): id is string => id !== null));
 
   return estimates
@@ -900,12 +991,15 @@ async function detectAcceptedEstimatesWithoutJob(supabase: SupabaseClient, organ
  * were the same thing).
  */
 async function detectActiveLeadSignals(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
-  const { data } = await supabase
-    .from("leads")
-    .select("id, contact_id, service, temperature, estimated_value, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .in("status", [...OPEN_LEAD_STATUSES])
-    .limit(MAX_ROWS);
+  const data = checked(
+    "active_lead_signal.leads",
+    await supabase
+      .from("leads")
+      .select("id, contact_id, service, temperature, estimated_value, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .in("status", [...OPEN_LEAD_STATUSES])
+      .limit(MAX_ROWS),
+  );
 
   const rows = (data ?? []) as { id: string; contact_id: string | null; service: string | null; temperature: string; estimated_value: number | null; contacts: ContactRef }[];
 
@@ -951,13 +1045,16 @@ async function detectActiveLeadSignals(supabase: SupabaseClient, organizationId:
  * per-lead intelligence surface than showing the same lead twice.
  */
 async function detectPendingEstimates(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
-  const { data } = await supabase
-    .from("estimates")
-    .select("id, lead_id, contact_id, title, amount, sent_at, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "sent")
-    .not("lead_id", "is", null)
-    .limit(MAX_ROWS);
+  const data = checked(
+    "pending_estimate.estimates",
+    await supabase
+      .from("estimates")
+      .select("id, lead_id, contact_id, title, amount, sent_at, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "sent")
+      .not("lead_id", "is", null)
+      .limit(MAX_ROWS),
+  );
 
   const rows = (data ?? []) as { id: string; lead_id: string; contact_id: string | null; title: string; amount: number | null; sent_at: string | null; contacts: ContactRef }[];
 
@@ -986,19 +1083,22 @@ async function detectPendingEstimates(supabase: SupabaseClient, organizationId: 
  * collected or revenue. Null when the job has no amount; never coerced.
  */
 export async function detectCompletedJobsNotInvoiced(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
-  const { data: jobRows } = await supabase
-    .from("jobs")
-    .select("id, contact_id, title, amount, completed_at, created_at, contacts(id, first_name, last_name, company_name)")
-    .eq("organization_id", organizationId)
-    .eq("status", "completed")
-    .limit(MAX_ROWS);
+  const jobRows = checked(
+    "completed_job_not_invoiced.jobs",
+    await supabase
+      .from("jobs")
+      .select("id, contact_id, title, amount, completed_at, created_at, contacts(id, first_name, last_name, company_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "completed")
+      .limit(MAX_ROWS),
+  );
 
   const jobs = ((jobRows ?? []) as { id: string; contact_id: string | null; title: string; amount: number | null; completed_at: string | null; created_at: string; contacts: ContactRef }[]).filter(
     (job) => !isLegacyCompletedJob({ status: "completed", completed_at: job.completed_at, created_at: job.created_at }),
   );
   if (jobs.length === 0) return [];
 
-  const { data: invoiceRows } = await supabase.from("invoices").select("job_id").eq("organization_id", organizationId).neq("status", "void").limit(MAX_ROWS);
+  const invoiceRows = checked("completed_job_not_invoiced.invoices", await supabase.from("invoices").select("job_id").eq("organization_id", organizationId).neq("status", "void").limit(MAX_ROWS));
   const invoicedJobIds = new Set(((invoiceRows ?? []) as { job_id: string }[]).map((row) => row.job_id));
 
   return jobs
@@ -1028,8 +1128,8 @@ export async function detectCompletedJobsNotInvoiced(supabase: SupabaseClient, o
  * maintains) - money asked for and still owed, never collected.
  */
 export async function detectOverdueInvoices(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
-  const [timeZone, { data: invoiceRows }] = await Promise.all([
-    getOrganizationTimezone(supabase, organizationId),
+  const [timeZone, invoiceResult] = await Promise.all([
+    readOrganizationTimezone(supabase, organizationId),
     supabase
       .from("invoices")
       .select("id, job_id, contact_id, number, title, status, balance_due, due_date, contacts(id, first_name, last_name, company_name)")
@@ -1038,6 +1138,7 @@ export async function detectOverdueInvoices(supabase: SupabaseClient, organizati
       .not("due_date", "is", null)
       .limit(MAX_ROWS),
   ]);
+  const invoiceRows = checked("invoice_overdue.invoices", invoiceResult);
   const today = calendarDateInTimeZone(now, timeZone ?? "UTC");
 
   const rows = (invoiceRows ?? []) as { id: string; job_id: string; contact_id: string | null; number: number; title: string; status: InvoiceStatus; balance_due: number; due_date: string | null; contacts: ContactRef }[];
@@ -1144,7 +1245,23 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
 // every type, rather than a bespoke rule per type.
 // ---------------------------------------------------------------------------
 
-export type OpportunitySyncResult = { created: number; refreshed: number; resolved: number; unchanged: number; suppressed: number };
+/** failed is set (and every count is 0) only when a read failed and the sync aborted before writing anything - see OpportunityReadError. */
+export type OpportunitySyncResult = { created: number; refreshed: number; resolved: number; unchanged: number; suppressed: number; failed?: true };
+
+/**
+ * Pass 1: the one exit for a failed read. Every read (detection, the two
+ * opportunities reads, and the lost-lead lookup) finishes before the first
+ * write, so returning here means nothing was resolved, inserted, refreshed or
+ * re-opened - existing opportunities stay exactly as they were until a sync
+ * whose reads all succeed. Logged with this module's "[opportunities]"
+ * console.error convention; never throws, so the after() task and the
+ * Dashboard are unaffected.
+ */
+function abortOnReadError(organizationId: string, error: unknown): OpportunitySyncResult {
+  if (!(error instanceof OpportunityReadError)) throw error;
+  console.error("[opportunities] sync aborted: read failed", { organizationId, read: error.read, error: error.detail });
+  return { created: 0, refreshed: 0, resolved: 0, unchanged: 0, suppressed: 0, failed: true };
+}
 
 type ExistingOpenRow = {
   id: string;
@@ -1182,26 +1299,35 @@ type RecentRow = { type: OpportunityType; source_entity_id: string; status: Oppo
  * recur as a genuinely new instance and is untouched by this fix.
  */
 export async function syncOpportunities(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<OpportunitySyncResult> {
-  const [candidates, existingRows, recentRows] = await Promise.all([
-    detectAllOpportunityCandidates(supabase, organizationId, now),
-    supabase
-      .from("opportunities")
-      .select("id, type, source_entity_type, source_entity_id, title, description, estimated_value, value_basis, metadata")
-      .eq("organization_id", organizationId)
-      .eq("status", "open")
-      .limit(MAX_ROWS)
-      .then((res) => (res.data ?? []) as ExistingOpenRow[]),
-    // Only open/dismissed rows matter for dedup/suppression - a resolved
-    // row never blocks re-creation, so it is deliberately excluded here.
-    supabase
-      .from("opportunities")
-      .select("type, source_entity_id, status, created_at")
-      .eq("organization_id", organizationId)
-      .in("status", ["open", "dismissed"])
-      .order("created_at", { ascending: false })
-      .limit(MAX_ROWS)
-      .then((res) => (res.data ?? []) as RecentRow[]),
-  ]);
+  let candidates: OpportunityCandidate[];
+  let existingRows: ExistingOpenRow[];
+  let recentRows: RecentRow[];
+  try {
+    [candidates, existingRows, recentRows] = await Promise.all([
+      detectAllOpportunityCandidates(supabase, organizationId, now),
+      supabase
+        .from("opportunities")
+        .select("id, type, source_entity_type, source_entity_id, title, description, estimated_value, value_basis, metadata")
+        .eq("organization_id", organizationId)
+        .eq("status", "open")
+        .limit(MAX_ROWS)
+        .then((res) => (checked("sync.open_opportunities", res) ?? []) as ExistingOpenRow[]),
+      // Only open/dismissed rows matter for dedup/suppression - a resolved
+      // row never blocks re-creation, so it is deliberately excluded here.
+      // A failed read here must abort too: an empty list would drop every
+      // dismissal and re-open dismissed opportunities.
+      supabase
+        .from("opportunities")
+        .select("type, source_entity_id, status, created_at")
+        .eq("organization_id", organizationId)
+        .in("status", ["open", "dismissed"])
+        .order("created_at", { ascending: false })
+        .limit(MAX_ROWS)
+        .then((res) => (checked("sync.open_and_dismissed_opportunities", res) ?? []) as RecentRow[]),
+    ]);
+  } catch (error) {
+    return abortOnReadError(organizationId, error);
+  }
 
   const candidateKey = (type: OpportunityType, sourceEntityId: string) => `${type}:${sourceEntityId}`;
   const candidatesByKey = new Map(candidates.map((candidate) => [candidateKey(candidate.type, candidate.sourceEntityId), candidate]));
@@ -1239,7 +1365,14 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
     const leadSourcedIds = toResolve.filter((row) => row.source_entity_type === "lead").map((row) => row.source_entity_id);
     const lostLeadIds = new Set<string>();
     if (leadSourcedIds.length > 0) {
-      const { data: leadRows } = await supabase.from("leads").select("id, status").eq("organization_id", organizationId).in("id", leadSourcedIds).limit(MAX_ROWS);
+      // Still before the first write: a failed read aborts rather than
+      // recording a lost lead as condition_no_longer_true.
+      let leadRows: unknown[] | null;
+      try {
+        leadRows = checked("sync.resolved_lead_statuses", await supabase.from("leads").select("id, status").eq("organization_id", organizationId).in("id", leadSourcedIds).limit(MAX_ROWS));
+      } catch (error) {
+        return abortOnReadError(organizationId, error);
+      }
       for (const row of (leadRows ?? []) as { id: string; status: LeadStatus }[]) {
         if (row.status === "lost") lostLeadIds.add(row.id);
       }
