@@ -268,7 +268,7 @@ export async function evaluateOutboundGate(
     await Promise.all([
       supabase
         .from("contacts")
-        .select("id, organization_id, sms_opt_out, phone")
+        .select("id, organization_id, sms_opt_out, phone, phone_normalized")
         .eq("id", input.contactId)
         .maybeSingle(),
       supabase
@@ -349,8 +349,11 @@ export async function evaluateOutboundGate(
   // destination is denied before ever reaching the provider boundary,
   // rather than only surfacing as a generic provider-rejection error one
   // layer later. sendSms()'s own check remains in place unchanged as
-  // defense-in-depth for any caller that reaches it directly.
-  if (!contact.phone || !E164_PATTERN.test(contact.phone.trim())) return deny("invalid_destination");
+  // defense-in-depth for any caller that reaches it directly. Checks the
+  // same destination sendOutboundMessage sends to: phone_normalized when
+  // present, otherwise phone as typed.
+  const destination = contact.phone_normalized ?? contact.phone;
+  if (!destination || !E164_PATTERN.test(destination.trim())) return deny("invalid_destination");
 
   if (!conversation) return deny("conversation_not_found");
   if (conversation.organization_id !== input.organizationId) return deny("conversation_wrong_organization");
