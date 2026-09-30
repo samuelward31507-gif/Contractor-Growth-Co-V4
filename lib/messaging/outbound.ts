@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findOrCreateOpenConversation, type ConversationChannel, type MessageSenderType } from "@/lib/conversations/queries";
 import { sendSms, type SendSmsInput, type SendSmsResult } from "@/lib/automation/sms";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 
 export type SendOutboundMessageInput = {
   organizationId: string;
@@ -35,7 +36,8 @@ export type SendOutboundMessageResult =
  * Works with either an RLS-scoped user-session client or a service-role
  * client; the caller is responsible for having already authorized the
  * request, exactly like every other function in this codebase that accepts
- * a bare `organizationId`.
+ * a bare `organizationId`. Only the post-provider status update runs on an
+ * internal service-role client (see recordProviderOutcome below).
  */
 export async function sendOutboundMessage(
   supabase: SupabaseClient,
@@ -143,14 +145,63 @@ export async function sendOutboundMessage(
   const result = await sendFn({ organizationId: input.organizationId, to: contact.phone, body: input.body });
 
   if (!result.ok) {
-    await supabase.from("messages").update({ status: "failed", status_reason: result.error }).eq("id", queued.id);
+    await recordProviderOutcome(queued.id, input.organizationId, { status: "failed", status_reason: result.error });
     return { ok: false, error: result.error, messageId: queued.id, conversationId: conversation.id };
   }
 
-  await supabase
-    .from("messages")
-    .update({ status: "sent", provider_message_id: result.providerMessageId })
-    .eq("id", queued.id);
+  await recordProviderOutcome(queued.id, input.organizationId, { status: "sent", provider_message_id: result.providerMessageId });
 
   return { ok: true, messageId: queued.id, conversationId: conversation.id, providerMessageId: result.providerMessageId };
+}
+
+/**
+ * Records the provider's result on the message row sendOutboundMessage just
+ * inserted. Deliberately uses its own internal service-role client rather
+ * than the caller's: `messages` has no RLS UPDATE policy at all, so under a
+ * user-session caller (Retry, manual Run now, membership welcome) this
+ * update would silently affect zero rows and leave the message `queued`
+ * forever, without its provider_message_id. Same reasoning as
+ * sendAppointmentLifecycleMessage in lib/automation/appointments.ts.
+ *
+ * Constrained to exactly that row - its id, its organization, and only
+ * while it is still `queued` - so it can never change any other message or
+ * rewrite one that has already reached a terminal state. Exported for
+ * tests only. Never throws: the provider call has already happened, so a
+ * failure here is logged (ids and status only - never body or phone), not
+ * surfaced as a different send outcome.
+ */
+export async function recordProviderOutcome(
+  messageId: string,
+  organizationId: string,
+  outcome: { status: "sent"; provider_message_id: string } | { status: "failed"; status_reason: string },
+): Promise<boolean> {
+  try {
+    const service = createServiceRoleClient();
+    const { data, error } = await service
+      .from("messages")
+      .update(outcome)
+      .eq("id", messageId)
+      .eq("organization_id", organizationId)
+      .eq("status", "queued")
+      .select("id");
+
+    if (error || !data || data.length === 0) {
+      console.error("[messaging] failed to record outbound provider outcome", {
+        messageId,
+        organizationId,
+        status: outcome.status,
+        error: error?.message ?? "no queued message matched",
+      });
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("[messaging] failed to record outbound provider outcome", {
+      messageId,
+      organizationId,
+      status: outcome.status,
+      error: error instanceof Error ? error.message : "unknown error",
+    });
+    return false;
+  }
 }
