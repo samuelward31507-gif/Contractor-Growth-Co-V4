@@ -8,7 +8,7 @@ export type SendSmsInput = {
 
 export type SendSmsResult =
   | { ok: true; providerMessageId: string }
-  | { ok: false; error: string; unconfigured?: true };
+  | { ok: false; error: string; unconfigured?: true; providerErrorCode?: string };
 
 // Loose E.164 shape check only (leading +, 2-15 digits, no leading zero) -
 // not a full validation library. This never rewrites or "fixes" a number;
@@ -116,6 +116,22 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   } catch (error) {
     const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
     console.error("[sms] Twilio send failed", { organizationId: input.organizationId, code });
-    return { ok: false, error: "The SMS provider rejected the request." };
+    const providerErrorCode = providerErrorCodeFrom(error);
+    return { ok: false, error: "The SMS provider rejected the request.", ...(providerErrorCode ? { providerErrorCode } : {}) };
   }
+}
+
+const MAX_PROVIDER_ERROR_CODE_LENGTH = 32;
+
+/**
+ * Twilio's error code (e.g. 21608, 21211) from a rejected messages.create,
+ * as a trimmed string capped to messages.provider_error_code's 32-character
+ * limit - or undefined when there is none. Only the code: Twilio's error
+ * message can contain the destination number, so it is never kept.
+ */
+export function providerErrorCodeFrom(error: unknown): string | undefined {
+  const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
+  if (typeof code !== "number" && typeof code !== "string") return undefined;
+  const trimmed = String(code).trim();
+  return trimmed ? trimmed.slice(0, MAX_PROVIDER_ERROR_CODE_LENGTH) : undefined;
 }

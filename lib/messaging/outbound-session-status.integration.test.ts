@@ -58,6 +58,7 @@ const VALID_PHONE = "+15555550199"; // NANPA-reserved fictional-use number, neve
 const VALID_BODY = "Just checking in on the estimate we sent over.";
 
 const failingSend = async () => ({ ok: false as const, error: "The SMS provider rejected the request." });
+const failingSendWithCode = (providerErrorCode: string) => async () => ({ ok: false as const, error: "The SMS provider rejected the request.", providerErrorCode });
 const fakeSend = (sid: string) => async () => ({ ok: true as const, providerMessageId: sid });
 
 let orgId: string;
@@ -85,7 +86,7 @@ async function makeExecution(organizationId: string, workflowName = "lead_create
 }
 
 async function readMessage(id: string) {
-  const { data } = await service.from("messages").select("id, status, status_reason, provider_message_id, organization_id").eq("id", id).single();
+  const { data } = await service.from("messages").select("id, status, status_reason, provider_message_id, provider_error_code, organization_id").eq("id", id).single();
   return data!;
 }
 
@@ -155,6 +156,7 @@ test("1. signed-in session + provider failure: message ends failed with the fail
   assert.equal(message.status, "failed");
   assert.equal(message.status_reason, "The SMS provider rejected the request.");
   assert.equal(message.provider_message_id, null);
+  assert.equal(message.provider_error_code, null, "no provider error code -> column stays null");
 });
 
 test("2. signed-in session + provider success: message ends sent with provider_message_id, never left queued", async () => {
@@ -166,6 +168,7 @@ test("2. signed-in session + provider success: message ends sent with provider_m
   const message = await readMessage(result.messageId!);
   assert.equal(message.status, "sent");
   assert.equal(message.provider_message_id, sid);
+  assert.equal(message.provider_error_code, null);
 });
 
 test("3. service-role caller: failure and success behave exactly as before", async () => {
@@ -290,4 +293,31 @@ test("7. duplicate-send protection: after a successful signed-in send, a second 
   assert.equal(second.ok, true);
   assert.equal(second.messageId, first.messageId);
   if (second.ok) assert.equal(second.providerMessageId, sid);
+});
+
+test("8. signed-in session + Twilio rejection with code 21608: message failed, provider_error_code stored, status_reason and caller-visible error unchanged", async () => {
+  const executionId = await makeExecution(orgId);
+  const result = await sendOutboundMessage(session, { organizationId: orgId, contactId, conversationId, channel: "sms", body: VALID_BODY, senderType: "ai", workflowExecutionId: executionId, sendSmsFn: failingSendWithCode("21608") });
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error, "The SMS provider rejected the request.");
+    assert.ok(!result.error.includes("21608"), "the code never leaks into the caller-visible error");
+  }
+  const message = await readMessage(result.messageId!);
+  assert.equal(message.status, "failed");
+  assert.equal(message.status_reason, "The SMS provider rejected the request.");
+  assert.equal(message.provider_error_code, "21608");
+  assert.equal(message.provider_message_id, null);
+});
+
+test("9. service-role caller + Twilio rejection with code: provider_error_code stored the same way", async () => {
+  const executionId = await makeExecution(orgId);
+  const result = await sendOutboundMessage(service, { organizationId: orgId, contactId, conversationId, channel: "sms", body: VALID_BODY, senderType: "ai", workflowExecutionId: executionId, sendSmsFn: failingSendWithCode("21211") });
+
+  assert.equal(result.ok, false);
+  const message = await readMessage(result.messageId!);
+  assert.equal(message.status, "failed");
+  assert.equal(message.status_reason, "The SMS provider rejected the request.");
+  assert.equal(message.provider_error_code, "21211");
 });

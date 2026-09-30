@@ -145,7 +145,11 @@ export async function sendOutboundMessage(
   const result = await sendFn({ organizationId: input.organizationId, to: contact.phone, body: input.body });
 
   if (!result.ok) {
-    await recordProviderOutcome(queued.id, input.organizationId, { status: "failed", status_reason: result.error });
+    await recordProviderOutcome(queued.id, input.organizationId, {
+      status: "failed",
+      status_reason: result.error,
+      ...(result.providerErrorCode ? { provider_error_code: result.providerErrorCode } : {}),
+    });
     return { ok: false, error: result.error, messageId: queued.id, conversationId: conversation.id };
   }
 
@@ -173,7 +177,7 @@ export async function sendOutboundMessage(
 export async function recordProviderOutcome(
   messageId: string,
   organizationId: string,
-  outcome: { status: "sent"; provider_message_id: string } | { status: "failed"; status_reason: string },
+  outcome: { status: "sent"; provider_message_id: string } | { status: "failed"; status_reason: string; provider_error_code?: string },
 ): Promise<boolean> {
   try {
     const service = createServiceRoleClient();
