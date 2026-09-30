@@ -113,6 +113,7 @@ async function findEscalationIncident(orgId: string, conversationId: string) {
 before(async () => {
   const { data: org } = await service.from("organizations").insert({ name: "HANDOFF-01 Test Org", payment_status: "active", automation_mode: "live", timezone: "UTC" }).select("id").single();
   organizationId = org!.id;
+  await service.from("ai_settings").insert({ organization_id: organizationId, ai_enabled: true });
 
   const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, first_name: "Jane", last_name: "Doe", phone: "+15555550701" }).select("id").single();
   contactId = contact!.id;
@@ -126,6 +127,7 @@ before(async () => {
   // below need to reach their own needs_human lock.
   const { data: other } = await service.from("organizations").insert({ name: "HANDOFF-01 Test Org (Other)", payment_status: "active", automation_mode: "live" }).select("id").single();
   otherOrgId = other!.id;
+  await service.from("ai_settings").insert({ organization_id: otherOrgId, ai_enabled: true });
 });
 
 after(async () => {

@@ -102,6 +102,7 @@ async function makeRealOffer(orgId: string, contactId: string, leadId: string, c
 before(async () => {
   const { data: org } = await service.from("organizations").insert({ name: "Booking Reply Test Org", payment_status: "active", automation_mode: "live", timezone: "UTC" }).select("id").single();
   organizationId = org!.id;
+  await service.from("ai_settings").insert({ organization_id: organizationId, ai_enabled: true });
   await service.from("business_hours").insert(
     ["monday", "tuesday", "wednesday", "thursday", "friday"].map((day) => ({ organization_id: organizationId, day_of_week: day, is_open: true, open_time: "09:00", close_time: "17:00" })),
   );
@@ -110,6 +111,7 @@ before(async () => {
 
   const { data: other } = await service.from("organizations").insert({ name: "Booking Reply Test Org (Other)", payment_status: "active", automation_mode: "live" }).select("id").single();
   otherOrgId = other!.id;
+  await service.from("ai_settings").insert({ organization_id: otherOrgId, ai_enabled: true });
 });
 
 after(async () => {
@@ -443,6 +445,7 @@ test("S. organization isolation: a YES scoped to organization B never confirms o
 test("T. Part F: payment gate preserved - a payment-inactive organization still records the confirmation, but the acknowledgment SMS is blocked by the existing outbound gate", async () => {
   const { data: unpaidOrg } = await service.from("organizations").insert({ name: "Booking Reply Test Org (Unpaid)", payment_status: "suspended", automation_mode: "live" }).select("id").single();
   const unpaidOrgId = unpaidOrg!.id as string;
+  await service.from("ai_settings").insert({ organization_id: unpaidOrgId, ai_enabled: true });
   try {
     const { contactId, leadId, conversationId } = await makeContactLeadConversation(unpaidOrgId, "022");
     // insertScheduledAppointment closes over the shared organizationId - not
@@ -477,6 +480,7 @@ test("T. Part F: payment gate preserved - a payment-inactive organization still 
 test("U. Part F: automation pause preserved - a paused organization still records the confirmation, but the acknowledgment SMS is blocked", async () => {
   const { data: pausedOrg } = await service.from("organizations").insert({ name: "Booking Reply Test Org (Paused)", payment_status: "active", automation_mode: "live", automation_paused: true }).select("id").single();
   const pausedOrgId = pausedOrg!.id as string;
+  await service.from("ai_settings").insert({ organization_id: pausedOrgId, ai_enabled: true });
   try {
     const { contactId, leadId, conversationId } = await makeContactLeadConversation(pausedOrgId, "023");
     const { data: appt } = await service
