@@ -197,3 +197,71 @@ Written and validated locally (PGlite, 48 checks). File SHA-256 `454449e80dfad89
 **Production (mywznmxtlgajnczjvbmk):** applied on 2026-09-30 via the MCP `apply_migration` mechanism with the name `opportunity_sync_state`, once, as the same exact text (file SHA-256 `454449e8...`; the ledger's recorded statements hash `8f124231aa63e81f700dde1d9ab0ad7d` is identical to the test project's). Recorded as ledger version `20260930025936` (ledger 54 -> 55). Verified read-only afterwards: the same table, grants and function as on the test project (body md5 `9bccaaf212ac9779dd3ff6f490379627`, identical), zero rows. Unchanged, by before/after fingerprints: all 125 public policies (md5 `4e9dfbad32a15c0dea507874bc25ec37`), the other 228 public functions including their ACLs, the other 39 public tables' columns, constraints, indexes, triggers, table grants and RLS flags. The only new public relations are the table and its primary-key index. The integration test was not run against production (it creates disposable users and organizations). The application code that calls the claim is not yet deployed; the table and function are inert until it is.
 
 The file now lives at `supabase/migrations/20260930025936_opportunity_sync_state.sql`, unmodified (md5 `643adae268109b827b8ab698bf08ee6f`, identical to the statement production's ledger recorded); its header comment still reads "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback file and the PGlite harness stay here; the harness now reads the migration from its `supabase/migrations/` location.
+
+## organization_health_inputs.sql (moved to supabase/migrations/20260930044405_organization_health_inputs.sql)
+
+Performance Pass 3 (Dashboard automation-health consolidation): one read-only function, `public.organization_health_inputs(p_organization_id uuid, p_executions_from timestamptz, p_executions_to timestamptz) returns jsonb`, that returns every input `computeOrganizationHealth()` in `lib/automation-health/health.ts` needs. It replaces the six PostgREST requests that function made on every call (the top bar on every full (app) page load, the Dashboard's system status, the automations page, the briefing, and the agency views). One additive object; nothing existing is altered.
+
+- `language sql stable security invoker set search_path = public`, explicit `organization_id` filters, EXECUTE revoked from PUBLIC and anon and granted to authenticated. This is the dashboard_* functions' convention. Every read runs under the caller's own RLS, the same policies the six reads ran under. service_role also holds EXECUTE through the project's default privileges, and the agency callers that use a service-role client keep working exactly as before.
+- It returns five keys, each mirroring one old read exactly:
+  - `window_status_counts` mirrors `getAutomationAndFollowUpMetrics`' workflow_executions read: last-30-days window, 10,000-row cap.
+  - `name_stats` mirrors `getWorkflowNameStats`: the newest 500 executions, reduced to the latest status and timestamp plus the failed count per workflow.
+  - `incidents` mirrors `listIncidents`: the newest 200 open or acknowledged incidents, category and severity only.
+  - `organization` holds payment_status and automation_paused.
+  - `liveness` holds `get_scheduled_automation_liveness()`'s rows, unchanged.
+- It no longer reads `automation_events`, which the old overview read but the health summary never used.
+- The window is passed in and computed by the same `resolveDateRange("last30Days")` as before, so its bounds are byte-identical. That is why the function takes three arguments.
+
+Application side: `computeOrganizationHealth()` makes one `supabase.rpc("organization_health_inputs", ...)` call; every calculation after that is the existing TypeScript, unchanged. On an error it treats the inputs as empty. That is exactly the summary the old code produced when all six reads failed: fail closed to `payment_blocked`, zero counts, nothing stale. The old per-read partial degradation is gone: the reads now succeed or fail together.
+
+Companion files:
+
+- `organization_health_inputs_rollback.sql` drops the function. Revert the application code first.
+- `scratch/validate-organization-health-sql.mjs` (run from the repo root: `node --import ./lib/automation/test-loader.mjs supabase/pending/scratch/validate-organization-health-sql.mjs`, under both `TZ=UTC` and `TZ=America/Los_Angeles`) boots PGlite from the real migrations. It runs the origin/main six-read `health.ts` and the new one-RPC `health.ts` side by side through supabase-js over `pglite-postgrest.mjs`, and requires an identical `OrganizationHealthSummary` (every field but `generatedAt`) for these organizations:
+  - normal (every execution and incident status, severity and special category);
+  - empty, paused, payment_required, suspended and cancelled;
+  - more than 500 executions and more than 200 incidents;
+  - more than 10,000 in-window executions;
+  - exact window boundaries;
+  - only out-of-window history;
+  - a nonexistent organization.
+
+  It also proves:
+  - 6 requests become 1;
+  - identical fail-closed output when the database is unreachable;
+  - a member reads their organization, a non-member gets nothing of it, and anon is denied;
+  - the object inventory is correct and a second apply is idempotent;
+  - rollback followed by re-apply works.
+
+  The harness makes 47 checks. `lib/automation-health/health-inputs.test.ts` covers the call shape and the mapping at unit level.
+
+### Deploy order (critical)
+
+The application code depends on the function. If the code is deployed without it, every health read fails, and every page that shows health reports `payment_blocked` with zero counts. So: apply to the test project, verify, apply to production and verify, and only then merge the application code. To undo, revert the application code first; the function is inert without it.
+
+### Apply procedure (a person does this, not tooling)
+
+1. Confirm it does not exist: `select to_regprocedure('public.organization_health_inputs(uuid, timestamptz, timestamptz)')` should be null.
+2. Apply `organization_health_inputs.sql` as one transaction (MCP `apply_migration` named `organization_health_inputs`, or the SQL editor wrapped in `begin;`/`commit;`). The file is idempotent.
+3. Read back the ledger entry: `select version, name from supabase_migrations.schema_migrations order by version desc limit 1`.
+4. Verify read-only:
+   - `prosecdef = false`, `provolatile = 's'`, `proconfig = {search_path=public}`;
+   - `has_function_privilege('anon', ...)` is false and `('authenticated', ...)` is true;
+   - every other public function and policy is unchanged.
+5. Only after production has it: `git mv` the file into `supabase/migrations/<recorded production version>_organization_health_inputs.sql`.
+
+### Status
+
+Written and validated locally (PGlite, 47 checks, under both time zones). File SHA-256 `586a0c30a666e0ce5ec60503a9f11f22918533b53d6febe00b09dd03171dd5e9`.
+
+**trackpr-stripe-test (lwofqffxagxiqodqvcfr):** applied on 2026-09-30 via the MCP `apply_migration` mechanism with the name `organization_health_inputs`, once, as the file's exact text. Recorded as ledger version `20260930035749` (ledger 71 -> 72). Verified read-only afterwards:
+- byte-identical: the ledger's recorded statement md5 `64ce08bbf039a3795641132e1b54d15b` equals the file's md5, and the stored function body md5 `485b061390a5b817d401c486aca1c637` equals the file's body;
+- `sql`, STABLE, SECURITY INVOKER, `search_path=public`, 3 arguments, returns `jsonb`;
+- EXECUTE for authenticated and not for anon or PUBLIC (service_role also holds EXECUTE through the project's default privileges);
+- policies, other functions, columns, relations, constraints, triggers, indexes and default privileges byte-identical before and after.
+
+Integration checks on the test project: the automation-health integration and security suites pass (the agency health suite could not run: it needs an agency-admin fixture user that does not exist on this project). A live check with real JWTs showed identical legacy and new summaries for every organization and for a member, nothing for a non-member, and `42501` for anon; its fixtures were removed. Previews against the test project showed 25 -> 20 Dashboard and 17 -> 12 full-load /people Supabase calls before the response, and identical health on screen.
+
+**Production (mywznmxtlgajnczjvbmk):** applied on 2026-09-30 via the MCP `apply_migration` mechanism with the name `organization_health_inputs`, once, as the same exact text. Recorded as ledger version `20260930044405` (ledger 55 -> 56). Verified read-only afterwards: the same statement md5 `64ce08bb...` and function body md5 `485b0613...` (full definition md5 `15da2c51a7267e93a468a3e6fd0e3bca`, identical to the test project's), the same properties and grants, and every other fingerprint unchanged; the function is the only new object. No behavioural tests were run against production. The application code that calls the function is not yet deployed; the function is inert until it is.
+
+The file now lives at `supabase/migrations/20260930044405_organization_health_inputs.sql`, unmodified (SHA-256 `586a0c30...`, md5 `64ce08bb...`, identical to the statement production's ledger recorded); its header comment still reads "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback file and the PGlite harness stay here; the harness now reads the migration from its `supabase/migrations/` location.
