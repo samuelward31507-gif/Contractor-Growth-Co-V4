@@ -1,9 +1,10 @@
 import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAutomationOverview, getWorkflowNameStats } from "@/lib/automation/queries";
+import { getWorkflowNameStats } from "@/lib/automation/queries";
 import { AUTOMATION_CATALOG } from "@/lib/automation/catalog";
+import { resolveDateRange } from "@/lib/bi/queries";
 import { listIncidents } from "./queries";
-import { getScheduledAutomationLiveness } from "./scheduled-automation-liveness";
+import { computeScheduledAutomationLivenessState, SCHEDULED_AUTOMATION_IDS } from "./scheduled-automation-liveness";
 import type { OrganizationPaymentStatus } from "@/lib/auth/organization";
 import type { AutomationHealthStatus, AutomationHealthSummary, HealthCheckRun, OrganizationHealthStatus, OrganizationHealthSummary } from "./types";
 
@@ -44,20 +45,49 @@ export function organizationStatus(params: {
   return "healthy";
 }
 
+/**
+ * Performance Pass 3: every input computeOrganizationHealth() needs, from one
+ * read-only database function (supabase/migrations/20260930044405_organization_health_inputs.sql)
+ * instead of six PostgREST requests - getAutomationOverview (two reads, of
+ * which only the window's completed/failed workflow counts were ever used),
+ * getWorkflowNameStats, listIncidents, the organizations payment/pause pair,
+ * and the scheduled-automation liveness RPC. The function returns exactly
+ * those inputs under the same row caps, orderings and RLS; the calculation
+ * below is unchanged.
+ */
+type OrganizationHealthInputs = {
+  window_status_counts?: { completed?: number; failed?: number } | null;
+  name_stats?: { workflow_name: string; last_status: string | null; last_execution_at: string | null; failed: number }[] | null;
+  incidents?: { category: string; severity: string }[] | null;
+  organization?: { payment_status?: string | null; automation_paused?: boolean | null } | null;
+  liveness?: { automation_id: string; last_ran_at: string | null; last_candidate_count: number | null }[] | null;
+};
+
 async function computeOrganizationHealth(supabase: SupabaseClient, organizationId: string): Promise<OrganizationHealthSummary> {
-  const [overview, statsByName, activeIncidents, organizationRow, scheduledLiveness] = await Promise.all([
-    getAutomationOverview(supabase, organizationId),
-    getWorkflowNameStats(supabase, organizationId),
-    listIncidents(supabase, organizationId, { status: ["open", "acknowledged"] }),
-    // Kept as its own read here (not folded into a wider select) so a
-    // failure to read this specific pair can only ever fail closed toward
-    // "payment_blocked" below, never silently take any other part of this
-    // function down with it - the same independent-query discipline
-    // lib/automation/outbound-gate.ts already applies to these same two
-    // columns for the identical reason.
-    supabase.from("organizations").select("payment_status, automation_paused").eq("id", organizationId).maybeSingle(),
-    getScheduledAutomationLiveness(supabase),
-  ]);
+  // The same last-30-days window getAutomationOverview() used, passed in so
+  // the bounds are byte-identical (resolveDateRange works in the server's
+  // local time; the database function does no date arithmetic of its own).
+  const range = resolveDateRange("last30Days");
+  const { data, error } = await supabase.rpc("organization_health_inputs", {
+    p_organization_id: organizationId,
+    p_executions_from: range.from,
+    p_executions_to: range.to,
+  });
+  // A failed read degrades exactly like each of the six old reads did on its
+  // own failure: zero workflow counts, no name stats, no incidents, no
+  // organization row (-> fails closed to payment_required below), and no
+  // liveness rows (-> every scheduled automation "unverified", never stale).
+  const inputs: OrganizationHealthInputs = error || !data ? {} : (data as OrganizationHealthInputs);
+
+  const overview = { completedWorkflows: inputs.window_status_counts?.completed ?? 0, failedWorkflows: inputs.window_status_counts?.failed ?? 0 };
+  // One entry per workflow_name (the function groups by it), as getWorkflowNameStats' map values were.
+  const workflowNameStats = (inputs.name_stats ?? []).map((row) => ({ lastStatus: row.last_status, lastExecutionAt: row.last_execution_at, failed: row.failed }));
+  const activeIncidents = inputs.incidents ?? [];
+  const organizationRow = { data: inputs.organization ?? null };
+  const livenessRows = inputs.liveness ?? [];
+  const scheduledLiveness = SCHEDULED_AUTOMATION_IDS.map((automationId) => ({
+    state: computeScheduledAutomationLivenessState(livenessRows.find((row) => row.automation_id === automationId)?.last_ran_at ?? null),
+  }));
 
   const activeByCategory = activeIncidents.reduce(
     (acc, incident) => {
@@ -85,7 +115,7 @@ async function computeOrganizationHealth(supabase: SupabaseClient, organizationI
 
   let lastSuccessfulActivityAt: string | null = null;
   let lastFailureAt: string | null = null;
-  for (const stats of statsByName.values()) {
+  for (const stats of workflowNameStats) {
     if (stats.lastStatus === "completed" && stats.lastExecutionAt) {
       if (!lastSuccessfulActivityAt || stats.lastExecutionAt > lastSuccessfulActivityAt) lastSuccessfulActivityAt = stats.lastExecutionAt;
     }
