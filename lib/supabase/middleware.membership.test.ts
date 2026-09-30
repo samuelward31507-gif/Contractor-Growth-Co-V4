@@ -85,11 +85,12 @@ test("redirect-only (app) pages only ever redirect into other (app) routes, whic
 
 test("the middleware verifies the session with getClaims on every request, keeps getUser only on the auth-page branch, and the membership lookup exactly where it still decides something", () => {
   const middleware = read("lib/supabase/middleware.ts");
-  assert.match(middleware, /const \{ data: claimsData \} = await supabase\.auth\.getClaims\(\);/, "session verification/refresh on every request");
+  assert.match(middleware, /const userId = await verifiedUserId\(supabase\);/, "session verification/refresh on every request");
+  assert.match(middleware, /try \{\n\s*const \{ data \} = await supabase\.auth\.getClaims\(\);[\s\S]*?\} catch \{\n\s*return null;\n\s*\}/, "a claims-verification exception is an invalid session, never a failed request");
   assert.equal((middleware.match(/supabase\.auth\.getClaims\(/g) ?? []).length, 1);
   assert.doesNotMatch(middleware, /getSession\(|getClaims\([^)]/, "no unverified session read, no caller-supplied token");
   assert.doesNotMatch(middleware, /headers\.set\(|x-user|x-supabase/i, "the verified user is never passed on to the page in a request header");
-  assert.match(middleware, /const userId = typeof sub === "string" && sub\.length > 0 \? sub : null;/);
+  assert.match(middleware, /return typeof sub === "string" && sub\.length > 0 \? sub : null;/);
   assert.match(middleware, /if \(!userId\) \{\n\s*if \(AUTH_PATHS\.has\(pathname\)\) \{/);
   // The auth pages redirect a signed-in user away, so they confirm with the revocation-aware getUser() first (no /login <-> /today loop for a revoked session).
   assert.equal((middleware.match(/await supabase\.auth\.getUser\(\)/g) ?? []).length, 1, "getUser only on the auth-page branch");

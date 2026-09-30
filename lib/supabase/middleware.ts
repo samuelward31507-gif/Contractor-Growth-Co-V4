@@ -1,8 +1,19 @@
 import { createServerClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 
 const AUTH_PATHS = new Set(["/login", "/signup", "/forgot-password"]);
+
+async function verifiedUserId(supabase: SupabaseClient): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getClaims();
+    const sub = data?.claims?.sub;
+    return typeof sub === "string" && sub.length > 0 ? sub : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -41,9 +52,14 @@ export async function updateSession(request: NextRequest) {
   // API route still resolves the user with the revocation-aware getUser()
   // itself (lib/auth/request-context.ts and friends), and RLS verifies the
   // JWT on every query.
-  const { data: claimsData } = await supabase.auth.getClaims();
-  const sub = claimsData?.claims?.sub;
-  const userId = typeof sub === "string" && sub.length > 0 ? sub : null;
+  //
+  // getClaims returns auth errors as { error }, but rethrows anything else
+  // - e.g. a token header claiming an algorithm auth-js does not support
+  // ("none", "EdDSA") or one that does not match the published key (RS256
+  // against the ES256 JWK). The token is attacker-controlled, so any such
+  // failure is an invalid session: fall through as logged out, exactly as
+  // getUser()'s rejection did, instead of failing the request.
+  const userId = await verifiedUserId(supabase);
 
   const { pathname } = request.nextUrl;
 

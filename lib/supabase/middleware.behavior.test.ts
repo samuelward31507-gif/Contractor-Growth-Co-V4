@@ -35,6 +35,7 @@ const REVOKED_USER = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const ES_KID = "es256-test-key";
 const esKeys = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
 const otherEsKeys = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+const rsaKeys = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 /** Refresh tokens the fake /token endpoint accepts, mapped to the user the new session belongs to. */
 const refreshable = new Map<string, string>();
 
@@ -332,4 +333,57 @@ test("20. revoked-but-validly-signed ES256 session: the middleware passes it (th
   const login = await run("/login", REVOKED_USER, cookie);
   assert.deepEqual([login.redirect, login.passed, login.auth, login.membership], [null, true, 1, 0], "the login page renders instead of bouncing to /today");
   assert.ok(login.sessionCookies.length > 0 && login.sessionCookies.every((c) => c.value === ""), "the revoked session's cookie is cleared, as the middleware always did");
+});
+
+// ---------------------------------------------------------------------------
+// Unsupported / mismatched algorithms: auth-js getClaims() THROWS (rather
+// than returning { error }) for these, so the middleware must catch it and
+// treat the session as invalid - never fail the request.
+// ---------------------------------------------------------------------------
+
+/** A token whose header names the JWKS key id but an algorithm auth-js cannot verify against it. */
+function badAlgToken(kind: "none" | "EdDSA" | "RS256", sub = USER_WITH_ORG): string {
+  const b64 = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const signingInput = `${b64({ alg: kind, typ: "JWT", kid: ES_KID })}.${b64({ sub, role: "authenticated", aud: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 })}`;
+  if (kind === "none") return `${signingInput}.`;
+  if (kind === "RS256") return `${signingInput}.${crypto.sign("sha256", Buffer.from(signingInput), rsaKeys.privateKey).toString("base64url")}`;
+  return `${signingInput}.${Buffer.from("not-a-real-ed25519-signature").toString("base64url")}`;
+}
+
+const BAD_ALGS = ["none", "EdDSA", "RS256"] as const;
+const badCookie = (kind: (typeof BAD_ALGS)[number]) => sessionCookie(USER_WITH_ORG, { accessToken: badAlgToken(kind) });
+
+test("21. unsupported (none, EdDSA) and mismatched (RS256 against the ES256 JWK) tokens on protected routes: logged out -> /login, no membership query, no throw", async () => {
+  for (const kind of BAD_ALGS) {
+    for (const route of ["/today", "/settings", "/agency", "/agency/usage", "/onboarding"]) {
+      const result = await run(route, USER_WITH_ORG, badCookie(kind));
+      assert.deepEqual([result.redirect, result.membership], ["/login", 0], `${kind} ${route}`);
+    }
+  }
+});
+
+test("22. the same tokens on public routes: passed through untouched, exactly as for any logged-out visitor", async () => {
+  for (const kind of BAD_ALGS) {
+    for (const route of PUBLIC_ROUTES) {
+      const result = await run(route, USER_WITH_ORG, badCookie(kind));
+      assert.deepEqual([result.redirect, result.passed, result.membership], [null, true, 0], `${kind} ${route}`);
+    }
+  }
+});
+
+test("23. the same tokens on the auth pages: the page renders (logged out) instead of redirecting or failing", async () => {
+  for (const kind of BAD_ALGS) {
+    for (const route of ["/login", "/signup", "/forgot-password"]) {
+      const result = await run(route, USER_WITH_ORG, badCookie(kind));
+      assert.deepEqual([result.redirect, result.passed, result.membership], [null, true, 0], `${kind} ${route}`);
+    }
+  }
+});
+
+test("24. after rejecting bad-algorithm tokens, the fast path and fallback are unchanged: valid ES256 makes no /auth/v1/user call, HS256 makes exactly one", async () => {
+  for (const kind of BAD_ALGS) await run("/today", USER_WITH_ORG, badCookie(kind));
+  const es = await run("/today", USER_WITH_ORG, esCookie(USER_WITH_ORG));
+  assert.deepEqual([es.redirect, es.passed, es.auth], [null, true, 0]);
+  const hs = await run("/today", USER_WITH_ORG, sessionCookie(USER_WITH_ORG));
+  assert.deepEqual([hs.redirect, hs.passed, hs.auth], [null, true, 1]);
 });
