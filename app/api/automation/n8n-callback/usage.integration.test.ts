@@ -86,6 +86,7 @@ function baseAiResult(overrides: Record<string, unknown> = {}) {
 before(async () => {
   const { data: org } = await service.from("organizations").insert({ name: "n8n Usage Callback Test Org", payment_status: "active", automation_mode: "live" }).select("id").single();
   organizationId = org!.id;
+  await service.from("ai_settings").insert({ organization_id: organizationId, ai_enabled: true });
   const { data: contact } = await service.from("contacts").insert({ organization_id: organizationId, phone: "+15555550501" }).select("id").single();
   contactId = contact!.id;
 });

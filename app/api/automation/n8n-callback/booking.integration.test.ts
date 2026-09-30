@@ -113,6 +113,7 @@ const FIRST_SLOT = { start_at: "2027-02-01T09:00:00.000Z", end_at: "2027-02-01T1
 before(async () => {
   const { data: org } = await service.from("organizations").insert({ name: "n8n Booking Callback Test Org", payment_status: "active", automation_mode: "live", timezone: "UTC" }).select("id").single();
   organizationId = org!.id;
+  await service.from("ai_settings").insert({ organization_id: organizationId, ai_enabled: true });
   await service.from("business_hours").insert(
     ["monday", "tuesday", "wednesday", "thursday", "friday"].map((day) => ({ organization_id: organizationId, day_of_week: day, is_open: true, open_time: "09:00", close_time: "17:00" })),
   );
@@ -126,6 +127,7 @@ before(async () => {
 
   const { data: other } = await service.from("organizations").insert({ name: "n8n Booking Callback Test Org (Other)", payment_status: "active", automation_mode: "live" }).select("id").single();
   otherOrgId = other!.id;
+  await service.from("ai_settings").insert({ organization_id: otherOrgId, ai_enabled: true });
 });
 
 after(async () => {
@@ -256,6 +258,7 @@ test("5. slot_unavailable never escalates to a human - it's a normal retry, not 
 
 test("6. a payment-inactive organization's booking attempt escalates to a human and sends only the generic fallback message - never a business-internal reason", async () => {
   const { data: inactiveOrg } = await service.from("organizations").insert({ name: "n8n Booking Callback Test Org (Inactive)", payment_status: "payment_required", automation_mode: "live" }).select("id").single();
+  await service.from("ai_settings").insert({ organization_id: inactiveOrg!.id, ai_enabled: true });
   const { data: inactiveContact } = await service.from("contacts").insert({ organization_id: inactiveOrg!.id, phone: "+15555550188" }).select("id").single();
   try {
     const { executionId, eventId, conversationId } = await makeExecution(inactiveOrg!.id, inactiveContact!.id);

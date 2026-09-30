@@ -20,6 +20,7 @@ import { notifyFounder } from "@/lib/notifications/founder";
 import { getAvailableBookingSlots, bookAppointment, rescheduleAppointment, type BookingSlot } from "@/lib/scheduling/booking";
 import { cancelAppointmentAsService } from "@/lib/automation/appointments";
 import { getRecentBookingContext } from "@/lib/automation/booking-context";
+import { getAiSettings } from "@/lib/settings/queries";
 import { formatAppointmentDate, formatAppointmentTime, formatAppointmentTimeRange } from "@/lib/appointments/format";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -1032,6 +1033,18 @@ export async function POST(request: NextRequest) {
   const conversationId =
     typeof event.payload?.conversation_id === "string" ? (event.payload.conversation_id as string) : null;
 
+  const jobId =
+    event.entity_type === "job"
+      ? event.entity_id
+      : typeof event.payload?.job_id === "string"
+        ? (event.payload.job_id as string)
+        : null;
+  // Review & Referral Tracking V1: the exact review_url Trackpr sent with
+  // the original request (snapshotted in the stored event payload by
+  // emitPostJobFollowup) - never re-fetched from organizations here, since
+  // the org's configured URL could have changed since the request was made.
+  const reviewUrl = typeof event.payload?.review_url === "string" ? (event.payload.review_url as string) : null;
+
   if (aiResult) {
     const interactionType = interactionTypeFor(event.event_type);
 
@@ -1168,6 +1181,42 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Organization-level "Allow AI to represent this business"
+    // (ai_settings.ai_enabled; no row means disabled, per getAiSettings).
+    // Every AI-driven effect below - booking mutations and the AI message -
+    // is suppressed when it is off. The AI interaction and needs_human
+    // handling above still run: they record and escalate, never reach the
+    // customer. Distinct from conversations.ai_enabled, which the gate
+    // checks separately. Completes the execution like any gate denial, so a
+    // disabled organization never leaves executions running or failed.
+    const aiSettings = await getAiSettings(service, event.organization_id);
+    if (!aiSettings.ai_enabled) {
+      const result = await completeWorkflowExecutionAsService(service, execution.id, {
+        should_send: false,
+        blocked_reason: "organization_ai_disabled",
+        needs_human: aiResult.needs_human,
+        qualification_status: aiResult.qualification_status,
+        urgency: aiResult.urgency,
+        missing_information: aiResult.missing_information,
+        intent: aiResult.intent,
+        summary: aiResult.summary,
+      });
+      if (!result.ok) {
+        if (isAlreadyProcessedError(result.error)) {
+          return NextResponse.json({ ok: true, alreadyProcessed: true });
+        }
+        console.error("[automation] failed to complete execution", { executionId: execution.id, error: result.error });
+        await recordCallbackFailureSignal(service, event, execution.id, result.error);
+        return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
+      }
+      await recordReviewReferralOutcomeIfApplicable(
+        service,
+        { eventType: event.event_type, organizationId: event.organization_id, jobId, contactId, conversationId, reviewUrl, executionId: execution.id },
+        { kind: "blocked", reason: "organization_ai_disabled" },
+      );
+      return NextResponse.json({ ok: true, sent: false, blockedReason: "organization_ai_disabled" });
+    }
+
     // Growth System Completion Pass 1 (Part 3): a booking-intent turn is
     // handled entirely separately from the should_send/gate/send flow below
     // - Trackpr, not the AI, owns every message this branch produces. Runs
@@ -1223,18 +1272,7 @@ export async function POST(request: NextRequest) {
         : null;
   const estimateEligibleStatuses = estimateEligibleStatusesFor(event.event_type);
 
-  const jobId =
-    event.entity_type === "job"
-      ? event.entity_id
-      : typeof event.payload?.job_id === "string"
-        ? (event.payload.job_id as string)
-        : null;
   const jobEligibleStatuses = jobEligibleStatusesFor(event.event_type);
-  // Review & Referral Tracking V1: the exact review_url Trackpr sent with
-  // the original request (snapshotted in the stored event payload by
-  // emitPostJobFollowup) - never re-fetched from organizations here, since
-  // the org's configured URL could have changed since the request was made.
-  const reviewUrl = typeof event.payload?.review_url === "string" ? (event.payload.review_url as string) : null;
 
   const leadEligibleStatuses = leadEligibleStatusesFor(event.event_type);
   const leadMustHaveNoActiveEngagement = leadMustHaveNoActiveEngagementFor(event.event_type);
