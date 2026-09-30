@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { resolveAppBaseUrl, buildTwilioCreateMessageParams }: typeof import("./sms") = require("./sms.ts");
+const { resolveAppBaseUrl, buildTwilioCreateMessageParams, providerErrorCodeFrom }: typeof import("./sms") = require("./sms.ts");
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
   const previous: Record<string, string | undefined> = {};
@@ -74,4 +74,28 @@ test("buildTwilioCreateMessageParams includes statusCallback when a base URL is 
 test("buildTwilioCreateMessageParams omits statusCallback entirely (not an empty string) when no base URL is available", () => {
   const params = buildTwilioCreateMessageParams({ to: "+15551234567", from: "+15559876543", body: "hi", statusCallbackUrl: null });
   assert.equal("statusCallback" in params, false);
+});
+
+test("providerErrorCodeFrom: a Twilio rejection's numeric code (e.g. 21608) becomes the string \"21608\" - the message (which can contain the phone number) is never returned", () => {
+  const twilioError = Object.assign(new Error("The number +15555550199 is unverified. Trial accounts cannot send messages to unverified numbers."), { status: 400, code: 21608, moreInfo: "https://www.twilio.com/docs/errors/21608" });
+  const code = providerErrorCodeFrom(twilioError);
+  assert.equal(code, "21608");
+  assert.ok(!code!.includes("+1555"));
+});
+
+test("providerErrorCodeFrom: a string code is trimmed", () => {
+  assert.equal(providerErrorCodeFrom({ code: " 21211 " }), "21211");
+});
+
+test("providerErrorCodeFrom: a code longer than messages.provider_error_code's 32-character limit is capped", () => {
+  assert.equal(providerErrorCodeFrom({ code: "x".repeat(40) }), "x".repeat(32));
+});
+
+test("providerErrorCodeFrom: no usable code (network error, missing, null, empty, non-scalar) returns undefined", () => {
+  assert.equal(providerErrorCodeFrom(new Error("socket hang up")), undefined);
+  assert.equal(providerErrorCodeFrom({ code: null }), undefined);
+  assert.equal(providerErrorCodeFrom({ code: "   " }), undefined);
+  assert.equal(providerErrorCodeFrom({ code: { nested: 1 } }), undefined);
+  assert.equal(providerErrorCodeFrom(undefined), undefined);
+  assert.equal(providerErrorCodeFrom("21608"), undefined);
 });
