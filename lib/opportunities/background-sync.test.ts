@@ -1,6 +1,8 @@
 /**
  * Phase 2C: the Dashboard's opportunity sync runs after the response, off
  * the blocking render path - lib/opportunities/background-sync.ts.
+ * Performance Pass 2: inside that after() task, claim_opportunity_sync gates
+ * the sync to at most once per organization per 5 minutes.
  *
  * Run with:
  *   node --import ./lib/automation/test-loader.mjs --test lib/opportunities/background-sync.test.ts
@@ -34,11 +36,17 @@ function requestClient(session: { access_token: string } | null | "throws") {
   } as unknown as SupabaseClient;
 }
 
-function harness(overrides: { sync?: (client: SupabaseClient, organizationId: string) => Promise<unknown> } = {}) {
+type ClaimReply = { data: unknown; error: { message: string } | null } | "throws" | "never";
+
+/** The token client's rpc() stand-in for claim_opportunity_sync; defaults to a won claim. */
+function harness(overrides: { sync?: (client: SupabaseClient, organizationId: string) => Promise<unknown>; claim?: ClaimReply } = {}) {
   const tasks: (() => Promise<void>)[] = [];
   const logs: { message: string; context: Record<string, unknown> }[] = [];
   const syncCalls: { client: SupabaseClient; organizationId: string }[] = [];
   const tokenClients: string[] = [];
+  const clients: SupabaseClient[] = [];
+  const rpcCalls: { client: SupabaseClient; fn: string; args: unknown }[] = [];
+  const claim = overrides.claim ?? { data: true, error: null };
   const deps = {
     after: (task: () => Promise<void>) => void tasks.push(task),
     sync:
@@ -49,11 +57,21 @@ function harness(overrides: { sync?: (client: SupabaseClient, organizationId: st
       }),
     createClient: (accessToken: string) => {
       tokenClients.push(accessToken);
-      return { tokenClient: accessToken } as unknown as SupabaseClient;
+      const client = {
+        tokenClient: accessToken,
+        rpc: async (fn: string, args: unknown) => {
+          rpcCalls.push({ client: client as unknown as SupabaseClient, fn, args });
+          if (claim === "throws") throw new Error("network down");
+          if (claim === "never") return new Promise(() => {});
+          return claim;
+        },
+      } as unknown as SupabaseClient;
+      clients.push(client);
+      return client;
     },
     log: (message: string, context: Record<string, unknown>) => void logs.push({ message, context }),
   };
-  return { deps, tasks, logs, syncCalls, tokenClients };
+  return { deps, tasks, logs, syncCalls, tokenClients, clients, rpcCalls };
 }
 
 test("background invocation: the sync is handed to after() and does not run until after() runs it", async () => {
@@ -71,7 +89,8 @@ test("tenant isolation: the post-response sync runs on a client built from this 
   await scheduleOpportunitySync(requestClient({ access_token: TOKEN }), ORG, h.deps);
   await h.tasks[0]();
   assert.deepEqual(h.tokenClients, [TOKEN]);
-  assert.deepEqual(h.syncCalls[0].client, { tokenClient: TOKEN });
+  assert.equal(h.syncCalls[0].client, h.clients[0], "the sync runs on the one client built from the token");
+  assert.equal((h.syncCalls[0].client as unknown as { tokenClient: string }).tokenClient, TOKEN);
 });
 
 test("render independence: a sync that never finishes cannot hold up the caller", async () => {
@@ -100,6 +119,67 @@ test("no session, or a session read that throws: nothing is scheduled, it is log
     assert.equal(h.logs.length, 1, String(session));
     assert.match(h.logs[0].message, /^\[opportunities\] background sync not scheduled/);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Performance Pass 2: the claim gate inside the after() task
+// ---------------------------------------------------------------------------
+
+test("claim won: claim_opportunity_sync is called with exactly the caller's organization, on the same token client the sync then runs on", async () => {
+  const h = harness({ claim: { data: true, error: null } });
+  await scheduleOpportunitySync(requestClient({ access_token: TOKEN }), ORG, h.deps);
+  await h.tasks[0]();
+  assert.deepEqual(h.rpcCalls.map((c) => [c.fn, c.args]), [["claim_opportunity_sync", { p_organization_id: ORG }]], "one claim, organization id only - no cooldown or other input");
+  assert.equal(h.clients.length, 1, "the client is created once");
+  assert.equal(h.rpcCalls[0].client, h.clients[0]);
+  assert.equal(h.syncCalls.length, 1);
+  assert.equal(h.syncCalls[0].client, h.clients[0]);
+  assert.equal(h.logs.length, 0);
+});
+
+test("claim lost (another request synced within 5 minutes, or not eligible): the sync is skipped quietly - no log, no error", async () => {
+  for (const data of [false, null]) {
+    const h = harness({ claim: { data, error: null } });
+    await scheduleOpportunitySync(requestClient({ access_token: TOKEN }), ORG, h.deps);
+    await assert.doesNotReject(h.tasks[0]());
+    assert.equal(h.rpcCalls.length, 1, String(data));
+    assert.equal(h.syncCalls.length, 0, `${data}: no sync`);
+    assert.equal(h.logs.length, 0, `${data}: nothing logged`);
+  }
+});
+
+test("claim RPC returns an error: logged as 'background sync skipped: claim failed' and the sync is skipped - never a blind sync", async () => {
+  const h = harness({ claim: { data: null, error: { message: "function public.claim_opportunity_sync(uuid) does not exist" } } });
+  await scheduleOpportunitySync(requestClient({ access_token: TOKEN }), ORG, h.deps);
+  await assert.doesNotReject(h.tasks[0]());
+  assert.equal(h.syncCalls.length, 0);
+  assert.deepEqual(h.logs, [{ message: "[opportunities] background sync skipped: claim failed", context: { organizationId: ORG, error: "function public.claim_opportunity_sync(uuid) does not exist" } }]);
+});
+
+test("claim RPC throws: logged the same way, the sync is skipped, and the after() task still resolves", async () => {
+  const h = harness({ claim: "throws" });
+  await scheduleOpportunitySync(requestClient({ access_token: TOKEN }), ORG, h.deps);
+  await assert.doesNotReject(h.tasks[0]());
+  assert.equal(h.syncCalls.length, 0);
+  assert.deepEqual(h.logs, [{ message: "[opportunities] background sync skipped: claim failed", context: { organizationId: ORG, error: "network down" } }]);
+});
+
+test("nothing runs before after() fires: no client, no claim, no sync during render", async () => {
+  const h = harness();
+  await scheduleOpportunitySync(requestClient({ access_token: TOKEN }), ORG, h.deps);
+  assert.equal(h.tasks.length, 1);
+  assert.deepEqual([h.tokenClients.length, h.rpcCalls.length, h.syncCalls.length], [0, 0, 0], "render did no claim work at all");
+  await h.tasks[0]();
+  assert.deepEqual([h.tokenClients.length, h.rpcCalls.length, h.syncCalls.length], [1, 1, 1]);
+});
+
+test("render independence holds for the claim too: a claim that never answers cannot hold up the caller", async () => {
+  const h = harness({ claim: "never" });
+  const eagerAfter = (task: () => Promise<void>) => void task();
+  const started = Date.now();
+  await scheduleOpportunitySync(requestClient({ access_token: TOKEN }), ORG, { ...h.deps, after: eagerAfter });
+  assert.ok(Date.now() - started < 200, "scheduleOpportunitySync resolved without waiting for the stalled claim");
+  assert.equal(h.syncCalls.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -133,6 +213,17 @@ test("createAccessTokenClient: every query carries the user's own JWT and the an
   }
 });
 
+test("createAccessTokenClient: the claim RPC is sent to /rest/v1/rpc/claim_opportunity_sync with the user's own JWT and the anon key", async () => {
+  const { createAccessTokenClient }: typeof import("@/lib/supabase/access-token-client") = require(path.join(process.cwd(), "lib/supabase/access-token-client.ts"));
+  seen.length = 0;
+  await createAccessTokenClient(TOKEN).rpc("claim_opportunity_sync", { p_organization_id: ORG });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].path, "/rest/v1/rpc/claim_opportunity_sync");
+  assert.equal(seen[0].authorization, `Bearer ${TOKEN}`);
+  assert.equal(seen[0].apikey, "fake-anon-key-for-local-test-only");
+  assert.equal(seen[0].cookie, undefined);
+});
+
 // ---------------------------------------------------------------------------
 // Structural guards
 // ---------------------------------------------------------------------------
@@ -150,7 +241,11 @@ test("critical-path removal: /today never awaits (or directly calls) syncOpportu
 test("the background path uses next/server after(), a token-scoped client, and never the service role", () => {
   const sync = read("lib/opportunities/background-sync.ts");
   assert.match(sync, /^import \{ after \} from "next\/server";/m);
-  assert.match(sync, /await sync\(makeClient\(token\), organizationId\);/);
+  // Pass 2: one token client per task, claimed first, then synced - all inside the after() callback.
+  const task = sync.slice(sync.indexOf("schedule(async () => {"));
+  assert.match(task, /const client = makeClient\(token\);[\s\S]*client\.rpc\("claim_opportunity_sync", \{ p_organization_id: organizationId \}\)[\s\S]*if \(!claimed\) return;[\s\S]*await sync\(client, organizationId\);/);
+  assert.equal((sync.match(/claim_opportunity_sync/g) ?? []).length, 1, "the claim is made only inside the after() task");
+  assert.ok(sync.indexOf("claim_opportunity_sync") > sync.indexOf("schedule(async () => {"), "never during render");
   const client = read("lib/supabase/access-token-client.ts");
   assert.match(client, /NEXT_PUBLIC_SUPABASE_ANON_KEY/);
   assert.match(client, /accessToken: async \(\) => accessToken/);

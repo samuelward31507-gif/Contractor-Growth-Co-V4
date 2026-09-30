@@ -293,7 +293,9 @@ test("background path: an aborted sync is logged inside the after() task and nev
   const tasks: (() => Promise<void>)[] = [];
   const failing = makeFakeSupabase(fixture(), { failSelectAt: 3 });
   const requestSupabase = { auth: { getSession: async () => ({ data: { session: { access_token: "token-for-test" } } }) } } as unknown as SupabaseClient;
-  await scheduleOpportunitySync(requestSupabase, ORG, { after: (task) => void tasks.push(task), createClient: () => failing.client });
+  // Performance Pass 2: the task claims first - this organization wins its claim, so the (failing) sync runs.
+  const client = Object.assign(failing.client, { rpc: async () => ({ data: true, error: null }) }) as unknown as SupabaseClient;
+  await scheduleOpportunitySync(requestSupabase, ORG, { after: (task) => void tasks.push(task), createClient: () => client });
   assert.equal(tasks.length, 1, "scheduled, not run");
   assert.equal(failing.calls.length, 0, "nothing ran before after() fired");
   await tasks[0]();
