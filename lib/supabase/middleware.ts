@@ -1,8 +1,19 @@
 import { createServerClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 
 const AUTH_PATHS = new Set(["/login", "/signup", "/forgot-password"]);
+
+async function verifiedUserId(supabase: SupabaseClient): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getClaims();
+    const sub = data?.claims?.sub;
+    return typeof sub === "string" && sub.length > 0 ? sub : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -26,11 +37,29 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // Refreshes the auth session if it has expired. Required so Server
-  // Components can read a valid session via cookies.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Refreshes the auth session if it has expired (getClaims reads the session
+  // through getSession, which refreshes and rewrites the cookies exactly as
+  // getUser did). Required so Server Components can read a valid session via
+  // cookies.
+  //
+  // getClaims verifies the access token's signature and expiry locally
+  // against the project's cached JWKS for asymmetric keys (production signs
+  // with ES256), so the middleware no longer makes its own /auth/v1/user
+  // round trip on every request. For a symmetric (HS*) token, a token
+  // without a kid, or an unknown kid, auth-js falls back to getUser(), so
+  // those still get the network check. This routing layer is not the
+  // authorization boundary: every protected page tree, server action and
+  // API route still resolves the user with the revocation-aware getUser()
+  // itself (lib/auth/request-context.ts and friends), and RLS verifies the
+  // JWT on every query.
+  //
+  // getClaims returns auth errors as { error }, but rethrows anything else
+  // - e.g. a token header claiming an algorithm auth-js does not support
+  // ("none", "EdDSA") or one that does not match the published key (RS256
+  // against the ES256 JWK). The token is attacker-controlled, so any such
+  // failure is an invalid session: fall through as logged out, exactly as
+  // getUser()'s rejection did, instead of failing the request.
+  const userId = await verifiedUserId(supabase);
 
   const { pathname } = request.nextUrl;
 
@@ -64,7 +93,7 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
-  if (!user) {
+  if (!userId) {
     if (AUTH_PATHS.has(pathname)) {
       return supabaseResponse;
     }
@@ -76,7 +105,8 @@ export async function updateSession(request: NextRequest) {
   // Authenticated from here on. Routing below only reflects onboarding stage
   // (auth vs. no-org vs. has-org) - never trust a client-supplied
   // organization id; it is always resolved from organization_members via the
-  // verified auth.uid(). No business authorization logic lives here.
+  // verified auth.uid() (the verified JWT sub). No business authorization
+  // logic lives here.
   //
   // Performance Pass B: the membership lookup is no longer run for every
   // authenticated request (including every background prefetch) - only on
@@ -85,7 +115,22 @@ export async function updateSession(request: NextRequest) {
   // organization to /onboarding: the (app) layout on a full load, the page
   // (or its segment layout) on every client-side navigation - enforced for
   // every (app) page by lib/supabase/middleware.membership.test.ts.
+  //
+  // The auth pages are the one branch that redirects a signed-in user AWAY,
+  // so they keep the authoritative getUser(): a token whose session was
+  // revoked (signed out elsewhere) still has a valid signature, and without
+  // this check /login would send it to /today, whose layout's getUser()
+  // sends it back to /login - a loop until the token expires. getUser()
+  // also clears the revoked session's cookies, as the middleware always did.
+  // Signed-in visits to the auth pages are rare, so this costs nothing on
+  // the hot path.
   if (AUTH_PATHS.has(pathname)) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return supabaseResponse;
+    }
     const membership = await getUserOrganization(supabase, user.id);
     const url = request.nextUrl.clone();
     url.pathname = membership ? "/today" : "/onboarding";
@@ -108,7 +153,7 @@ export async function updateSession(request: NextRequest) {
   // this is still the place that sends an authenticated user without an
   // organization from /agency to /onboarding, exactly as before.
   if (pathname === "/agency" || pathname.startsWith("/agency/")) {
-    const membership = await getUserOrganization(supabase, user.id);
+    const membership = await getUserOrganization(supabase, userId);
     if (!membership) {
       const url = request.nextUrl.clone();
       url.pathname = "/onboarding";

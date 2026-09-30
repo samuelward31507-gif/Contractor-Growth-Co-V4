@@ -83,11 +83,31 @@ test("redirect-only (app) pages only ever redirect into other (app) routes, whic
   }
 });
 
-test("the middleware keeps getUser on every request and the membership lookup exactly where it still decides something", () => {
+test("the middleware verifies the session with getClaims on every request, keeps getUser only on the auth-page branch, and the membership lookup exactly where it still decides something", () => {
   const middleware = read("lib/supabase/middleware.ts");
-  assert.match(middleware, /\} = await supabase\.auth\.getUser\(\);/, "session verification/refresh on every request");
-  assert.equal((middleware.match(/await getUserOrganization\(supabase, user\.id\)/g) ?? []).length, 2, "auth pages + /agency only");
-  assert.match(middleware, /if \(AUTH_PATHS\.has\(pathname\)\) \{\n\s*const membership = await getUserOrganization\(supabase, user\.id\);/);
-  assert.match(middleware, /if \(pathname === "\/agency" \|\| pathname\.startsWith\("\/agency\/"\)\) \{\n\s*const membership = await getUserOrganization\(supabase, user\.id\);\n\s*if \(!membership\) \{/);
+  assert.match(middleware, /const userId = await verifiedUserId\(supabase\);/, "session verification/refresh on every request");
+  assert.match(middleware, /try \{\n\s*const \{ data \} = await supabase\.auth\.getClaims\(\);[\s\S]*?\} catch \{\n\s*return null;\n\s*\}/, "a claims-verification exception is an invalid session, never a failed request");
+  assert.equal((middleware.match(/supabase\.auth\.getClaims\(/g) ?? []).length, 1);
+  assert.doesNotMatch(middleware, /getSession\(|getClaims\([^)]/, "no unverified session read, no caller-supplied token");
+  assert.doesNotMatch(middleware, /headers\.set\(|x-user|x-supabase/i, "the verified user is never passed on to the page in a request header");
+  assert.match(middleware, /return typeof sub === "string" && sub\.length > 0 \? sub : null;/);
+  assert.match(middleware, /if \(!userId\) \{\n\s*if \(AUTH_PATHS\.has\(pathname\)\) \{/);
+  // The auth pages redirect a signed-in user away, so they confirm with the revocation-aware getUser() first (no /login <-> /today loop for a revoked session).
+  assert.equal((middleware.match(/await supabase\.auth\.getUser\(\)/g) ?? []).length, 1, "getUser only on the auth-page branch");
+  assert.match(middleware, /if \(AUTH_PATHS\.has\(pathname\)\) \{\n\s*const \{\n\s*data: \{ user \},\n\s*\} = await supabase\.auth\.getUser\(\);\n\s*if \(!user\) \{\n\s*return supabaseResponse;\n\s*\}\n\s*const membership = await getUserOrganization\(supabase, user\.id\);/);
+  assert.equal((middleware.match(/await getUserOrganization\(supabase, (user\.id|userId)\)/g) ?? []).length, 2, "auth pages + /agency only");
+  assert.match(middleware, /if \(pathname === "\/agency" \|\| pathname\.startsWith\("\/agency\/"\)\) \{\n\s*const membership = await getUserOrganization\(supabase, userId\);\n\s*if \(!membership\) \{/);
   assert.doesNotMatch(read("app/agency/layout.tsx"), /getUserOrganization|getRequestMembership/, "if the agency layout ever gates membership itself, the middleware branch can go too - revisit then");
+});
+
+test("the middleware is not the only authentication check: every protected page tree still resolves the user server-side with the revocation-aware getUser()", () => {
+  const requestContext = read("lib/auth/request-context.ts");
+  assert.match(requestContext, /supabase\.auth\.getUser\(\)/, "getRequestMembership verifies with the Auth server");
+  assert.doesNotMatch(requestContext, /getClaims\(/, "the authoritative page-side check stays getUser()");
+  assert.match(read("app/(app)/layout.tsx"), /await getRequestMembership\(\)[\s\S]*if \(!user\) \{?\s*redirect\("\/login"\)/);
+  for (const file of ["app/agency/layout.tsx", "app/onboarding/page.tsx"]) {
+    const source = read(file);
+    assert.match(source, /await supabase\.auth\.getUser\(\)/, file);
+    assert.match(source, /if \(!user\) \{?\s*redirect\("\/login"\)/, file);
+  }
 });
