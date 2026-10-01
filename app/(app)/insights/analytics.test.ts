@@ -207,7 +207,7 @@ test("Phase 2A guard: no caller outside Analytics passes a timezone or snapshot 
 test("Phase 2B: jobs linked to a lead - one Analytics-only, all-time read in Estimates & jobs, with a plain-English definition", () => {
   assert.match(PAGE, /getJobLeadLinkage\(supabase, membership\.organizationId\)/);
   assert.match(PAGE, /jobLeadLinkage\.failed/, "a failed read is disclosed like any other");
-  assert.match(PAGE, /<EstimatesJobsPanel snapshot=\{snapshot\} jobLeadLinkage=\{jobLeadLinkage\} \/>/);
+  assert.match(PAGE, /<EstimatesJobsPanel snapshot=\{snapshot\} jobLeadLinkage=\{jobLeadLinkage\}/);
   assert.match(SECTIONS, /label: "Jobs linked to a lead", value: `\$\{jobLeadLinkage\.linked\} of \$\{jobLeadLinkage\.total\}`, detail: "All time"/);
   assert.match(SECTIONS, /term: "Jobs linked to a lead"/);
   // Analytics only: not in the AI input, Agency, Today/dashboard, or the snapshot.
@@ -216,4 +216,21 @@ test("Phase 2B: jobs linked to a lead - one Analytics-only, all-time read in Est
   }
   const users = execFileSync("git", ["grep", "-l", "getJobLeadLinkage"], { cwd: ROOT, encoding: "utf8" }).trim().split("\n").sort();
   assert.deepEqual(users.filter((file) => !file.endsWith(".test.ts")), ["app/(app)/insights/page.tsx", "lib/bi/metrics.ts"]);
+});
+
+test("Phase 2C: revenue by source and lead → job - one Analytics-only read over the organization-calendar range, inside Estimates & jobs", () => {
+  assert.match(PAGE, /getRevenueAttribution\(supabase, membership\.organizationId, resolvedRange\)/);
+  assert.match(PAGE, /revenueAttribution\.failed/, "a failed or over-ceiling read is disclosed");
+  assert.match(PAGE, /<EstimatesJobsPanel snapshot=\{snapshot\} jobLeadLinkage=\{jobLeadLinkage\} attribution=\{revenueAttribution\} \/>/);
+  assert.match(SECTIONS, /<PanelBlock label="Revenue by source" scope=\{periodScope\}>/);
+  assert.match(SECTIONS, /<PanelBlock label="Lead → job" scope=\{`Leads created · \$\{periodScope\}`\}>/);
+  for (const header of ["Source", "Leads", "Jobs", "Completed", "Completed value"]) assert.match(SECTIONS, new RegExp(`>${header}</th>`));
+  assert.match(SECTIONS, /overflow-x-auto/, "the table scrolls sideways on phones, never the page");
+  assert.match(SECTIONS, /term: "Revenue by source"/);
+  assert.match(SECTIONS, /term: "Lead → job"/);
+  assert.doesNotMatch(SECTIONS, /label: "[^"]*[Rr]evenue[^"]*"/, "contracted job value is never labeled revenue as a figure");
+  // Analytics only: not in the AI input, Agency, Today/dashboard, or the snapshot.
+  for (const file of ["lib/bi/insights.ts", "lib/bi/queries.ts", "lib/bi/types.ts", "lib/bi/metrics.ts", "lib/dashboard/business-metrics.ts", "lib/agency/operations.ts", "lib/agency/queries.ts"]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(ROOT, file), "utf8"), /getRevenueAttribution|revenueAttribution|revenue-attribution/, file);
+  }
 });
