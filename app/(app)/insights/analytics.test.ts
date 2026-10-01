@@ -238,7 +238,7 @@ test("Phase 2C: revenue by source and lead → job - one Analytics-only read ove
 test("Phase 2D: completed job value, estimate acceptance and lead → booking come from the Analytics-only outcome read; job completion stays creation-dated and says so", () => {
   assert.match(PAGE, /getOutcomeMetrics\(supabase, membership\.organizationId, resolvedRange\)/);
   assert.match(PAGE, /outcomeMetrics\.failed/, "a failed read is disclosed");
-  assert.match(PAGE, /<EstimatesJobsPanel snapshot=\{snapshot\} jobLeadLinkage=\{jobLeadLinkage\} attribution=\{revenueAttribution\} outcomes=\{outcomeMetrics\} \/>/);
+  assert.match(PAGE, /<EstimatesJobsPanel snapshot=\{snapshot\} jobLeadLinkage=\{jobLeadLinkage\} attribution=\{revenueAttribution\} outcomes=\{outcomeMetrics\}/);
   assert.match(SECTIONS, /label: "Completed job value", value: formatCurrency\(outcomes\.completedJobValue\)/);
   assert.match(SECTIONS, /label: "Lead → booking", value: formatRate\(outcomes\.leadToBookingRate\)/);
   assert.match(SECTIONS, /label: "Estimate acceptance", value: formatRate\(outcomes\.estimateAcceptanceRate\)/);
@@ -257,4 +257,22 @@ test("Phase 2D guard: the outcome read is Analytics-only - the snapshot, AI inpu
   }
   const users = execFileSync("git", ["grep", "-l", "--untracked", "getOutcomeMetrics"], { cwd: ROOT, encoding: "utf8" }).trim().split("\n").sort();
   assert.deepEqual(users.filter((file) => !file.endsWith(".test.ts")), ["app/(app)/insights/page.tsx", "lib/bi/outcome-metrics.ts"]);
+});
+
+test("Phase 2E: Collected in Revenue by source - one Analytics-only read over the organization-calendar range, reconciled with Revenue & payments", () => {
+  assert.match(PAGE, /getCashAttribution\(supabase, membership\.organizationId, resolvedRange\)/);
+  assert.match(PAGE, /cashAttribution\.failed/, "a failed or over-ceiling read is disclosed");
+  assert.match(PAGE, /<EstimatesJobsPanel snapshot=\{snapshot\} jobLeadLinkage=\{jobLeadLinkage\} attribution=\{revenueAttribution\} outcomes=\{outcomeMetrics\} cash=\{cashAttribution\} \/>/);
+  for (const header of ["Source", "Leads", "Jobs", "Completed", "Completed value", "Collected"]) assert.match(SECTIONS, new RegExp(`>${header}</th>`));
+  assert.match(SECTIONS, /withCollected\(attribution, cash\)/);
+  assert.match(SECTIONS, /cash\.failed \? "-" : formatMoney\(value\)/, "a failed read shows no Collected figure, never a partial one");
+  assert.match(SECTIONS, /Collected could not be read for this period\. Nothing is estimated in its place\./);
+  assert.match(SECTIONS, /The Collected total is the same amount as Collected under Revenue & payments\./);
+  assert.match(SECTIONS, /term: "Lead sources", definition: "Free text, not standardized - shown for visibility only, never ranked by performance\." \}/, "the ranking wording is unchanged");
+  // Analytics only: not in the AI input, Agency, Today/dashboard, or the snapshot.
+  for (const file of ["lib/bi/insights.ts", "lib/bi/queries.ts", "lib/bi/types.ts", "lib/bi/metrics.ts", "lib/dashboard/business-metrics.ts", "lib/agency/operations.ts", "lib/agency/queries.ts"]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(ROOT, file), "utf8"), /getCashAttribution|cashAttribution|cash-attribution/, file);
+  }
+  const users = execFileSync("git", ["grep", "-l", "--untracked", "getCashAttribution"], { cwd: ROOT, encoding: "utf8" }).trim().split("\n").sort();
+  assert.deepEqual(users.filter((file) => !file.endsWith(".test.ts")), ["app/(app)/insights/page.tsx", "lib/bi/cash-attribution.ts"]);
 });

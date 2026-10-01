@@ -188,6 +188,8 @@ function makeMockSupabase(results: Record<string, MockResult>): SupabaseClient {
         select: () => builder,
         eq: () => builder,
         limit: () => builder,
+        order: () => builder,
+        range: () => Promise.resolve(result),
         then: (resolve: (value: MockResult) => unknown, reject?: (reason: unknown) => unknown) => Promise.resolve(result).then(resolve, reject),
       };
       return builder;
@@ -195,7 +197,7 @@ function makeMockSupabase(results: Record<string, MockResult>): SupabaseClient {
   } as unknown as SupabaseClient;
 }
 
-test("getBillingRowsResult: a genuinely empty ledger never sets failed; a real error on either table does, without discarding the other table's rows", async () => {
+test("getBillingRowsResult: a genuinely empty ledger never sets failed; a real error on either table does, and (Phase 2E) carries no rows from either table - never a partial ledger", async () => {
   const empty = await getBillingRowsResult(makeMockSupabase({}), "org-1");
   assert.equal(empty.failed, false);
   assert.deepEqual(empty.invoices, []);
@@ -206,10 +208,48 @@ test("getBillingRowsResult: a genuinely empty ledger never sets failed; a real e
     "org-1",
   );
   assert.equal(invoicesFailing.failed, true);
-  assert.equal(invoicesFailing.payments.length, 1);
+  assert.equal(invoicesFailing.payments.length, 0);
 
   const paymentsFailing = await getBillingRowsResult(makeMockSupabase({ customer_payments: { data: null, error: { message: "timeout" } } }), "org-1");
   assert.equal(paymentsFailing.failed, true);
+});
+
+// ---------------------------------------------------------------------------
+// Period boundaries - instants, not text. Postgres returns timestamps as
+// "2026-09-01T06:00:00+00:00"; the resolved range is "...06:00:00.000Z".
+// Compared as text, the exact local midnight that starts a period sorted
+// before it and fell into the previous period.
+// ---------------------------------------------------------------------------
+
+const { resolveDateRange }: typeof import("./queries") = require("./queries.ts");
+const { inRange }: typeof import("./billing") = require("./billing.ts");
+
+test("exact local midnight: a payment at Sep 1 00:00 Denver (as Postgres returns it) belongs to September; the instant before it belongs to August", () => {
+  const now = new Date("2026-10-15T18:00:00Z");
+  const september = resolveDateRange("previousMonth", now, "America/Denver");
+  const august = { label: "custom", from: "2026-08-01T06:00:00.000Z", to: september.from };
+  assert.equal(september.from, "2026-09-01T06:00:00.000Z");
+
+  const midnight = "2026-09-01T06:00:00+00:00";
+  const instantBefore = "2026-09-01T05:59:59.999+00:00";
+  assert.deepEqual([inRange(midnight, september), inRange(midnight, august)], [true, false]);
+  assert.deepEqual([inRange(instantBefore, september), inRange(instantBefore, august)], [false, true]);
+
+  const payments = [pay("a", 100, midnight), pay("a", 7, instantBefore)];
+  const forSeptember = computeBillingMetrics({ invoices: [], payments, range: september, today: "2026-10-15" });
+  const forAugust = computeBillingMetrics({ invoices: [], payments, range: august, today: "2026-10-15" });
+  assert.deepEqual([forSeptember.collectedValue, forSeptember.paymentsReceived], [100, 1]);
+  assert.deepEqual([forAugust.collectedValue, forAugust.paymentsReceived], [7, 1]);
+});
+
+test("exact local midnight: the period's end belongs to the next period; issue dates and paid-in-period follow the same rule", () => {
+  const september = resolveDateRange("previousMonth", new Date("2026-10-15T18:00:00Z"), "America/Denver");
+  assert.equal(inRange("2026-10-01T06:00:00+00:00", september), false);
+  assert.equal(inRange("2026-10-01T05:59:59.999+00:00", september), true);
+
+  const invoice = inv({ id: "a", status: "paid", total: 100, balance_due: 0, issued_at: "2026-09-01T06:00:00+00:00" });
+  const metrics = computeBillingMetrics({ invoices: [invoice], payments: [pay("a", 100, "2026-09-01T06:00:00+00:00")], range: september, today: "2026-10-15" });
+  assert.deepEqual([metrics.invoicesIssued, metrics.invoicedValue, metrics.invoicesPaid, metrics.collectedValue], [1, 100, 1, 100]);
 });
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import {
 } from "@/lib/activity/queries";
 import { getAppointmentOccurrenceMetrics, getBusinessMetricsSnapshot, getJobLeadLinkage, getOpportunityOutcomes } from "@/lib/bi/metrics";
 import { resolveDateRange } from "@/lib/bi/queries";
+import { getCashAttribution } from "@/lib/bi/cash-attribution";
 import { getOutcomeMetrics } from "@/lib/bi/outcome-metrics";
 import { getRevenueAttribution } from "@/lib/bi/revenue-attribution";
 import { getLeadsCreatedPerDay } from "@/lib/bi/series";
@@ -86,7 +87,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
   const chartRangeIsFallback = !(resolvedRange.from && resolvedRange.to);
   const chartRange = chartRangeIsFallback ? { from: fallbackRange.from!, to: fallbackRange.to! } : { from: resolvedRange.from!, to: resolvedRange.to! };
 
-  const [summary, activityPage, snapshot, repeatCustomerSummary, leadSeries, cachedInsights, appointmentOccurrence, opportunityOutcomes, jobLeadLinkage, revenueAttribution, outcomeMetrics] = await Promise.all([
+  const [summary, activityPage, snapshot, repeatCustomerSummary, leadSeries, cachedInsights, appointmentOccurrence, opportunityOutcomes, jobLeadLinkage, revenueAttribution, outcomeMetrics, cashAttribution] = await Promise.all([
     getActivitySummary(supabase, membership.organizationId),
     getActivityEntries(supabase, membership.organizationId, { query, entityType, from, to }, limit, timeZone),
     getBusinessMetricsSnapshot(supabase, membership.organizationId, range, { timeZone, now }),
@@ -110,6 +111,8 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
     getRevenueAttribution(supabase, membership.organizationId, resolvedRange),
     // Phase 2D (Analytics only): completed job value, estimate acceptance and lead → booking by outcome date.
     getOutcomeMetrics(supabase, membership.organizationId, resolvedRange),
+    // Phase 2E (Analytics only): payments received in the period by lead source - the Collected column of Revenue by source.
+    getCashAttribution(supabase, membership.organizationId, resolvedRange),
   ]);
 
   const hasActiveFilters = Boolean(query.trim()) || entityType !== "all" || Boolean(from) || Boolean(to);
@@ -142,7 +145,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
           repeatCustomerSummary's) is disclosed, never rendered as a
           confident $0/0%/"no data" on the page whose purpose is "how is my
           business doing." */}
-      {snapshot.partialData || repeatCustomerSummary.failed || appointmentOccurrence.failed || opportunityOutcomes.failed || jobLeadLinkage.failed || revenueAttribution.failed || outcomeMetrics.failed ? (
+      {snapshot.partialData || repeatCustomerSummary.failed || appointmentOccurrence.failed || opportunityOutcomes.failed || jobLeadLinkage.failed || revenueAttribution.failed || outcomeMetrics.failed || cashAttribution.failed ? (
         <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>Some information is temporarily unavailable. Please try again.</p>
@@ -162,7 +165,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
           trend={<TrendSection series={leadSeries.data} failed={leadSeries.failed} isFallbackWindow={chartRangeIsFallback} />}
         />
         <PipelineLeaksPanel snapshot={snapshot} outcomes={opportunityOutcomes.groups} />
-        <EstimatesJobsPanel snapshot={snapshot} jobLeadLinkage={jobLeadLinkage} attribution={revenueAttribution} outcomes={outcomeMetrics} />
+        <EstimatesJobsPanel snapshot={snapshot} jobLeadLinkage={jobLeadLinkage} attribution={revenueAttribution} outcomes={outcomeMetrics} cash={cashAttribution} />
         <ResponseCommunicationPanel snapshot={snapshot} />
         <SchedulingPanel snapshot={snapshot} occurrence={appointmentOccurrence.metrics} />
         <RetentionPanel snapshot={snapshot} repeat={repeatCustomerSummary} />
