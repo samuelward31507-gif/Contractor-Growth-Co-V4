@@ -29,6 +29,7 @@ function makeFakeSupabase(tables: Record<string, Row[]>) {
     let op = "select";
     let payload: unknown;
     let maybe = false;
+    let page: [number, number] | null = null;
     const matches = (row: Row) =>
       filters.every(({ kind, column, value }) => {
         const actual = row[column];
@@ -45,8 +46,10 @@ function makeFakeSupabase(tables: Record<string, Row[]>) {
       const rows = (tables[table] ??= []);
       calls.push({ table, op, payload, filters: [...filters] });
       let result: Row[] = [];
-      if (op === "select") result = rows.filter(matches);
-      else if (op === "insert") {
+      if (op === "select") {
+        result = rows.filter(matches);
+        if (page) result = result.slice(page[0], page[1] + 1); // Phase 2H: paged reads
+      } else if (op === "insert") {
         const incoming = (Array.isArray(payload) ? payload : [payload]) as Row[];
         const inserted = incoming.map((row, i) => ({ id: `${table}-${rows.length + i + 1}`, status: "open", created_at: "2026-10-05T00:00:00.000Z", ...row }));
         rows.push(...inserted);
@@ -72,6 +75,7 @@ function makeFakeSupabase(tables: Record<string, Row[]>) {
       lt: (column: string, value: unknown) => (filters.push({ kind: "lt", column, value }), b),
       order: () => b,
       limit: () => b,
+      range: (from: number, to: number) => ((page = [from, to]), b),
       maybeSingle: () => ((maybe = true), b),
       then: (resolve: (value: unknown) => void) => resolve(execute()),
     };

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { getOpenOpportunitiesResult, type Opportunity, type OpportunityType } from "./queries";
 import { getAutomationEnabledMap } from "@/lib/automation/settings";
 import { E164_PATTERN } from "@/lib/automation/sms";
@@ -22,8 +23,6 @@ import type { AttentionItem } from "@/lib/dashboard/queries";
  * deterministic, documented tiebreakers (see comparePriority below) - never
  * point-addition, never exposed to the client as a number.
  */
-
-const MAX_ROWS = 5000;
 
 export type ValueState = "known" | "unknown" | "not_applicable";
 
@@ -297,12 +296,13 @@ function comparePriority(a: PrioritizedOpportunity, b: PrioritizedOpportunity): 
  * named category, not a number - the client renders position/wording, never
  * a numeric rank.
  */
+type ContactPhoneRow = { id: string; phone: string | null; sms_opt_out: boolean };
+
 export async function getPrioritizedOpportunities(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<PrioritizedOpportunity[]> {
   const opportunitiesResult = await getOpenOpportunitiesResult(supabase, organizationId);
   const opportunities = opportunitiesResult.data;
   if (opportunities.length === 0) return [];
 
-  const contactIds = [...new Set(opportunities.map((opportunity) => opportunity.contactId).filter((id): id is string => id != null))];
   // Scoped to dormant_customer's own contacts only - see buildExplanation's
   // own comment on why this enrichment is deliberately not fetched for every
   // opportunity's contact. Bounded by however many dormant_customer
@@ -310,15 +310,20 @@ export async function getPrioritizedOpportunities(supabase: SupabaseClient, orga
   const dormantCustomerContactIds = [...new Set(opportunities.filter((opportunity) => opportunity.type === "dormant_customer" && opportunity.contactId).map((opportunity) => opportunity.contactId as string))];
 
   const [contactRowsResult, automationEnabledMap, organizationRowResult, dormantCustomerLifecycles] = await Promise.all([
-    contactIds.length > 0
-      ? supabase.from("contacts").select("id, phone, sms_opt_out").eq("organization_id", organizationId).in("id", contactIds).limit(MAX_ROWS)
-      : Promise.resolve({ data: [] as { id: string; phone: string | null; sms_opt_out: boolean }[] }),
+    // Phase 2H: every open opportunity's contact through a join, paged - the
+    // old id list of up to 500 contacts failed outright at ~400. It covers
+    // every opportunity shown above; a failed read still leaves the contact
+    // details empty, as before.
+    readAllPages<{ contact: ContactPhoneRow | ContactPhoneRow[] | null }>(() =>
+      supabase.from("opportunities").select("contact:contacts!opportunities_contact_id_fkey(id, phone, sms_opt_out)").eq("organization_id", organizationId).eq("status", "open").not("contact_id", "is", null).order("id"),
+    ),
     getAutomationEnabledMap(supabase, organizationId),
     supabase.from("organizations").select("automation_mode, payment_status, automation_paused").eq("id", organizationId).maybeSingle(),
     Promise.all(dormantCustomerContactIds.map(async (contactId) => [contactId, await getCustomerLifecycle(supabase, organizationId, contactId, now)] as const)),
   ]);
 
-  const contactById = new Map(((contactRowsResult.data ?? []) as { id: string; phone: string | null; sms_opt_out: boolean }[]).map((row) => [row.id, { phone: row.phone, smsOptOut: row.sms_opt_out }]));
+  const contactRows = contactRowsResult.failed ? [] : contactRowsResult.rows.map((row) => (Array.isArray(row.contact) ? (row.contact[0] ?? null) : row.contact)).filter((row): row is ContactPhoneRow => row !== null);
+  const contactById = new Map(contactRows.map((row) => [row.id, { phone: row.phone, smsOptOut: row.sms_opt_out }]));
   const lifecycleByContactId = new Map(dormantCustomerLifecycles);
 
   // Mirrors lib/opportunities/detect.ts's detectUncontactedLeads' own
