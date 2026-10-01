@@ -240,9 +240,11 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
         action={
           // Phase 3's own spec: Call and Text immediately at the top,
           // alongside identity - not buried in a sidebar contact card.
-          // Text links to the most relevant real conversation (open,
-          // else most recent) rather than fabricating a new one; Call
-          // only renders when a real phone number exists.
+          // Call and Text both hand off to the owner's own phone (tel:/sms:)
+          // and only render when a real phone number exists - Trackpr has no
+          // in-app compose, so Text must never imply it sends from here.
+          // Without a phone, the most relevant real conversation is still
+          // one click away, labeled for what that page actually does.
           <div className="flex items-center gap-2">
             {contact.phone ? (
               <a href={`tel:${contact.phone}`} className={`${primaryButtonAutoClass} gap-1.5`}>
@@ -250,10 +252,15 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                 Call
               </a>
             ) : null}
-            {mostRecentOpenConversation ? (
-              <Link href={`/conversations/${mostRecentOpenConversation.id}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
+            {contact.phone ? (
+              <a href={`sms:${contact.phone}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
                 <MessageCircle className="h-4 w-4" aria-hidden />
                 Text
+              </a>
+            ) : mostRecentOpenConversation ? (
+              <Link href={`/conversations/${mostRecentOpenConversation.id}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
+                <MessageCircle className="h-4 w-4" aria-hidden />
+                Open conversation
               </Link>
             ) : null}
             {/* Final Major Product Build: Schedule links to the real
