@@ -448,11 +448,12 @@ export type BiEstimateMetrics = {
    */
   estimateAcceptanceRate: Rate;
   /**
-   * totalJobs / acceptedEstimates. Reliable because job creation is
-   * synchronous with estimate acceptance in this codebase (one job per
-   * accepted estimate, enforced by a unique index on jobs.estimate_id - see
-   * lib/automation/jobs.ts) - every job traces back to exactly one accepted
-   * estimate. `null` when acceptedEstimates is 0.
+   * Accepted estimates (created in the period) that have a linked job via
+   * jobs.estimate_id / acceptedEstimates - "accepted estimates that became a
+   * job". Jobs created directly, with no estimate, are never counted, and
+   * the unique index on jobs.estimate_id allows at most one job per
+   * estimate, so the rate is at most 100%. `null` when acceptedEstimates is
+   * 0. See lib/bi/metrics.ts's estimateToJobRate.
    */
   estimateToJobRate: Rate;
 };
@@ -526,7 +527,10 @@ export type BiAutomationMetrics = {
 };
 
 export type BiAiMetrics = {
+  /** Every ai_interactions row in range, including the owner-requested business_insights reports - the figure agency usage and cost accounting use. */
   aiInteractions: number;
+  /** aiInteractions minus the business_insights reports (aiInteractionsByType.business_insights) - the AI work done for customers, which Today and Analytics show. Generating observations never inflates it. */
+  customerAiInteractions: number;
   /** ai_interactions where the stored structured output has should_send = true - the AI actually recommended sending a message (subject to the outbound gate, which is not reflected here). */
   aiOutboundInteractions: number;
   /** ai_interactions where interaction_type = 'customer_reply_response'. */

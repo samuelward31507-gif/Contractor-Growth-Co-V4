@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildAiMetrics, getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
 import { getLeadAndPipelineMetrics, resolveDateRange } from "@/lib/bi/queries";
 import type { BiAiMetrics, BusinessMetricsSnapshot } from "@/lib/bi/types";
+import type { DayBounds } from "@/lib/dashboard/sql";
 import { INSIGHT_TYPES, INSIGHT_SEVERITIES, INSIGHT_CONFIDENCES, type BusinessInsightsReport } from "@/lib/bi/insights";
 
 /**
@@ -61,9 +62,10 @@ export async function getDashboardPipelineValue(supabase: SupabaseClient, organi
   return { pipelineValue: pipeline.pipelineValue, failed };
 }
 
-/** Today's AI metrics for the Dashboard's "What AI handled" panel - see getDashboardPipelineValue above. */
-export async function getDashboardAiHandled(supabase: SupabaseClient, organizationId: string): Promise<{ aiMetrics: BiAiMetrics; failed: boolean }> {
-  const { metrics, failed } = await buildAiMetrics(supabase, organizationId, resolveDateRange("today"));
+/** Today's AI metrics for Today's "Trackpr handled" line - see getDashboardPipelineValue above. `bounds` is the calendar day to count (Today passes the organization's own day); omitted, it is the server-local "today" preset. */
+export async function getDashboardAiHandled(supabase: SupabaseClient, organizationId: string, bounds?: DayBounds): Promise<{ aiMetrics: BiAiMetrics; failed: boolean }> {
+  const range = bounds ? { label: "today", from: bounds.dayStart.toISOString(), to: bounds.dayEnd.toISOString() } : resolveDateRange("today");
+  const { metrics, failed } = await buildAiMetrics(supabase, organizationId, range);
   return { aiMetrics: metrics, failed };
 }
 

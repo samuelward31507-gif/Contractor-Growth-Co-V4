@@ -34,6 +34,7 @@ if (fs.existsSync(envPath)) {
 
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
 const { getOwnerDailyBriefing, getEndOfDaySummary }: typeof import("./queries") = require(path.join(REPO_ROOT, "lib/briefing/queries.ts"));
+const { organizationDayBounds }: typeof import("@/lib/dashboard/sql") = require(path.join(REPO_ROOT, "lib/dashboard/sql.ts"));
 
 const service = createServiceRoleClient();
 
@@ -79,7 +80,6 @@ test("1. empty state: a fresh organization with no data gets a real, useful fall
     assert.equal(briefing.newLeadsCount, 0);
     assert.equal(briefing.hotLeads.length, 0);
     assert.equal(briefing.appointmentsToday.length, 0);
-    assert.equal(briefing.aiEscalationsCount, 0);
     assert.equal(briefing.summary, "You're all caught up.");
 
     const endOfDay = await getEndOfDaySummary(service, emptyOrg!.id);
@@ -161,14 +161,19 @@ test("5. jobs recently completed only include status = 'completed' within the la
   assert.equal(briefing.jobsRecentlyCompleted[0].title, "Job A");
 });
 
-test("6. AI escalations count reflects open conversations with ai_enabled = false", async () => {
+test("6. an AI-off conversation is not reported as one waiting on the owner - that count was removed (Today counts awaiting_reply conversations instead)", async () => {
   await service.from("conversations").insert([
     { organization_id: organizationId, contact_id: contactId, channel: "sms", status: "open", ai_enabled: false },
     { organization_id: organizationId, contact_id: contactId, channel: "web", status: "open", ai_enabled: true },
   ]);
 
-  const briefing = await getOwnerDailyBriefing(service, organizationId);
-  assert.equal(briefing.aiEscalationsCount, 1);
+  for (const source of ["legacy", "sql"] as const) {
+    const briefing = await getOwnerDailyBriefing(service, organizationId, new Date(), { source });
+    const endOfDay = await getEndOfDaySummary(service, organizationId, new Date(), { source });
+    assert.ok(!("aiEscalationsCount" in briefing), source);
+    assert.ok(!("aiEscalationsCount" in endOfDay), source);
+    assert.doesNotMatch(briefing.summary, /waiting on you/, source);
+  }
 });
 
 test("7. end-of-day: leadsReceived/appointmentsBooked/estimatesSent/jobsWon reflect only TODAY's activity", async () => {
@@ -240,5 +245,26 @@ test("10. no AI dependency: neither function reads ANTHROPIC_API_KEY or makes an
     assert.ok(typeof summary.summary === "string" && summary.summary.length > 0);
   } finally {
     if (previous !== undefined) process.env.ANTHROPIC_API_KEY = previous;
+  }
+});
+
+test("11. sql source with organization-day bounds: leads received is an uncapped count over the organization's own calendar day", async () => {
+  const { data: freshOrg } = await service.from("organizations").insert({ name: "Briefing Test Org (Org Day)", timezone: "America/Denver" }).select("id").single();
+  try {
+    const { data: freshContact } = await service.from("contacts").insert({ organization_id: freshOrg!.id, phone: "+15555550604" }).select("id").single();
+    // Denver's 2026-03-08 (a 23-hour spring-forward day) is [07:00Z Mar 8, 06:00Z Mar 9).
+    const now = new Date("2026-03-08T20:00:00Z");
+    const dayBounds = organizationDayBounds(now, "America/Denver");
+    const inside = ["2026-03-08T07:00:00Z", "2026-03-08T09:00:00Z", "2026-03-08T15:00:00Z", "2026-03-08T18:00:00Z", "2026-03-08T21:00:00Z", "2026-03-09T01:00:00Z", "2026-03-09T05:30:00Z"];
+    const outside = ["2026-03-08T06:59:00Z", "2026-03-09T06:00:00Z"];
+    await service.from("leads").insert([...inside, ...outside].map((createdAt) => ({ organization_id: freshOrg!.id, contact_id: freshContact!.id, status: "new", temperature: "cold", source: "website", created_at: createdAt })));
+
+    const summary = await getEndOfDaySummary(service, freshOrg!.id, now, { source: "sql", dayBounds });
+    assert.equal(summary.leadsReceived, inside.length, "every lead in the organization's day - more than the 5-lead recent-activity sample, including the evening leads that fall on the next UTC day");
+    assert.equal(summary.partialData, false);
+  } finally {
+    await service.from("leads").delete().eq("organization_id", freshOrg!.id);
+    await service.from("contacts").delete().eq("organization_id", freshOrg!.id);
+    await service.from("organizations").delete().eq("id", freshOrg!.id);
   }
 });

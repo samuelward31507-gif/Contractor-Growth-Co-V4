@@ -1,11 +1,12 @@
 /**
- * Trackpr 2.0 (step 2E) - Dashboard 2.0:
+ * Today - the "right now" page:
  *
- *   1. the wording model (greeting, attention line, briefing, Trackpr
- *      handled, today so far, pipeline stages) - composed only from values
- *      the page already loads;
- *   2. the page structure: section order, the unchanged data batch, no
- *      hardcoded figures, real actions, vertical behavior, mobile targets.
+ *   1. the wording model (greeting, attention line, today's figures,
+ *      conversations waiting, Trackpr handled, where the work stands) -
+ *      composed only from values the page already loads;
+ *   2. the page structure: section order, the data batch, no historical
+ *      figures, no hardcoded figures, real actions, vertical behavior,
+ *      mobile targets.
  *
  * Run with:
  *   node --import ./lib/automation/test-loader.mjs --test "app/(app)/today/dashboard.test.ts"
@@ -48,105 +49,106 @@ test("the attention line counts what needs the owner, and says so plainly when n
   assert.equal(model.attentionLine(7), "7 things need your attention today.");
 });
 
-const QUIET = { leadsReceivedToday: 0, appointmentsToday: 0, quotesOutCount: 0, quotesOutValue: "$0", readyToScheduleCount: 0, overdueCount: 0, overdueValue: "$0.00", conversationsWaiting: 0 };
-
-test("briefing: a quiet day says only the true thing - no zero-count sentences", () => {
-  assert.deepEqual(model.briefingLines(QUIET), ["No new leads have come in yet today."]);
+test("conversations waiting: counts the awaiting_reply attention items only, and discloses the attention read's cap", () => {
+  const items = (kinds: string[]) => kinds.map((kind) => ({ kind }));
+  assert.deepEqual(model.conversationsWaitingCount(items([])), { count: 0, capped: false });
+  assert.deepEqual(model.conversationsWaitingCount(items(["awaiting_reply", "abandoned_conversation", "human_escalation", "awaiting_reply"])), { count: 2, capped: false }, "only conversations whose last message is the customer's count - not escalations or stalled outreach");
+  assert.deepEqual(model.conversationsWaitingCount(items(Array(5).fill("awaiting_reply"))), { count: 5, capped: true });
+  assert.equal(model.CONVERSATION_ATTENTION_CAP, 5, "matches dashboard_conversation_attention's own rn <= 5");
 });
 
-test("briefing: every non-zero figure becomes one sentence, most useful first, with correct plurals", () => {
-  assert.deepEqual(
-    model.briefingLines({ leadsReceivedToday: 3, appointmentsToday: 1, quotesOutCount: 2, quotesOutValue: "$18,400", readyToScheduleCount: 1, overdueCount: 2, overdueValue: "$950.00", conversationsWaiting: 1 }),
-    [
-      "3 new leads came in today.",
-      "You have 1 appointment today.",
-      "1 conversation is waiting on your reply.",
-      "2 estimates worth $18,400 are waiting on a decision.",
-      "1 accepted estimate hasn't been scheduled yet.",
-      "2 invoices ($950.00) are past due.",
-    ],
-  );
-  assert.deepEqual(model.briefingLines({ ...QUIET, leadsReceivedToday: 1, quotesOutCount: 1, quotesOutValue: "$500" }), ["1 new lead came in today.", "1 estimate worth $500 is waiting on a decision."]);
-});
-
-test("briefing sentences carry no AI branding or technical wording", () => {
-  const lines = model.briefingLines({ leadsReceivedToday: 3, appointmentsToday: 2, quotesOutCount: 2, quotesOutValue: "$1", readyToScheduleCount: 2, overdueCount: 1, overdueValue: "$1", conversationsWaiting: 2 });
-  for (const line of lines) assert.doesNotMatch(line, /\bAI\b|automation incident|workflow|n8n|webhook/i, line);
-});
-
-test("Trackpr handled: nothing is claimed on a day with no activity; 'recommended', never 'sent'", () => {
-  assert.deepEqual(model.handledItems({ aiInteractions: 0, customerReplyAiInteractions: 0, aiOutboundInteractions: 0, aiNeedsHumanCount: 0 }), []);
-  const items = model.handledItems({ aiInteractions: 5, customerReplyAiInteractions: 3, aiOutboundInteractions: 2, aiNeedsHumanCount: 1 });
-  assert.deepEqual(items.map((i) => [i.label, i.value, i.tone]), [
-    ["Conversations handled", 5, "neutral"],
-    ["Customer replies answered", 3, "neutral"],
-    ["Messages recommended", 2, "neutral"],
-    ["Handed to you", 1, "attention"],
+test("today figures: new leads, appointments and conversations waiting - each linking to where it is handled", () => {
+  const quiet = model.todayFigures({ leadsReceivedToday: 0, appointmentsToday: 0, conversationsWaiting: { count: 0, capped: false } });
+  assert.deepEqual(quiet.map((f) => [f.label, f.value, f.detail, f.href, f.tone]), [
+    ["New leads", "0", "None yet today", "/people", undefined],
+    ["Appointments", "0", "Nothing booked today", "/schedule", undefined],
+    ["Waiting on your reply", "0", "No customer is waiting", "/conversations", undefined],
   ]);
-  assert.ok(!items.some((i) => /sent/i.test(i.label)), "aiOutboundInteractions counts recommendations before the outbound gate - never 'sent'");
-  assert.equal(model.handledItems({ aiInteractions: 2, customerReplyAiInteractions: 1, aiOutboundInteractions: 1, aiNeedsHumanCount: 0 }).length, 3, "'Handed to you' only appears when something was");
+  const busy = model.todayFigures({ leadsReceivedToday: 3, appointmentsToday: 1, conversationsWaiting: { count: 1, capped: false } });
+  assert.deepEqual(busy.map((f) => [f.value, f.detail]), [["3", "Came in today"], ["1", "On the calendar today"], ["1", "1 conversation"]]);
+  assert.equal(busy[2].tone, "attention");
+  const capped = model.todayFigures({ leadsReceivedToday: 0, appointmentsToday: 0, conversationsWaiting: { count: 5, capped: true } });
+  assert.deepEqual([capped[2].value, capped[2].detail], ["5+", "5 or more conversations"], "a capped count is never shown as an exact 5");
 });
 
-test("today so far lists the end-of-day counts in business order", () => {
-  assert.deepEqual(model.activityItems({ leadsReceived: 4, appointmentsBooked: 2, estimatesSent: 1, jobsWonOrCompleted: 3 }), [
-    { label: "Leads received", value: 4 },
-    { label: "Appointments booked", value: 2 },
-    { label: "Estimates sent", value: 1 },
-    { label: "Jobs won or completed", value: 3 },
-  ]);
+test("Trackpr handled: one line from the customer-facing AI count, nothing claimed on a quiet day, 'handled' never 'sent'", () => {
+  assert.equal(model.handledLine({ customerAiInteractions: 0, aiNeedsHumanCount: 0 }), "Trackpr hasn't handled any conversations yet today.");
+  assert.equal(model.handledLine({ customerAiInteractions: 1, aiNeedsHumanCount: 0 }), "Trackpr handled 1 conversation today.");
+  assert.equal(model.handledLine({ customerAiInteractions: 5, aiNeedsHumanCount: 2 }), "Trackpr handled 5 conversations today · handed 2 to you.");
+  assert.doesNotMatch(model.handledLine({ customerAiInteractions: 5, aiNeedsHumanCount: 2 }), /sent/i);
+  assert.match(read("app/(app)/today/_components/dashboard-model.ts"), /Pick<BiAiMetrics, "customerAiInteractions" \| "aiNeedsHumanCount">/, "never the all-interactions count, which includes the owner's observations reports");
 });
 
-test("pipeline stages: five current-state stages, each linking to the page and filter that owns it", () => {
-  const stages = model.pipelineStages(
-    { hot_lead_count: 2, quotes_out_count: 3, ready_to_schedule_count: 1, won_not_finished_count: 4, outstanding_count: 1 },
-    { openLeads: "$10", quotesOut: "$20", readyToSchedule: "$30", inProgress: "$40", outstanding: "$50.00" },
-  );
-  assert.deepEqual(stages.map((s) => [s.label, s.value, s.detail, s.href]), [
-    ["Leads", "$10", "2 hot", "/people?temperature=hot"],
-    ["Quoted", "$20", "3 estimates", "/estimates?status=sent"],
-    ["Accepted", "$30", "1 to book", "/estimates?status=accepted"],
-    ["In progress", "$40", "4 jobs", "/jobs?status=in_progress"],
-    ["Unpaid", "$50.00", "1 invoice", "/money?browse=invoices&status=sent"],
+const SUMMARY = { hot_lead_count: 2, quotes_out_count: 3, ready_to_schedule_count: 1, won_not_finished_count: 4, outstanding_count: 1, not_yet_invoiced_count: 2, not_yet_invoiced_unknown_count: 0 };
+const VALUES = { openLeads: "$10", quotesOut: "$20", readyToSchedule: "$30", inProgress: "$40", readyToInvoice: "$45.00", outstanding: "$50.00" };
+
+test("where the work stands: six current-state stages, each linking to the page and filter that owns it", () => {
+  const stages = model.pipelineStages(SUMMARY, VALUES, { count: 0, value: "$0.00" });
+  assert.deepEqual(stages.map((s) => [s.label, s.value, s.detail, s.href, s.tone]), [
+    ["Leads", "$10", "2 hot", "/people?temperature=hot", undefined],
+    ["Quoted", "$20", "3 estimates", "/estimates?status=sent", undefined],
+    ["Accepted", "$30", "1 to book", "/estimates?status=accepted", undefined],
+    ["In progress", "$40", "4 jobs", "/jobs?status=in_progress", undefined],
+    ["Ready to invoice", "$45.00", "2 completed jobs", "/money?browse=jobs&status=completed", undefined],
+    ["Unpaid", "$50.00", "1 invoice", "/money?browse=invoices&status=sent", undefined],
   ]);
+  const unknown = model.pipelineStages({ ...SUMMARY, not_yet_invoiced_unknown_count: 1 }, VALUES, { count: 0, value: "$0.00" });
+  assert.equal(unknown[4].detail, "2 completed jobs · 1 with no amount", "jobs with no amount are disclosed, not silently left out of the value");
+});
+
+test("Unpaid is the one money-owed figure; anything past due is its secondary detail and links to the overdue filter", () => {
+  const unpaid = model.pipelineStages(SUMMARY, VALUES, { count: 2, value: "$950.00" })[5];
+  assert.deepEqual([unpaid.label, unpaid.value, unpaid.detail, unpaid.href, unpaid.tone], ["Unpaid", "$50.00", "$950.00 past due · 2 invoices", "/money?browse=invoices&status=overdue", "attention"]);
 });
 
 // ---------------------------------------------------------------------------
 // 2. Page structure
 // ---------------------------------------------------------------------------
 
-test("hierarchy: needs attention, then revenue beside the briefing, then Trackpr handled and the pipeline, then today so far and insights", () => {
-  const order = ["id=\"needs-attention\"", "id=\"revenue\"", "id=\"briefing\"", "id=\"handled\"", "id=\"pipeline\"", "id=\"activity\"", "id=\"insights\""].map((marker) => PAGE.indexOf(marker));
+test("hierarchy: needs attention, then Today, then where the work stands - nothing historical", () => {
+  const order = ["id=\"needs-attention\"", "id=\"today\"", "id=\"pipeline\""].map((marker) => PAGE.indexOf(marker));
   assert.ok(order.every((index) => index > 0), `every section is present: ${order}`);
   assert.deepEqual([...order].sort((a, b) => a - b), order, "sections appear in the approved order (also the mobile stacking order)");
   assert.match(PAGE, /<h1 className=\{pageTitleClass\}>\{greeting\}<\/h1>/);
+  for (const removed of ["id=\"revenue\"", "id=\"briefing\"", "id=\"handled\"", "id=\"activity\"", "id=\"insights\""]) assert.ok(!PAGE.includes(removed), `${removed} is gone from Today`);
 });
 
-test("data: the same single batch of reads - nothing added, the opportunity sync still scheduled inside it", () => {
+test("historical figures live on Analytics, not Today: no all-time Collected/Invoiced, no opportunity total, no cached observations", () => {
+  assert.doesNotMatch(PAGE + SECTIONS, /invoiceSummary\.collected|invoiceSummary\.invoiced\b|knownOpportunityValue|dashboardMoneyCounts/);
+  assert.doesNotMatch(PAGE + SECTIONS, /getCachedBusinessInsights|InsightsBody|GenerateInsightsButton|RevenuePanel|activityItems/);
+  assert.doesNotMatch(PAGE, /"Open opportunities"|label: "Collected"|label: "Invoiced"/);
+});
+
+test("conversations waiting come from the awaiting_reply attention items, not the AI-off escalation count", () => {
+  assert.match(PAGE, /conversationsWaiting: conversationsWaitingCount\(data\.attentionItems\)/);
+  assert.doesNotMatch(PAGE, /aiEscalationsCount/);
+});
+
+test("data: the organization timezone first, then one batch of reads sharing the organization's day - nothing else added, the opportunity sync still scheduled inside it", () => {
   const batch = PAGE.slice(PAGE.indexOf("await Promise.all(["), PAGE.indexOf("]);", PAGE.indexOf("await Promise.all([")));
   const calls = [
     "getDashboardSqlData(supabase, membership.organizationId)",
-    "getDashboardSummary(supabase, membership.organizationId)",
-    "getCachedBusinessInsights(supabase, membership.organizationId)",
+    "getDashboardSummary(supabase, membership.organizationId, briefingNow, dayBounds)",
     "getContacts(supabase, membership.organizationId)",
-    "getDashboardAiHandled(supabase, membership.organizationId)",
-    "getOwnerDailyBriefing(supabase, membership.organizationId, briefingNow, { source: \"sql\" })",
-    "getEndOfDaySummary(supabase, membership.organizationId, briefingNow, { source: \"sql\" })",
+    "getDashboardAiHandled(supabase, membership.organizationId, dayBounds)",
+    "getOwnerDailyBriefing(supabase, membership.organizationId, briefingNow, { source: \"sql\", dayBounds })",
+    "getEndOfDaySummary(supabase, membership.organizationId, briefingNow, { source: \"sql\", dayBounds })",
     "getOpenOpportunitiesResult(supabase, membership.organizationId)",
     "getPrioritizedOpportunities(supabase, membership.organizationId)",
-    "getOrganizationTimezone(supabase, membership.organizationId)",
     "scheduleOpportunitySync(supabase, membership.organizationId)",
   ];
   for (const call of calls) assert.ok(batch.includes(call), `batch still contains ${call}`);
   assert.equal((batch.match(/\(supabase, membership\.organizationId/g) ?? []).length, calls.length, "no read was added to the batch");
-  assert.equal((PAGE.match(/await /g) ?? []).length, 4, "only searchParams, the request client, the membership and the one batch are awaited");
+  assert.match(PAGE, /const timeZone = await getOrganizationTimezone\(supabase, membership\.organizationId\);[\s\S]*const dayBounds = organizationDayBounds\(briefingNow, timeZone \?\? "UTC"\);[\s\S]*await Promise\.all\(\[/, "the timezone is read before the batch so every day-scoped read uses the organization's day");
+  assert.equal((PAGE.match(/await /g) ?? []).length, 5, "only searchParams, the request client, the membership, the timezone and the one batch are awaited");
   assert.doesNotMatch(PAGE, /\.from\(|\.rpc\(|getOrganizationHealth|getBusinessMetricsSnapshot/);
 });
 
-test("system health is not duplicated on the Dashboard - the top bar is its one home", () => {
+test("system health is not duplicated on Today - the top bar is its one home", () => {
   assert.doesNotMatch(PAGE, /SystemStatus|getOrganizationHealth|All systems/);
 });
 
-test("no hardcoded business figures anywhere in the Dashboard's presentation", () => {
+test("no hardcoded business figures anywhere in Today's presentation", () => {
   for (const [name, source] of [["page", PAGE], ["sections", SECTIONS], ["model", read("app/(app)/today/_components/dashboard-model.ts")]] as const) {
     assert.doesNotMatch(source, /["'`>]\s*\$\d/, `${name} contains a literal dollar figure`);
     assert.doesNotMatch(source, /Samuel|Johnson|Sarah|Mike/, `${name} contains an example name`);
@@ -154,19 +156,19 @@ test("no hardcoded business figures anywhere in the Dashboard's presentation", (
 });
 
 test("every money figure comes from the loaded summary through its existing formatter", () => {
-  assert.match(PAGE, /value: formatMoney\(invoiceSummary\.collected\)/);
-  assert.match(PAGE, /value: formatMoney\(invoiceSummary\.outstanding\)/);
-  assert.match(PAGE, /value: formatMoney\(invoiceSummary\.invoiced\)/);
-  assert.match(PAGE, /value: formatCurrency\(money\.knownOpportunityValue\)/);
-  assert.match(PAGE, /quotesOutValue: formatCurrency\(summary\.data\.quotes_out_value\)/);
+  assert.match(PAGE, /outstanding: formatMoney\(invoiceSummary\.outstanding\)/);
+  assert.match(PAGE, /readyToInvoice: formatMoney\(invoiceSummary\.notYetInvoicedKnownValue\)/);
+  assert.match(PAGE, /\{ count: invoiceSummary\.overdueCount, value: formatMoney\(invoiceSummary\.overdue\) \}/);
+  assert.match(PAGE, /quotesOut: formatCurrency\(summary\.data\.quotes_out_value\)/);
 });
 
-test("actions: every attention row, revenue figure and pipeline stage is a real link with a specific label", () => {
+test("actions: every attention row, today figure and pipeline stage is a real link with a specific label", () => {
   assert.match(PAGE, /secondaryLabel=\{entry\.secondaryLabel\}/);
   assert.match(PAGE, /secondaryLabel="Review"/);
   assert.match(PAGE, /secondaryLabel: kind === "awaiting_reply" \? "Open conversation" : "View"/);
   assert.match(SECTIONS, /<Link\s+key=\{figure\.key\}\s+href=\{figure\.href\}/);
   assert.match(SECTIONS, /href=\{stage\.href\}/);
+  assert.match(PAGE, /<SectionLink href="\/money">Open Money<\/SectionLink>/, "the money-owed figure keeps its way into Money");
   assert.doesNotMatch(PAGE + SECTIONS, /Learn more/);
   assert.match(PAGE, /<ShowAllLink href="\/today\?all=1" count=\{totalNeedingAttention\} \/>/);
 });
@@ -183,15 +185,15 @@ test("vertical: the estimates/jobs/invoices pipeline only renders for a contract
 
 test("no AI branding in section headings - the business, not the technology", () => {
   const headings = [...PAGE.matchAll(/title="([^"]+)"/g)].map((m) => m[1]);
-  assert.ok(headings.length >= 5);
+  assert.ok(headings.length >= 2, "Today and Where the work stands carry static titles");
   for (const heading of headings) assert.doesNotMatch(heading, /\bAI\b/, heading);
 });
 
-test("mobile: rows, tabs, section links and revenue/pipeline cells keep a 44px touch target below sm", () => {
+test("mobile: rows, tabs, section links and today/pipeline cells keep a 44px touch target below sm", () => {
   assert.match(read("app/(app)/today/_components/today-view-tabs.tsx"), /min-h-11[^"]*sm:min-h-7/);
   assert.match(SECTIONS, /const LINK_CLASS =\s*"inline-flex min-h-11/);
-  assert.match(SECTIONS, /group flex min-h-11 flex-col/);
-  assert.match(SECTIONS, /flex min-h-11 items-center justify-between gap-3 px-4 py-3/);
+  assert.match(SECTIONS, /flex min-h-11 items-center justify-between gap-3 bg-surface px-4 py-3/, "today figures");
+  assert.match(SECTIONS, /flex min-h-11 items-center justify-between gap-3 px-4 py-3 transition/, "pipeline stages");
   assert.match(ROW, /secondaryButtonSmallClass/, "the row's action uses the small tier, which is 44px below sm");
   assert.match(ROW, /className="-my-3 truncate py-3 [^"]*sm:my-0 sm:py-0"/, "the name link's tap area is 44px below sm (20px text + py-3)");
   assert.match(read("lib/ui/form.ts"), /const SIZE_SM = "min-h-11/);
@@ -202,7 +204,7 @@ test("the attention row states its tone in words beside a dot, never color alone
   assert.match(ROW, /aria-label=\{`Call \$\{personName\}`\}/);
 });
 
-test("the Dashboard sits at the shared content width, on the light token system", () => {
+test("Today sits at the shared content width, on the light token system", () => {
   assert.match(PAGE, /<PageContainer>/);
   for (const source of [PAGE, SECTIONS, ROW]) assert.doesNotMatch(source, /slate-|emerald-|bg-gradient|font-mono/);
 });

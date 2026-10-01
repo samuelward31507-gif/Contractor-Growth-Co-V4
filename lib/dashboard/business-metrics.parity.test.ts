@@ -206,19 +206,21 @@ test("regression guard: /today never calls the full BI snapshot path again", () 
   // validate-dashboard-sql.mjs); a failed summary is disclosed as the
   // pipeline read's failure was.
   assert.doesNotMatch(page, /getDashboardPipelineValue/);
-  assert.match(page, /getDashboardSummary\(supabase, membership\.organizationId\)/);
-  assert.match(page, /getDashboardAiHandled\(supabase, membership\.organizationId\)/);
-  // Trackpr 2.0 (step 2E): the pipeline value now opens the "Where the work
-  // stands" flow, and today's AI metrics feed "Trackpr handled today".
+  assert.match(page, /getDashboardSummary\(supabase, membership\.organizationId, briefingNow, dayBounds\)/);
+  assert.match(page, /getDashboardAiHandled\(supabase, membership\.organizationId, dayBounds\)/, "today's AI metrics cover the organization's own day");
+  // The pipeline value opens the "Where the work stands" flow, and today's
+  // AI metrics feed Today's one "Trackpr handled" line.
   assert.match(page, /openLeads: formatCurrency\(summary\.data\.pipeline_value\)/);
-  assert.match(page, /handledItems\(aiHandled\.aiMetrics\)/);
+  assert.match(page, /handledLine\(aiHandled\.aiMetrics\)/);
   assert.match(page, /data\.partialData \|\| summary\.failed \|\| aiHandled\.failed \|\| dailyBriefing\.partialData \|\| endOfDaySummary\.partialData \|\| moneyDataFailed/);
 });
 
 test("the narrow loaders use the snapshot's own helpers and ranges - no redefinition", () => {
   const loaders = read("lib/dashboard/business-metrics.ts");
   assert.match(loaders, /getLeadAndPipelineMetrics\(supabase, organizationId, resolveDateRange\(DASHBOARD_DEFAULT_RANGE\)\)/);
-  assert.match(loaders, /buildAiMetrics\(supabase, organizationId, resolveDateRange\("today"\)\)/);
+  // Today passes the organization's own day; omitted, it is the snapshot's "today" preset.
+  assert.match(loaders, /const range = bounds \? \{ label: "today", from: bounds\.dayStart\.toISOString\(\), to: bounds\.dayEnd\.toISOString\(\) \} : resolveDateRange\("today"\);/);
+  assert.match(loaders, /buildAiMetrics\(supabase, organizationId, range\)/);
   assert.match(loaders, /export const DASHBOARD_DEFAULT_RANGE = "last30Days" as const;/);
   const metrics = read("lib/bi/metrics.ts");
   assert.match(metrics, /buildLeadMetrics\(supabase, organizationId, range\)/, "the snapshot still derives pipeline from buildLeadMetrics -> getLeadAndPipelineMetrics");

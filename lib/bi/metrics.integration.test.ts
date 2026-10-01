@@ -706,3 +706,53 @@ test("P1 #1: organization isolation - organization B's open pipeline never appea
     await service.from("organizations").delete().eq("id", orgA!.id);
   }
 });
+
+// ==================== Polish pass: Estimate -> job, customer-facing AI ====================
+
+test("Estimate → job: accepted estimates that became a job - directly-created jobs never inflate it, and it stays at or below 100%", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Estimate to Job)" }).select("id").single();
+  try {
+    const contactId = await makeContact(org!.id, "+15555550710");
+    const linkedEstimate = await makeEstimate(org!.id, contactId, null, "accepted", 1000);
+    await makeEstimate(org!.id, contactId, null, "accepted", 2000);
+    await makeEstimate(org!.id, contactId, null, "declined", 500);
+    const { error: jobError } = await service.from("jobs").insert([
+      { organization_id: org!.id, contact_id: contactId, estimate_id: linkedEstimate, title: "Linked job", status: "scheduled", amount: 1000 },
+      { organization_id: org!.id, contact_id: contactId, title: "Direct job 1", status: "scheduled", amount: 300 },
+      { organization_id: org!.id, contact_id: contactId, title: "Direct job 2", status: "completed", amount: 400 },
+      { organization_id: org!.id, contact_id: contactId, title: "Direct job 3", status: "in_progress", amount: 500 },
+    ]);
+    assert.equal(jobError, null);
+
+    const snapshot = await getBusinessMetricsSnapshot(service, org!.id, "allTime");
+    assert.equal(snapshot.jobMetrics.totalJobs, 4);
+    assert.equal(snapshot.estimateMetrics.acceptedEstimates, 2);
+    assert.equal(snapshot.estimateMetrics.estimateToJobRate, 50, "1 of 2 accepted estimates became a job - not 4 jobs / 2 accepted = 200%");
+    assert.equal(snapshot.partialData, false, "the jobs!jobs_estimate_id_fkey embed resolves without error");
+  } finally {
+    await service.from("jobs").delete().eq("organization_id", org!.id);
+    await service.from("estimates").delete().eq("organization_id", org!.id);
+    await service.from("contacts").delete().eq("organization_id", org!.id);
+    await service.from("organizations").delete().eq("id", org!.id);
+  }
+});
+
+test("business_insights reports count toward aiInteractions (usage/cost) but never toward customerAiInteractions", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Customer AI)" }).select("id").single();
+  try {
+    await makeAiInteraction(org!.id, null, "customer_reply_response");
+    await makeAiInteraction(org!.id, null, "lead_followup_response");
+    await makeAiInteraction(org!.id, null, "lead_followup_response");
+    await makeAiInteraction(org!.id, 900, "business_insights");
+    await makeAiInteraction(org!.id, 950, "business_insights");
+
+    const snapshot = await getBusinessMetricsSnapshot(service, org!.id, "allTime");
+    assert.equal(snapshot.aiMetrics.aiInteractions, 5);
+    assert.equal(snapshot.aiMetrics.customerAiInteractions, 3);
+    assert.equal(snapshot.aiMetrics.customerReplyAiInteractions, 1, "other AI metrics unchanged");
+    assert.equal(snapshot.aiMetrics.interactionsWithUsageData, 2, "usage/cost coverage still includes the reports");
+  } finally {
+    await service.from("ai_interactions").delete().eq("organization_id", org!.id);
+    await service.from("organizations").delete().eq("id", org!.id);
+  }
+});

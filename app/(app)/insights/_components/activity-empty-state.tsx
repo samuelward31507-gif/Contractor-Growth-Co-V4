@@ -1,10 +1,9 @@
-import { surfaceClass } from "@/lib/ui/surface";
-
+/** Renders inside the Activity timeline panel, which supplies the surface and border. */
 export function ActivityEmptyState() {
   return (
-    <div className={`${surfaceClass} flex flex-1 items-center justify-center px-6 py-20`}>
+    <div className="flex items-center justify-center px-2 py-12">
       <div className="max-w-sm text-center">
-        <h2 className="text-base font-medium text-ink">No activity yet.</h2>
+        <p className="text-sm font-medium text-ink">No activity yet.</p>
         <p className="mt-1.5 text-sm text-ink-3">
           Activity will appear here as you and your team use Trackpr - things like new contacts, lead updates, and
           appointment changes.

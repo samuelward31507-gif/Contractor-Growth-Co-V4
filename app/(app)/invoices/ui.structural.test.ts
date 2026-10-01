@@ -113,21 +113,22 @@ test("Money's invoice figures keep the terminology line: only Collected is money
 // Phase 1B-4: Financial Visibility
 // ---------------------------------------------------------------------------
 
-test("Dashboard's money row uses summarizeInvoiceMoney's definitions (Phase 2D: summed in SQL), judged against the organization's calendar date", () => {
+test("Today's money-owed figure uses summarizeInvoiceMoney's definitions (Phase 2D: summed in SQL), judged against the organization's calendar date", () => {
   // Phase 2D: dashboard_summary sums the complete invoice/payment ledger;
   // dashboardInvoiceSummary maps it back to summarizeInvoiceMoney's shape,
   // with overdue still decided by isOverdue against the org-timezone date.
   // Parity at cent precision: supabase/pending/scratch/validate-dashboard-sql.mjs.
-  assert.match(todayPage, /getDashboardSummary\(supabase, membership\.organizationId\)/);
+  assert.match(todayPage, /getDashboardSummary\(supabase, membership\.organizationId, briefingNow, dayBounds\)/);
   assert.match(todayPage, /dashboardInvoiceSummary\(summary\.data, today\)/);
   assert.match(todayPage, /calendarDateInTimeZone\(new Date\(\), timeZone \?\? "UTC"\)/);
-  // Trackpr 2.0 (step 2E): the Dashboard's revenue panel renders the same
-  // invoiceSummary figures (Collected, Outstanding with Overdue, Invoiced)
-  // with the same formatter - one computation, a new presentation.
-  assert.match(todayPage, /value: formatMoney\(invoiceSummary\.collected\)/);
-  assert.match(todayPage, /value: formatMoney\(invoiceSummary\.outstanding\)/);
-  assert.match(todayPage, /value: formatMoney\(invoiceSummary\.invoiced\)/);
-  assert.match(todayPage, /formatMoney\(invoiceSummary\.overdue\)\} past due/);
+  // Phase 2: Today shows only the current-state money owed (Unpaid, with
+  // anything past due as its detail) and what is ready to invoice - the
+  // same invoiceSummary figures and formatter. Period Collected/Invoiced
+  // live on Analytics.
+  assert.match(todayPage, /outstanding: formatMoney\(invoiceSummary\.outstanding\)/);
+  assert.match(todayPage, /readyToInvoice: formatMoney\(invoiceSummary\.notYetInvoicedKnownValue\)/);
+  assert.match(todayPage, /\{ count: invoiceSummary\.overdueCount, value: formatMoney\(invoiceSummary\.overdue\) \}/);
+  assert.doesNotMatch(todayPage, /invoiceSummary\.collected|invoiceSummary\.invoiced\b/, "no all-time Collected/Invoiced on Today");
   assert.match(todayPage, /const moneyDataFailed = summary\.failed;/, "a failed ledger read is disclosed, never rendered as a clean $0");
   assert.match(dashboardSql, /isOverdue\(\{ status: "sent", dueDate: bucket\.due_date \}, today\)/);
   assert.match(summaryCards, /variant === "dashboard" \? null : \(/, "the dashboard variant drops only Not yet invoiced");
@@ -137,7 +138,7 @@ test("Dashboard's money row uses summarizeInvoiceMoney's definitions (Phase 2D: 
 test("Insights reads billing from the BI snapshot only, shows the sanctioned definition, and no longer claims that no payment ledger exists", () => {
   assert.match(insightsSections, /snapshot\.billingMetrics|const \{ billingMetrics, comparisons, dataQuality \} = snapshot/);
   assert.match(insightsSections, /SANCTIONED_COLLECTED_REVENUE_DEFINITION/);
-  assert.match(insightsSections, /label="Collected"/);
+  assert.match(insightsSections, /label: "Collected"/);
   assert.match(insightsSections, /as of today/, "Outstanding/Overdue are labeled as balances as of today, not period totals");
   assert.match(insightsSections, /Based on \$\{count\(billingMetrics\.invoicesPaid/, "days to payment is never shown without its population");
   assert.match(insightsSections, /already subtracted from Collected/, "reversals stay visible separately");
@@ -145,7 +146,7 @@ test("Insights reads billing from the BI snapshot only, shows the sanctioned def
   for (const source of [insightsPage, insightsSections]) {
     assert.doesNotMatch(source, /no payment ledger exists|no payment infrastructure/i);
   }
-  assert.match(insightsPage, /<BillingSection snapshot=\{snapshot\} \/>/);
+  assert.match(insightsPage, /<RevenuePaymentsPanel snapshot=\{snapshot\} \/>/);
 });
 
 test("People and Inbox show invoice number, status, balance due and overdue to members - never notes, ids or tokens", () => {

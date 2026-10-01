@@ -21,7 +21,9 @@ const RANGE_OPTIONS: { value: DateRangePreset; label: string }[] = [
  */
 export function RangeTabs({ current, buildHref }: { current: DateRangePreset; buildHref: (range: DateRangePreset) => string }) {
   return (
-    <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Business performance period">
+    // One row that scrolls sideways on a phone instead of wrapping into a
+    // second line; the page itself never scrolls horizontally.
+    <div className="-mx-4 flex w-[calc(100%+2rem)] flex-nowrap gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:w-auto sm:px-0" role="tablist" aria-label="Business performance period">
       {RANGE_OPTIONS.map((option) => {
         const isActive = option.value === current;
         return (
@@ -30,7 +32,7 @@ export function RangeTabs({ current, buildHref }: { current: DateRangePreset; bu
             href={buildHref(option.value)}
             role="tab"
             aria-selected={isActive}
-            className={filterChipClass(isActive)}
+            className={`${filterChipClass(isActive)} shrink-0 whitespace-nowrap`}
           >
             {option.label}
           </Link>
