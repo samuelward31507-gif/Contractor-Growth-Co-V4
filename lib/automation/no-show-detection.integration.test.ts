@@ -122,8 +122,13 @@ test("11. an eligible past appointment (scheduled, well past end_at + grace peri
   const { data: appointment } = await service.from("appointments").select("status").eq("id", appointmentId).single();
   assert.equal(appointment?.status, "no_show");
 
-  const { data: event } = await service.from("automation_events").select("id").eq("organization_id", organizationId).eq("entity_id", appointmentId).eq("event_type", "appointment.no_show").maybeSingle();
+  const { data: event } = await service.from("automation_events").select("id, payload").eq("organization_id", organizationId).eq("entity_id", appointmentId).eq("event_type", "appointment.no_show").maybeSingle();
   assert.ok(event, "the existing appointment.no_show automation event must fire, exactly as it would from a manual click");
+
+  // The stored payload carries the send context the n8n callback re-derives
+  // from - contact_id and the contact's open SMS conversation - never lead_id.
+  const { data: conversation } = await service.from("conversations").select("id").eq("organization_id", organizationId).eq("contact_id", contactId).eq("channel", "sms").eq("status", "open").single();
+  assert.deepEqual(event.payload, { appointment_id: appointmentId, contact_id: contactId, conversation_id: conversation!.id });
 });
 
 test("12/13. an appointment whose end_at is still within the grace period is never touched", async () => {

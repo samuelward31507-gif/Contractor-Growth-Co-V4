@@ -20,11 +20,30 @@ export type EstimateLifecycleEventType = "estimate.accepted" | "estimate.decline
  * estimate send itself (already committed by the caller).
  */
 export async function emitEstimateSent(supabase: SupabaseClient, estimateId: string): Promise<void> {
+  // The estimate and its contact's open SMS conversation are resolved BEFORE
+  // the event is created, so the stored payload carries contact_id and
+  // conversation_id - the n8n callback re-derives send context only from the
+  // stored event, and automation_events has no UPDATE policy to add them
+  // afterward. Same pattern as emitPostJobFollowup. lead_id is deliberately
+  // not stored (the outbound gate would then also require the conversation's
+  // lead_id to match). The organization is read from the estimate itself
+  // (RLS-scoped to the caller's organization).
+  const { data: estimateOrg } = await supabase.from("estimates").select("organization_id").eq("id", estimateId).maybeSingle();
+  const estimate = estimateOrg?.organization_id ? await getEstimate(supabase, estimateOrg.organization_id as string, estimateId) : null;
+  if (!estimate) {
+    console.error("[automation] estimate.sent requested but estimate not found", { estimateId });
+    return;
+  }
+  const conversation = estimate.contact_id
+    ? await findOrCreateOpenConversation(supabase, estimate.organization_id, estimate.contact_id, "sms", estimate.lead_id)
+    : null;
+  const conversationId = conversation?.id ?? null;
+
   const eventResult = await createAutomationEvent(supabase, {
     eventType: "estimate.sent",
     entityType: "estimate",
     entityId: estimateId,
-    payload: { estimate_id: estimateId },
+    payload: { estimate_id: estimateId, contact_id: estimate.contact_id, conversation_id: conversationId },
     idempotencyKey: `estimate.sent:${estimateId}`,
   });
 
@@ -37,12 +56,6 @@ export async function emitEstimateSent(supabase: SupabaseClient, estimateId: str
 
   const organizationId = eventResult.event.organization_id;
 
-  const estimate = await getEstimate(supabase, organizationId, estimateId);
-  if (!estimate) {
-    console.error("[automation] estimate.sent event created but estimate not found", { estimateId });
-    return;
-  }
-
   const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, ESTIMATE_SENT_WORKFLOW);
   if (!executionResult.ok) {
     console.error("[automation] failed to start estimate.sent execution", { estimateId, error: executionResult.error });
@@ -54,7 +67,6 @@ export async function emitEstimateSent(supabase: SupabaseClient, estimateId: str
     getBusinessProfile(supabase, organizationId),
   ]);
 
-  let conversationId: string | null = null;
   let contact: { id: string; first_name: string | null; last_name: string | null; phone: string | null; email: string | null } | null = null;
 
   if (estimate.contact_id) {
@@ -69,15 +81,6 @@ export async function emitEstimateSent(supabase: SupabaseClient, estimateId: str
           email: fetchedContact.email,
         }
       : null;
-
-    const conversation = await findOrCreateOpenConversation(
-      supabase,
-      organizationId,
-      estimate.contact_id,
-      "sms",
-      estimate.lead_id,
-    );
-    conversationId = conversation?.id ?? null;
   }
 
   const contract: N8nWorkflowContract = {

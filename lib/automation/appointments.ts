@@ -70,11 +70,18 @@ function buildAppointmentPayload(
  * itself (already committed by the caller).
  */
 export async function emitAppointmentCreated(supabase: SupabaseClient, appointmentId: string): Promise<void> {
+  const context = await resolveAppointmentEventContext(supabase, null, appointmentId);
+  if (!context) {
+    console.error("[automation] appointment.created requested but appointment not found", { appointmentId });
+    return;
+  }
+  const { appointment, conversationId } = context;
+
   const eventResult = await createAutomationEvent(supabase, {
     eventType: "appointment.created",
     entityType: "appointment",
     entityId: appointmentId,
-    payload: { appointment_id: appointmentId },
+    payload: { appointment_id: appointmentId, contact_id: appointment.contact_id, conversation_id: conversationId },
     idempotencyKey: `appointment.created:${appointmentId}`,
   });
 
@@ -86,12 +93,6 @@ export async function emitAppointmentCreated(supabase: SupabaseClient, appointme
   if (eventResult.skipped) return;
 
   const organizationId = eventResult.event.organization_id;
-
-  const appointment = await getAppointment(supabase, organizationId, appointmentId);
-  if (!appointment) {
-    console.error("[automation] appointment.created event created but appointment not found", { appointmentId });
-    return;
-  }
 
   const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, APPOINTMENT_CREATED_WORKFLOW);
   if (!executionResult.ok) {
@@ -123,6 +124,7 @@ export async function emitAppointmentCreated(supabase: SupabaseClient, appointme
     businessProfile,
     workflowName: APPOINTMENT_CREATED_WORKFLOW,
     appointment,
+    conversationId,
     asService: false,
   });
 }
@@ -133,11 +135,18 @@ export async function emitAppointmentCreated(supabase: SupabaseClient, appointme
  * Server Action when an update transitions status into "no_show".
  */
 export async function emitAppointmentNoShow(supabase: SupabaseClient, appointmentId: string): Promise<void> {
+  const context = await resolveAppointmentEventContext(supabase, null, appointmentId);
+  if (!context) {
+    console.error("[automation] appointment.no_show requested but appointment not found", { appointmentId });
+    return;
+  }
+  const { appointment, conversationId } = context;
+
   const eventResult = await createAutomationEvent(supabase, {
     eventType: "appointment.no_show",
     entityType: "appointment",
     entityId: appointmentId,
-    payload: { appointment_id: appointmentId },
+    payload: { appointment_id: appointmentId, contact_id: appointment.contact_id, conversation_id: conversationId },
     idempotencyKey: `appointment.no_show:${appointmentId}`,
   });
 
@@ -149,12 +158,6 @@ export async function emitAppointmentNoShow(supabase: SupabaseClient, appointmen
   if (eventResult.skipped) return;
 
   const organizationId = eventResult.event.organization_id;
-
-  const appointment = await getAppointment(supabase, organizationId, appointmentId);
-  if (!appointment) {
-    console.error("[automation] appointment.no_show event created but appointment not found", { appointmentId });
-    return;
-  }
 
   const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, APPOINTMENT_NO_SHOW_WORKFLOW);
   if (!executionResult.ok) {
@@ -170,6 +173,7 @@ export async function emitAppointmentNoShow(supabase: SupabaseClient, appointmen
     attempt: executionResult.execution.attempt,
     workflowName: APPOINTMENT_NO_SHOW_WORKFLOW,
     appointment,
+    conversationId,
     asService: false,
   });
 }
@@ -185,11 +189,18 @@ export async function emitAppointmentNoShow(supabase: SupabaseClient, appointmen
  * there is exactly one no-show follow-up mechanism, never two.
  */
 export async function emitAppointmentNoShowAsService(supabase: SupabaseClient, organizationId: string, appointmentId: string): Promise<void> {
+  const context = await resolveAppointmentEventContext(supabase, organizationId, appointmentId);
+  if (!context) {
+    console.error("[automation] appointment.no_show requested but appointment not found", { appointmentId });
+    return;
+  }
+  const { appointment, conversationId } = context;
+
   const eventResult = await createAutomationEventAsService(supabase, organizationId, {
     eventType: "appointment.no_show",
     entityType: "appointment",
     entityId: appointmentId,
-    payload: { appointment_id: appointmentId },
+    payload: { appointment_id: appointmentId, contact_id: appointment.contact_id, conversation_id: conversationId },
     idempotencyKey: `appointment.no_show:${appointmentId}`,
   });
 
@@ -199,12 +210,6 @@ export async function emitAppointmentNoShowAsService(supabase: SupabaseClient, o
   }
   if (eventResult.duplicate) return;
   if (eventResult.skipped) return;
-
-  const appointment = await getAppointment(supabase, organizationId, appointmentId);
-  if (!appointment) {
-    console.error("[automation] appointment.no_show event created but appointment not found", { appointmentId });
-    return;
-  }
 
   const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, APPOINTMENT_NO_SHOW_WORKFLOW);
   if (!executionResult.ok) {
@@ -220,8 +225,41 @@ export async function emitAppointmentNoShowAsService(supabase: SupabaseClient, o
     attempt: executionResult.execution.attempt,
     workflowName: APPOINTMENT_NO_SHOW_WORKFLOW,
     appointment,
+    conversationId,
     asService: true,
   });
+}
+
+/**
+ * Resolves the appointment and its contact's open SMS conversation BEFORE
+ * the event is created, so the stored payload carries contact_id and
+ * conversation_id: the n8n callback re-derives send context only from the
+ * stored event, and automation_events has no UPDATE policy to add them
+ * afterward. Same pattern as emitPostJobFollowup. lead_id is deliberately
+ * not stored - the outbound gate would then also require the (possibly
+ * pre-existing) conversation's lead_id to match. A signed-in caller passes
+ * null for organizationId; it is then read from the appointment itself
+ * (RLS-scoped to the caller's organization).
+ */
+async function resolveAppointmentEventContext(
+  supabase: SupabaseClient,
+  organizationId: string | null,
+  appointmentId: string,
+): Promise<{ appointment: NonNullable<Awaited<ReturnType<typeof getAppointment>>>; conversationId: string | null } | null> {
+  let orgId = organizationId;
+  if (!orgId) {
+    const { data } = await supabase.from("appointments").select("organization_id").eq("id", appointmentId).maybeSingle();
+    orgId = (data?.organization_id as string | undefined) ?? null;
+  }
+  if (!orgId) return null;
+
+  const appointment = await getAppointment(supabase, orgId, appointmentId);
+  if (!appointment) return null;
+
+  const conversation = appointment.contact_id
+    ? await findOrCreateOpenConversation(supabase, orgId, appointment.contact_id, "sms", appointment.lead_id)
+    : null;
+  return { appointment, conversationId: conversation?.id ?? null };
 }
 
 async function dispatchAppointmentWorkflow(
@@ -234,6 +272,8 @@ async function dispatchAppointmentWorkflow(
     attempt: number;
     workflowName: string;
     appointment: NonNullable<Awaited<ReturnType<typeof getAppointment>>>;
+    /** Resolved before the event was created (see resolveAppointmentEventContext). */
+    conversationId: string | null;
     asService: boolean;
     /** Reuses an already-fetched profile (see emitAppointmentCreated, which needs it earlier for the founder notification too) rather than fetching it a second time. Fetched here when omitted. */
     businessProfile?: Awaited<ReturnType<typeof getBusinessProfile>>;
@@ -248,7 +288,7 @@ async function dispatchAppointmentWorkflow(
 
   const timezone = businessProfile?.timezone ?? "UTC";
 
-  let conversationId: string | null = null;
+  const { conversationId } = input;
   let contact: { id: string; first_name: string | null; last_name: string | null; phone: string | null; email: string | null } | null = null;
 
   if (appointment.contact_id) {
@@ -261,15 +301,6 @@ async function dispatchAppointmentWorkflow(
           email: appointment.contact.email,
         }
       : null;
-
-    const conversation = await findOrCreateOpenConversation(
-      supabase,
-      organizationId,
-      appointment.contact_id,
-      "sms",
-      appointment.lead_id,
-    );
-    conversationId = conversation?.id ?? null;
   }
 
   const contract: N8nWorkflowContract = {

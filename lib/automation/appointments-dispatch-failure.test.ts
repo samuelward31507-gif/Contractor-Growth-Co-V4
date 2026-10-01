@@ -68,7 +68,11 @@ mock.module(at("../supabase/service.ts"), { namedExports: { createServiceRoleCli
 
 const { emitAppointmentNoShowAsService, emitAppointmentNoShow } = await import("./appointments");
 
-const fakeSupabase = {} as never;
+// Only query a signed-in emitter now makes itself: reading the appointment's
+// organization before creating the event (everything else is mocked above).
+const fakeSupabase = {
+  from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { organization_id: "org-1" }, error: null }) }) }) }),
+} as never;
 const called = (fn: string) => calls.filter((c) => c.fn === fn);
 
 async function runAfterCallbacks() {
