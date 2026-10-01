@@ -577,6 +577,21 @@ export async function getOpportunityOutcomes(supabase: SupabaseClient, organizat
   return { groups: groupOpportunityOutcomes((data ?? []) as { status: string; resolution_reason: string | null; estimated_value: number | null }[]), failed: error != null };
 }
 
+/**
+ * Phase 2B (Analytics only): lifecycle linkage coverage - how many of the
+ * organization's jobs (all time) are linked to a lead, the link revenue
+ * attribution, lead-to-paid conversion and sales-cycle reporting depend on.
+ * Two head-only counts, no rows read. Not part of the snapshot, so Agency
+ * and the AI observations never see it.
+ */
+export async function getJobLeadLinkage(supabase: SupabaseClient, organizationId: string): Promise<{ linked: number; total: number; failed: boolean }> {
+  const [all, linked] = await Promise.all([
+    supabase.from("jobs").select("id", { count: "exact", head: true }).eq("organization_id", organizationId),
+    supabase.from("jobs").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).not("lead_id", "is", null),
+  ]);
+  return { linked: linked.count ?? 0, total: all.count ?? 0, failed: all.error != null || linked.error != null };
+}
+
 async function buildCommunicationMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiCommunicationMetrics> {
   const [communication, optOutCount] = await Promise.all([
     getCommunicationMetrics(supabase, organizationId, range),

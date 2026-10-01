@@ -259,7 +259,7 @@ export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessM
  * Estimate and job volume and value for the period. The conversion rates
  * between them live once, in Leads & conversion, rather than repeating here.
  */
-export function EstimatesJobsPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+export function EstimatesJobsPanel({ snapshot, jobLeadLinkage }: { snapshot: BusinessMetricsSnapshot; jobLeadLinkage: { linked: number; total: number } }) {
   const { estimateMetrics, jobMetrics, comparisons, period } = snapshot;
 
   return (
@@ -279,6 +279,7 @@ export function EstimatesJobsPanel({ snapshot }: { snapshot: BusinessMetricsSnap
             { key: "avg-estimate-value", label: "Avg. estimate value", value: estimateMetrics.averageEstimateValue === null ? "Not enough data yet" : formatCurrency(estimateMetrics.averageEstimateValue) },
             { key: "contracted-value", label: "Contracted job value", value: formatCurrency(jobMetrics.contractedJobValue) },
             { key: "avg-contracted-value", label: "Avg. contracted value", value: jobMetrics.averageContractedJobValue === null ? "Not enough data yet" : formatCurrency(jobMetrics.averageContractedJobValue) },
+            { key: "jobs-linked-to-lead", label: "Jobs linked to a lead", value: `${jobLeadLinkage.linked} of ${jobLeadLinkage.total}`, detail: "All time" },
           ]}
         />
         <BreakdownGrid>
@@ -513,6 +514,7 @@ const DEFINITIONS: { term: string; definition: string }[] = [
   { term: "Open leads and open lead value", definition: "Leads in an open stage right now, and the estimated value entered on each - a manual estimate, not revenue." },
   { term: "Recoverable estimate value", definition: "Open and expired estimates not yet declined - real opportunity, never guaranteed revenue or a close probability." },
   { term: "Lead sources", definition: "Free text, not standardized - shown for visibility only, never ranked by performance." },
+  { term: "Jobs linked to a lead", definition: "Every job you have, all time, that has the lead it came from recorded on it. Jobs created from an estimate take the estimate's lead automatically. Unlinked jobs can't be traced back to a lead source, so this shows how complete your revenue attribution can be." },
   { term: "Estimate and job values", definition: "Quoted or contracted amounts. Only customer payments recorded in Trackpr count as collected." },
   { term: "New conversations and opt-outs", definition: "Conversations started in the selected period, counted by whether they are still open or now closed - not opened or closed during it. New contacts who opted out are contacts added in the period who have since opted out." },
   { term: "Scheduling", definition: "Appointments by the day they take place in the selected period, not the day they were booked." },

@@ -50,7 +50,7 @@ export function JobDialog({ contacts, leads, onClose }: { contacts: Contact[]; l
 
         <div className="space-y-1.5">
           <label className={labelClass}>Lead</label>
-          <LeadPicker leads={leads} contactId={contactId} />
+          <LeadPicker leads={leads} contactId={contactId} defaultToNewestOpenLead emptyLabel="No lead" />
         </div>
 
         <div className="space-y-1.5">

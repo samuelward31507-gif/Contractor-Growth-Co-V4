@@ -35,7 +35,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
-const { getBusinessMetricsSnapshot }: typeof import("./metrics") = require(path.join(REPO_ROOT, "lib/bi/metrics.ts"));
+const { getBusinessMetricsSnapshot, getJobLeadLinkage }: typeof import("./metrics") = require(path.join(REPO_ROOT, "lib/bi/metrics.ts"));
 const { emitLeadStageChangedAsService }: typeof import("@/lib/automation/lead-stage-history") = require(path.join(REPO_ROOT, "lib/automation/lead-stage-history.ts"));
 
 const service = createServiceRoleClient();
@@ -861,5 +861,32 @@ test("Phase 2A organization calendar: with Denver's timezone, a lead at 19:00 MD
     await service.from("leads").delete().eq("organization_id", org!.id);
     await service.from("contacts").delete().eq("organization_id", org!.id);
     await service.from("organizations").delete().eq("id", org!.id);
+  }
+});
+
+test("Phase 2B: getJobLeadLinkage counts every job and those with a lead, all time, only in its own organization", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Job lead linkage)" }).select("id").single();
+  const { data: other } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Job lead linkage, other)" }).select("id").single();
+  try {
+    assert.deepEqual(await getJobLeadLinkage(service, org!.id), { linked: 0, total: 0, failed: false });
+    const contactId = await makeContact(org!.id, "+15555550731");
+    const leadId = await makeLead(org!.id, contactId, "won");
+    await service.from("jobs").insert([
+      { organization_id: org!.id, contact_id: contactId, lead_id: leadId, title: "Linked", status: "scheduled" },
+      { organization_id: org!.id, contact_id: contactId, lead_id: null, title: "Direct A", status: "scheduled" },
+      { organization_id: org!.id, contact_id: contactId, lead_id: null, title: "Direct B", status: "completed" },
+    ]);
+    const otherContact = await makeContact(other!.id, "+15555550732");
+    const otherLead = await makeLead(other!.id, otherContact, "won");
+    await service.from("jobs").insert({ organization_id: other!.id, contact_id: otherContact, lead_id: otherLead, title: "Other org", status: "scheduled" });
+
+    assert.deepEqual(await getJobLeadLinkage(service, org!.id), { linked: 1, total: 3, failed: false });
+  } finally {
+    for (const orgId of [org!.id, other!.id]) {
+      await service.from("jobs").delete().eq("organization_id", orgId);
+      await service.from("leads").delete().eq("organization_id", orgId);
+      await service.from("contacts").delete().eq("organization_id", orgId);
+      await service.from("organizations").delete().eq("id", orgId);
+    }
   }
 });
