@@ -1,7 +1,8 @@
 import { isSameCalendarDay } from "@/lib/appointments/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { Contact, Users, CalendarClock, MessageSquare, Receipt, Wallet, Activity as ActivityIcon, type LucideIcon } from "lucide-react";
-import { formatInvoiceNumber, formatMoney, labelStatus, PAYMENT_METHODS, type InvoiceStatus } from "@/lib/invoices/domain";
+import { addDaysToCalendarDate, calendarDateInTimeZone, formatInvoiceNumber, formatMoney, labelStatus, PAYMENT_METHODS, type InvoiceStatus } from "@/lib/invoices/domain";
+import { safeTimeZone } from "@/lib/bi/date-range";
 
 const ENTITY_LABELS: Record<string, string> = {
   contact: "Contact",
@@ -144,7 +145,19 @@ export function describeMetadata(metadata: unknown): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-export function getActivityDayLabel(iso: string, now: Date = new Date()): string {
+export function getActivityDayLabel(iso: string, now: Date = new Date(), timeZone?: string): string {
+  // Phase 2A: with an organization timezone (Analytics), "Today" and
+  // "Yesterday" are the organization's calendar days and the heading date is
+  // formatted in its zone. Omitted, the original server-local behavior.
+  if (timeZone !== undefined) {
+    const zone = safeTimeZone(timeZone);
+    const day = calendarDateInTimeZone(new Date(iso), zone);
+    const today = calendarDateInTimeZone(now, zone);
+    if (day === today) return "Today";
+    if (day === addDaysToCalendarDate(today, -1)) return "Yesterday";
+    return new Date(iso).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: zone });
+  }
+
   const date = new Date(iso);
   if (isSameCalendarDay(date, now)) return "Today";
 
@@ -155,6 +168,6 @@ export function getActivityDayLabel(iso: string, now: Date = new Date()): string
   return date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 }
 
-export function formatActivityTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+export function formatActivityTime(iso: string, timeZone?: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...(timeZone !== undefined ? { timeZone: safeTimeZone(timeZone) } : {}) });
 }

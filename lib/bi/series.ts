@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { addDaysToCalendarDate, calendarDateInTimeZone } from "@/lib/invoices/domain";
+import { safeTimeZone } from "./date-range";
 
 const MAX_ROWS = 10_000;
 /** Safety bound on the number of day buckets a single call can produce - matches this file's own "cap, don't remove" convention (see lib/bi/queries.ts's MAX_ROWS comment). A caller should never need more than a year of daily buckets in one chart. */
@@ -23,7 +25,17 @@ function toLocalDateKey(date: Date): string {
  * page-level comment for why), so this function never has to guess how far
  * back to go.
  */
-export function buildDayBuckets(fromIso: string, toIso: string): string[] {
+export function buildDayBuckets(fromIso: string, toIso: string, timeZone?: string): string[] {
+  // Phase 2A: with an organization timezone (Analytics), the buckets are the
+  // organization's calendar days - the same days its range boundaries are
+  // local midnights of. Without one, the original server-local behavior.
+  if (timeZone !== undefined) {
+    const zone = safeTimeZone(timeZone);
+    const end = calendarDateInTimeZone(new Date(toIso), zone);
+    const days: string[] = [];
+    for (let day = calendarDateInTimeZone(new Date(fromIso), zone); day < end && days.length < MAX_BUCKETS; day = addDaysToCalendarDate(day, 1)) days.push(day);
+    return days;
+  }
   const from = new Date(fromIso);
   const to = new Date(toIso);
   const buckets: string[] = [];
@@ -56,6 +68,7 @@ export async function getLeadsCreatedPerDay(
   supabase: SupabaseClient,
   organizationId: string,
   range: { from: string; to: string },
+  timeZone?: string,
 ): Promise<DailyCountSeries> {
   const { data, error } = await supabase
     .from("leads")
@@ -69,15 +82,25 @@ export async function getLeadsCreatedPerDay(
     return { data: [], failed: true };
   }
 
-  const buckets = buildDayBuckets(range.from, range.to);
-  const counts = new Map(buckets.map((date) => [date, 0]));
+  return { data: countByDay((data ?? []).map((row) => row.created_at as string), range, timeZone), failed: false };
+}
 
-  for (const row of data ?? []) {
-    const key = toLocalDateKey(new Date(row.created_at));
+/**
+ * Pure: one count per calendar day in [range.from, range.to), each timestamp
+ * landing on its own calendar day - the organization's when `timeZone` is
+ * given (Analytics), else the server's local day, as before.
+ */
+export function countByDay(timestamps: string[], range: { from: string; to: string }, timeZone?: string): DailyCount[] {
+  const buckets = buildDayBuckets(range.from, range.to, timeZone);
+  const counts = new Map(buckets.map((date) => [date, 0]));
+  const zone = timeZone !== undefined ? safeTimeZone(timeZone) : undefined;
+
+  for (const timestamp of timestamps) {
+    const key = zone !== undefined ? calendarDateInTimeZone(new Date(timestamp), zone) : toLocalDateKey(new Date(timestamp));
     if (counts.has(key)) {
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
 
-  return { data: buckets.map((date) => ({ date, count: counts.get(date) ?? 0 })), failed: false };
+  return buckets.map((date) => ({ date, count: counts.get(date) ?? 0 }));
 }

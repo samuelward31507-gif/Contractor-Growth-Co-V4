@@ -11,8 +11,9 @@ import {
   getReviewReferralMetrics,
 } from "./queries";
 import { hasAnyLeadStageHistory, getLeadsForRangeResult, getLeadStageTransitionMetrics, getLeadStageTimingMetrics, getLeadResponseTimeMetrics } from "./funnel";
-import { computeBillingMetrics, getBillingRowsResult, SANCTIONED_COLLECTED_REVENUE_DEFINITION, type BiBillingMetrics } from "./billing";
+import { computeBillingMetrics, computeInvoiceAging, getBillingRowsResult, SANCTIONED_COLLECTED_REVENUE_DEFINITION, type BiBillingMetrics } from "./billing";
 import { calendarDateInTimeZone } from "@/lib/invoices/domain";
+import { calendarDaysBetween, previousOrganizationRange, safeTimeZone } from "./date-range";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import type {
   DateRangeInput,
@@ -29,6 +30,7 @@ import type {
   BiAiMetrics,
   BiFollowUpMetrics,
   BiRevenueOpportunity,
+  BiEstimateAging,
   BiDataQuality,
   BusinessMetricsSnapshot,
   LeadStageTimingMetrics,
@@ -238,13 +240,19 @@ async function getLeadBookingCrossReference(
 }
 
 /** Growth System Completion Pass 2, Part 3: SUM(estimates.amount) grouped by status = 'sent' (openEstimateValue), 'expired', and 'declined' - one query for all three "opportunity" value fields. */
-async function getEstimateOpportunityValues(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ openEstimateValue: number; expiredEstimateValue: number; lostEstimateValue: number }> {
-  let query = supabase.from("estimates").select("status, amount").eq("organization_id", organizationId).in("status", ["sent", "expired", "declined"]).limit(MAX_ROWS);
+type SentEstimateRow = { amount: number | null; sent_at: string | null; expires_at: string | null };
+
+async function getEstimateOpportunityValues(
+  supabase: SupabaseClient,
+  organizationId: string,
+  range: ResolvedDateRange,
+): Promise<{ openEstimateValue: number; expiredEstimateValue: number; lostEstimateValue: number; sentRows: SentEstimateRow[] }> {
+  let query = supabase.from("estimates").select("status, amount, sent_at, expires_at").eq("organization_id", organizationId).in("status", ["sent", "expired", "declined"]).limit(MAX_ROWS);
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
   const { data } = await query;
-  const rows = (data ?? []) as { status: "sent" | "expired" | "declined"; amount: number | null }[];
+  const rows = (data ?? []) as ({ status: "sent" | "expired" | "declined" } & SentEstimateRow)[];
 
   let openEstimateValue = 0;
   let expiredEstimateValue = 0;
@@ -254,7 +262,44 @@ async function getEstimateOpportunityValues(supabase: SupabaseClient, organizati
     else if (row.status === "expired") expiredEstimateValue += row.amount ?? 0;
     else lostEstimateValue += row.amount ?? 0;
   }
-  return { openEstimateValue, expiredEstimateValue, lostEstimateValue };
+  return { openEstimateValue, expiredEstimateValue, lostEstimateValue, sentRows: rows.filter((row) => row.status === "sent") };
+}
+
+/**
+ * Phase 2A (Analytics): estimates still awaiting a decision (status sent), by
+ * whole calendar days since sent_at in the organization's timezone - 0-7,
+ * 8-30, 31+ - with value, plus a "no send date" bucket for any without one
+ * (never guessed into an age), and how many are already past expires_at.
+ * Pure - unit-tested in metrics.rates.test.ts.
+ */
+export function computeEstimateAging(sentRows: SentEstimateRow[], now: Date, timeZone: string): BiEstimateAging {
+  const zone = safeTimeZone(timeZone);
+  const today = calendarDateInTimeZone(now, zone);
+  const buckets: { key: string; label: string; values: number[] }[] = [
+    { key: "0-7", label: "0-7 days", values: [] },
+    { key: "8-30", label: "8-30 days", values: [] },
+    { key: "31+", label: "31+ days", values: [] },
+    { key: "undated", label: "No send date", values: [] },
+  ];
+  let pastExpiryCount = 0;
+  let pastExpiryValue = 0;
+  for (const row of sentRows) {
+    const amount = row.amount ?? 0;
+    if (!row.sent_at) buckets[3].values.push(amount);
+    else {
+      const age = calendarDaysBetween(calendarDateInTimeZone(new Date(row.sent_at), zone), today);
+      buckets[age <= 7 ? 0 : age <= 30 ? 1 : 2].values.push(amount);
+    }
+    if (row.expires_at && new Date(row.expires_at).getTime() < now.getTime()) {
+      pastExpiryCount += 1;
+      pastExpiryValue += amount;
+    }
+  }
+  return {
+    buckets: buckets.map((bucket) => ({ key: bucket.key, label: bucket.label, count: bucket.values.length, value: bucket.values.reduce((sum, value) => sum + value, 0) })),
+    pastExpiryCount,
+    pastExpiryValue,
+  };
 }
 
 /** Growth System Completion Pass 2, Part 3: completed appointments (in `range`) whose lead has no estimate at all - a real visit that never turned into a quote. Estimate existence is checked without its own date bound - the question is "does one exist at all," not "was one created in the same window." */
@@ -299,22 +344,25 @@ async function getCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient,
  * parameter and fetches its own leads/appointments cross-reference rather
  * than reusing buildLeadMetrics's range-scoped one.
  */
-async function buildRevenueOpportunity(supabase: SupabaseClient, organizationId: string): Promise<BiRevenueOpportunity> {
+async function buildRevenueOpportunity(supabase: SupabaseClient, organizationId: string, now: Date, timeZone: string): Promise<{ opportunity: BiRevenueOpportunity; estimateAging: BiEstimateAging }> {
   const unboundedRange = resolveDateRange("allTime");
 
-  const [{ openEstimateValue, expiredEstimateValue, lostEstimateValue }, completedAppointmentsWithoutEstimate, bookingCrossReference] = await Promise.all([
+  const [{ openEstimateValue, expiredEstimateValue, lostEstimateValue, sentRows }, completedAppointmentsWithoutEstimate, bookingCrossReference] = await Promise.all([
     getEstimateOpportunityValues(supabase, organizationId, unboundedRange),
     getCompletedAppointmentsWithoutEstimate(supabase, organizationId, unboundedRange),
     getLeadBookingCrossReference(supabase, organizationId, unboundedRange),
   ]);
 
   return {
-    openEstimateValue,
-    expiredEstimateValue,
-    lostEstimateValue,
-    recoverableEstimateValue: openEstimateValue + expiredEstimateValue,
-    qualifiedLeadsWithoutAppointment: bookingCrossReference.qualifiedLeadsWithoutAppointment,
-    completedAppointmentsWithoutEstimate,
+    opportunity: {
+      openEstimateValue,
+      expiredEstimateValue,
+      lostEstimateValue,
+      recoverableEstimateValue: openEstimateValue + expiredEstimateValue,
+      qualifiedLeadsWithoutAppointment: bookingCrossReference.qualifiedLeadsWithoutAppointment,
+      completedAppointmentsWithoutEstimate,
+    },
+    estimateAging: computeEstimateAging(sentRows, now, timeZone),
   };
 }
 
@@ -455,6 +503,78 @@ async function buildAppointmentMetrics(supabase: SupabaseClient, organizationId:
     },
     failed: appointments.failed,
   };
+}
+
+/** Pure: status counts and no-show rate for a set of appointments - the same definitions buildAppointmentMetrics uses. */
+export function summarizeAppointmentStatuses(rows: { status: string }[]): BiAppointmentMetrics {
+  const count = (status: string) => rows.filter((row) => row.status === status).length;
+  const completedAppointments = count("completed");
+  const cancelledAppointments = count("cancelled");
+  const noShowAppointments = count("no_show");
+  return {
+    totalAppointments: rows.length,
+    scheduledAppointments: count("scheduled"),
+    confirmedAppointments: count("confirmed"),
+    completedAppointments,
+    cancelledAppointments,
+    noShowAppointments,
+    appointmentNoShowRate: rate(noShowAppointments, completedAppointments + cancelledAppointments + noShowAppointments),
+  };
+}
+
+/**
+ * Phase 2A (Analytics only): appointments by when they take place - start_at
+ * in [range.from, range.to) - rather than when they were booked. An
+ * appointment booked last month for this week counts this week; one booked
+ * this week for next month does not. The snapshot's appointmentMetrics
+ * (created_at) is unchanged: Agency and the AI observations read it.
+ */
+export async function getAppointmentOccurrenceMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiAppointmentMetrics; failed: boolean }> {
+  let query = supabase.from("appointments").select("status").eq("organization_id", organizationId).limit(MAX_ROWS);
+  if (range.from) query = query.gte("start_at", range.from);
+  if (range.to) query = query.lt("start_at", range.to);
+  const { data, error } = await query;
+  return { metrics: summarizeAppointmentStatuses((data ?? []) as { status: string }[]), failed: error != null };
+}
+
+export type OpportunityOutcomeGroup = { key: "lost" | "no_longer_applies" | "dismissed" | "other"; label: string; count: number; value: number };
+
+/**
+ * Pure: closed opportunities by how they closed. "Marked lost" is the
+ * resolver's `lost` reason (the lead was lost); "No longer applies" is
+ * `condition_no_longer_true` - the condition simply stopped holding, which is
+ * NOT evidence the work or money was recovered; "Dismissed" is the owner's
+ * own call; "Other" is anything recorded without a reason (legacy rows).
+ * Value is the opportunity's own estimated_value, a quoted/estimated figure.
+ */
+export function groupOpportunityOutcomes(rows: { status: string; resolution_reason: string | null; estimated_value: number | null }[]): OpportunityOutcomeGroup[] {
+  const groups: OpportunityOutcomeGroup[] = [
+    { key: "lost", label: "Marked lost", count: 0, value: 0 },
+    { key: "no_longer_applies", label: "No longer applies", count: 0, value: 0 },
+    { key: "dismissed", label: "Dismissed", count: 0, value: 0 },
+    { key: "other", label: "Other", count: 0, value: 0 },
+  ];
+  for (const row of rows) {
+    const index =
+      row.status === "dismissed" || row.resolution_reason === "dismissed" ? 2 : row.resolution_reason === "lost" ? 0 : row.resolution_reason === "condition_no_longer_true" ? 1 : 3;
+    groups[index].count += 1;
+    groups[index].value += row.estimated_value ?? 0;
+  }
+  return groups;
+}
+
+/**
+ * Phase 2A (Analytics only): opportunities that closed (resolved or
+ * dismissed) in the period, grouped by groupOpportunityOutcomes. Dated by
+ * resolved_at - when Trackpr's opportunity sync noticed the change, not
+ * necessarily when it happened.
+ */
+export async function getOpportunityOutcomes(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ groups: OpportunityOutcomeGroup[]; failed: boolean }> {
+  let query = supabase.from("opportunities").select("status, resolution_reason, estimated_value").eq("organization_id", organizationId).in("status", ["resolved", "dismissed"]).limit(MAX_ROWS);
+  if (range.from) query = query.gte("resolved_at", range.from);
+  if (range.to) query = query.lt("resolved_at", range.to);
+  const { data, error } = await query;
+  return { groups: groupOpportunityOutcomes((data ?? []) as { status: string; resolution_reason: string | null; estimated_value: number | null }[]), failed: error != null };
 }
 
 async function buildCommunicationMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiCommunicationMetrics> {
@@ -628,9 +748,15 @@ export async function getBusinessMetricsSnapshot(
   supabase: SupabaseClient,
   organizationId: string,
   dateRangeInput: DateRangeInput = "allTime",
+  options: { timeZone?: string; now?: Date } = {},
 ): Promise<BusinessMetricsSnapshot> {
-  const range = resolveDateRange(dateRangeInput);
-  const previousRange = previousPeriodOf(range);
+  // Phase 2A: Analytics passes the organization's timezone, which switches
+  // the period and its comparison to organization-calendar boundaries
+  // (./date-range.ts). Every other caller (Agency, AI Observations) passes
+  // nothing and keeps the original server-calendar, same-length behavior.
+  const { timeZone: organizationTimeZone, now = new Date() } = options;
+  const range = resolveDateRange(dateRangeInput, now, organizationTimeZone);
+  const previousRange = organizationTimeZone !== undefined ? previousOrganizationRange(dateRangeInput, range, now, organizationTimeZone) : previousPeriodOf(range);
 
   const [
     { lead, pipeline, failed: leadFailed },
@@ -686,16 +812,18 @@ export async function getBusinessMetricsSnapshot(
       // "Overdue" is judged against today's calendar date in the
       // organization's own timezone, the same calendar the issue trigger
       // used for the default due date (lib/invoices/queries.ts's
-      // getInvoiceWithContext does exactly this).
-      getOrganizationTimezone(supabase, organizationId),
+      // getInvoiceWithContext does exactly this). Analytics already passes
+      // the timezone, so it isn't read twice.
+      organizationTimeZone !== undefined ? Promise.resolve(organizationTimeZone) : getOrganizationTimezone(supabase, organizationId),
     ]);
 
 
-  const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
+  const today = calendarDateInTimeZone(now, timeZone ?? "UTC");
   const billingMetrics: BiBillingMetrics = computeBillingMetrics({ invoices: billingRows.invoices, payments: billingRows.payments, range, today });
   const previousBilling = previousRange ? computeBillingMetrics({ invoices: billingRows.invoices, payments: billingRows.payments, range: previousRange, today }) : null;
 
-  const revenueOpportunity = await buildRevenueOpportunity(supabase, organizationId);
+  const { opportunity: revenueOpportunity, estimateAging } = await buildRevenueOpportunity(supabase, organizationId, now, timeZone ?? "UTC");
+  const invoiceAging = computeInvoiceAging(billingRows.invoices, today);
 
   // Second stage: getLeadStageTimingMetrics/getLeadResponseTimeMetrics both
   // need `sharedLeads` (and, for the previous period, previousTotals[4])
@@ -767,6 +895,8 @@ export async function getBusinessMetricsSnapshot(
     followUpMetrics: followUp,
     billingMetrics,
     revenueOpportunity,
+    invoiceAging,
+    estimateAging,
     reviewReferralMetrics,
     leadStageFunnel: { transitions: transitionMetrics, timing: timingMetrics },
     responseTime: responseTimeMetrics,

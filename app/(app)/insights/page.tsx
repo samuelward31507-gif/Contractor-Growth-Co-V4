@@ -6,12 +6,13 @@ import {
   getActivityEntries,
   getActivitySummary,
 } from "@/lib/activity/queries";
-import { getBusinessMetricsSnapshot } from "@/lib/bi/metrics";
+import { getAppointmentOccurrenceMetrics, getBusinessMetricsSnapshot, getOpportunityOutcomes } from "@/lib/bi/metrics";
 import { resolveDateRange } from "@/lib/bi/queries";
 import { getLeadsCreatedPerDay } from "@/lib/bi/series";
 import type { DateRangePreset } from "@/lib/bi/types";
 import { getRepeatCustomerSummaryResult } from "@/lib/customers/lifecycle";
 import { getCachedBusinessInsights } from "@/lib/dashboard/business-metrics";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { PageHeader } from "@/lib/ui/page-header";
 import { ActivityEmptyState } from "./_components/activity-empty-state";
 import { ActivityTimeline } from "./_components/activity-timeline";
@@ -63,6 +64,14 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
     redirect("/onboarding");
   }
 
+  // Phase 2A: every period on this page is the organization's own calendar
+  // (its timezone, DST-safe - lib/bi/date-range.ts), never the server's
+  // (UTC on Vercel). The timezone is read first so the range, its
+  // comparison period, the chart's day buckets and the activity timeline all
+  // share it. One `now` keeps every boundary on the same instant.
+  const timeZone = (await getOrganizationTimezone(supabase, membership.organizationId)) ?? "UTC";
+  const now = new Date();
+
   // Phase 6 (Trend chart pass): a day-bucketed chart needs concrete bounds -
   // "all time" (the one range-tabs preset resolveDateRange leaves
   // unbounded) falls back to the same last-30-days window the range tabs
@@ -70,23 +79,29 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
   // what "all time" means for every other number on this page (snapshot is
   // still computed against the real, unbounded `range`) - only the trend
   // chart's own bounded window differs from it in that one case.
-  const resolvedRange = resolveDateRange(range);
-  const fallbackRange = resolveDateRange("last30Days");
+  const resolvedRange = resolveDateRange(range, now, timeZone);
+  const fallbackRange = resolveDateRange("last30Days", now, timeZone);
   const chartRangeIsFallback = !(resolvedRange.from && resolvedRange.to);
   const chartRange = chartRangeIsFallback ? { from: fallbackRange.from!, to: fallbackRange.to! } : { from: resolvedRange.from!, to: resolvedRange.to! };
 
-  const [summary, activityPage, snapshot, repeatCustomerSummary, leadSeries, cachedInsights] = await Promise.all([
+  const [summary, activityPage, snapshot, repeatCustomerSummary, leadSeries, cachedInsights, appointmentOccurrence, opportunityOutcomes] = await Promise.all([
     getActivitySummary(supabase, membership.organizationId),
-    getActivityEntries(supabase, membership.organizationId, { query, entityType, from, to }, limit),
-    getBusinessMetricsSnapshot(supabase, membership.organizationId, range),
+    getActivityEntries(supabase, membership.organizationId, { query, entityType, from, to }, limit, timeZone),
+    getBusinessMetricsSnapshot(supabase, membership.organizationId, range, { timeZone, now }),
     // Pass 3: deliberately not range-scoped (see RepeatCustomerSection's own
     // documentation) - "has this customer come back, ever" ignores whatever
     // period the range tabs above have selected.
     getRepeatCustomerSummaryResult(supabase, membership.organizationId),
-    getLeadsCreatedPerDay(supabase, membership.organizationId, chartRange),
+    getLeadsCreatedPerDay(supabase, membership.organizationId, chartRange, timeZone),
     // The persisted AI observations (moved here from Today) - a read of the
     // latest stored report only; generating one stays a deliberate click.
     getCachedBusinessInsights(supabase, membership.organizationId),
+    // Phase 2A (Analytics only): appointments by when they take place, and
+    // opportunities closed in the period - both over the organization-
+    // calendar range. The snapshot's created-date appointment counts stay as
+    // they are for Agency and the AI observations.
+    getAppointmentOccurrenceMetrics(supabase, membership.organizationId, resolvedRange),
+    getOpportunityOutcomes(supabase, membership.organizationId, resolvedRange),
   ]);
 
   const hasActiveFilters = Boolean(query.trim()) || entityType !== "all" || Boolean(from) || Boolean(to);
@@ -119,7 +134,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
           repeatCustomerSummary's) is disclosed, never rendered as a
           confident $0/0%/"no data" on the page whose purpose is "how is my
           business doing." */}
-      {snapshot.partialData || repeatCustomerSummary.failed ? (
+      {snapshot.partialData || repeatCustomerSummary.failed || appointmentOccurrence.failed || opportunityOutcomes.failed ? (
         <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>Some information is temporarily unavailable. Please try again.</p>
@@ -137,10 +152,10 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
           snapshot={snapshot}
           trend={<TrendSection series={leadSeries.data} failed={leadSeries.failed} isFallbackWindow={chartRangeIsFallback} />}
         />
-        <PipelineLeaksPanel snapshot={snapshot} />
+        <PipelineLeaksPanel snapshot={snapshot} outcomes={opportunityOutcomes.groups} />
         <EstimatesJobsPanel snapshot={snapshot} />
         <ResponseCommunicationPanel snapshot={snapshot} />
-        <SchedulingPanel snapshot={snapshot} />
+        <SchedulingPanel snapshot={snapshot} occurrence={appointmentOccurrence.metrics} />
         <RetentionPanel snapshot={snapshot} repeat={repeatCustomerSummary} />
         <AutomationPanel snapshot={snapshot} />
         <CalculationsPanel snapshot={snapshot} />
@@ -160,6 +175,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
                   hasActiveFilters={hasActiveFilters}
                   hasMore={activityPage.hasMore}
                   loadMoreHref={loadMoreHref}
+                  timeZone={timeZone}
                 />
               </div>
             </div>

@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import type { BillingInvoiceRow, BillingPaymentRow } from "./billing";
 
 const require = createRequire(import.meta.url);
-const { computeBillingMetrics, findCompletionInstant, SANCTIONED_COLLECTED_REVENUE_DEFINITION }: typeof import("./billing") = require("./billing.ts");
+const { computeBillingMetrics, computeInvoiceAging, findCompletionInstant, SANCTIONED_COLLECTED_REVENUE_DEFINITION }: typeof import("./billing") = require("./billing.ts");
 
 const OCT = { label: "custom", from: "2026-10-01T00:00:00.000Z", to: "2026-11-01T00:00:00.000Z" };
 const ALL_TIME = { label: "all time", from: null, to: null };
@@ -210,4 +210,41 @@ test("getBillingRowsResult: a genuinely empty ledger never sets failed; a real e
 
   const paymentsFailing = await getBillingRowsResult(makeMockSupabase({ customer_payments: { data: null, error: { message: "timeout" } } }), "org-1");
   assert.equal(paymentsFailing.failed, true);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2A: invoice aging (Analytics)
+// ---------------------------------------------------------------------------
+
+const AGING_TODAY = "2026-10-01";
+const aged = (status: BillingInvoiceRow["status"], due_date: string | null, balance_due: number) => ({ status, due_date, balance_due });
+const agingOf = (rows: ReturnType<typeof aged>[]) => Object.fromEntries(computeInvoiceAging(rows, AGING_TODAY).map((bucket) => [bucket.key, [bucket.count, bucket.value]]));
+
+test("aging: every boundary - due today is current; 1 and 30 days are 1-30; 31 and 60 are 31-60; 61 is 61+", () => {
+  assert.deepEqual(
+    agingOf([
+      aged("sent", "2026-10-01", 100), // due today
+      aged("sent", "2026-10-15", 10), // not yet due
+      aged("sent", "2026-09-30", 200), // 1 day
+      aged("sent", "2026-09-01", 300), // 30 days
+      aged("sent", "2026-08-31", 400), // 31 days
+      aged("sent", "2026-08-02", 500), // 60 days
+      aged("sent", "2026-08-01", 600), // 61 days
+    ]),
+    { current: [2, 110], "1-30": [2, 500], "31-60": [2, 900], "61+": [1, 600] },
+  );
+});
+
+test("aging: no due date is current; partially paid ages by the balance still owed", () => {
+  assert.deepEqual(agingOf([aged("sent", null, 75), aged("partially_paid", "2026-09-20", 40.5)]), { current: [1, 75], "1-30": [1, 40.5], "31-60": [0, 0], "61+": [0, 0] });
+});
+
+test("aging: paid, draft and void invoices are never aged, whatever their due date", () => {
+  assert.deepEqual(agingOf([aged("paid", "2026-01-01", 0), aged("draft", "2026-01-01", 999), aged("void", "2026-01-01", 999)]), { current: [0, 0], "1-30": [0, 0], "31-60": [0, 0], "61+": [0, 0] });
+});
+
+test("aging: buckets are calendar days, so a DST change between due date and today shifts nothing; cents stay exact", () => {
+  // Due Oct 31; on Nov 2 (after the Nov 1 fall-back) it is exactly 2 days past due.
+  assert.deepEqual(computeInvoiceAging([aged("sent", "2026-10-31", 50)], "2026-11-02").find((bucket) => bucket.key === "1-30"), { key: "1-30", label: "1-30 days", count: 1, value: 50 });
+  assert.equal(computeInvoiceAging([aged("sent", "2026-09-01", 0.1), aged("sent", "2026-09-02", 0.2)], AGING_TODAY)[1].value, 0.3);
 });

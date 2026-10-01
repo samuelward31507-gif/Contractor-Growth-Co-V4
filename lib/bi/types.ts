@@ -3,7 +3,7 @@ import type { EstimateStatus } from "@/lib/estimates/queries";
 import type { JobStatus } from "@/lib/jobs/queries";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { ConversationChannel, MessageStatus } from "@/lib/conversations/queries";
-import type { BiBillingMetrics } from "./billing";
+import type { AgingBucket, BiBillingMetrics } from "./billing";
 
 /**
  * Phase 5.1 - canonical BI metric types. These are the ONLY shapes the
@@ -276,6 +276,22 @@ export type ReviewReferralMetrics = {
   referralResponseRate: number | null;
   /** referralsConverted / referralsRequested, or null if referralsRequested is 0. */
   referralConversionRate: number | null;
+  /**
+   * Phase 2A (Analytics): rates over requests that were actually sent - every
+   * status except not_requested and failed - with a response meaning a
+   * recorded customer reply (responded_at is set), so a request that replied
+   * and was later completed/converted still counts as responded, and one
+   * completed without a recorded reply does not. The *Requested counts and
+   * status-based fields above keep their meaning (Agency reads them).
+   */
+  reviewsSent: number;
+  reviewsWithResponse: number;
+  reviewResponseRateOfSent: number | null;
+  reviewCompletionRateOfSent: number | null;
+  referralsSent: number;
+  referralsWithResponse: number;
+  referralResponseRateOfSent: number | null;
+  referralConversionRateOfSent: number | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -585,6 +601,14 @@ export type BiFollowUpMetrics = {
  * existing status, and any figure that cannot be reliably computed from
  * existing data is simply absent from this type rather than estimated.
  */
+export type BiEstimateAging = {
+  /** 0-7, 8-30 and 31+ calendar days since sent_at (organization calendar), plus "no send date" for any sent estimate without one. */
+  buckets: AgingBucket[];
+  /** Sent estimates whose expires_at has already passed - still awaiting a decision, but past the date they were quoted to hold. */
+  pastExpiryCount: number;
+  pastExpiryValue: number;
+};
+
 export type BiRevenueOpportunity = {
   /** SUM(estimates.amount) where status = 'sent' - real, quoted work still awaiting a customer decision. */
   openEstimateValue: number;
@@ -684,6 +708,14 @@ export type BusinessMetricsSnapshot = {
    * block read as almost always empty).
    */
   revenueOpportunity: BiRevenueOpportunity;
+  /**
+   * Phase 2A (Analytics): open invoices by days past due, as of the
+   * organization's today (billing.ts computeInvoiceAging). Deliberately
+   * outside billingMetrics, which the AI observations input includes.
+   */
+  invoiceAging: AgingBucket[];
+  /** Phase 2A (Analytics): estimates still out (status sent) by calendar days since sent, plus those past their expiry - all time, as of today. */
+  estimateAging: BiEstimateAging;
   /**
    * Pass 3 (Revenue Intelligence Foundation): migrated in from the
    * superseded Phase 5.1 BusinessIntelligenceSnapshot type (which nothing
