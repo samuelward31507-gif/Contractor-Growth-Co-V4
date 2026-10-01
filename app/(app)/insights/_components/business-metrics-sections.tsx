@@ -12,6 +12,7 @@ import { BreakdownGrid, Panel, PanelBlock, PanelBody, PanelNote, PrimaryMetrics,
 import type { OpportunityOutcomeGroup } from "@/lib/bi/metrics";
 import type { OutcomeMetrics } from "@/lib/bi/outcome-metrics";
 import type { RevenueAttribution } from "@/lib/bi/revenue-attribution";
+import { withCollected, type CashAttribution } from "@/lib/bi/cash-attribution";
 import type { BiAppointmentMetrics } from "@/lib/bi/types";
 import { metaClass } from "@/lib/ui/typography";
 
@@ -261,7 +262,7 @@ export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessM
  * Estimate and job volume and value for the period. The conversion rates
  * between them live once, in Leads & conversion, rather than repeating here.
  */
-export function EstimatesJobsPanel({ snapshot, jobLeadLinkage, attribution, outcomes }: { snapshot: BusinessMetricsSnapshot; jobLeadLinkage: { linked: number; total: number }; attribution: RevenueAttribution; outcomes: OutcomeMetrics }) {
+export function EstimatesJobsPanel({ snapshot, jobLeadLinkage, attribution, outcomes, cash }: { snapshot: BusinessMetricsSnapshot; jobLeadLinkage: { linked: number; total: number }; attribution: RevenueAttribution; outcomes: OutcomeMetrics; cash: CashAttribution }) {
   const { estimateMetrics, jobMetrics, comparisons, period } = snapshot;
   const periodScope = scopeLabel(period.label);
   const { conversion } = attribution;
@@ -322,53 +323,69 @@ export function EstimatesJobsPanel({ snapshot, jobLeadLinkage, attribution, outc
           />
         </PanelBlock>
         <PanelBlock label="Revenue by source" scope={periodScope}>
-          <RevenueBySourceTable attribution={attribution} />
+          <RevenueBySourceTable attribution={attribution} cash={cash} />
         </PanelBlock>
-        <PanelNote>Estimate and job values are quoted or contracted amounts, never collected revenue.</PanelNote>
+        <PanelNote>Estimate and job values are quoted or contracted amounts, never collected revenue. Only the Collected column is money received.</PanelNote>
       </PanelBody>
     </Panel>
   );
 }
 
-/** Revenue by lead source - one row per source as entered, then Unknown source and No lead linked, so every job in the period is accounted for. Sideways-scrolling on phones, never the page. */
-function RevenueBySourceTable({ attribution }: { attribution: RevenueAttribution }) {
-  const { rows, totals } = attribution;
-  if (rows.length === 0) return <p className={metaClass}>No leads or jobs in this period.</p>;
+/**
+ * Revenue by lead source - one row per source as entered, then Unknown source
+ * and No lead linked, so every job and every payment in the period is
+ * accounted for. Collected (Phase 2E) is net payments received in the
+ * period, by the source of the lead on the job paid for; its total is the
+ * Revenue & payments Collected figure. A failed payment read shows no
+ * Collected figure at all, never a partial one. Sideways-scrolling on
+ * phones, never the page.
+ */
+function RevenueBySourceTable({ attribution, cash }: { attribution: RevenueAttribution; cash: CashAttribution }) {
+  const { rows, totals } = withCollected(attribution, cash);
+  const unavailable = <p className={metaClass}>Collected could not be read for this period. Nothing is estimated in its place.</p>;
+  if (rows.length === 0) return cash.failed ? unavailable : <p className={metaClass}>No leads, jobs or payments in this period.</p>;
   const cell = "px-3 py-2 text-right tabular-nums";
+  const collected = (value: number) => (cash.failed ? "-" : formatMoney(value));
   return (
-    <div className="-mx-1 overflow-x-auto">
-      <table className="w-full min-w-[30rem] text-[13px]">
-        <thead>
-          <tr className="border-b border-line text-xs text-ink-3">
-            <th scope="col" className="px-3 py-2 text-left font-normal">Source</th>
-            <th scope="col" className={`${cell} font-normal`}>Leads</th>
-            <th scope="col" className={`${cell} font-normal`}>Jobs</th>
-            <th scope="col" className={`${cell} font-normal`}>Completed</th>
-            <th scope="col" className={`${cell} font-normal`}>Completed value</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.key} className="border-b border-line">
-              <th scope="row" className={`max-w-[12rem] truncate px-3 py-2 text-left font-normal ${row.kind === "source" ? "text-ink" : "text-ink-3"}`}>{row.label}</th>
-              <td className={`${cell} text-ink-2`}>{row.leads === null ? "-" : row.leads}</td>
-              <td className={`${cell} text-ink-2`}>{row.jobs}</td>
-              <td className={`${cell} text-ink-2`}>{row.completedJobs}</td>
-              <td className={`${cell} font-medium text-ink`}>{formatCurrency(row.completedValue)}</td>
+    <>
+      <div className="-mx-1 overflow-x-auto">
+        <table className="w-full min-w-[36rem] text-[13px]">
+          <thead>
+            <tr className="border-b border-line text-xs text-ink-3">
+              <th scope="col" className="px-3 py-2 text-left font-normal">Source</th>
+              <th scope="col" className={`${cell} font-normal`}>Leads</th>
+              <th scope="col" className={`${cell} font-normal`}>Jobs</th>
+              <th scope="col" className={`${cell} font-normal`}>Completed</th>
+              <th scope="col" className={`${cell} font-normal`}>Completed value</th>
+              <th scope="col" className={`${cell} font-normal`}>Collected</th>
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="text-ink">
-            <th scope="row" className="px-3 py-2 text-left font-medium">Total</th>
-            <td className={`${cell} font-medium`}>{totals.leads}</td>
-            <td className={`${cell} font-medium`}>{totals.jobs}</td>
-            <td className={`${cell} font-medium`}>{totals.completedJobs}</td>
-            <td className={`${cell} font-semibold`}>{formatCurrency(totals.completedValue)}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.key} className="border-b border-line">
+                <th scope="row" className={`max-w-[12rem] truncate px-3 py-2 text-left font-normal ${row.kind === "source" ? "text-ink" : "text-ink-3"}`}>{row.label}</th>
+                <td className={`${cell} text-ink-2`}>{row.leads === null ? "-" : row.leads}</td>
+                <td className={`${cell} text-ink-2`}>{row.jobs}</td>
+                <td className={`${cell} text-ink-2`}>{row.completedJobs}</td>
+                <td className={`${cell} font-medium text-ink`}>{formatCurrency(row.completedValue)}</td>
+                <td className={`${cell} font-medium text-ink`}>{collected(row.collected)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="text-ink">
+              <th scope="row" className="px-3 py-2 text-left font-medium">Total</th>
+              <td className={`${cell} font-medium`}>{totals.leads}</td>
+              <td className={`${cell} font-medium`}>{totals.jobs}</td>
+              <td className={`${cell} font-medium`}>{totals.completedJobs}</td>
+              <td className={`${cell} font-semibold`}>{formatCurrency(totals.completedValue)}</td>
+              <td className={`${cell} font-semibold`}>{collected(totals.collected)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {cash.failed ? unavailable : null}
+    </>
   );
 }
 
@@ -575,7 +592,7 @@ const DEFINITIONS: { term: string; definition: string }[] = [
   { term: "Recoverable estimate value", definition: "Open and expired estimates not yet declined - real opportunity, never guaranteed revenue or a close probability." },
   { term: "Lead sources", definition: "Free text, not standardized - shown for visibility only, never ranked by performance." },
   { term: "Jobs linked to a lead", definition: "Every job you have, all time, that has the lead it came from recorded on it. Jobs created from an estimate take the estimate's lead automatically. Unlinked jobs can't be traced back to a lead source, so this shows how complete your revenue attribution can be." },
-  { term: "Revenue by source", definition: "Leads: leads created in the selected period, by the source entered on each lead (as written - sources are not standardized). Jobs: jobs created in the period, not counting cancelled ones. Completed and completed value: jobs marked complete in the period, by the date they were completed, with the contracted amount entered on the job - not payments collected. A job counts toward the source of the lead it is linked to; a lead with no source shows as Unknown source, and a job with no linked lead shows as No lead linked, so no job value is left out." },
+  { term: "Revenue by source", definition: "Leads: leads created in the selected period, by the source entered on each lead (as written - sources are not standardized). Jobs: jobs created in the period, not counting cancelled ones. Completed and completed value: jobs marked complete in the period, by the date they were completed, with the contracted amount entered on the job - not payments collected. A job counts toward the source of the lead it is linked to; a lead with no source shows as Unknown source, and a job with no linked lead shows as No lead linked, so no job value is left out. Collected: payments received in the period, net of reversals, each counted toward the source of the lead on the job it pays for - whenever that lead or job was created, so a source can show collected money with no leads or jobs in the period. The Collected total is the same amount as Collected under Revenue & payments." },
   { term: "Lead → job", definition: "Of the leads created in the selected period, how many have at least one job that isn't cancelled, whenever that job was created. Jobs and value completed so far come from those same leads, whenever completed. A lead with several jobs counts once toward the rate." },
   { term: "Completed job value", definition: "Jobs marked complete in the selected period, by the date they were completed, with the contracted amount entered on each job - the same jobs and total as Completed value in Revenue by source. Not payments collected." },
   { term: "Estimate and job values", definition: "Quoted or contracted amounts. Only customer payments recorded in Trackpr count as collected." },

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calendarDaysBetween } from "./date-range";
 import { fromCents, isOverdue, toCents, type InvoiceStatus } from "@/lib/invoices/domain";
+import { readAllPages } from "./revenue-attribution";
 import type { ResolvedDateRange } from "./types";
 
 /**
@@ -45,10 +46,15 @@ import type { ResolvedDateRange } from "./types";
  *                                    revenueOpportunity, "what is owed right
  *                                    now" is not a date-range question
  *
- * One unbounded, narrow-column read per table (capped at MAX_ROWS like every
- * other BI read) feeds both the current-state and the period-scoped figures,
+ * One unbounded, narrow-column read per table feeds both the current-state and the period-scoped figures,
  * and the previous-period comparison, so the ledger is read once per
  * snapshot rather than three times.
+ *
+ * Phase 2E: each read is paged by 1000 (readAllPages, Phase 2C) up to
+ * MAX_ROWS. At MAX_ROWS or on any read error the result is failed with no
+ * rows - dataQuality.collectedRevenueUnavailable - never a silently
+ * truncated ledger. Below MAX_ROWS the rows, and every figure, are the
+ * same as the single capped read they replace.
  */
 
 export const SANCTIONED_COLLECTED_REVENUE_DEFINITION = "Collected revenue = customer payments recorded in Trackpr, net of recorded reversals.";
@@ -77,18 +83,15 @@ export type BillingPaymentRow = {
 
 export type BillingRows = { invoices: BillingInvoiceRow[]; payments: BillingPaymentRow[]; failed: boolean };
 
-/** `failed` is true only on a real Postgrest error on either read, never on a genuinely empty ledger - the lib/bi/queries.ts discipline. */
+/** `failed` is true on a real Postgrest error on either read or a ledger at MAX_ROWS, never on a genuinely empty one - and a failed result carries no rows, so nothing downstream sums a partial ledger. */
 export async function getBillingRowsResult(supabase: SupabaseClient, organizationId: string): Promise<BillingRows> {
-  const [{ data: invoiceData, error: invoiceError }, { data: paymentData, error: paymentError }] = await Promise.all([
-    supabase.from("invoices").select("id, status, total, balance_due, issued_at, due_date").eq("organization_id", organizationId).limit(MAX_ROWS),
-    supabase.from("customer_payments").select("invoice_id, amount, received_at, created_at").eq("organization_id", organizationId).limit(MAX_ROWS),
+  const [invoices, payments] = await Promise.all([
+    readAllPages<BillingInvoiceRow>(() => supabase.from("invoices").select("id, status, total, balance_due, issued_at, due_date").eq("organization_id", organizationId).order("id"), MAX_ROWS),
+    readAllPages<BillingPaymentRow>(() => supabase.from("customer_payments").select("invoice_id, amount, received_at, created_at").eq("organization_id", organizationId).order("id"), MAX_ROWS),
   ]);
 
-  return {
-    invoices: (invoiceData ?? []) as BillingInvoiceRow[],
-    payments: (paymentData ?? []) as BillingPaymentRow[],
-    failed: invoiceError != null || paymentError != null,
-  };
+  if (invoices.failed || payments.failed) return { invoices: [], payments: [], failed: true };
+  return { invoices: invoices.rows, payments: payments.rows, failed: false };
 }
 
 export type BiBillingMetrics = {
@@ -114,9 +117,18 @@ export type BiBillingMetrics = {
   averageDaysToPayment: number | null;
 };
 
-function inRange(instant: string, range: ResolvedDateRange): boolean {
-  if (range.from && instant < range.from) return false;
-  if (range.to && instant >= range.to) return false;
+/**
+ * The ledger's period test: half-open [from, to), compared as instants.
+ * Postgres returns "2026-09-01T06:00:00+00:00" while the range is
+ * "2026-09-01T06:00:00.000Z" - compared as text, a payment at exactly the
+ * period's local midnight sorted before `from` and landed in the previous
+ * period. Exported so Phase 2E's Collected-by-source applies the identical
+ * test and always reconciles with collectedValue.
+ */
+export function inRange(instant: string, range: ResolvedDateRange): boolean {
+  const at = Date.parse(instant);
+  if (range.from && at < Date.parse(range.from)) return false;
+  if (range.to && at >= Date.parse(range.to)) return false;
   return true;
 }
 
