@@ -351,6 +351,20 @@ export type PeriodComparison = {
   percentageChange: number | null;
 };
 
+/**
+ * Phase 2F: a comparison whose current or previous period could not be
+ * read. Every figure is null - never a 0 or a partial count - and
+ * `unavailable` says why, so neither Analytics nor the AI observations
+ * describe a change that wasn't measured.
+ */
+export type UnavailableComparison = {
+  unavailable: true;
+  current: null;
+  previous: null;
+  change: null;
+  percentageChange: null;
+};
+
 export type BusinessMetricsComparisons = {
   leadCount: PeriodComparison;
   estimateCount: PeriodComparison;
@@ -365,9 +379,9 @@ export type BusinessMetricsComparisons = {
    * see LeadStageTimingMetrics for the (deliberately not compared) timing
    * figures this count is distinct from.
    */
-  leadsTransitionedToQualified: PeriodComparison;
+  leadsTransitionedToQualified: PeriodComparison | UnavailableComparison;
   /** Same shape as leadsTransitionedToQualified, for the 'won' transition. */
-  leadsTransitionedToWon: PeriodComparison;
+  leadsTransitionedToWon: PeriodComparison | UnavailableComparison;
   /**
    * Distinct leads (created in the current vs. previous period) with at
    * least one real successful outbound message recorded at or after their
@@ -376,7 +390,7 @@ export type BusinessMetricsComparisons = {
    * contactRate percentage itself (no existing precedent in this file
    * compares a rate across periods - see this field's own Batch 3B audit).
    */
-  leadsContacted: PeriodComparison;
+  leadsContacted: PeriodComparison | UnavailableComparison;
   /**
    * Phase 1B-4: SUM(invoices.total) issued in the current vs. previous
    * period (BiBillingMetrics.invoicedValue) - the same open-ended-range and
@@ -763,6 +777,14 @@ export type BusinessMetricsSnapshot = {
   partialData: boolean;
   /** Count of which of this snapshot's own tracked reads failed (the five Phase 4B core reads, the funnel reads, and Phase 1B-4's billing ledger read) - bounded, non-identifying, for future debugging only. Never rendered to the end user as a specific number. */
   partialDataSourceCount: number;
+  /**
+   * Phase 2F: which funnel sections could not be read for the current
+   * period, so Analytics shows them as unavailable rather than as zeros.
+   * responseTime also covers a failed shared leads read (its population);
+   * stageTiming likewise. Not part of the AI observations input, and not
+   * an input to partialData (whose semantics are unchanged).
+   */
+  funnelUnavailable: { responseTime: boolean; stageTransitions: boolean; stageTiming: boolean };
   /** Wall-clock time this snapshot was computed - not a business timestamp. */
   generatedAt: string;
 };
