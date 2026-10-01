@@ -193,6 +193,29 @@ test("an estimate with no lead records only job.created; an unknown estimate (or
   assert.equal(otherOrg.rpcCalls.length, 0);
 });
 
+test("Phase 2B: a job created from an estimate inherits the estimate's lead; an estimate without a lead leaves the job blank", async () => {
+  const linked = makeServiceClient({ leadId: "lead-7" });
+  await withNoNetwork(() => emitJobCreatedFromEstimateAsService(linked.client, ORG, "est-1"));
+  assert.equal(linked.tables.jobs[0].lead_id, "lead-7");
+  assert.equal(linked.tables.jobs[0].estimate_id, "est-1");
+
+  const unlinked = makeServiceClient({ leadId: null });
+  await withNoNetwork(() => emitJobCreatedFromEstimateAsService(unlinked.client, ORG, "est-1"));
+  assert.equal(unlinked.tables.jobs[0].lead_id, null, "no heuristic: no estimate lead means no job lead");
+});
+
+test("Phase 2B: both estimate → job paths copy the estimate's lead, and a job that already exists is never rewritten", async () => {
+  const jobs = fs.readFileSync(path.join(process.cwd(), "lib/automation/jobs.ts"), "utf8");
+  assert.equal([...jobs.matchAll(/lead_id: estimate\.lead_id,\s*estimate_id: estimateId/g)].length, 2);
+
+  const existing = makeServiceClient({ jobExists: true, leadId: "lead-1" });
+  existing.tables.jobs[0].lead_id = "lead-explicit";
+  await withNoNetwork(() => emitJobCreatedFromEstimateAsService(existing.client, ORG, "est-1"));
+  assert.equal(existing.tables.jobs.length, 1);
+  assert.equal(existing.tables.jobs[0].lead_id, "lead-explicit");
+  assert.ok(!existing.writes.some((write) => write.table === "jobs" && write.op === "update" && (write.payload as Row)?.lead_id !== undefined));
+});
+
 test("both service-context callers use the lifecycle-only variant; the manual Accept action keeps the session variant and its kickoff dispatch", () => {
   const read = (relative: string) => fs.readFileSync(path.join(process.cwd(), relative), "utf8");
   const approval = read("lib/estimates/approval.ts");

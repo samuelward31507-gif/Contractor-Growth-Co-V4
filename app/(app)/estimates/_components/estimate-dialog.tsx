@@ -66,7 +66,7 @@ export function EstimateDialog({
 
           <div className="space-y-1.5">
             <label className={labelClass}>Lead</label>
-            <LeadPicker leads={leads} contactId={contactId} defaultLeadId={estimate?.lead_id} />
+            <LeadPicker leads={leads} contactId={contactId} defaultLeadId={estimate ? estimate.lead_id : undefined} defaultToNewestOpenLead={!estimate} emptyLabel="No lead" />
           </div>
 
           <div className="space-y-1.5">

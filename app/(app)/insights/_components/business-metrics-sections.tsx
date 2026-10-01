@@ -10,6 +10,7 @@ import { formatRate, formatComparisonBadge, formatDuration, ownerDataNotes } fro
 import { BarList } from "./bar-list";
 import { BreakdownGrid, Panel, PanelBlock, PanelBody, PanelNote, PrimaryMetrics, SecondaryMetrics, scopeLabel, type Metric } from "./metric-panel";
 import type { OpportunityOutcomeGroup } from "@/lib/bi/metrics";
+import type { RevenueAttribution } from "@/lib/bi/revenue-attribution";
 import type { BiAppointmentMetrics } from "@/lib/bi/types";
 import { metaClass } from "@/lib/ui/typography";
 
@@ -259,8 +260,10 @@ export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessM
  * Estimate and job volume and value for the period. The conversion rates
  * between them live once, in Leads & conversion, rather than repeating here.
  */
-export function EstimatesJobsPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+export function EstimatesJobsPanel({ snapshot, jobLeadLinkage, attribution }: { snapshot: BusinessMetricsSnapshot; jobLeadLinkage: { linked: number; total: number }; attribution: RevenueAttribution }) {
   const { estimateMetrics, jobMetrics, comparisons, period } = snapshot;
+  const periodScope = scopeLabel(period.label);
+  const { conversion } = attribution;
 
   return (
     <Panel id="estimates-jobs" title="Estimates & jobs" scope={scopeLabel(period.label)}>
@@ -279,6 +282,7 @@ export function EstimatesJobsPanel({ snapshot }: { snapshot: BusinessMetricsSnap
             { key: "avg-estimate-value", label: "Avg. estimate value", value: estimateMetrics.averageEstimateValue === null ? "Not enough data yet" : formatCurrency(estimateMetrics.averageEstimateValue) },
             { key: "contracted-value", label: "Contracted job value", value: formatCurrency(jobMetrics.contractedJobValue) },
             { key: "avg-contracted-value", label: "Avg. contracted value", value: jobMetrics.averageContractedJobValue === null ? "Not enough data yet" : formatCurrency(jobMetrics.averageContractedJobValue) },
+            { key: "jobs-linked-to-lead", label: "Jobs linked to a lead", value: `${jobLeadLinkage.linked} of ${jobLeadLinkage.total}`, detail: "All time" },
           ]}
         />
         <BreakdownGrid>
@@ -305,9 +309,65 @@ export function EstimatesJobsPanel({ snapshot }: { snapshot: BusinessMetricsSnap
             />
           </PanelBlock>
         </BreakdownGrid>
+        <PanelBlock label="Lead → job" scope={`Leads created · ${periodScope}`}>
+          <SecondaryMetrics
+            metrics={[
+              { key: "cohort-leads", label: "New leads", value: String(conversion.leads) },
+              { key: "cohort-with-job", label: "Leads with a job", value: String(conversion.leadsWithJob), detail: "Cancelled jobs excluded" },
+              { key: "cohort-rate", label: "Lead → job rate", value: formatRate(conversion.jobRate) },
+              { key: "cohort-completed", label: "Jobs completed so far", value: String(conversion.completedJobs) },
+              { key: "cohort-completed-value", label: "Value completed so far", value: formatCurrency(conversion.completedValue), detail: "Contracted amount" },
+            ]}
+          />
+        </PanelBlock>
+        <PanelBlock label="Revenue by source" scope={periodScope}>
+          <RevenueBySourceTable attribution={attribution} />
+        </PanelBlock>
         <PanelNote>Estimate and job values are quoted or contracted amounts, never collected revenue.</PanelNote>
       </PanelBody>
     </Panel>
+  );
+}
+
+/** Revenue by lead source - one row per source as entered, then Unknown source and No lead linked, so every job in the period is accounted for. Sideways-scrolling on phones, never the page. */
+function RevenueBySourceTable({ attribution }: { attribution: RevenueAttribution }) {
+  const { rows, totals } = attribution;
+  if (rows.length === 0) return <p className={metaClass}>No leads or jobs in this period.</p>;
+  const cell = "px-3 py-2 text-right tabular-nums";
+  return (
+    <div className="-mx-1 overflow-x-auto">
+      <table className="w-full min-w-[30rem] text-[13px]">
+        <thead>
+          <tr className="border-b border-line text-xs text-ink-3">
+            <th scope="col" className="px-3 py-2 text-left font-normal">Source</th>
+            <th scope="col" className={`${cell} font-normal`}>Leads</th>
+            <th scope="col" className={`${cell} font-normal`}>Jobs</th>
+            <th scope="col" className={`${cell} font-normal`}>Completed</th>
+            <th scope="col" className={`${cell} font-normal`}>Completed value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key} className="border-b border-line">
+              <th scope="row" className={`max-w-[12rem] truncate px-3 py-2 text-left font-normal ${row.kind === "source" ? "text-ink" : "text-ink-3"}`}>{row.label}</th>
+              <td className={`${cell} text-ink-2`}>{row.leads === null ? "-" : row.leads}</td>
+              <td className={`${cell} text-ink-2`}>{row.jobs}</td>
+              <td className={`${cell} text-ink-2`}>{row.completedJobs}</td>
+              <td className={`${cell} font-medium text-ink`}>{formatCurrency(row.completedValue)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="text-ink">
+            <th scope="row" className="px-3 py-2 text-left font-medium">Total</th>
+            <td className={`${cell} font-medium`}>{totals.leads}</td>
+            <td className={`${cell} font-medium`}>{totals.jobs}</td>
+            <td className={`${cell} font-medium`}>{totals.completedJobs}</td>
+            <td className={`${cell} font-semibold`}>{formatCurrency(totals.completedValue)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   );
 }
 
@@ -513,6 +573,9 @@ const DEFINITIONS: { term: string; definition: string }[] = [
   { term: "Open leads and open lead value", definition: "Leads in an open stage right now, and the estimated value entered on each - a manual estimate, not revenue." },
   { term: "Recoverable estimate value", definition: "Open and expired estimates not yet declined - real opportunity, never guaranteed revenue or a close probability." },
   { term: "Lead sources", definition: "Free text, not standardized - shown for visibility only, never ranked by performance." },
+  { term: "Jobs linked to a lead", definition: "Every job you have, all time, that has the lead it came from recorded on it. Jobs created from an estimate take the estimate's lead automatically. Unlinked jobs can't be traced back to a lead source, so this shows how complete your revenue attribution can be." },
+  { term: "Revenue by source", definition: "Leads: leads created in the selected period, by the source entered on each lead (as written - sources are not standardized). Jobs: jobs created in the period, not counting cancelled ones. Completed and completed value: jobs marked complete in the period, by the date they were completed, with the contracted amount entered on the job - not payments collected. A job counts toward the source of the lead it is linked to; a lead with no source shows as Unknown source, and a job with no linked lead shows as No lead linked, so no job value is left out." },
+  { term: "Lead → job", definition: "Of the leads created in the selected period, how many have at least one job that isn't cancelled, whenever that job was created. Jobs and value completed so far come from those same leads, whenever completed. A lead with several jobs counts once toward the rate." },
   { term: "Estimate and job values", definition: "Quoted or contracted amounts. Only customer payments recorded in Trackpr count as collected." },
   { term: "New conversations and opt-outs", definition: "Conversations started in the selected period, counted by whether they are still open or now closed - not opened or closed during it. New contacts who opted out are contacts added in the period who have since opted out." },
   { term: "Scheduling", definition: "Appointments by the day they take place in the selected period, not the day they were booked." },

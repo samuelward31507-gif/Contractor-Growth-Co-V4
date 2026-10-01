@@ -6,8 +6,9 @@ import {
   getActivityEntries,
   getActivitySummary,
 } from "@/lib/activity/queries";
-import { getAppointmentOccurrenceMetrics, getBusinessMetricsSnapshot, getOpportunityOutcomes } from "@/lib/bi/metrics";
+import { getAppointmentOccurrenceMetrics, getBusinessMetricsSnapshot, getJobLeadLinkage, getOpportunityOutcomes } from "@/lib/bi/metrics";
 import { resolveDateRange } from "@/lib/bi/queries";
+import { getRevenueAttribution } from "@/lib/bi/revenue-attribution";
 import { getLeadsCreatedPerDay } from "@/lib/bi/series";
 import type { DateRangePreset } from "@/lib/bi/types";
 import { getRepeatCustomerSummaryResult } from "@/lib/customers/lifecycle";
@@ -84,7 +85,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
   const chartRangeIsFallback = !(resolvedRange.from && resolvedRange.to);
   const chartRange = chartRangeIsFallback ? { from: fallbackRange.from!, to: fallbackRange.to! } : { from: resolvedRange.from!, to: resolvedRange.to! };
 
-  const [summary, activityPage, snapshot, repeatCustomerSummary, leadSeries, cachedInsights, appointmentOccurrence, opportunityOutcomes] = await Promise.all([
+  const [summary, activityPage, snapshot, repeatCustomerSummary, leadSeries, cachedInsights, appointmentOccurrence, opportunityOutcomes, jobLeadLinkage, revenueAttribution] = await Promise.all([
     getActivitySummary(supabase, membership.organizationId),
     getActivityEntries(supabase, membership.organizationId, { query, entityType, from, to }, limit, timeZone),
     getBusinessMetricsSnapshot(supabase, membership.organizationId, range, { timeZone, now }),
@@ -102,6 +103,10 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
     // they are for Agency and the AI observations.
     getAppointmentOccurrenceMetrics(supabase, membership.organizationId, resolvedRange),
     getOpportunityOutcomes(supabase, membership.organizationId, resolvedRange),
+    // Phase 2B (Analytics only): how many jobs are linked to a lead, all time.
+    getJobLeadLinkage(supabase, membership.organizationId),
+    // Phase 2C (Analytics only): revenue by lead source and lead → job, over the organization-calendar range.
+    getRevenueAttribution(supabase, membership.organizationId, resolvedRange),
   ]);
 
   const hasActiveFilters = Boolean(query.trim()) || entityType !== "all" || Boolean(from) || Boolean(to);
@@ -134,7 +139,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
           repeatCustomerSummary's) is disclosed, never rendered as a
           confident $0/0%/"no data" on the page whose purpose is "how is my
           business doing." */}
-      {snapshot.partialData || repeatCustomerSummary.failed || appointmentOccurrence.failed || opportunityOutcomes.failed ? (
+      {snapshot.partialData || repeatCustomerSummary.failed || appointmentOccurrence.failed || opportunityOutcomes.failed || jobLeadLinkage.failed || revenueAttribution.failed ? (
         <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>Some information is temporarily unavailable. Please try again.</p>
@@ -153,7 +158,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
           trend={<TrendSection series={leadSeries.data} failed={leadSeries.failed} isFallbackWindow={chartRangeIsFallback} />}
         />
         <PipelineLeaksPanel snapshot={snapshot} outcomes={opportunityOutcomes.groups} />
-        <EstimatesJobsPanel snapshot={snapshot} />
+        <EstimatesJobsPanel snapshot={snapshot} jobLeadLinkage={jobLeadLinkage} attribution={revenueAttribution} />
         <ResponseCommunicationPanel snapshot={snapshot} />
         <SchedulingPanel snapshot={snapshot} occurrence={appointmentOccurrence.metrics} />
         <RetentionPanel snapshot={snapshot} repeat={repeatCustomerSummary} />
