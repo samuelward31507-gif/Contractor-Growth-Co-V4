@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { calendarDaysBetween } from "./date-range";
 import { fromCents, isOverdue, toCents, type InvoiceStatus } from "@/lib/invoices/domain";
 import type { ResolvedDateRange } from "./types";
 
@@ -146,6 +147,32 @@ export function findCompletionInstant(invoice: Pick<BillingInvoiceRow, "total" |
     else if (running < totalCents) completion = null;
   }
   return completion;
+}
+
+export type AgingBucket = { key: string; label: string; count: number; value: number };
+
+/**
+ * Phase 2A (Analytics): open invoices (sent / partially_paid) by how far past
+ * due they are, in whole calendar days from due_date to the organization's
+ * own `today` (both plain calendar dates - no timezone arithmetic). Current =
+ * not yet due, due today, or no due date. Value is balance_due, so a
+ * partially paid invoice counts only what is still owed. Paid, draft and
+ * void invoices are never included. Pure - unit-tested in billing.test.ts.
+ */
+export function computeInvoiceAging(invoices: Pick<BillingInvoiceRow, "status" | "balance_due" | "due_date">[], today: string): AgingBucket[] {
+  const buckets: { key: string; label: string; rows: number[] }[] = [
+    { key: "current", label: "Current", rows: [] },
+    { key: "1-30", label: "1-30 days", rows: [] },
+    { key: "31-60", label: "31-60 days", rows: [] },
+    { key: "61+", label: "61+ days", rows: [] },
+  ];
+  for (const invoice of invoices) {
+    if (!OPEN.has(invoice.status)) continue;
+    const daysPastDue = invoice.due_date ? calendarDaysBetween(invoice.due_date, today) : 0;
+    const index = daysPastDue <= 0 ? 0 : daysPastDue <= 30 ? 1 : daysPastDue <= 60 ? 2 : 3;
+    buckets[index].rows.push(invoice.balance_due);
+  }
+  return buckets.map((bucket) => ({ key: bucket.key, label: bucket.label, count: bucket.rows.length, value: sumCents(bucket.rows) }));
 }
 
 export function computeBillingMetrics(params: { invoices: BillingInvoiceRow[]; payments: BillingPaymentRow[]; range: ResolvedDateRange; today: string }): BiBillingMetrics {

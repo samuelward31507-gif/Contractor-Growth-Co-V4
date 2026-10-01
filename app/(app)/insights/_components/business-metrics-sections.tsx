@@ -9,6 +9,9 @@ import type { RepeatCustomerSummary } from "@/lib/customers/lifecycle";
 import { formatRate, formatComparisonBadge, formatDuration, ownerDataNotes } from "./bi-format";
 import { BarList } from "./bar-list";
 import { BreakdownGrid, Panel, PanelBlock, PanelBody, PanelNote, PrimaryMetrics, SecondaryMetrics, scopeLabel, type Metric } from "./metric-panel";
+import type { OpportunityOutcomeGroup } from "@/lib/bi/metrics";
+import type { BiAppointmentMetrics } from "@/lib/bi/types";
+import { metaClass } from "@/lib/ui/typography";
 
 /**
  * Analytics' business-performance panels - each reads
@@ -55,7 +58,7 @@ function ViewLink({ href, children }: { href: string; children: string }) {
  * transparent.
  */
 export function RevenuePaymentsPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { billingMetrics, comparisons, dataQuality, period } = snapshot;
+  const { billingMetrics, comparisons, dataQuality, period, invoiceAging } = snapshot;
   const scope = scopeLabel(period.label);
 
   if (dataQuality.collectedRevenueUnavailable) {
@@ -94,6 +97,17 @@ export function RevenuePaymentsPanel({ snapshot }: { snapshot: BusinessMetricsSn
             { key: "paid", label: "Invoices paid", value: String(billingMetrics.invoicesPaid) },
           ]}
         />
+        <PanelBlock label="Unpaid by age" scope="As of today">
+          <SecondaryMetrics
+            metrics={invoiceAging.map((bucket) => ({
+              key: `aging-${bucket.key}`,
+              label: bucket.key === "current" ? "Current" : `${bucket.label} past due`,
+              value: formatMoney(bucket.value),
+              detail: count(bucket.count, "invoice", "invoices"),
+              tone: bucket.key !== "current" && bucket.count > 0 ? "attention" : undefined,
+            }))}
+          />
+        </PanelBlock>
         <PanelNote>{SANCTIONED_COLLECTED_REVENUE_DEFINITION} Invoiced is money asked for, not received.</PanelNote>
       </PanelBody>
     </Panel>
@@ -154,8 +168,8 @@ export function LeadsConversionPanel({ snapshot, trend }: { snapshot: BusinessMe
  * stage/source/temperature breakdowns cover leads created in the selected
  * period, and are labeled that way.
  */
-export function PipelineLeaksPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { leadMetrics, pipelineMetrics, revenueOpportunity, period } = snapshot;
+export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessMetricsSnapshot; outcomes: OpportunityOutcomeGroup[] }) {
+  const { leadMetrics, pipelineMetrics, revenueOpportunity, estimateAging, period } = snapshot;
   const hasOpenItems = revenueOpportunity.qualifiedLeadsWithoutAppointment > 0 || revenueOpportunity.completedAppointmentsWithoutEstimate > 0 || revenueOpportunity.recoverableEstimateValue > 0;
   const periodScope = scopeLabel(period.label);
 
@@ -189,8 +203,29 @@ export function PipelineLeaksPanel({ snapshot }: { snapshot: BusinessMetricsSnap
             { key: "qualified-no-appt", label: "Qualified, no appointment", value: String(revenueOpportunity.qualifiedLeadsWithoutAppointment) },
             { key: "completed-no-estimate", label: "Visits, no estimate", value: String(revenueOpportunity.completedAppointmentsWithoutEstimate) },
             { key: "lost-rate", label: "Lost rate", value: formatRate(leadMetrics.lostRate), detail: `Leads created · ${periodScope}` },
+            { key: "declined-value", label: "Declined estimate value · All time", value: formatCurrency(revenueOpportunity.lostEstimateValue), detail: "Quoted work customers turned down" },
           ]}
         />
+        <PanelBlock label="Estimates awaiting a decision" scope="By days since sent · as of today">
+          <SecondaryMetrics
+            metrics={[
+              ...estimateAging.buckets
+                .filter((bucket) => bucket.key !== "undated" || bucket.count > 0)
+                .map((bucket) => ({ key: `estimate-age-${bucket.key}`, label: bucket.label, value: formatCurrency(bucket.value), detail: count(bucket.count, "estimate", "estimates") })),
+              {
+                key: "past-expiry",
+                label: "Past their expiry date",
+                value: String(estimateAging.pastExpiryCount),
+                detail: `${formatCurrency(estimateAging.pastExpiryValue)} quoted`,
+                tone: estimateAging.pastExpiryCount > 0 ? "attention" : undefined,
+              },
+            ]}
+          />
+        </PanelBlock>
+        <PanelBlock label={`Closed opportunities · ${periodScope}`}>
+          <SecondaryMetrics metrics={outcomes.map((group) => ({ key: `outcome-${group.key}`, label: group.label, value: String(group.count), detail: `${formatCurrency(group.value)} estimated` }))} />
+          <p className={`mt-3 ${metaClass}`}>Dated when Trackpr noticed the change. &ldquo;No longer applies&rdquo; means the condition stopped holding - not proof the work or money was recovered.</p>
+        </PanelBlock>
         <BreakdownGrid>
           <PanelBlock label="Lead stage" scope={`Leads created · ${periodScope}`}>
             <BarList items={stageBreakdown} />
@@ -307,10 +342,9 @@ export function ResponseCommunicationPanel({ snapshot }: { snapshot: BusinessMet
             { key: "contacted", label: "Contacted", value: String(responseTime.leadsContacted), ...compared(comparisons.leadsContacted) },
             { key: "inbound", label: "Inbound messages", value: String(communicationMetrics.inboundMessages) },
             { key: "outbound", label: "Outbound messages", value: String(communicationMetrics.outboundMessages) },
-            { key: "customer-replies", label: "Customer replies", value: String(communicationMetrics.customerReplies) },
-            { key: "opened", label: "Conversations opened", value: String(communicationMetrics.conversationsOpened) },
-            { key: "closed", label: "Conversations closed", value: String(communicationMetrics.conversationsClosed) },
-            { key: "opt-outs", label: "Opted-out contacts", value: String(communicationMetrics.optOutCount) },
+            { key: "new-open", label: "New conversations · still open", value: String(communicationMetrics.conversationsOpened) },
+            { key: "new-closed", label: "New conversations · now closed", value: String(communicationMetrics.conversationsClosed) },
+            { key: "opt-outs", label: "New contacts who opted out", value: String(communicationMetrics.optOutCount) },
           ]}
         />
         <BreakdownGrid>
@@ -347,8 +381,14 @@ export function ResponseCommunicationPanel({ snapshot }: { snapshot: BusinessMet
 // 7. Scheduling
 // ---------------------------------------------------------------------------
 
-export function SchedulingPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { appointmentMetrics, period } = snapshot;
+/**
+ * Phase 2A: appointments by when they take place in the period (start_at),
+ * from getAppointmentOccurrenceMetrics - not snapshot.appointmentMetrics,
+ * which counts by booking date and stays as-is for Agency and the AI.
+ */
+export function SchedulingPanel({ snapshot, occurrence }: { snapshot: BusinessMetricsSnapshot; occurrence: BiAppointmentMetrics }) {
+  const appointmentMetrics = occurrence;
+  const { period } = snapshot;
 
   return (
     <Panel id="scheduling" title="Scheduling" scope={scopeLabel(period.label)}>
@@ -368,6 +408,7 @@ export function SchedulingPanel({ snapshot }: { snapshot: BusinessMetricsSnapsho
             { key: "cancelled", label: "Cancelled", value: String(appointmentMetrics.cancelledAppointments) },
           ]}
         />
+        <PanelNote>Appointments by the day they take place, not the day they were booked.</PanelNote>
       </PanelBody>
     </Panel>
   );
@@ -390,10 +431,10 @@ export function RetentionPanel({ snapshot, repeat }: { snapshot: BusinessMetrics
     <Panel id="retention" title="Retention & reputation" scope={scopeLabel(period.label)}>
       <PrimaryMetrics
         metrics={[
-          { key: "review-response", label: "Review response rate", value: formatRate(reviewReferralMetrics.reviewResponseRate), detail: `${reviewReferralMetrics.reviewsRequested} requested` },
-          { key: "review-completion", label: "Review completion rate", value: formatRate(reviewReferralMetrics.reviewCompletionRate), detail: `${reviewReferralMetrics.reviewsCompleted} completed` },
-          { key: "referral-response", label: "Referral response rate", value: formatRate(reviewReferralMetrics.referralResponseRate), detail: `${reviewReferralMetrics.referralsRequested} requested` },
-          { key: "referral-conversion", label: "Referral conversion rate", value: formatRate(reviewReferralMetrics.referralConversionRate), detail: `${reviewReferralMetrics.referralsConverted} converted` },
+          { key: "review-response", label: "Review response rate", value: formatRate(reviewReferralMetrics.reviewResponseRateOfSent), detail: `${reviewReferralMetrics.reviewsWithResponse} of ${reviewReferralMetrics.reviewsSent} sent replied` },
+          { key: "review-completion", label: "Review completion rate", value: formatRate(reviewReferralMetrics.reviewCompletionRateOfSent), detail: `${reviewReferralMetrics.reviewsCompleted} completed · ${reviewReferralMetrics.reviewsSent} sent` },
+          { key: "referral-response", label: "Referral response rate", value: formatRate(reviewReferralMetrics.referralResponseRateOfSent), detail: `${reviewReferralMetrics.referralsWithResponse} of ${reviewReferralMetrics.referralsSent} sent replied` },
+          { key: "referral-conversion", label: "Referral conversion rate", value: formatRate(reviewReferralMetrics.referralConversionRateOfSent), detail: `${reviewReferralMetrics.referralsConverted} converted · ${reviewReferralMetrics.referralsSent} sent` },
         ]}
       />
       <PanelBody>
@@ -462,6 +503,7 @@ export function AutomationPanel({ snapshot }: { snapshot: BusinessMetricsSnapsho
 // ---------------------------------------------------------------------------
 
 const DEFINITIONS: { term: string; definition: string }[] = [
+  { term: "Periods", definition: "Every period uses your business's own timezone and calendar days. Comparisons are calendar periods too: this month to date against the same days of last month, last month against the month before." },
   { term: "Collected", definition: `${SANCTIONED_COLLECTED_REVENUE_DEFINITION} Counted by the date the payment was received, within the selected period.` },
   { term: "Invoiced", definition: "Issued invoices dated within the selected period - money asked for, not received." },
   { term: "Outstanding and Overdue", definition: "Open invoice balances as of today, whatever period is selected. Overdue is judged against today's date in your business's timezone." },
@@ -472,8 +514,14 @@ const DEFINITIONS: { term: string; definition: string }[] = [
   { term: "Recoverable estimate value", definition: "Open and expired estimates not yet declined - real opportunity, never guaranteed revenue or a close probability." },
   { term: "Lead sources", definition: "Free text, not standardized - shown for visibility only, never ranked by performance." },
   { term: "Estimate and job values", definition: "Quoted or contracted amounts. Only customer payments recorded in Trackpr count as collected." },
+  { term: "New conversations and opt-outs", definition: "Conversations started in the selected period, counted by whether they are still open or now closed - not opened or closed during it. New contacts who opted out are contacts added in the period who have since opted out." },
+  { term: "Scheduling", definition: "Appointments by the day they take place in the selected period, not the day they were booked." },
+  { term: "Unpaid by age", definition: "Open invoice balances as of today, by whole days past the due date. Current means not yet due, due today, or no due date." },
+  { term: "Estimates awaiting a decision", definition: "Estimates still out, by days since they were sent, as of today. Past their expiry date means still awaiting a decision after the date they were quoted to hold." },
+  { term: "Declined estimate value", definition: "Quoted value of every estimate a customer turned down, all time - lost work, not period revenue." },
+  { term: "Closed opportunities", definition: "Follow-up opportunities that closed in the selected period, dated when Trackpr noticed. Marked lost means the lead was lost; no longer applies means the condition stopped holding, which is not proof the work or money was recovered; dismissed is your own call." },
   { term: "Time to first response", definition: "From lead creation to the first outbound message Trackpr recorded as sent or delivered - not a provider delivery timestamp, and never a claim about when the customer saw it." },
-  { term: "Reviews and referrals", definition: "Response and completion counts reflect an explicit contractor confirmation, not an automated inference." },
+  { term: "Reviews and referrals", definition: "Requests sent in the selected period (never ones that failed to send). A response is a recorded customer reply - a request that replied and was later completed or converted still counts; one completed without a recorded reply does not. Completion and conversion are confirmed by you, not inferred." },
   { term: "Repeat customers", definition: "All time, whatever period is selected. Completed job value is the contracted amount, not collected revenue." },
   { term: "Automation", definition: "Activity counts only - not a claim that a follow-up caused any change in leads, jobs or value. Messages recommended counts what the AI suggested sending, before Trackpr's own send checks." },
   { term: "Observations", definition: "Generated on request from the last 30 days, whatever period is selected above." },

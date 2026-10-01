@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { addDaysToCalendarDate } from "@/lib/invoices/domain";
+import { localMidnightIso, safeTimeZone } from "@/lib/bi/date-range";
 
 export type ActivityEntry = {
   id: string;
@@ -105,11 +107,32 @@ export type ActivityPage = {
  * excluded from search - an unindexed jsonb scan is not a practical or
  * safe query to run on every keystroke.
  */
+/**
+ * The created_at bounds an activity date filter selects, as [from, nextStart):
+ * with an organization timezone (Analytics), local midnight of the `from`
+ * date through local midnight of the day after `to` - DST-safe, and with no
+ * 23:59:59.999 gap. Omitted, the original server-local bounds (`to` inclusive
+ * at 23:59:59.999).
+ */
+export function activityFilterBounds(filters: Pick<ActivityFilters, "from" | "to">, timeZone?: string): { gte?: string; lt?: string; lte?: string } {
+  const bounds: { gte?: string; lt?: string; lte?: string } = {};
+  if (timeZone !== undefined) {
+    const zone = safeTimeZone(timeZone);
+    if (filters.from) bounds.gte = localMidnightIso(filters.from, zone);
+    if (filters.to) bounds.lt = localMidnightIso(addDaysToCalendarDate(filters.to, 1), zone);
+    return bounds;
+  }
+  if (filters.from) bounds.gte = new Date(`${filters.from}T00:00:00`).toISOString();
+  if (filters.to) bounds.lte = new Date(`${filters.to}T23:59:59.999`).toISOString();
+  return bounds;
+}
+
 export async function getActivityEntries(
   supabase: SupabaseClient,
   organizationId: string,
   filters: ActivityFilters,
   limit: number,
+  timeZone?: string,
 ): Promise<ActivityPage> {
   let request = supabase
     .from("audit_log")
@@ -121,13 +144,10 @@ export async function getActivityEntries(
     request = request.eq("entity_type", filters.entityType);
   }
 
-  if (filters.from) {
-    request = request.gte("created_at", new Date(`${filters.from}T00:00:00`).toISOString());
-  }
-
-  if (filters.to) {
-    request = request.lte("created_at", new Date(`${filters.to}T23:59:59.999`).toISOString());
-  }
+  const bounds = activityFilterBounds(filters, timeZone);
+  if (bounds.gte) request = request.gte("created_at", bounds.gte);
+  if (bounds.lt) request = request.lt("created_at", bounds.lt);
+  if (bounds.lte) request = request.lte("created_at", bounds.lte);
 
   const term = filters.query?.trim();
   if (term) {

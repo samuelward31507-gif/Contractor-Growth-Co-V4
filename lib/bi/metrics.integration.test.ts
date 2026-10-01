@@ -756,3 +756,110 @@ test("business_insights reports count toward aiInteractions (usage/cost) but nev
     await service.from("organizations").delete().eq("id", org!.id);
   }
 });
+
+// ==================== Phase 2A: Analytics-only reads and organization calendar ====================
+
+const { getAppointmentOccurrenceMetrics, getOpportunityOutcomes }: typeof import("./metrics") = require(path.join(REPO_ROOT, "lib/bi/metrics.ts"));
+const { getReviewReferralMetrics }: typeof import("./queries") = require(path.join(REPO_ROOT, "lib/bi/queries.ts"));
+
+test("Phase 2A scheduling: appointments count by when they take place - booked earlier, occurring in the period is in; booked in the period, occurring later is out", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Occurrence)" }).select("id").single();
+  try {
+    const contactId = await makeContact(org!.id, "+15555550720");
+    const period = { label: "custom", from: "2027-05-01T06:00:00.000Z", to: "2027-06-01T06:00:00.000Z" };
+    const { error } = await service.from("appointments").insert([
+      // Booked in April, takes place in May - counted.
+      { organization_id: org!.id, contact_id: contactId, title: "Booked early", start_at: "2027-05-10T16:00:00Z", end_at: "2027-05-10T17:00:00Z", status: "completed", created_at: "2027-04-02T16:00:00Z" },
+      { organization_id: org!.id, contact_id: contactId, title: "No-show", start_at: "2027-05-20T16:00:00Z", end_at: "2027-05-20T17:00:00Z", status: "no_show", created_at: "2027-05-01T16:00:00Z" },
+      // Booked in May, takes place in June - not counted.
+      { organization_id: org!.id, contact_id: contactId, title: "Booked in May for June", start_at: "2027-06-10T16:00:00Z", end_at: "2027-06-10T17:00:00Z", status: "scheduled", created_at: "2027-05-15T16:00:00Z" },
+    ]);
+    assert.equal(error, null);
+
+    const { metrics, failed } = await getAppointmentOccurrenceMetrics(service, org!.id, period);
+    assert.equal(failed, false);
+    assert.deepEqual([metrics.totalAppointments, metrics.completedAppointments, metrics.noShowAppointments, metrics.scheduledAppointments], [2, 1, 1, 0]);
+    assert.equal(metrics.appointmentNoShowRate, 50);
+  } finally {
+    await service.from("appointments").delete().eq("organization_id", org!.id);
+    await service.from("contacts").delete().eq("organization_id", org!.id);
+    await service.from("organizations").delete().eq("id", org!.id);
+  }
+});
+
+test("Phase 2A leakage: opportunities closed in the period group into lost / no longer applies / dismissed / other; closed outside it or still open are excluded", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Outcomes)" }).select("id").single();
+  try {
+    const opportunity = (overrides: Record<string, unknown>) => ({ organization_id: org!.id, type: "stale_estimate", source_entity_type: "estimate", source_entity_id: crypto.randomUUID(), title: "Test opportunity", ...overrides });
+    const { error } = await service.from("opportunities").insert([
+      opportunity({ status: "resolved", resolution_reason: "lost", resolved_at: "2027-05-05T12:00:00Z", estimated_value: 1200 }),
+      opportunity({ status: "resolved", resolution_reason: "condition_no_longer_true", resolved_at: "2027-05-06T12:00:00Z", estimated_value: 300 }),
+      opportunity({ status: "dismissed", resolution_reason: "dismissed", resolved_at: "2027-05-07T12:00:00Z", estimated_value: 50 }),
+      opportunity({ status: "resolved", resolution_reason: null, resolved_at: "2027-05-08T12:00:00Z", estimated_value: null }),
+      opportunity({ status: "resolved", resolution_reason: "lost", resolved_at: "2027-04-30T12:00:00Z", estimated_value: 999 }),
+      opportunity({ status: "open", estimated_value: 777 }),
+    ]);
+    assert.equal(error, null);
+
+    const { groups, failed } = await getOpportunityOutcomes(service, org!.id, { label: "custom", from: "2027-05-01T06:00:00.000Z", to: "2027-06-01T06:00:00.000Z" });
+    assert.equal(failed, false);
+    assert.deepEqual(groups.map((group) => [group.key, group.count, group.value]), [["lost", 1, 1200], ["no_longer_applies", 1, 300], ["dismissed", 1, 50], ["other", 1, 0]]);
+  } finally {
+    await service.from("opportunities").delete().eq("organization_id", org!.id);
+    await service.from("organizations").delete().eq("id", org!.id);
+  }
+});
+
+test("Phase 2A reviews/referrals: a reply later completed still counts as responded; failed requests stay out of the sent denominator; the requested counts Agency reads are unchanged", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Reviews)" }).select("id").single();
+  try {
+    const replied = "2027-05-03T12:00:00Z";
+    const { error: reviewError } = await service.from("review_requests").insert([
+      { organization_id: org!.id, status: "completed", requested_at: "2027-05-01T12:00:00Z", responded_at: replied, resolved_at: "2027-05-04T12:00:00Z" },
+      { organization_id: org!.id, status: "completed", requested_at: "2027-05-01T12:00:00Z", resolved_at: "2027-05-04T12:00:00Z" },
+      { organization_id: org!.id, status: "requested", requested_at: "2027-05-01T12:00:00Z" },
+      { organization_id: org!.id, status: "failed" },
+    ]);
+    assert.equal(reviewError, null);
+    const { error: referralError } = await service.from("referral_requests").insert([
+      { organization_id: org!.id, status: "converted", requested_at: "2027-05-01T12:00:00Z", responded_at: replied, resolved_at: "2027-05-04T12:00:00Z" },
+      { organization_id: org!.id, status: "failed" },
+    ]);
+    assert.equal(referralError, null);
+
+    const metrics = await getReviewReferralMetrics(service, org!.id, { label: "all time", from: null, to: null });
+    assert.deepEqual([metrics.reviewsSent, metrics.reviewsWithResponse, metrics.reviewsCompleted], [3, 1, 2]);
+    assert.equal(Math.round(metrics.reviewResponseRateOfSent!), 33);
+    assert.equal(Math.round(metrics.reviewCompletionRateOfSent!), 67);
+    assert.deepEqual([metrics.referralsSent, metrics.referralsWithResponse, metrics.referralResponseRateOfSent, metrics.referralConversionRateOfSent], [1, 1, 100, 100]);
+    // Unchanged for Agency: every row, including the failed ones.
+    assert.deepEqual([metrics.reviewsRequested, metrics.referralsRequested], [4, 2]);
+  } finally {
+    await service.from("review_requests").delete().eq("organization_id", org!.id);
+    await service.from("referral_requests").delete().eq("organization_id", org!.id);
+    await service.from("organizations").delete().eq("id", org!.id);
+  }
+});
+
+test("Phase 2A organization calendar: with Denver's timezone, a lead at 19:00 MDT Sep 30 (01:00Z Oct 1) belongs to September", async () => {
+  const { data: org } = await service.from("organizations").insert({ name: "BI Metrics Test Org (Denver Calendar)" }).select("id").single();
+  try {
+    const contactId = await makeContact(org!.id, "+15555550721");
+    await makeLead(org!.id, contactId, "new", { created_at: "2026-10-01T01:00:00Z" });
+    await makeLead(org!.id, contactId, "new", { created_at: "2026-10-01T07:00:00Z" });
+    const now = new Date("2026-10-15T18:00:00Z");
+
+    const lastMonth = await getBusinessMetricsSnapshot(service, org!.id, "previousMonth", { timeZone: "America/Denver", now });
+    assert.deepEqual([lastMonth.period.from, lastMonth.period.to], ["2026-09-01T06:00:00.000Z", "2026-10-01T06:00:00.000Z"]);
+    assert.equal(lastMonth.leadMetrics.totalLeads, 1, "the Sep 30 evening lead");
+
+    const thisMonth = await getBusinessMetricsSnapshot(service, org!.id, "currentMonth", { timeZone: "America/Denver", now });
+    assert.equal(thisMonth.leadMetrics.totalLeads, 1, "the Oct 1 morning lead");
+    // Month-to-date comparison: Oct 1-15 against Sep 1-15 - the Sep 30 lead is outside it.
+    assert.equal(thisMonth.comparisons.leadCount.previous, 0);
+  } finally {
+    await service.from("leads").delete().eq("organization_id", org!.id);
+    await service.from("contacts").delete().eq("organization_id", org!.id);
+    await service.from("organizations").delete().eq("id", org!.id);
+  }
+});

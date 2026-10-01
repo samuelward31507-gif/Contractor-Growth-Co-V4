@@ -144,3 +144,61 @@ test("Estimate → job is described as accepted estimates that became a job, and
   assert.match(SECTIONS, /label: "Estimate → job", value: formatRate\(estimateMetrics\.estimateToJobRate\), detail: "Accepted estimates that became a job"/);
   assert.match(SECTIONS, /label: "AI interactions", value: String\(aiMetrics\.customerAiInteractions\)/);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2A: organization calendar, honest semantics, aging and leakage
+// ---------------------------------------------------------------------------
+
+test("Phase 2A: the page reads the organization timezone before its batch and passes it to every period-dependent read", () => {
+  assert.match(PAGE, /const timeZone = \(await getOrganizationTimezone\(supabase, membership\.organizationId\)\) \?\? "UTC";[\s\S]*await Promise\.all\(\[/);
+  assert.match(PAGE, /resolveDateRange\(range, now, timeZone\)/);
+  assert.match(PAGE, /resolveDateRange\("last30Days", now, timeZone\)/);
+  assert.match(PAGE, /getBusinessMetricsSnapshot\(supabase, membership\.organizationId, range, \{ timeZone, now \}\)/);
+  assert.match(PAGE, /getLeadsCreatedPerDay\(supabase, membership\.organizationId, chartRange, timeZone\)/);
+  assert.match(PAGE, /getActivityEntries\(supabase, membership\.organizationId, \{ query, entityType, from, to \}, limit, timeZone\)/);
+  assert.match(PAGE, /timeZone=\{timeZone\}/, "the activity timeline gets it for headings and times");
+});
+
+test("Phase 2A: scheduling and leakage come from Analytics-only reads over the organization-calendar range", () => {
+  assert.match(PAGE, /getAppointmentOccurrenceMetrics\(supabase, membership\.organizationId, resolvedRange\)/);
+  assert.match(PAGE, /getOpportunityOutcomes\(supabase, membership\.organizationId, resolvedRange\)/);
+  assert.match(PAGE, /<SchedulingPanel snapshot=\{snapshot\} occurrence=\{appointmentOccurrence\.metrics\} \/>/);
+  assert.match(PAGE, /<PipelineLeaksPanel snapshot=\{snapshot\} outcomes=\{opportunityOutcomes\.groups\} \/>/);
+  assert.match(PAGE, /appointmentOccurrence\.failed \|\| opportunityOutcomes\.failed/, "a failed new read is disclosed like any other");
+  assert.match(SECTIONS, /const appointmentMetrics = occurrence;/);
+  assert.match(SECTIONS, /Appointments by the day they take place, not the day they were booked\./);
+});
+
+test("Phase 2A: communication labels say exactly what is counted, with no duplicate", () => {
+  assert.doesNotMatch(SECTIONS, /label: "Customer replies"|label: "Conversations opened"|label: "Conversations closed"|label: "Opted-out contacts"/);
+  assert.match(SECTIONS, /label: "New conversations · still open"/);
+  assert.match(SECTIONS, /label: "New conversations · now closed"/);
+  assert.match(SECTIONS, /label: "New contacts who opted out"/);
+});
+
+test("Phase 2A: review and referral rates use the sent-request fields and show what was sent", () => {
+  for (const field of ["reviewResponseRateOfSent", "reviewCompletionRateOfSent", "referralResponseRateOfSent", "referralConversionRateOfSent", "reviewsSent", "referralsSent"]) assert.match(SECTIONS, new RegExp(`reviewReferralMetrics\\.${field}`));
+  assert.doesNotMatch(SECTIONS, /formatRate\(reviewReferralMetrics\.(reviewResponseRate|reviewCompletionRate|referralResponseRate|referralConversionRate)\)/);
+});
+
+test("Phase 2A: aging and leakage are surfaced with honest scopes - and nothing is called recovered", () => {
+  assert.match(SECTIONS, /<PanelBlock label="Unpaid by age" scope="As of today">/);
+  assert.match(SECTIONS, /<PanelBlock label="Estimates awaiting a decision" scope="By days since sent · as of today">/);
+  assert.match(SECTIONS, /label: "Declined estimate value · All time", value: formatCurrency\(revenueOpportunity\.lostEstimateValue\)/);
+  assert.match(SECTIONS, /<PanelBlock label=\{`Closed opportunities · \$\{periodScope\}`\}>/);
+  assert.match(SECTIONS, /Dated when Trackpr noticed the change\./);
+  assert.doesNotMatch(SECTIONS, /label: "[^"]*[Rr]ecovered[^"]*"/, "no metric claims money was recovered (Recoverable estimate value is a separate, pre-existing figure)");
+});
+
+test("Phase 2A guard: no caller outside Analytics passes a timezone or snapshot options - Agency, automation and dashboard behavior is unchanged", () => {
+  const calls = (file: string, fn: string) => [...fs.readFileSync(path.join(ROOT, file), "utf8").matchAll(new RegExp(`${fn}\\(([^)]*)\\)`, "g"))].map((match) => match[1]);
+  for (const file of ["lib/agency/usage.ts", "lib/agency/queries.ts", "lib/agency/revenue.ts", "lib/agency/cost-readiness.ts", "lib/agency/costs.ts", "lib/automation-health/health.ts", "lib/automation/queries.ts", "lib/dashboard/business-metrics.ts"]) {
+    for (const args of calls(file, "resolveDateRange")) assert.ok(args.split(",").length <= 1, `${file}: resolveDateRange(${args}) must not pass a timezone`);
+  }
+  for (const [file, fn] of [["lib/dashboard/business-metrics.ts", "getBusinessMetricsSnapshot"], ["lib/agency/operations.ts", "getBusinessMetricsSnapshot"]] as const) {
+    for (const args of calls(file, fn)) assert.equal(args.split(",").length, 3, `${file}: ${fn}(${args}) must not pass options`);
+  }
+  // The AI observations input never includes the new Analytics-only fields.
+  const insights = read("lib/bi/insights.ts");
+  assert.doesNotMatch(insights, /invoiceAging|estimateAging|reviewReferralMetrics/);
+});

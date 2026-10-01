@@ -4,6 +4,7 @@ import { ESTIMATE_STATUSES, type EstimateStatus } from "@/lib/estimates/queries"
 import { JOB_STATUSES, type JobStatus } from "@/lib/jobs/queries";
 import { APPOINTMENT_STATUSES, type AppointmentStatus } from "@/lib/appointments/queries";
 import { CONVERSATION_CHANNELS, type ConversationChannel, type MessageStatus } from "@/lib/conversations/queries";
+import { resolveOrganizationDateRange } from "./date-range";
 import type {
   DateRangeInput,
   ResolvedDateRange,
@@ -71,7 +72,12 @@ const MAX_ROWS = 10_000;
  * threaded through here; that's a reasonable Phase 5 follow-up, not part of
  * this phase's scope.
  */
-export function resolveDateRange(input: DateRangeInput, now: Date = new Date()): ResolvedDateRange {
+export function resolveDateRange(input: DateRangeInput, now: Date = new Date(), timeZone?: string): ResolvedDateRange {
+  // Phase 2A: an explicit organization timezone (Analytics only) switches to
+  // organization-calendar boundaries (./date-range.ts). Omitted, every
+  // preset below keeps its original server-calendar behavior unchanged.
+  if (timeZone !== undefined) return resolveOrganizationDateRange(input, now, timeZone);
+
   if (typeof input === "object" && input !== null) {
     return { label: "custom", from: input.from, to: input.to };
   }
@@ -641,22 +647,46 @@ function rate(numerator: number, denominator: number): number | null {
  * is a smaller, human-driven subset of activity, not a fully-automated
  * measurement the way delivery status is.
  */
+/**
+ * Phase 2A (Analytics): outcomes over requests that were actually sent.
+ * "Sent" is every status except not_requested and failed; a response is a
+ * recorded customer reply (responded_at set) - so responded -> completed /
+ * converted still counts, and a completion recorded without a reply does
+ * not. Rates are percentages, null when nothing was sent, and can never
+ * exceed 100 (each numerator is a subset of the sent rows).
+ */
+export function sentRequestOutcomes(
+  rows: { status: string; responded_at: string | null }[],
+  outcomeStatus: "completed" | "converted",
+): { sent: number; withResponse: number; outcomes: number; responseRate: number | null; outcomeRate: number | null } {
+  const sentRows = rows.filter((row) => row.status !== "not_requested" && row.status !== "failed");
+  const withResponse = sentRows.filter((row) => row.responded_at != null).length;
+  const outcomes = sentRows.filter((row) => row.status === outcomeStatus).length;
+  // Percentages (0-100), the scale every Analytics rate is rendered on
+  // (formatRate) - unlike this file's own rate() helper, which returns a
+  // 0-1 fraction for the legacy fields above.
+  const percent = (numerator: number) => (sentRows.length === 0 ? null : (numerator / sentRows.length) * 100);
+  return { sent: sentRows.length, withResponse, outcomes, responseRate: percent(withResponse), outcomeRate: percent(outcomes) };
+}
+
 export async function getReviewReferralMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
 ): Promise<ReviewReferralMetrics> {
-  let reviewQuery = supabase.from("review_requests").select("status").eq("organization_id", organizationId).limit(MAX_ROWS);
+  let reviewQuery = supabase.from("review_requests").select("status, responded_at").eq("organization_id", organizationId).limit(MAX_ROWS);
   if (range.from) reviewQuery = reviewQuery.gte("created_at", range.from);
   if (range.to) reviewQuery = reviewQuery.lt("created_at", range.to);
 
-  let referralQuery = supabase.from("referral_requests").select("status").eq("organization_id", organizationId).limit(MAX_ROWS);
+  let referralQuery = supabase.from("referral_requests").select("status, responded_at").eq("organization_id", organizationId).limit(MAX_ROWS);
   if (range.from) referralQuery = referralQuery.gte("created_at", range.from);
   if (range.to) referralQuery = referralQuery.lt("created_at", range.to);
 
   const [{ data: reviewData }, { data: referralData }] = await Promise.all([reviewQuery, referralQuery]);
-  const reviewRows = (reviewData ?? []) as { status: string }[];
-  const referralRows = (referralData ?? []) as { status: string }[];
+  const reviewRows = (reviewData ?? []) as { status: string; responded_at: string | null }[];
+  const referralRows = (referralData ?? []) as { status: string; responded_at: string | null }[];
+  const reviewsOfSent = sentRequestOutcomes(reviewRows, "completed");
+  const referralsOfSent = sentRequestOutcomes(referralRows, "converted");
 
   const reviewsRequested = reviewRows.length;
   const reviewsResponded = reviewRows.filter((r) => r.status === "responded").length;
@@ -685,6 +715,14 @@ export async function getReviewReferralMetrics(
     referralsFailed,
     referralResponseRate: rate(referralsResponded, referralsRequested),
     referralConversionRate: rate(referralsConverted, referralsRequested),
+    reviewsSent: reviewsOfSent.sent,
+    reviewsWithResponse: reviewsOfSent.withResponse,
+    reviewResponseRateOfSent: reviewsOfSent.responseRate,
+    reviewCompletionRateOfSent: reviewsOfSent.outcomeRate,
+    referralsSent: referralsOfSent.sent,
+    referralsWithResponse: referralsOfSent.withResponse,
+    referralResponseRateOfSent: referralsOfSent.responseRate,
+    referralConversionRateOfSent: referralsOfSent.outcomeRate,
   };
 }
 

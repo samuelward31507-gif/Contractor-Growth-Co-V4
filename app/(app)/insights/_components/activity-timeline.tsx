@@ -12,7 +12,7 @@ import {
 } from "@/lib/activity/format";
 import type { ActivityEntry } from "@/lib/activity/queries";
 
-function ActivityRow({ entry, currentUserId }: { entry: ActivityEntry; currentUserId: string }) {
+function ActivityRow({ entry, currentUserId, timeZone }: { entry: ActivityEntry; currentUserId: string; timeZone?: string }) {
   const entityLabel = activityEntityLabel(entry.entity_type);
   const href = activityEntityHref(entry.entity_type, entry.entity_id, entry.metadata);
   const metadataDescription = describeMetadata(entry.metadata);
@@ -39,7 +39,7 @@ function ActivityRow({ entry, currentUserId }: { entry: ActivityEntry; currentUs
         <span className="mt-1 flex items-center gap-2 text-xs text-ink-3">
           <span>{actor}</span>
           <span aria-hidden>·</span>
-          <span>{formatActivityTime(entry.created_at)}</span>
+          <span>{formatActivityTime(entry.created_at, timeZone)}</span>
         </span>
       </span>
     </>
@@ -62,12 +62,15 @@ export function ActivityTimeline({
   hasActiveFilters,
   hasMore,
   loadMoreHref,
+  timeZone,
 }: {
   entries: ActivityEntry[];
   currentUserId: string;
   hasActiveFilters: boolean;
   hasMore: boolean;
   loadMoreHref: string;
+  /** Phase 2A: the organization's timezone - day headings and times are in its calendar, not the server's. */
+  timeZone?: string;
 }) {
   if (entries.length === 0) {
     return (
@@ -82,7 +85,7 @@ export function ActivityTimeline({
 
   const groups = new Map<string, ActivityEntry[]>();
   for (const entry of entries) {
-    const label = getActivityDayLabel(entry.created_at);
+    const label = getActivityDayLabel(entry.created_at, new Date(), timeZone);
     const existing = groups.get(label) ?? [];
     existing.push(entry);
     groups.set(label, existing);
@@ -95,7 +98,7 @@ export function ActivityTimeline({
           <p className={sectionLabelClass}>{label}</p>
           <div className="mt-3 divide-y divide-line">
             {items.map((entry) => (
-              <ActivityRow key={entry.id} entry={entry} currentUserId={currentUserId} />
+              <ActivityRow key={entry.id} entry={entry} currentUserId={currentUserId} timeZone={timeZone} />
             ))}
           </div>
         </div>
