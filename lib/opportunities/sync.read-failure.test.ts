@@ -45,6 +45,8 @@ function makeFakeSupabase(tables: Record<string, Row[]>, options: { failSelectAt
     let op = "select";
     let payload: unknown;
     let maybe = false;
+    let columns = "";
+    let page: [number, number] | null = null;
     const matches = (row: Row) =>
       filters.every(({ kind, column, value }) => {
         const actual = row[column];
@@ -64,6 +66,17 @@ function makeFakeSupabase(tables: Record<string, Row[]>, options: { failSelectAt
       if (failed) return { data: null, error: options.error ?? { message: "canceling statement due to statement timeout", code: "57014" } };
       let result: Row[] = [];
       if (op === "select") result = rows.filter(matches);
+      // Phase 2H: the uncontacted-lead read joins each conversation to one
+      // inbound or successfully sent outbound message of the same
+      // organization (an inner join) - emulated here over the messages table.
+      if (op === "select" && table === "conversations" && columns.includes("messages!inner")) {
+        const qualifying = (message: Row, conversation: Row) =>
+          message.conversation_id === conversation.id &&
+          message.organization_id === conversation.organization_id &&
+          (message.direction === "inbound" || (message.direction === "outbound" && ["sent", "delivered"].includes(String(message.status))));
+        result = result.filter((conversation) => (tables.messages ?? []).some((message) => qualifying(message, conversation))).map((conversation) => ({ ...conversation, messages: [{ id: "m" }] }));
+      }
+      if (op === "select" && page) result = result.slice(page[0], page[1] + 1);
       else if (op === "insert") {
         const incoming = (Array.isArray(payload) ? payload : [payload]) as Row[];
         const inserted = incoming.map((row, i) => ({ id: `${table}-${rows.length + i + 1}`, status: "open", created_at: "2026-10-20T00:00:00.000Z", ...row }));
@@ -77,7 +90,9 @@ function makeFakeSupabase(tables: Record<string, Row[]>, options: { failSelectAt
       return { data: result, error: null };
     }
     const b: Record<string, unknown> = {
-      select: () => b,
+      select: (selected?: string) => (op === "select" && (columns = selected ?? ""), b),
+      or: () => b,
+      range: (from: number, to: number) => ((page = [from, to]), b),
       insert: (rows: unknown) => ((op = "insert"), (payload = rows), b),
       update: (patch: unknown) => ((op = "update"), (payload = patch), b),
       eq: (column: string, value: unknown) => (filters.push({ kind: "eq", column, value }), b),
@@ -176,11 +191,11 @@ afterEach(() => {
 });
 const abortLogs = () => logged.filter((args) => args[0] === "[opportunities] sync aborted: read failed");
 
-test("baseline: with every read succeeding, the fixture runs all 36 sync reads and the sync writes normally (resolves the gone lead as lost, keeps the stale estimate, never re-opens the dismissed no-show)", async () => {
+test("baseline: with every read succeeding, the fixture runs all 34 sync reads and the sync writes normally (resolves the gone lead as lost, keeps the stale estimate, never re-opens the dismissed no-show)", async () => {
   const fake = makeFakeSupabase(fixture());
   const result = await syncOpportunities(fake.client, ORG, NOW);
   const selects = fake.calls.filter((call) => call.op === "select");
-  assert.equal(selects.length, 36, `every read ran: ${selects.map((call) => call.table).join(", ")}`);
+  assert.equal(selects.length, 34, `every read ran: ${selects.map((call) => call.table).join(", ")}`);
   assert.equal(result.failed, undefined);
   assert.ok(result.created > 0 && result.resolved === 1, JSON.stringify(result));
   const byId = (id: string) => fake.tables.opportunities.find((row) => row.id === id)!;
@@ -207,7 +222,7 @@ test("every read, failed one at a time: the sync aborts with failed: true, perfo
   const baseline = makeFakeSupabase(fixture());
   await syncOpportunities(baseline.client, ORG, NOW);
   const readCount = baseline.calls.filter((call) => call.op === "select").length;
-  assert.equal(readCount, 36);
+  assert.equal(readCount, 34); // Phase 2H: 36 -> 34 - the dormant contacts read joins its jobs read; conversations + messages are one join
   const failedReads = new Set<string>();
 
   for (let index = 0; index < readCount; index += 1) {
@@ -229,7 +244,7 @@ test("every read, failed one at a time: the sync aborts with failed: true, perfo
     failedReads.add(context.read);
   }
   // Every read is individually labelled, so a log line always says which read failed.
-  assert.equal(failedReads.size, 36, [...failedReads].join(", "));
+  assert.equal(failedReads.size, 34, [...failedReads].join(", "));
 });
 
 test("the destructive cases specifically: a failed primary read no longer resolves, a failed exclusion read no longer inserts, a failed dismissal read no longer re-opens, a failed automation-enabled read no longer fails open", async () => {
@@ -242,7 +257,7 @@ test("the destructive cases specifically: a failed primary read no longer resolv
   const baseline = makeFakeSupabase(fixture());
   await syncOpportunities(baseline.client, ORG, NOW);
   const readLabels: string[] = [];
-  for (let index = 0; index < 36; index += 1) readLabels.push((await labelFor(index)).read);
+  for (let index = 0; index < 34; index += 1) readLabels.push((await labelFor(index)).read);
 
   for (const read of ["stale_estimate.estimates", "qualified_lead_unbooked.leads", "completed_job_no_review_request.organizations", "uncontacted_lead.organizations"]) {
     const outcome = await labelFor(readLabels.indexOf(read));
@@ -250,7 +265,7 @@ test("the destructive cases specifically: a failed primary read no longer resolv
     assert.equal(outcome.writes, 0, `${read}: a failed primary read resolves nothing`);
     assert.equal(outcome.opportunities.find((row) => row.id === "opp-stale")!.status, "open");
   }
-  for (const read of ["qualified_lead_unbooked.appointments", "completed_job_no_referral_request.referral_requests", "uncontacted_lead.messages", "accepted_estimate_no_job.jobs"]) {
+  for (const read of ["qualified_lead_unbooked.appointments", "completed_job_no_referral_request.referral_requests", "uncontacted_lead.contacted_conversations", "accepted_estimate_no_job.jobs"]) {
     const outcome = await labelFor(readLabels.indexOf(read));
     assert.equal(outcome.writes, 0, `${read}: a failed exclusion read inserts nothing`);
   }
