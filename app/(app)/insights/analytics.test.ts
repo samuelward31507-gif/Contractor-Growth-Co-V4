@@ -54,7 +54,7 @@ test("removed: the at-a-glance strip, the activity overview counts and the autom
 });
 
 test("the trend chart sits inside Leads & conversion, not Revenue", () => {
-  assert.match(PAGE, /<LeadsConversionPanel\s+snapshot=\{snapshot\}\s+trend=\{<TrendSection/);
+  assert.match(PAGE, /<LeadsConversionPanel\s+snapshot=\{snapshot\}\s+outcomes=\{outcomeMetrics\}\s+trend=\{<TrendSection/);
   assert.match(read("app/(app)/insights/_components/trend-section.tsx"), /<PanelBlock label="Leads, day by day"/);
 });
 
@@ -221,7 +221,7 @@ test("Phase 2B: jobs linked to a lead - one Analytics-only, all-time read in Est
 test("Phase 2C: revenue by source and lead → job - one Analytics-only read over the organization-calendar range, inside Estimates & jobs", () => {
   assert.match(PAGE, /getRevenueAttribution\(supabase, membership\.organizationId, resolvedRange\)/);
   assert.match(PAGE, /revenueAttribution\.failed/, "a failed or over-ceiling read is disclosed");
-  assert.match(PAGE, /<EstimatesJobsPanel snapshot=\{snapshot\} jobLeadLinkage=\{jobLeadLinkage\} attribution=\{revenueAttribution\} \/>/);
+  assert.match(PAGE, /<EstimatesJobsPanel snapshot=\{snapshot\} jobLeadLinkage=\{jobLeadLinkage\} attribution=\{revenueAttribution\}/);
   assert.match(SECTIONS, /<PanelBlock label="Revenue by source" scope=\{periodScope\}>/);
   assert.match(SECTIONS, /<PanelBlock label="Lead → job" scope=\{`Leads created · \$\{periodScope\}`\}>/);
   for (const header of ["Source", "Leads", "Jobs", "Completed", "Completed value"]) assert.match(SECTIONS, new RegExp(`>${header}</th>`));
@@ -233,4 +233,28 @@ test("Phase 2C: revenue by source and lead → job - one Analytics-only read ove
   for (const file of ["lib/bi/insights.ts", "lib/bi/queries.ts", "lib/bi/types.ts", "lib/bi/metrics.ts", "lib/dashboard/business-metrics.ts", "lib/agency/operations.ts", "lib/agency/queries.ts"]) {
     assert.doesNotMatch(fs.readFileSync(path.join(ROOT, file), "utf8"), /getRevenueAttribution|revenueAttribution|revenue-attribution/, file);
   }
+});
+
+test("Phase 2D: completed job value, estimate acceptance and lead → booking come from the Analytics-only outcome read; job completion stays creation-dated and says so", () => {
+  assert.match(PAGE, /getOutcomeMetrics\(supabase, membership\.organizationId, resolvedRange\)/);
+  assert.match(PAGE, /outcomeMetrics\.failed/, "a failed read is disclosed");
+  assert.match(PAGE, /<EstimatesJobsPanel snapshot=\{snapshot\} jobLeadLinkage=\{jobLeadLinkage\} attribution=\{revenueAttribution\} outcomes=\{outcomeMetrics\} \/>/);
+  assert.match(SECTIONS, /label: "Completed job value", value: formatCurrency\(outcomes\.completedJobValue\)/);
+  assert.match(SECTIONS, /label: "Lead → booking", value: formatRate\(outcomes\.leadToBookingRate\)/);
+  assert.match(SECTIONS, /label: "Estimate acceptance", value: formatRate\(outcomes\.estimateAcceptanceRate\)/);
+  assert.match(SECTIONS, /label: "Job completion", value: formatRate\(jobMetrics\.jobCompletionRate\), detail: "Jobs created in the period · completed vs\. completed \+ cancelled"/);
+  assert.doesNotMatch(SECTIONS, /jobMetrics\.completedContractedJobValue|leadMetrics\.leadToBookingRate|estimateMetrics\.estimateAcceptanceRate/, "the creation-dated snapshot versions are no longer shown");
+  assert.match(SECTIONS, /<PanelBlock label="Job status" scope="Created in the period">/);
+  assert.match(SECTIONS, /<PanelBlock label="Estimate status" scope="Created in the period">/);
+  assert.match(SECTIONS, /term: "Completed job value", definition: "Jobs marked complete in the selected period, by the date they were completed/);
+  assert.match(SECTIONS, /Job completion: of the jobs created in the selected period[^"]*by creation date, because a cancellation date isn't recorded/);
+  assert.match(SECTIONS, /Lead → booking: of the leads created in the selected period, those with at least one appointment that wasn't cancelled and wasn't a no-show/);
+});
+
+test("Phase 2D guard: the outcome read is Analytics-only - the snapshot, AI input, Agency and Today keep their own semantics", () => {
+  for (const file of ["lib/bi/insights.ts", "lib/bi/queries.ts", "lib/bi/types.ts", "lib/bi/metrics.ts", "lib/dashboard/business-metrics.ts", "lib/agency/operations.ts", "lib/agency/queries.ts"]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(ROOT, file), "utf8"), /getOutcomeMetrics|outcome-metrics/, file);
+  }
+  const users = execFileSync("git", ["grep", "-l", "--untracked", "getOutcomeMetrics"], { cwd: ROOT, encoding: "utf8" }).trim().split("\n").sort();
+  assert.deepEqual(users.filter((file) => !file.endsWith(".test.ts")), ["app/(app)/insights/page.tsx", "lib/bi/outcome-metrics.ts"]);
 });
