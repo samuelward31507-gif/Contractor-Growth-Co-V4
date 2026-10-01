@@ -179,11 +179,17 @@ export function LeadsConversionPanel({ snapshot, outcomes, trend }: { snapshot: 
  * per-item next actions live in Today's queue - this links there rather
  * than inventing a second recommendation surface. Lost rate and the
  * stage/source/temperature breakdowns cover leads created in the selected
- * period, and are labeled that way.
+ * period, and are labeled that way. Phase 2G: a leak figure whose read
+ * failed shows as unavailable - never 0 or $0 - without hiding the others,
+ * and never counts toward the "Review in Today" link.
  */
 export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessMetricsSnapshot; outcomes: OpportunityOutcomeGroup[] }) {
-  const { leadMetrics, pipelineMetrics, revenueOpportunity, estimateAging, period } = snapshot;
-  const hasOpenItems = revenueOpportunity.qualifiedLeadsWithoutAppointment > 0 || revenueOpportunity.completedAppointmentsWithoutEstimate > 0 || revenueOpportunity.recoverableEstimateValue > 0;
+  const { leadMetrics, pipelineMetrics, revenueOpportunity, revenueOpportunityUnavailable: unavailable, estimateAging, period } = snapshot;
+  const unreadable = { value: "-", detail: "Couldn't be read for this period" };
+  const hasOpenItems =
+    (!unavailable.qualifiedNoAppointment && revenueOpportunity.qualifiedLeadsWithoutAppointment > 0) ||
+    (!unavailable.visitsNoEstimate && revenueOpportunity.completedAppointmentsWithoutEstimate > 0) ||
+    (!unavailable.estimates && revenueOpportunity.recoverableEstimateValue > 0);
   const periodScope = scopeLabel(period.label);
 
   const stageBreakdown = [
@@ -207,19 +213,30 @@ export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessM
           { key: "open-leads", label: "Open leads", value: String(pipelineMetrics.openOpportunityCount) },
           { key: "open-lead-value", label: "Open lead value", value: formatCurrency(pipelineMetrics.pipelineValue), detail: "Entered on each open lead" },
           { key: "avg-open-lead-value", label: "Avg. open lead value", value: pipelineMetrics.averagePipelineValue === null ? "Not enough data yet" : formatCurrency(pipelineMetrics.averagePipelineValue) },
-          { key: "recoverable", label: "Recoverable estimate value", value: formatCurrency(revenueOpportunity.recoverableEstimateValue), detail: "Open + expired, not yet declined" },
+          unavailable.estimates
+            ? { key: "recoverable", label: "Recoverable estimate value", ...unreadable }
+            : { key: "recoverable", label: "Recoverable estimate value", value: formatCurrency(revenueOpportunity.recoverableEstimateValue), detail: "Open + expired, not yet declined" },
         ]}
       />
       <PanelBody>
         <SecondaryMetrics
           metrics={[
-            { key: "qualified-no-appt", label: "Qualified, no appointment", value: String(revenueOpportunity.qualifiedLeadsWithoutAppointment) },
-            { key: "completed-no-estimate", label: "Visits, no estimate", value: String(revenueOpportunity.completedAppointmentsWithoutEstimate) },
+            unavailable.qualifiedNoAppointment
+              ? { key: "qualified-no-appt", label: "Qualified, no appointment", ...unreadable }
+              : { key: "qualified-no-appt", label: "Qualified, no appointment", value: String(revenueOpportunity.qualifiedLeadsWithoutAppointment) },
+            unavailable.visitsNoEstimate
+              ? { key: "completed-no-estimate", label: "Visits, no estimate", ...unreadable }
+              : { key: "completed-no-estimate", label: "Visits, no estimate", value: String(revenueOpportunity.completedAppointmentsWithoutEstimate) },
             { key: "lost-rate", label: "Lost rate", value: formatRate(leadMetrics.lostRate), detail: `Leads created · ${periodScope}` },
-            { key: "declined-value", label: "Declined estimate value · All time", value: formatCurrency(revenueOpportunity.lostEstimateValue), detail: "Quoted work customers turned down" },
+            unavailable.estimates
+              ? { key: "declined-value", label: "Declined estimate value · All time", ...unreadable }
+              : { key: "declined-value", label: "Declined estimate value · All time", value: formatCurrency(revenueOpportunity.lostEstimateValue), detail: "Quoted work customers turned down" },
           ]}
         />
         <PanelBlock label="Estimates awaiting a decision" scope="By days since sent · as of today">
+          {unavailable.estimates ? (
+            <p className={metaClass}>Estimates awaiting a decision could not be read for this period. Nothing is estimated in its place.</p>
+          ) : (
           <SecondaryMetrics
             metrics={[
               ...estimateAging.buckets
@@ -234,6 +251,7 @@ export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessM
               },
             ]}
           />
+          )}
         </PanelBlock>
         <PanelBlock label={`Closed opportunities · ${periodScope}`}>
           <SecondaryMetrics metrics={outcomes.map((group) => ({ key: `outcome-${group.key}`, label: group.label, value: String(group.count), detail: `${formatCurrency(group.value)} estimated` }))} />
