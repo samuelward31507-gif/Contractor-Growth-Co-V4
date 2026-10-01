@@ -10,7 +10,7 @@ import {
   getAiMetrics,
   getReviewReferralMetrics,
 } from "./queries";
-import { hasAnyLeadStageHistory, getLeadsForRangeResult, getLeadStageTransitionMetrics, getLeadStageTimingMetrics, getLeadResponseTimeMetrics } from "./funnel";
+import { hasAnyLeadStageHistoryResult, getLeadsForRangeResult, getLeadStageTransitionMetrics, getLeadStageTimingMetrics, getLeadResponseTimeMetrics } from "./funnel";
 import { computeBillingMetrics, computeInvoiceAging, getBillingRowsResult, SANCTIONED_COLLECTED_REVENUE_DEFINITION, type BiBillingMetrics } from "./billing";
 import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { calendarDaysBetween, previousOrganizationRange, safeTimeZone } from "./date-range";
@@ -19,6 +19,7 @@ import type {
   DateRangeInput,
   ResolvedDateRange,
   PeriodComparison,
+  UnavailableComparison,
   BusinessMetricsComparisons,
   BiLeadMetrics,
   BiPipelineMetrics,
@@ -94,6 +95,9 @@ function previousPeriodOf(range: ResolvedDateRange): ResolvedDateRange | null {
     to: new Date(fromMs).toISOString(),
   };
 }
+
+/** Phase 2F: the comparison for a figure whose current or previous period could not be read - all null, never a number. */
+const UNAVAILABLE_COMPARISON: UnavailableComparison = { unavailable: true, current: null, previous: null, change: null, percentageChange: null };
 
 function computeComparison(current: number, previous: number | null): PeriodComparison {
   if (previous === null) {
@@ -715,7 +719,7 @@ export async function buildAiMetrics(supabase: SupabaseClient, organizationId: s
  * states that explicitly, using the real counts already computed by
  * getLeadStageTimingMetrics for this same snapshot.
  */
-function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean): BiDataQuality {
+function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean, stageHistoryReadFailed = false): BiDataQuality {
   const aiTokenUsageUnavailable = aiUsage.interactionsWithUsageData === 0;
   // Phase 1B-4: the payment ledger exists now. The first note states the one
   // sanctioned definition of collected revenue and keeps every quoted/
@@ -727,7 +731,10 @@ function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean
     "leads.source is nullable and not standardized - sourceCounts is exposed for transparency only, never as a performance ranking.",
   ];
   notes.push(
-    stageHistoryUnavailable
+    // Phase 2F: a failed read is never reported as "no history" or as a coverage count.
+    stageHistoryReadFailed
+      ? "Lead stage history could not be read for this snapshot - the historical funnel figures and their comparisons are unavailable, not zero. Do not describe them."
+      : stageHistoryUnavailable
       ? "No lead.stage_changed event exists for this organization in this period - the historical funnel section below has nothing to compute from yet."
       : `Historical stage timing (time to qualified/won) is available only for leads with a recorded lead.stage_changed event - in this period, that is ${timing.leadsWithRecordedHistory} of ${timing.leadsInRange} lead(s). This is not a complete historical record for every lead; see the funnel section below for the exact current counts before treating any average as representative of the full period.`,
   );
@@ -740,7 +747,7 @@ function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean
   return {
     collectedRevenueUnavailable,
     sourceAttributionLimited: true,
-    stageHistoryUnavailable,
+    stageHistoryUnavailable: stageHistoryUnavailable || stageHistoryReadFailed,
     aiTokenUsageUnavailable,
     notes,
   };
@@ -782,7 +789,7 @@ export async function getBusinessMetricsSnapshot(
     { automation, followUp },
     { metrics: aiMetrics, failed: aiFailed },
     reviewReferralMetrics,
-    stageHistoryExists,
+    stageHistory,
     { leads: sharedLeads, failed: sharedLeadsFailed },
     transitionMetrics,
     previousTotals,
@@ -804,7 +811,7 @@ export async function getBusinessMetricsSnapshot(
       // instruction not to change this flag's computation mechanism, even
       // though transitionMetrics/timingMetrics below are now also computed
       // in this same function.
-      hasAnyLeadStageHistory(supabase, organizationId, range),
+      hasAnyLeadStageHistoryResult(supabase, organizationId, range),
       // Pass 5C, Batch 3B: the one shared, range-scoped `leads` fetch reused
       // below by getLeadStageTimingMetrics and getLeadResponseTimeMetrics -
       // see lib/bi/funnel.ts's own header comment for why this replaces two
@@ -850,14 +857,30 @@ export async function getBusinessMetricsSnapshot(
     previousTotals ? getLeadResponseTimeMetrics(supabase, organizationId, previousTotals[4].leads) : Promise.resolve(null),
   ]);
 
+  // Phase 2F: a funnel figure is unavailable when its own read - or the
+  // shared leads read its population comes from - failed. A comparison is
+  // unavailable when either period's read failed, so neither Analytics nor
+  // the AI observations ever describe a change from a figure that wasn't
+  // measured.
+  const funnelUnavailable = {
+    responseTime: sharedLeadsFailed || responseTimeMetrics.failed,
+    stageTransitions: transitionMetrics.failed,
+    stageTiming: sharedLeadsFailed || timingMetrics.failed,
+  };
+  const previousContactedFailed = previousTotals ? previousTotals[4].failed || previousResponseTimeMetrics!.failed : false;
+  const previousTransitionsFailed = previousTotals ? previousTotals[3].failed : false;
+  const contactedComparison = funnelUnavailable.responseTime || previousContactedFailed ? UNAVAILABLE_COMPARISON : computeComparison(responseTimeMetrics.leadsContacted, previousTotals ? previousResponseTimeMetrics!.leadsContacted : null);
+  const transitionComparison = (current: number, previous: number | undefined) =>
+    funnelUnavailable.stageTransitions || previousTransitionsFailed ? UNAVAILABLE_COMPARISON : computeComparison(current, previous ?? null);
+
   const comparisons: BusinessMetricsComparisons = previousTotals
     ? {
         leadCount: computeComparison(lead.totalLeads, previousTotals[0].leads.totalLeads),
         estimateCount: computeComparison(estimateMetrics.totalEstimates, previousTotals[1].totalEstimates),
         jobCount: computeComparison(jobMetrics.totalJobs, previousTotals[2].totalJobs),
-        leadsTransitionedToQualified: computeComparison(transitionMetrics.leadsTransitionedToQualified, previousTotals[3].leadsTransitionedToQualified),
-        leadsTransitionedToWon: computeComparison(transitionMetrics.leadsTransitionedToWon, previousTotals[3].leadsTransitionedToWon),
-        leadsContacted: computeComparison(responseTimeMetrics.leadsContacted, previousResponseTimeMetrics!.leadsContacted),
+        leadsTransitionedToQualified: transitionComparison(transitionMetrics.leadsTransitionedToQualified, previousTotals[3].leadsTransitionedToQualified),
+        leadsTransitionedToWon: transitionComparison(transitionMetrics.leadsTransitionedToWon, previousTotals[3].leadsTransitionedToWon),
+        leadsContacted: contactedComparison,
         invoicedValue: computeComparison(billingMetrics.invoicedValue, previousBilling!.invoicedValue),
         collectedValue: computeComparison(billingMetrics.collectedValue, previousBilling!.collectedValue),
       }
@@ -865,9 +888,9 @@ export async function getBusinessMetricsSnapshot(
         leadCount: computeComparison(lead.totalLeads, null),
         estimateCount: computeComparison(estimateMetrics.totalEstimates, null),
         jobCount: computeComparison(jobMetrics.totalJobs, null),
-        leadsTransitionedToQualified: computeComparison(transitionMetrics.leadsTransitionedToQualified, null),
-        leadsTransitionedToWon: computeComparison(transitionMetrics.leadsTransitionedToWon, null),
-        leadsContacted: computeComparison(responseTimeMetrics.leadsContacted, null),
+        leadsTransitionedToQualified: transitionComparison(transitionMetrics.leadsTransitionedToQualified, undefined),
+        leadsTransitionedToWon: transitionComparison(transitionMetrics.leadsTransitionedToWon, undefined),
+        leadsContacted: contactedComparison,
         invoicedValue: computeComparison(billingMetrics.invoicedValue, null),
         collectedValue: computeComparison(billingMetrics.collectedValue, null),
       };
@@ -915,9 +938,10 @@ export async function getBusinessMetricsSnapshot(
     reviewReferralMetrics,
     leadStageFunnel: { transitions: transitionMetrics, timing: timingMetrics },
     responseTime: responseTimeMetrics,
-    dataQuality: buildDataQuality(aiMetrics, !stageHistoryExists, timingMetrics, billingRows.failed),
+    dataQuality: buildDataQuality(aiMetrics, !stageHistory.exists, timingMetrics, billingRows.failed, stageHistory.failed || funnelUnavailable.stageTransitions || funnelUnavailable.stageTiming),
     partialData,
     partialDataSourceCount,
+    funnelUnavailable,
     generatedAt: new Date().toISOString(),
   };
 }

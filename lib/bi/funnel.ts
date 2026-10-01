@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LeadStatus } from "@/lib/leads/queries";
+import { readAllPages } from "./revenue-attribution";
 import type { ResolvedDateRange, LeadStageTransitionMetrics, LeadStageTimingMetrics, ResponseTimeBucket, LeadResponseTimeMetrics } from "./types";
 
 /**
@@ -52,9 +53,19 @@ import type { ResolvedDateRange, LeadStageTransitionMetrics, LeadStageTimingMetr
  * touched or merged into this shared fetch - out of this pass's scope.
  * getLeadStageTransitionMetrics and hasAnyLeadStageHistory never read
  * `leads` at all (both query only automation_events) and are unaffected.
+ *
+ * Phase 2F: every row read here goes through readAllPages (Phase 2C) -
+ * paged by 1000, failing rather than returning a partial result. The API
+ * caps a response at 1000 rows, so the old single reads silently dropped
+ * everything past it (oldest-first message reads dropped the newest
+ * replies). No read sends an ID list any more: an ID list fails outright
+ * at roughly 400 ids (the request URL grows too long). Stage events and
+ * outbound messages are read for the organization from the earliest lead's
+ * creation onward - nothing earlier can count for any lead in the
+ * population - and matched to the leads in memory. A failed read returns
+ * `failed` with empty figures, which the snapshot reports as unavailable,
+ * never as zero.
  */
-
-const MAX_ROWS = 10_000;
 
 /** The exact union of lead columns getLeadStageTimingMetrics and getLeadResponseTimeMetrics each need - no more. */
 export type SharedLeadRow = {
@@ -77,12 +88,18 @@ export type SharedLeadsResult = { leads: SharedLeadRow[]; failed: boolean };
 
 /** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on genuine emptiness - see lib/bi/queries.ts's getLeadAndPipelineMetrics for the full discipline this mirrors. */
 export async function getLeadsForRangeResult(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<SharedLeadsResult> {
-  let query = supabase.from("leads").select("id, contact_id, created_at").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
+  const read = await readAllPages<SharedLeadRow>(() => {
+    let query = supabase.from("leads").select("id, contact_id, created_at").eq("organization_id", organizationId);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  return read.failed ? { leads: [], failed: true } : { leads: read.rows, failed: false };
+}
 
-  const { data, error } = await query;
-  return { leads: (data ?? []) as SharedLeadRow[], failed: error != null };
+/** The earliest lead's creation instant - no stage event or outbound message before it can count for any lead in `leads`. Leads is non-empty. */
+function earliestCreatedAt(leads: SharedLeadRow[]): string {
+  return new Date(Math.min(...leads.map((lead) => Date.parse(lead.created_at)))).toISOString();
 }
 
 export async function getLeadsForRange(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<SharedLeadRow[]> {
@@ -109,17 +126,14 @@ type StageChangedEventRow = {
  * test suite (lib/automation/lead-stage-history.integration.test.ts).
  */
 export async function getLeadStageTransitionMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<LeadStageTransitionMetrics & { failed: boolean }> {
-  let query = supabase
-    .from("automation_events")
-    .select("entity_id, payload, created_at")
-    .eq("organization_id", organizationId)
-    .eq("event_type", "lead.stage_changed")
-    .limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  const rows = (data ?? []) as StageChangedEventRow[];
+  const read = await readAllPages<StageChangedEventRow>(() => {
+    let query = supabase.from("automation_events").select("entity_id, payload, created_at").eq("organization_id", organizationId).eq("event_type", "lead.stage_changed");
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  if (read.failed) return { totalTransitions: 0, leadsTransitionedToQualified: 0, leadsTransitionedToWon: 0, transitionCounts: {}, failed: true };
+  const rows = read.rows;
 
   const transitionCounts: Record<string, number> = {};
   const leadsToQualified = new Set<string>();
@@ -144,7 +158,7 @@ export async function getLeadStageTransitionMetrics(supabase: SupabaseClient, or
     leadsTransitionedToQualified: leadsToQualified.size,
     leadsTransitionedToWon: leadsToWon.size,
     transitionCounts,
-    failed: error != null,
+    failed: false,
   };
 }
 
@@ -174,39 +188,45 @@ function average(values: number[]): number | null {
  *
  * Pass 5C, Batch 3B: `leads` is now the caller's own shared, pre-fetched
  * range-scoped dataset (getLeadsForRange) rather than a query this function
- * issues itself - see this file's own header comment. One bounded,
- * org-scoped query of its own remains (the events, by entity_id) - never
- * N+1 per lead.
+ * issues itself - see this file's own header comment. One paged,
+ * org-scoped read of its own remains (the stage events from the earliest
+ * lead's creation onward, Phase 2F) - never N+1 per lead, never an id list.
  */
 export async function getLeadStageTimingMetrics(supabase: SupabaseClient, organizationId: string, leads: SharedLeadRow[]): Promise<LeadStageTimingMetrics & { failed: boolean }> {
-  if (leads.length === 0) {
-    return { leadsInRange: 0, leadsWithRecordedHistory: 0, leadsWithQualifiedTiming: 0, averageTimeToQualifiedMs: null, medianTimeToQualifiedMs: null, leadsWithWonTiming: 0, averageTimeToWonMs: null, medianTimeToWonMs: null, failed: false };
-  }
+  const empty = { leadsInRange: leads.length, leadsWithRecordedHistory: 0, leadsWithQualifiedTiming: 0, averageTimeToQualifiedMs: null, medianTimeToQualifiedMs: null, leadsWithWonTiming: 0, averageTimeToWonMs: null, medianTimeToWonMs: null };
+  if (leads.length === 0) return { ...empty, failed: false };
 
-  const leadIds = leads.map((lead) => lead.id);
-  const { data: eventRows, error } = await supabase
-    .from("automation_events")
-    .select("entity_id, payload, created_at")
-    .eq("organization_id", organizationId)
-    .eq("event_type", "lead.stage_changed")
-    .in("entity_id", leadIds)
-    .order("created_at", { ascending: true })
-    .limit(MAX_ROWS);
+  // Phase 2F: the organization's stage events from the earliest lead's
+  // creation onward, matched to these leads in memory - never an id list.
+  const read = await readAllPages<StageChangedEventRow>(() =>
+    supabase
+      .from("automation_events")
+      .select("entity_id, payload, created_at")
+      .eq("organization_id", organizationId)
+      .eq("event_type", "lead.stage_changed")
+      .gte("created_at", earliestCreatedAt(leads))
+      .order("id"),
+  );
+  if (read.failed) return { ...empty, failed: true };
 
-  const events = (eventRows ?? []) as StageChangedEventRow[];
-
-  // First (earliest - events were fetched ascending) recorded transition
-  // into each stage, per lead. A Map, not a second query per lead.
-  const firstQualifiedAt = new Map<string, string>();
-  const firstWonAt = new Map<string, string>();
+  // First (earliest) recorded transition into each stage, per lead - the
+  // pages arrive in id order, so the earliest is chosen by time here.
+  const leadIds = new Set(leads.map((lead) => lead.id));
+  const firstQualifiedAt = new Map<string, number>();
+  const firstWonAt = new Map<string, number>();
   const leadsWithAnyHistory = new Set<string>();
+  const keepEarliest = (map: Map<string, number>, leadId: string, at: number) => {
+    const existing = map.get(leadId);
+    if (existing === undefined || at < existing) map.set(leadId, at);
+  };
 
-  for (const event of events) {
-    if (!event.entity_id) continue;
+  for (const event of read.rows) {
+    if (!event.entity_id || !leadIds.has(event.entity_id)) continue;
     leadsWithAnyHistory.add(event.entity_id);
     const newStatus = event.payload?.new_status;
-    if (newStatus === "qualified" && !firstQualifiedAt.has(event.entity_id)) firstQualifiedAt.set(event.entity_id, event.created_at);
-    if (newStatus === "won" && !firstWonAt.has(event.entity_id)) firstWonAt.set(event.entity_id, event.created_at);
+    const at = Date.parse(event.created_at);
+    if (newStatus === "qualified") keepEarliest(firstQualifiedAt, event.entity_id, at);
+    if (newStatus === "won") keepEarliest(firstWonAt, event.entity_id, at);
   }
 
   const qualifiedDurations: number[] = [];
@@ -215,21 +235,21 @@ export async function getLeadStageTimingMetrics(supabase: SupabaseClient, organi
   for (const lead of leads) {
     const leadCreatedMs = new Date(lead.created_at).getTime();
     const qualifiedAt = firstQualifiedAt.get(lead.id);
-    if (qualifiedAt) qualifiedDurations.push(new Date(qualifiedAt).getTime() - leadCreatedMs);
+    if (qualifiedAt !== undefined) qualifiedDurations.push(qualifiedAt - leadCreatedMs);
     const wonAt = firstWonAt.get(lead.id);
-    if (wonAt) wonDurations.push(new Date(wonAt).getTime() - leadCreatedMs);
+    if (wonAt !== undefined) wonDurations.push(wonAt - leadCreatedMs);
   }
 
   return {
     leadsInRange: leads.length,
-    leadsWithRecordedHistory: leadIds.filter((id) => leadsWithAnyHistory.has(id)).length,
+    leadsWithRecordedHistory: leadsWithAnyHistory.size,
     leadsWithQualifiedTiming: qualifiedDurations.length,
     averageTimeToQualifiedMs: average(qualifiedDurations),
     medianTimeToQualifiedMs: median(qualifiedDurations),
     leadsWithWonTiming: wonDurations.length,
     averageTimeToWonMs: average(wonDurations),
     medianTimeToWonMs: median(wonDurations),
-    failed: error != null,
+    failed: false,
   };
 }
 
@@ -241,13 +261,18 @@ export async function getLeadStageTimingMetrics(supabase: SupabaseClient, organi
  * this "is there any data at all" question. Feeds
  * BiDataQuality.stageHistoryUnavailable - see that field's own comment.
  */
-export async function hasAnyLeadStageHistory(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<boolean> {
+export async function hasAnyLeadStageHistoryResult(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ exists: boolean; failed: boolean }> {
   let query = supabase.from("automation_events").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("event_type", "lead.stage_changed");
   if (range.from) query = query.gte("created_at", range.from);
   if (range.to) query = query.lt("created_at", range.to);
 
-  const { count } = await query;
-  return (count ?? 0) > 0;
+  // Phase 2F: a failed count is reported as failed, never as "no history".
+  const { count, error } = await query;
+  return { exists: (count ?? 0) > 0, failed: error != null };
+}
+
+export async function hasAnyLeadStageHistory(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<boolean> {
+  return (await hasAnyLeadStageHistoryResult(supabase, organizationId, range)).exists;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,54 +312,49 @@ function percentageRate(numerator: number, denominator: number): number | null {
  * for the exact evidence hierarchy, population, and known delivery-timing
  * limitation. `leads` is the caller's own shared, pre-fetched range-scoped
  * dataset (getLeadsForRange) - see this file's own Batch 3B header comment.
- * Two bounded, org-scoped queries of its own remain (conversations, then
- * messages) regardless of population size - never N+1, never a per-lead
- * query. Reuses the real idx_messages_conversation index (conversation_id,
- * created_at) already present on the messages table.
+ * Phase 2F: one paged, org-scoped read of its own (successful outbound
+ * messages from the earliest lead's creation onward, joined to their
+ * conversation's contact) regardless of population size - never N+1, never
+ * a per-lead query, never an id list.
  */
 export async function getLeadResponseTimeMetrics(supabase: SupabaseClient, organizationId: string, leads: SharedLeadRow[]): Promise<LeadResponseTimeMetrics & { failed: boolean }> {
   const totalLeadsInPopulation = leads.length;
-  if (totalLeadsInPopulation === 0) {
-    return { totalLeadsInPopulation: 0, leadsContacted: 0, leadsNeverContacted: 0, contactRate: null, averageResponseTimeMs: null, medianResponseTimeMs: null, bucketCounts: emptyBucketCounts(), failed: false };
-  }
+  const empty = { totalLeadsInPopulation, leadsContacted: 0, leadsNeverContacted: totalLeadsInPopulation, contactRate: null, averageResponseTimeMs: null, medianResponseTimeMs: null, bucketCounts: emptyBucketCounts() };
+  if (totalLeadsInPopulation === 0) return { ...empty, failed: false };
 
-  const contactIds = [...new Set(leads.map((lead) => lead.contact_id).filter((id): id is string => id !== null))];
+  const contactIds = new Set(leads.map((lead) => lead.contact_id).filter((id): id is string => id !== null));
+  // No lead has a contact: nobody can have been contacted (0%, as before - a real population, not "no data").
+  if (contactIds.size === 0) return { ...empty, contactRate: percentageRate(0, totalLeadsInPopulation), failed: false };
 
-  const conversationsRead =
-    contactIds.length > 0
-      ? await supabase.from("conversations").select("id, contact_id").eq("organization_id", organizationId).in("contact_id", contactIds).limit(MAX_ROWS)
-      : { data: [] as { id: string; contact_id: string | null }[], error: null };
-  const conversations = (conversationsRead.data ?? []) as { id: string; contact_id: string | null }[];
+  // Phase 2F: one paged read of the organization's successful outbound
+  // messages from the earliest lead's creation onward, each with its
+  // conversation's contact (an inner join on the conversation, scoped to
+  // the same organization) - never a contact or conversation id list, and
+  // never cut off at the oldest 1000 rows.
+  const read = await readAllPages<{ created_at: string; conversation: { contact_id: string | null } | { contact_id: string | null }[] | null }>(() =>
+    supabase
+      .from("messages")
+      .select("created_at, conversation:conversations!messages_conversation_id_fkey!inner(contact_id)")
+      .eq("organization_id", organizationId)
+      .eq("conversation.organization_id", organizationId)
+      .eq("direction", "outbound")
+      .in("status", [...SUCCESSFUL_OUTBOUND_STATUSES])
+      .gte("created_at", earliestCreatedAt(leads))
+      .order("id"),
+  );
+  if (read.failed) return { ...empty, leadsNeverContacted: 0, failed: true };
 
-  const conversationIdToContactId = new Map(conversations.map((conversation) => [conversation.id, conversation.contact_id]));
-  const conversationIds = conversations.map((conversation) => conversation.id);
-
-  const messagesRead =
-    conversationIds.length > 0
-      ? await supabase
-          .from("messages")
-          .select("conversation_id, direction, status, created_at")
-          .eq("organization_id", organizationId)
-          .in("conversation_id", conversationIds)
-          .order("created_at", { ascending: true })
-          .limit(MAX_ROWS)
-      : { data: [] as { conversation_id: string; direction: string; status: string; created_at: string }[], error: null };
-  const messages = (messagesRead.data ?? []) as { conversation_id: string; direction: string; status: string; created_at: string }[];
-  const failed = conversationsRead.error != null || messagesRead.error != null;
-
-  // Ascending-ordered successful-outbound timestamps per contact - the fetch
-  // above is already ordered by created_at, so each per-contact list built
-  // by pushing in that same order is itself ascending, with no in-memory
-  // sort needed.
-  const successfulOutboundByContact = new Map<string, string[]>();
-  for (const message of messages) {
-    if (message.direction !== "outbound" || !SUCCESSFUL_OUTBOUND_STATUSES.has(message.status)) continue;
-    const contactId = conversationIdToContactId.get(message.conversation_id);
-    if (!contactId) continue;
+  // Ascending successful-outbound instants per contact (sorted here - pages arrive in id order).
+  const successfulOutboundByContact = new Map<string, number[]>();
+  for (const message of read.rows) {
+    const conversation = Array.isArray(message.conversation) ? message.conversation[0] : message.conversation;
+    const contactId = conversation?.contact_id;
+    if (!contactId || !contactIds.has(contactId)) continue;
     const existing = successfulOutboundByContact.get(contactId) ?? [];
-    existing.push(message.created_at);
+    existing.push(Date.parse(message.created_at));
     successfulOutboundByContact.set(contactId, existing);
   }
+  for (const instants of successfulOutboundByContact.values()) instants.sort((a, b) => a - b);
 
   const responseTimesMs: number[] = [];
   const bucketCounts = emptyBucketCounts();
@@ -348,10 +368,10 @@ export async function getLeadResponseTimeMetrics(supabase: SupabaseClient, organ
     // The first successful outbound message AT OR AFTER this specific
     // lead's own creation - never an earlier message that answered a
     // different, prior inquiry from the same contact.
-    const firstQualifying = timestamps.find((timestamp) => new Date(timestamp).getTime() >= leadCreatedMs);
-    if (!firstQualifying) continue;
+    const firstQualifying = timestamps.find((timestamp) => timestamp >= leadCreatedMs);
+    if (firstQualifying === undefined) continue;
 
-    const responseTimeMs = new Date(firstQualifying).getTime() - leadCreatedMs;
+    const responseTimeMs = firstQualifying - leadCreatedMs;
     responseTimesMs.push(responseTimeMs);
     bucketCounts[bucketFor(responseTimeMs)] += 1;
   }
@@ -366,6 +386,6 @@ export async function getLeadResponseTimeMetrics(supabase: SupabaseClient, organ
     averageResponseTimeMs: average(responseTimesMs),
     medianResponseTimeMs: median(responseTimesMs),
     bucketCounts,
-    failed,
+    failed: false,
   };
 }

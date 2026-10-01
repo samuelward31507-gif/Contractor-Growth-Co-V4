@@ -4,7 +4,7 @@ import { ArrowRight } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { formatMoney } from "@/lib/invoices/domain";
 import { SANCTIONED_COLLECTED_REVENUE_DEFINITION } from "@/lib/bi/billing";
-import type { BusinessMetricsSnapshot, PeriodComparison } from "@/lib/bi/types";
+import type { BusinessMetricsSnapshot, PeriodComparison, UnavailableComparison } from "@/lib/bi/types";
 import type { RepeatCustomerSummary } from "@/lib/customers/lifecycle";
 import { formatRate, formatComparisonBadge, formatDuration, ownerDataNotes } from "./bi-format";
 import { BarList } from "./bar-list";
@@ -33,7 +33,7 @@ import { metaClass } from "@/lib/ui/typography";
 const count = (n: number, singular: string, plural: string) => `${n} ${n === 1 ? singular : plural}`;
 
 /** A previous-period comparison as a metric detail, colored by direction - or the fallback when there is no comparison. */
-function compared(comparison: PeriodComparison, fallback?: string | null): Pick<Metric, "detail" | "tone"> {
+function compared(comparison: PeriodComparison | UnavailableComparison, fallback?: string | null): Pick<Metric, "detail" | "tone"> {
   const badge = formatComparisonBadge(comparison);
   if (!badge) return { detail: fallback ?? null };
   return { detail: badge, tone: comparison.change != null && comparison.change > 0 ? "positive" : comparison.change != null && comparison.change < 0 ? "negative" : undefined };
@@ -129,8 +129,10 @@ export function RevenuePaymentsPanel({ snapshot }: { snapshot: BusinessMetricsSn
  * history"). The day-by-day chart is passed in as `trend`.
  */
 export function LeadsConversionPanel({ snapshot, outcomes, trend }: { snapshot: BusinessMetricsSnapshot; outcomes: OutcomeMetrics; trend: ReactNode }) {
-  const { estimateMetrics, jobMetrics, leadStageFunnel, comparisons, period } = snapshot;
+  const { estimateMetrics, jobMetrics, leadStageFunnel, comparisons, period, funnelUnavailable } = snapshot;
   const { transitions, timing } = leadStageFunnel;
+  // Phase 2F: a stage read that failed shows as unavailable, never as 0.
+  const unreadable = { value: "-", detail: "Couldn't be read for this period" };
 
   return (
     <Panel id="leads" title="Leads & conversion" scope={scopeLabel(period.label)}>
@@ -146,10 +148,18 @@ export function LeadsConversionPanel({ snapshot, outcomes, trend }: { snapshot: 
         <SecondaryMetrics
           metrics={[
             { key: "estimate-job", label: "Estimate → job", value: formatRate(estimateMetrics.estimateToJobRate), detail: "Accepted estimates that became a job" },
-            { key: "to-qualified", label: "Leads → Qualified", value: String(transitions.leadsTransitionedToQualified), ...compared(comparisons.leadsTransitionedToQualified) },
-            { key: "to-won", label: "Leads → Won", value: String(transitions.leadsTransitionedToWon), ...compared(comparisons.leadsTransitionedToWon) },
-            { key: "time-to-qualified", label: "Avg. time to qualified", value: formatDuration(timing.averageTimeToQualifiedMs), detail: `${timing.leadsWithQualifiedTiming} of ${timing.leadsInRange} leads with history` },
-            { key: "time-to-won", label: "Avg. time to won", value: formatDuration(timing.averageTimeToWonMs), detail: `${timing.leadsWithWonTiming} of ${timing.leadsInRange} leads with history` },
+            funnelUnavailable.stageTransitions
+              ? { key: "to-qualified", label: "Leads → Qualified", ...unreadable }
+              : { key: "to-qualified", label: "Leads → Qualified", value: String(transitions.leadsTransitionedToQualified), ...compared(comparisons.leadsTransitionedToQualified) },
+            funnelUnavailable.stageTransitions
+              ? { key: "to-won", label: "Leads → Won", ...unreadable }
+              : { key: "to-won", label: "Leads → Won", value: String(transitions.leadsTransitionedToWon), ...compared(comparisons.leadsTransitionedToWon) },
+            funnelUnavailable.stageTiming
+              ? { key: "time-to-qualified", label: "Avg. time to qualified", ...unreadable }
+              : { key: "time-to-qualified", label: "Avg. time to qualified", value: formatDuration(timing.averageTimeToQualifiedMs), detail: `${timing.leadsWithQualifiedTiming} of ${timing.leadsInRange} leads with history` },
+            funnelUnavailable.stageTiming
+              ? { key: "time-to-won", label: "Avg. time to won", ...unreadable }
+              : { key: "time-to-won", label: "Avg. time to won", value: formatDuration(timing.averageTimeToWonMs), detail: `${timing.leadsWithWonTiming} of ${timing.leadsInRange} leads with history` },
           ]}
         />
         {trend}
@@ -399,13 +409,20 @@ function RevenueBySourceTable({ attribution, cash }: { attribution: RevenueAttri
  * message, not a guaranteed provider delivery moment. "Never contacted"
  * leads the panel as its most actionable number. With no contacted lead,
  * the averages read "No recorded response yet", never a fabricated 0.
+ * Phase 2F: when the response-time read fails, its figures are replaced by
+ * one "could not be read" line - never "Never contacted" for every lead -
+ * and the message counts below still show.
  */
 export function ResponseCommunicationPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { responseTime, communicationMetrics, comparisons, period } = snapshot;
-  const hasAnyResponse = responseTime.leadsContacted > 0;
+  const { responseTime, communicationMetrics, comparisons, period, funnelUnavailable } = snapshot;
+  const unavailable = funnelUnavailable.responseTime;
+  const hasAnyResponse = !unavailable && responseTime.leadsContacted > 0;
 
   return (
     <Panel id="response" title="Customer response & communication" scope={scopeLabel(period.label)}>
+      {unavailable ? (
+        <p className="px-4 py-4 text-sm text-ink-3 sm:px-5">Response times could not be read for this period. Nothing is estimated in its place.</p>
+      ) : (
       <PrimaryMetrics
         metrics={[
           { key: "never-contacted", label: "Never contacted", value: String(responseTime.leadsNeverContacted), detail: `of ${count(responseTime.totalLeadsInPopulation, "lead", "leads")}`, tone: responseTime.leadsNeverContacted > 0 ? "attention" : undefined },
@@ -414,10 +431,11 @@ export function ResponseCommunicationPanel({ snapshot }: { snapshot: BusinessMet
           { key: "median-response", label: "Median time to first response", value: hasAnyResponse ? formatDuration(responseTime.medianResponseTimeMs) : "No recorded response yet" },
         ]}
       />
+      )}
       <PanelBody>
         <SecondaryMetrics
           metrics={[
-            { key: "contacted", label: "Contacted", value: String(responseTime.leadsContacted), ...compared(comparisons.leadsContacted) },
+            ...(unavailable ? [] : [{ key: "contacted", label: "Contacted", value: String(responseTime.leadsContacted), ...compared(comparisons.leadsContacted) }]),
             { key: "inbound", label: "Inbound messages", value: String(communicationMetrics.inboundMessages) },
             { key: "outbound", label: "Outbound messages", value: String(communicationMetrics.outboundMessages) },
             { key: "new-open", label: "New conversations · still open", value: String(communicationMetrics.conversationsOpened) },

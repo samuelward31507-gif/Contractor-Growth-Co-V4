@@ -276,3 +276,33 @@ test("Phase 2E: Collected in Revenue by source - one Analytics-only read over th
   const users = execFileSync("git", ["grep", "-l", "--untracked", "getCashAttribution"], { cwd: ROOT, encoding: "utf8" }).trim().split("\n").sort();
   assert.deepEqual(users.filter((file) => !file.endsWith(".test.ts")), ["app/(app)/insights/page.tsx", "lib/bi/cash-attribution.ts"]);
 });
+
+test("Phase 2F: response-time and stage figures that couldn't be read show as unavailable, never as zeros; the AI is told not to cite an unavailable comparison", () => {
+  // Response time: one "could not be read" line in place of its figures, no Contacted tile, no buckets - the message counts still show.
+  assert.match(SECTIONS, /const unavailable = funnelUnavailable\.responseTime;/);
+  assert.match(SECTIONS, /Response times could not be read for this period\. Nothing is estimated in its place\./);
+  assert.match(SECTIONS, /const hasAnyResponse = !unavailable && responseTime\.leadsContacted > 0;/);
+  assert.match(SECTIONS, /\.\.\.\(unavailable \? \[\] : \[\{ key: "contacted"/);
+  // Stage transitions and timing: each tile unavailable on its own read's failure.
+  assert.match(SECTIONS, /const unreadable = \{ value: "-", detail: "Couldn't be read for this period" \};/);
+  for (const [flag, key] of [["stageTransitions", "to-qualified"], ["stageTransitions", "to-won"], ["stageTiming", "time-to-qualified"], ["stageTiming", "time-to-won"]]) {
+    assert.match(SECTIONS, new RegExp(`funnelUnavailable\\.${flag}\\s*\\? \\{ key: "${key}", label: "[^"]+", \\.\\.\\.unreadable \\}`), key);
+  }
+  // An unavailable comparison never renders a badge.
+  const { formatComparisonBadge }: typeof import("./_components/bi-format") = require(path.join(ROOT, "app/(app)/insights/_components/bi-format.ts"));
+  assert.equal(formatComparisonBadge({ unavailable: true, current: null, previous: null, change: null, percentageChange: null }), null);
+  // Owner note: unread history is never described as "no stage changes recorded".
+  const timing = { leadsInRange: 5, leadsWithRecordedHistory: 0, leadsWithQualifiedTiming: 0, averageTimeToQualifiedMs: null, medianTimeToQualifiedMs: null, leadsWithWonTiming: 0, averageTimeToWonMs: null, medianTimeToWonMs: null };
+  const notes = ownerDataNotes({
+    dataQuality: { collectedRevenueUnavailable: false, stageHistoryUnavailable: true, aiTokenUsageUnavailable: true, sourceAttributionLimited: true, notes: [] },
+    leadStageFunnel: { transitions: {} as never, timing },
+    aiMetrics: { aiInteractions: 0, customerAiInteractions: 0, aiOutboundInteractions: 0, customerReplyAiInteractions: 0, aiNeedsHumanCount: 0, totalTokensUsed: null, averageTokensPerInteraction: null, interactionsWithUsageData: 0 },
+    funnelUnavailable: { responseTime: false, stageTransitions: true, stageTiming: true },
+  });
+  assert.ok(notes.includes("Lead stage history couldn't be read for this period, so stage changes and timing show as unavailable rather than zero."));
+  for (const note of notes) assert.doesNotMatch(note, INTERNAL_IDENTIFIER, note);
+  // The AI prompt's rule for unavailable comparisons.
+  assert.match(read("lib/bi/insights.ts"), /9b\. A comparison with "unavailable": true \(every figure in it null\) could not be read for this report\. Never cite it, describe a change from it, or treat it as zero\./);
+  // Agency's partialData inputs are unchanged - funnelUnavailable never feeds it.
+  assert.match(read("lib/bi/metrics.ts"), /const partialDataSourceCount = \[leadFailed, estimatesFailed, jobsFailed, appointmentsFailed, aiFailed, sharedLeadsFailed, transitionMetrics\.failed, timingMetrics\.failed, responseTimeMetrics\.failed, billingRows\.failed\]/);
+});

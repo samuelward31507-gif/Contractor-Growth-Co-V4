@@ -195,6 +195,7 @@ MANDATORY RULES - failing any of these makes your entire response unusable:
 7. Never claim a historical stage-transition duration (e.g. "leads took 3 days to become qualified") unless a metric explicitly labeled as measuring that is supplied to you. If dataQuality.stageHistoryUnavailable is true, no such historical timing data exists at all.
 8. Never include or reference any customer name, phone number, email address, or message content - you are never given any of these, so this should never come up, but do not invent placeholder customer details either.
 9. Read the dataQuality flags. If a limitation is relevant to something you are about to say, mention it briefly in plain language (e.g. "The payment ledger could not be read, so collected revenue isn't included in this report."). Do not list every flag mechanically if it isn't relevant to what you're reporting.
+9b. A comparison with "unavailable": true (every figure in it null) could not be read for this report. Never cite it, describe a change from it, or treat it as zero.
 10. Return ONLY the JSON object described below - no prose before or after it, no markdown code fences.
 
 WHAT YOU MAY SAY (observational language only):
