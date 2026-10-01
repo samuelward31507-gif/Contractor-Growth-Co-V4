@@ -615,6 +615,18 @@ export type BiFollowUpMetrics = {
  * existing status, and any figure that cannot be reliably computed from
  * existing data is simply absent from this type rather than estimated.
  */
+/**
+ * Phase 2G: which revenue-opportunity groups could not be read (a read
+ * error or the row limit). A true flag means the matching figures in
+ * BiRevenueOpportunity / BiEstimateAging are zeroed placeholders, never to
+ * be shown as data:
+ *   qualifiedNoAppointment  qualifiedLeadsWithoutAppointment
+ *   visitsNoEstimate        completedAppointmentsWithoutEstimate
+ *   estimates               open/expired/lost/recoverable estimate values and estimateAging
+ * Not part of the AI observations input, and not an input to partialData.
+ */
+export type BiRevenueOpportunityUnavailable = { qualifiedNoAppointment: boolean; visitsNoEstimate: boolean; estimates: boolean };
+
 export type BiEstimateAging = {
   /** 0-7, 8-30 and 31+ calendar days since sent_at (organization calendar), plus "no send date" for any sent estimate without one. */
   buckets: AgingBucket[];
@@ -634,7 +646,7 @@ export type BiRevenueOpportunity = {
   recoverableEstimateValue: number;
   /** Count of leads currently in 'qualified' status with no appointment ever booked - a real, ready-to-book opportunity sitting idle. */
   qualifiedLeadsWithoutAppointment: number;
-  /** Count of appointments with status = 'completed' whose lead has no estimate at all - a completed visit that never turned into a quote. */
+  /** Count of distinct leads with a completed appointment and no estimate at all - a completed visit that never turned into a quote. Several completed visits for one lead count once. */
   completedAppointmentsWithoutEstimate: number;
 };
 
@@ -722,6 +734,8 @@ export type BusinessMetricsSnapshot = {
    * block read as almost always empty).
    */
   revenueOpportunity: BiRevenueOpportunity;
+  /** Phase 2G: which revenueOpportunity / estimateAging groups could not be read - see BiRevenueOpportunityUnavailable. */
+  revenueOpportunityUnavailable: BiRevenueOpportunityUnavailable;
   /**
    * Phase 2A (Analytics): open invoices by days past due, as of the
    * organization's today (billing.ts computeInvoiceAging). Deliberately

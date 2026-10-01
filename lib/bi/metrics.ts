@@ -12,6 +12,7 @@ import {
 } from "./queries";
 import { hasAnyLeadStageHistoryResult, getLeadsForRangeResult, getLeadStageTransitionMetrics, getLeadStageTimingMetrics, getLeadResponseTimeMetrics } from "./funnel";
 import { computeBillingMetrics, computeInvoiceAging, getBillingRowsResult, SANCTIONED_COLLECTED_REVENUE_DEFINITION, type BiBillingMetrics } from "./billing";
+import { readAllPages } from "./revenue-attribution";
 import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { calendarDaysBetween, previousOrganizationRange, safeTimeZone } from "./date-range";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
@@ -31,6 +32,7 @@ import type {
   BiAiMetrics,
   BiFollowUpMetrics,
   BiRevenueOpportunity,
+  BiRevenueOpportunityUnavailable,
   BiEstimateAging,
   BiDataQuality,
   BusinessMetricsSnapshot,
@@ -209,54 +211,76 @@ async function getLeadsTouchedByAutomation(supabase: SupabaseClient, organizatio
  * Growth System Completion Pass 2, Part 2: leads (created within `range`)
  * cross-referenced against real appointments by `appointments.lead_id` -
  * "did this lead ever get booked", regardless of the appointment's own date
- * or status. Also returns the subset with status = 'qualified' and no
- * appointment, reused directly by buildRevenueOpportunity (Part 3) below so
- * leads/appointments are each fetched only once for both metrics.
+ * or status (a cancelled or no-show appointment still counts as booked).
+ * Also returns the subset with status = 'qualified' and no appointment,
+ * which buildRevenueOpportunity (Part 3) reads with `qualifiedOnly`.
+ *
+ * Phase 2G: both reads are paged (readAllPages) - the API caps a response
+ * at 1000 rows, and the old all-time appointment read silently lost every
+ * booking past it, inflating "Qualified, no appointment". Appointments are
+ * read joined to their lead (an inner join), filtered to the same leads the
+ * first read covers, so the read is bounded by those leads - never an id
+ * list, never the organization's whole appointment history. Any read error
+ * or the row limit returns `failed`, with zeroed figures never to be shown.
  */
+type BookingCrossReference = { leadsInRange: number; leadsWithAppointment: number; qualifiedLeadsWithoutAppointment: number; failed: boolean };
+
 async function getLeadBookingCrossReference(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<{ leadsInRange: number; leadsWithAppointment: number; qualifiedLeadsWithoutAppointment: number }> {
-  let leadQuery = supabase.from("leads").select("id, status").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) leadQuery = leadQuery.gte("created_at", range.from);
-  if (range.to) leadQuery = leadQuery.lt("created_at", range.to);
+  options: { qualifiedOnly?: boolean } = {},
+): Promise<BookingCrossReference> {
+  const failed: BookingCrossReference = { leadsInRange: 0, leadsWithAppointment: 0, qualifiedLeadsWithoutAppointment: 0, failed: true };
 
-  const { data: leadRows } = await leadQuery;
-  const leads = (leadRows ?? []) as { id: string; status: string }[];
-  if (leads.length === 0) return { leadsInRange: 0, leadsWithAppointment: 0, qualifiedLeadsWithoutAppointment: 0 };
+  const leadRead = await readAllPages<{ id: string; status: string }>(() => {
+    let query = supabase.from("leads").select("id, status").eq("organization_id", organizationId);
+    if (options.qualifiedOnly) query = query.eq("status", "qualified");
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  if (leadRead.failed) return failed;
+  const leads = leadRead.rows;
+  if (leads.length === 0) return { leadsInRange: 0, leadsWithAppointment: 0, qualifiedLeadsWithoutAppointment: 0, failed: false };
+
+  const appointmentRead = await readAllPages<{ lead_id: string | null }>(() => {
+    let query = supabase
+      .from("appointments")
+      .select("lead_id, lead:leads!appointments_lead_id_fkey!inner(id)")
+      .eq("organization_id", organizationId)
+      .eq("lead.organization_id", organizationId);
+    if (options.qualifiedOnly) query = query.eq("lead.status", "qualified");
+    if (range.from) query = query.gte("lead.created_at", range.from);
+    if (range.to) query = query.lt("lead.created_at", range.to);
+    return query.order("id");
+  });
+  if (appointmentRead.failed) return failed;
 
   const leadIds = new Set(leads.map((row) => row.id));
-
-  const { data: appointmentRows } = await supabase
-    .from("appointments")
-    .select("lead_id")
-    .eq("organization_id", organizationId)
-    .not("lead_id", "is", null)
-    .limit(MAX_ROWS);
-  const bookedLeadIds = new Set(
-    ((appointmentRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id).filter((id): id is string => id !== null && leadIds.has(id)),
-  );
-
+  const bookedLeadIds = new Set(appointmentRead.rows.map((row) => row.lead_id).filter((id): id is string => id !== null && leadIds.has(id)));
   const qualifiedLeadsWithoutAppointment = leads.filter((row) => row.status === "qualified" && !bookedLeadIds.has(row.id)).length;
 
-  return { leadsInRange: leads.length, leadsWithAppointment: bookedLeadIds.size, qualifiedLeadsWithoutAppointment };
+  return { leadsInRange: leads.length, leadsWithAppointment: bookedLeadIds.size, qualifiedLeadsWithoutAppointment, failed: false };
 }
 
 /** Growth System Completion Pass 2, Part 3: SUM(estimates.amount) grouped by status = 'sent' (openEstimateValue), 'expired', and 'declined' - one query for all three "opportunity" value fields. */
 type SentEstimateRow = { amount: number | null; sent_at: string | null; expires_at: string | null };
 
+/** Phase 2G: paged (readAllPages) - every sent/expired/declined estimate, so recoverable value, declined value and aging are complete. A read error or the row limit returns `failed`, never $0 or empty aging. */
 async function getEstimateOpportunityValues(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<{ openEstimateValue: number; expiredEstimateValue: number; lostEstimateValue: number; sentRows: SentEstimateRow[] }> {
-  let query = supabase.from("estimates").select("status, amount, sent_at, expires_at").eq("organization_id", organizationId).in("status", ["sent", "expired", "declined"]).limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data } = await query;
-  const rows = (data ?? []) as ({ status: "sent" | "expired" | "declined" } & SentEstimateRow)[];
+): Promise<{ openEstimateValue: number; expiredEstimateValue: number; lostEstimateValue: number; sentRows: SentEstimateRow[]; failed: boolean }> {
+  const read = await readAllPages<{ status: "sent" | "expired" | "declined" } & SentEstimateRow>(() => {
+    let query = supabase.from("estimates").select("status, amount, sent_at, expires_at").eq("organization_id", organizationId).in("status", ["sent", "expired", "declined"]);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  if (read.failed) return { openEstimateValue: 0, expiredEstimateValue: 0, lostEstimateValue: 0, sentRows: [], failed: true };
+  const rows = read.rows;
 
   let openEstimateValue = 0;
   let expiredEstimateValue = 0;
@@ -266,7 +290,7 @@ async function getEstimateOpportunityValues(
     else if (row.status === "expired") expiredEstimateValue += row.amount ?? 0;
     else lostEstimateValue += row.amount ?? 0;
   }
-  return { openEstimateValue, expiredEstimateValue, lostEstimateValue, sentRows: rows.filter((row) => row.status === "sent") };
+  return { openEstimateValue, expiredEstimateValue, lostEstimateValue, sentRows: rows.filter((row) => row.status === "sent"), failed: false };
 }
 
 /**
@@ -306,26 +330,39 @@ export function computeEstimateAging(sentRows: SentEstimateRow[], now: Date, tim
   };
 }
 
-/** Growth System Completion Pass 2, Part 3: completed appointments (in `range`) whose lead has no estimate at all - a real visit that never turned into a quote. Estimate existence is checked without its own date bound - the question is "does one exist at all," not "was one created in the same window." */
-async function getCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<number> {
-  let appointmentQuery = supabase
-    .from("appointments")
-    .select("lead_id")
-    .eq("organization_id", organizationId)
-    .eq("status", "completed")
-    .not("lead_id", "is", null)
-    .limit(MAX_ROWS);
-  if (range.from) appointmentQuery = appointmentQuery.gte("created_at", range.from);
-  if (range.to) appointmentQuery = appointmentQuery.lt("created_at", range.to);
+/**
+ * Growth System Completion Pass 2, Part 3: leads with a completed appointment
+ * (in `range`) and no estimate at all - a real visit that never turned into
+ * a quote. Counts distinct leads: several completed visits for one lead
+ * count once, and any estimate (whatever its status or date) excludes the
+ * lead. Estimate existence is checked without its own date bound - the
+ * question is "does one exist at all," not "was one created in the same
+ * window."
+ *
+ * Phase 2G: both reads are paged (readAllPages), and estimates are read as
+ * every estimate with a lead, matched in memory - the old lead-id list
+ * failed outright at roughly 400 leads, and its failure counted every
+ * visit's lead as missing an estimate. A read error or the row limit
+ * returns `failed`, never 0 or an inflated count.
+ */
+async function getCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ count: number; failed: boolean }> {
+  const visitRead = await readAllPages<{ lead_id: string | null }>(() => {
+    let query = supabase.from("appointments").select("lead_id").eq("organization_id", organizationId).eq("status", "completed").not("lead_id", "is", null);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  if (visitRead.failed) return { count: 0, failed: true };
+  const leadIds = new Set(visitRead.rows.map((row) => row.lead_id).filter((id): id is string => id !== null));
+  if (leadIds.size === 0) return { count: 0, failed: false };
 
-  const { data: appointmentRows } = await appointmentQuery;
-  const leadIds = new Set(((appointmentRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id).filter((id): id is string => id !== null));
-  if (leadIds.size === 0) return 0;
+  const estimateRead = await readAllPages<{ lead_id: string | null }>(() =>
+    supabase.from("estimates").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).order("id"),
+  );
+  if (estimateRead.failed) return { count: 0, failed: true };
+  const leadsWithEstimate = new Set(estimateRead.rows.map((row) => row.lead_id));
 
-  const { data: estimateRows } = await supabase.from("estimates").select("lead_id").eq("organization_id", organizationId).in("lead_id", [...leadIds]).limit(MAX_ROWS);
-  const leadsWithEstimate = new Set(((estimateRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id));
-
-  return [...leadIds].filter((id) => !leadsWithEstimate.has(id)).length;
+  return { count: [...leadIds].filter((id) => !leadsWithEstimate.has(id)).length, failed: false };
 }
 
 /**
@@ -348,14 +385,20 @@ async function getCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient,
  * parameter and fetches its own leads/appointments cross-reference rather
  * than reusing buildLeadMetrics's range-scoped one.
  */
-async function buildRevenueOpportunity(supabase: SupabaseClient, organizationId: string, now: Date, timeZone: string): Promise<{ opportunity: BiRevenueOpportunity; estimateAging: BiEstimateAging }> {
+async function buildRevenueOpportunity(
+  supabase: SupabaseClient,
+  organizationId: string,
+  now: Date,
+  timeZone: string,
+): Promise<{ opportunity: BiRevenueOpportunity; estimateAging: BiEstimateAging; unavailable: BiRevenueOpportunityUnavailable }> {
   const unboundedRange = resolveDateRange("allTime");
 
-  const [{ openEstimateValue, expiredEstimateValue, lostEstimateValue, sentRows }, completedAppointmentsWithoutEstimate, bookingCrossReference] = await Promise.all([
+  const [estimates, visits, bookingCrossReference] = await Promise.all([
     getEstimateOpportunityValues(supabase, organizationId, unboundedRange),
     getCompletedAppointmentsWithoutEstimate(supabase, organizationId, unboundedRange),
-    getLeadBookingCrossReference(supabase, organizationId, unboundedRange),
+    getLeadBookingCrossReference(supabase, organizationId, unboundedRange, { qualifiedOnly: true }),
   ]);
+  const { openEstimateValue, expiredEstimateValue, lostEstimateValue, sentRows } = estimates;
 
   return {
     opportunity: {
@@ -364,9 +407,11 @@ async function buildRevenueOpportunity(supabase: SupabaseClient, organizationId:
       lostEstimateValue,
       recoverableEstimateValue: openEstimateValue + expiredEstimateValue,
       qualifiedLeadsWithoutAppointment: bookingCrossReference.qualifiedLeadsWithoutAppointment,
-      completedAppointmentsWithoutEstimate,
+      completedAppointmentsWithoutEstimate: visits.count,
     },
     estimateAging: computeEstimateAging(sentRows, now, timeZone),
+    // Phase 2G: which groups above could not be read - their zeroed figures are never shown.
+    unavailable: { qualifiedNoAppointment: bookingCrossReference.failed, visitsNoEstimate: visits.failed, estimates: estimates.failed },
   };
 }
 
@@ -400,7 +445,8 @@ async function buildLeadMetrics(
     coldLeads: leads.coldLeads,
     lostRate: rate(leads.lostLeads, leads.wonLeads + leads.lostLeads),
     sourceCounts,
-    leadToBookingRate: rate(bookingCrossReference.leadsWithAppointment, bookingCrossReference.leadsInRange),
+    // Phase 2G: a failed cross-reference is unavailable (null), never 0%.
+    leadToBookingRate: bookingCrossReference.failed ? null : rate(bookingCrossReference.leadsWithAppointment, bookingCrossReference.leadsInRange),
   };
 
   const biPipeline: BiPipelineMetrics = {
@@ -844,7 +890,7 @@ export async function getBusinessMetricsSnapshot(
   const billingMetrics: BiBillingMetrics = computeBillingMetrics({ invoices: billingRows.invoices, payments: billingRows.payments, range, today });
   const previousBilling = previousRange ? computeBillingMetrics({ invoices: billingRows.invoices, payments: billingRows.payments, range: previousRange, today }) : null;
 
-  const { opportunity: revenueOpportunity, estimateAging } = await buildRevenueOpportunity(supabase, organizationId, now, timeZone ?? "UTC");
+  const { opportunity: revenueOpportunity, estimateAging, unavailable: revenueOpportunityUnavailable } = await buildRevenueOpportunity(supabase, organizationId, now, timeZone ?? "UTC");
   const invoiceAging = computeInvoiceAging(billingRows.invoices, today);
 
   // Second stage: getLeadStageTimingMetrics/getLeadResponseTimeMetrics both
@@ -933,6 +979,7 @@ export async function getBusinessMetricsSnapshot(
     followUpMetrics: followUp,
     billingMetrics,
     revenueOpportunity,
+    revenueOpportunityUnavailable,
     invoiceAging,
     estimateAging,
     reviewReferralMetrics,

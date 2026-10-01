@@ -231,7 +231,9 @@ test("Phase 2C: revenue by source and lead → job - one Analytics-only read ove
   assert.doesNotMatch(SECTIONS, /label: "[^"]*[Rr]evenue[^"]*"/, "contracted job value is never labeled revenue as a figure");
   // Analytics only: not in the AI input, Agency, Today/dashboard, or the snapshot.
   for (const file of ["lib/bi/insights.ts", "lib/bi/queries.ts", "lib/bi/types.ts", "lib/bi/metrics.ts", "lib/dashboard/business-metrics.ts", "lib/agency/operations.ts", "lib/agency/queries.ts"]) {
-    assert.doesNotMatch(fs.readFileSync(path.join(ROOT, file), "utf8"), /getRevenueAttribution|revenueAttribution|revenue-attribution/, file);
+    // Phase 2G: metrics.ts imports only the shared pager from revenue-attribution - never attribution data.
+    const source = fs.readFileSync(path.join(ROOT, file), "utf8").replace('import { readAllPages } from "./revenue-attribution";', "");
+    assert.doesNotMatch(source, /getRevenueAttribution|revenueAttribution|revenue-attribution/, file);
   }
 });
 
@@ -305,4 +307,29 @@ test("Phase 2F: response-time and stage figures that couldn't be read show as un
   assert.match(read("lib/bi/insights.ts"), /9b\. A comparison with "unavailable": true \(every figure in it null\) could not be read for this report\. Never cite it, describe a change from it, or treat it as zero\./);
   // Agency's partialData inputs are unchanged - funnelUnavailable never feeds it.
   assert.match(read("lib/bi/metrics.ts"), /const partialDataSourceCount = \[leadFailed, estimatesFailed, jobsFailed, appointmentsFailed, aiFailed, sharedLeadsFailed, transitionMetrics\.failed, timingMetrics\.failed, responseTimeMetrics\.failed, billingRows\.failed\]/);
+});
+
+test("Phase 2G: a leak figure whose read failed shows as unavailable - never 0 or $0 - on its own, turns on the banner and never feeds the Today link", () => {
+  assert.match(SECTIONS, /revenueOpportunityUnavailable: unavailable/);
+  assert.match(SECTIONS, /const unreadable = \{ value: "-", detail: "Couldn't be read for this period" \};/);
+  for (const [flag, key] of [["estimates", "recoverable"], ["qualifiedNoAppointment", "qualified-no-appt"], ["visitsNoEstimate", "completed-no-estimate"], ["estimates", "declined-value"]]) {
+    assert.match(SECTIONS, new RegExp(`unavailable\\.${flag}\\s*\\? \\{ key: "${key}", label: "[^"]+", \\.\\.\\.unreadable \\}`), key);
+  }
+  assert.match(SECTIONS, /\{unavailable\.estimates \? \(\s*<p className=\{metaClass\}>Estimates awaiting a decision could not be read for this period\. Nothing is estimated in its place\.<\/p>/);
+  // The Review in Today link only counts figures that were read.
+  assert.match(SECTIONS, /\(!unavailable\.qualifiedNoAppointment && revenueOpportunity\.qualifiedLeadsWithoutAppointment > 0\) \|\|\s*\(!unavailable\.visitsNoEstimate && revenueOpportunity\.completedAppointmentsWithoutEstimate > 0\) \|\|\s*\(!unavailable\.estimates && revenueOpportunity\.recoverableEstimateValue > 0\)/);
+  // Any unavailable group turns on the page's existing banner.
+  assert.match(PAGE, /snapshot\.partialData \|\| Object\.values\(snapshot\.revenueOpportunityUnavailable\)\.some\(Boolean\) \|\|/);
+  // partialData's inputs (Agency's contract) are byte-identical to main, and the AI input never carries the new flags.
+  const partialData = (source: string) => source.slice(source.indexOf("const partialDataSourceCount"), source.indexOf(".length;", source.indexOf("const partialDataSourceCount")));
+  assert.equal(partialData(read("lib/bi/metrics.ts")), partialData(execFileSync("git", ["show", "87b47343a39695184992e2b5624e29639f95c5bb:lib/bi/metrics.ts"], { cwd: ROOT, encoding: "utf8" }).replace(/\/\/.*$/gm, "")));
+  assert.doesNotMatch(read("lib/bi/insights.ts"), /revenueOpportunityUnavailable/);
+  // The leak reads are paged, with no lead id list and no capped read left in them.
+  const metrics = read("lib/bi/metrics.ts");
+  for (const fn of ["getLeadBookingCrossReference", "getEstimateOpportunityValues", "getCompletedAppointmentsWithoutEstimate"]) {
+    const start = metrics.indexOf(`async function ${fn}(`);
+    const body = metrics.slice(start, metrics.indexOf("\n}\n", start));
+    assert.match(body, /readAllPages</, fn);
+    assert.doesNotMatch(body, /\.limit\(|\.in\("lead_id"|\[\.\.\.leadIds\]\)/, fn);
+  }
 });
