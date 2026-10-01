@@ -10,6 +10,7 @@ import { formatRate, formatComparisonBadge, formatDuration, ownerDataNotes } fro
 import { BarList } from "./bar-list";
 import { BreakdownGrid, Panel, PanelBlock, PanelBody, PanelNote, PrimaryMetrics, SecondaryMetrics, scopeLabel, type Metric } from "./metric-panel";
 import type { OpportunityOutcomeGroup } from "@/lib/bi/metrics";
+import type { OutcomeMetrics } from "@/lib/bi/outcome-metrics";
 import type { RevenueAttribution } from "@/lib/bi/revenue-attribution";
 import type { BiAppointmentMetrics } from "@/lib/bi/types";
 import { metaClass } from "@/lib/ui/typography";
@@ -126,8 +127,8 @@ export function RevenuePaymentsPanel({ snapshot }: { snapshot: BusinessMetricsSn
  * bare: each carries its own coverage ("N of M leads with recorded
  * history"). The day-by-day chart is passed in as `trend`.
  */
-export function LeadsConversionPanel({ snapshot, trend }: { snapshot: BusinessMetricsSnapshot; trend: ReactNode }) {
-  const { leadMetrics, estimateMetrics, jobMetrics, leadStageFunnel, comparisons, period } = snapshot;
+export function LeadsConversionPanel({ snapshot, outcomes, trend }: { snapshot: BusinessMetricsSnapshot; outcomes: OutcomeMetrics; trend: ReactNode }) {
+  const { estimateMetrics, jobMetrics, leadStageFunnel, comparisons, period } = snapshot;
   const { transitions, timing } = leadStageFunnel;
 
   return (
@@ -135,9 +136,9 @@ export function LeadsConversionPanel({ snapshot, trend }: { snapshot: BusinessMe
       <PrimaryMetrics
         metrics={[
           { key: "leads", label: "Leads", value: String(comparisons.leadCount.current), ...compared(comparisons.leadCount) },
-          { key: "lead-booking", label: "Lead → booking", value: formatRate(leadMetrics.leadToBookingRate), detail: "Leads with a real appointment" },
-          { key: "estimate-acceptance", label: "Estimate acceptance", value: formatRate(estimateMetrics.estimateAcceptanceRate), detail: "Accepted vs. accepted + declined" },
-          { key: "job-completion", label: "Job completion", value: formatRate(jobMetrics.jobCompletionRate), detail: "Completed vs. completed + cancelled" },
+          { key: "lead-booking", label: "Lead → booking", value: formatRate(outcomes.leadToBookingRate), detail: `${outcomes.leadsWithActiveBooking} of ${outcomes.leadsInRange} leads · not cancelled or no-show` },
+          { key: "estimate-acceptance", label: "Estimate acceptance", value: formatRate(outcomes.estimateAcceptanceRate), detail: `${outcomes.acceptedEstimates} of ${outcomes.acceptedEstimates + outcomes.declinedEstimates} decided in the period` },
+          { key: "job-completion", label: "Job completion", value: formatRate(jobMetrics.jobCompletionRate), detail: "Jobs created in the period · completed vs. completed + cancelled" },
         ]}
       />
       <PanelBody>
@@ -260,7 +261,7 @@ export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessM
  * Estimate and job volume and value for the period. The conversion rates
  * between them live once, in Leads & conversion, rather than repeating here.
  */
-export function EstimatesJobsPanel({ snapshot, jobLeadLinkage, attribution }: { snapshot: BusinessMetricsSnapshot; jobLeadLinkage: { linked: number; total: number }; attribution: RevenueAttribution }) {
+export function EstimatesJobsPanel({ snapshot, jobLeadLinkage, attribution, outcomes }: { snapshot: BusinessMetricsSnapshot; jobLeadLinkage: { linked: number; total: number }; attribution: RevenueAttribution; outcomes: OutcomeMetrics }) {
   const { estimateMetrics, jobMetrics, comparisons, period } = snapshot;
   const periodScope = scopeLabel(period.label);
   const { conversion } = attribution;
@@ -272,7 +273,7 @@ export function EstimatesJobsPanel({ snapshot, jobLeadLinkage, attribution }: { 
           { key: "estimates", label: "Estimates", value: String(comparisons.estimateCount.current), ...compared(comparisons.estimateCount) },
           { key: "accepted-estimate-value", label: "Accepted estimate value", value: formatCurrency(estimateMetrics.acceptedEstimateValue), detail: "Quoted work customers said yes to" },
           { key: "jobs", label: "Jobs", value: String(comparisons.jobCount.current), ...compared(comparisons.jobCount) },
-          { key: "completed-value", label: "Completed job value", value: formatCurrency(jobMetrics.completedContractedJobValue), detail: "Contracted value of finished jobs" },
+          { key: "completed-value", label: "Completed job value", value: formatCurrency(outcomes.completedJobValue), detail: `${count(outcomes.completedJobs, "job", "jobs")} completed in the period` },
         ]}
       />
       <PanelBody>
@@ -286,7 +287,7 @@ export function EstimatesJobsPanel({ snapshot, jobLeadLinkage, attribution }: { 
           ]}
         />
         <BreakdownGrid>
-          <PanelBlock label="Estimate status">
+          <PanelBlock label="Estimate status" scope="Created in the period">
             <BarList
               items={[
                 { key: "draft", label: "Draft", value: estimateMetrics.draftEstimates },
@@ -298,7 +299,7 @@ export function EstimatesJobsPanel({ snapshot, jobLeadLinkage, attribution }: { 
               ]}
             />
           </PanelBlock>
-          <PanelBlock label="Job status">
+          <PanelBlock label="Job status" scope="Created in the period">
             <BarList
               items={[
                 { key: "scheduled", label: "Scheduled", value: jobMetrics.scheduledJobs },
@@ -568,7 +569,7 @@ const DEFINITIONS: { term: string; definition: string }[] = [
   { term: "Invoiced", definition: "Issued invoices dated within the selected period - money asked for, not received." },
   { term: "Outstanding and Overdue", definition: "Open invoice balances as of today, whatever period is selected. Overdue is judged against today's date in your business's timezone." },
   { term: "Avg. days to payment", definition: "Issue date to the payment that settled the invoice, over invoices fully paid in the period." },
-  { term: "Conversion rates", definition: "Ratios over real records, not time-based or causal claims. Lead → booking: leads with a real appointment. Estimate acceptance: accepted vs. accepted + declined. Estimate → job: accepted estimates that became a job. Job completion: completed vs. completed + cancelled." },
+  { term: "Conversion rates", definition: "Ratios over real records, not time-based or causal claims. Lead → booking: of the leads created in the selected period, those with at least one appointment that wasn't cancelled and wasn't a no-show, whenever booked. Estimate acceptance: accepted vs. accepted + declined, counted by the date the customer answered. Estimate → job: accepted estimates that became a job. Job completion: of the jobs created in the selected period, completed vs. completed + cancelled - by creation date, because a cancellation date isn't recorded." },
   { term: "Leads → Qualified / Won and timing", definition: "Based on real, timestamped stage-change events. Timing averages only cover leads with a recorded transition - each shows its own coverage." },
   { term: "Open leads and open lead value", definition: "Leads in an open stage right now, and the estimated value entered on each - a manual estimate, not revenue." },
   { term: "Recoverable estimate value", definition: "Open and expired estimates not yet declined - real opportunity, never guaranteed revenue or a close probability." },
@@ -576,6 +577,7 @@ const DEFINITIONS: { term: string; definition: string }[] = [
   { term: "Jobs linked to a lead", definition: "Every job you have, all time, that has the lead it came from recorded on it. Jobs created from an estimate take the estimate's lead automatically. Unlinked jobs can't be traced back to a lead source, so this shows how complete your revenue attribution can be." },
   { term: "Revenue by source", definition: "Leads: leads created in the selected period, by the source entered on each lead (as written - sources are not standardized). Jobs: jobs created in the period, not counting cancelled ones. Completed and completed value: jobs marked complete in the period, by the date they were completed, with the contracted amount entered on the job - not payments collected. A job counts toward the source of the lead it is linked to; a lead with no source shows as Unknown source, and a job with no linked lead shows as No lead linked, so no job value is left out." },
   { term: "Lead → job", definition: "Of the leads created in the selected period, how many have at least one job that isn't cancelled, whenever that job was created. Jobs and value completed so far come from those same leads, whenever completed. A lead with several jobs counts once toward the rate." },
+  { term: "Completed job value", definition: "Jobs marked complete in the selected period, by the date they were completed, with the contracted amount entered on each job - the same jobs and total as Completed value in Revenue by source. Not payments collected." },
   { term: "Estimate and job values", definition: "Quoted or contracted amounts. Only customer payments recorded in Trackpr count as collected." },
   { term: "New conversations and opt-outs", definition: "Conversations started in the selected period, counted by whether they are still open or now closed - not opened or closed during it. New contacts who opted out are contacts added in the period who have since opted out." },
   { term: "Scheduling", definition: "Appointments by the day they take place in the selected period, not the day they were booked." },
