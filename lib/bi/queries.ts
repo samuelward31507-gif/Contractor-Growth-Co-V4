@@ -5,6 +5,7 @@ import { JOB_STATUSES, type JobStatus } from "@/lib/jobs/queries";
 import { APPOINTMENT_STATUSES, type AppointmentStatus } from "@/lib/appointments/queries";
 import { CONVERSATION_CHANNELS, type ConversationChannel, type MessageStatus } from "@/lib/conversations/queries";
 import { resolveOrganizationDateRange } from "./date-range";
+import { readAllPages } from "./revenue-attribution";
 import type {
   DateRangeInput,
   ResolvedDateRange,
@@ -197,25 +198,30 @@ export async function getLeadAndPipelineMetrics(
   organizationId: string,
   range: ResolvedDateRange,
 ): Promise<{ leads: LeadMetrics; pipeline: PipelineMetrics; failed: boolean }> {
-  let periodQuery = supabase.from("leads").select("status, temperature").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) periodQuery = periodQuery.gte("created_at", range.from);
-  if (range.to) periodQuery = periodQuery.lt("created_at", range.to);
+  // Phase 2I: both reads are paged (readAllPages, stable id order) - the API
+  // caps a response at 1000 rows, which silently cut Leads, the breakdowns
+  // and Open lead value short. A failed page or the row limit is a failed
+  // read exactly like an error was: that read contributes no rows, and
+  // `failed` is set. Definitions, filters and the return shape are unchanged.
+  const periodRead = readAllPages<{ status: LeadStatus; temperature: LeadTemperature }>(() => {
+    let periodQuery = supabase.from("leads").select("status, temperature").eq("organization_id", organizationId);
+    if (range.from) periodQuery = periodQuery.gte("created_at", range.from);
+    if (range.to) periodQuery = periodQuery.lt("created_at", range.to);
+    return periodQuery.order("id");
+  });
 
   // Deliberately unbounded (no created_at filter at all) - "what's open
   // right now" doesn't care when the lead was created. Filtered server-side
   // to the open statuses since this read has exactly one purpose, unlike
   // periodQuery above which needs every status for its own breakdown.
-  const pipelineQuery = supabase
-    .from("leads")
-    .select("estimated_value")
-    .eq("organization_id", organizationId)
-    .in("status", [...OPEN_LEAD_STATUSES])
-    .limit(MAX_ROWS);
+  const pipelineRead = readAllPages<{ estimated_value: number | null }>(() =>
+    supabase.from("leads").select("estimated_value").eq("organization_id", organizationId).in("status", [...OPEN_LEAD_STATUSES]).order("id"),
+  );
 
-  const [{ data: periodData, error: periodError }, { data: pipelineData, error: pipelineError }] = await Promise.all([periodQuery, pipelineQuery]);
+  const [period, open] = await Promise.all([periodRead, pipelineRead]);
 
-  const rows = (periodData ?? []) as { status: LeadStatus; temperature: LeadTemperature }[];
-  const openRows = (pipelineData ?? []) as { estimated_value: number | null }[];
+  const rows = period.failed ? [] : period.rows;
+  const openRows = open.failed ? [] : open.rows;
 
   const byStatus = zeroCounts(LEAD_STATUSES.map((s) => s.value));
   const byTemperature = zeroCounts(LEAD_TEMPERATURES.map((t) => t.value));
@@ -247,7 +253,7 @@ export async function getLeadAndPipelineMetrics(
     pipelineStatuses: [...OPEN_LEAD_STATUSES],
   };
 
-  return { leads, pipeline, failed: periodError != null || pipelineError != null };
+  return { leads, pipeline, failed: period.failed || open.failed };
 }
 
 // ---------------------------------------------------------------------------

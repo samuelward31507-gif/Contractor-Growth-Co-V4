@@ -58,6 +58,8 @@ function makeQueryBuilder(result: MockResult) {
     gte: () => builder,
     lt: () => builder,
     limit: () => builder,
+    // Phase 2I: paged reads (readAllPages) resolve through range().
+    range: () => Promise.resolve(result),
     maybeSingle: () => Promise.resolve(result),
     then: (resolve: (value: MockResult) => unknown, reject?: (reason: unknown) => unknown) => Promise.resolve(result).then(resolve, reject),
   };

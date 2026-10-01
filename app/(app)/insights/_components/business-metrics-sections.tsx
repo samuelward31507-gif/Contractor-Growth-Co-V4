@@ -261,7 +261,12 @@ export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessM
           <PanelBlock label="Lead stage" scope={`Leads created · ${periodScope}`}>
             <BarList items={stageBreakdown} />
           </PanelBlock>
-          {sourceEntries.length > 0 ? (
+          {snapshot.sourceCountsUnavailable ? (
+            // Phase 2I: a failed source read is unavailable, never an empty or partial list.
+            <PanelBlock label="Lead sources" scope={`Leads created · ${periodScope}`}>
+              <SecondaryMetrics metrics={[{ key: "lead-sources", label: "By source", ...unreadable }]} />
+            </PanelBlock>
+          ) : sourceEntries.length > 0 ? (
             <PanelBlock label="Lead sources" scope={`Leads created · ${periodScope}`}>
               <BarList items={sourceEntries} />
             </PanelBlock>
