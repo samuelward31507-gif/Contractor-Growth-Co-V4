@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cache } from "react";
 import { getDashboardData, getDashboardSqlData, type AttentionItem, type DashboardData } from "@/lib/dashboard/queries";
-import { briefingContactName, briefingMoney, getDashboardBriefingInputs, type DashboardBriefingInputs } from "@/lib/dashboard/sql";
-import { getHotLeadCount } from "@/lib/leads/queries";
+import { briefingContactName, briefingMoney, getDashboardBriefingInputs, serverLocalDayBounds, type DashboardBriefingInputs, type DayBounds } from "@/lib/dashboard/sql";
+import { getHotLeadCount, getLeadsCreatedCount } from "@/lib/leads/queries";
 import { getAppointmentsResult, type Appointment } from "@/lib/appointments/queries";
 import { getEstimatesResult, type Estimate } from "@/lib/estimates/queries";
 import { getJobsResult, type Job } from "@/lib/jobs/queries";
@@ -57,21 +57,15 @@ function appointmentContactName(appointment: Appointment): string | null {
  * every row, lists bounded to MAX_LIST_ITEMS in SQL - plus the request's
  * shared getDashboardSqlData, instead of the capped appointments / estimates
  * / jobs / review / referral reads. The default stays "legacy".
+ *
+ * `dayBounds` (sql source only): the calendar day "today" means - Today
+ * passes the organization's own day (organizationDayBounds); omitted, it is
+ * the server-local day, as before.
  */
-export type BriefingOptions = { source?: "legacy" | "sql" };
+export type BriefingOptions = { source?: "legacy" | "sql"; dayBounds?: DayBounds };
 
-/** One dashboard_briefing call per request, org and `now` (pass the same Date to both loaders to share it). Request-scoped via React.cache. */
-const getBriefingInputsForRequest = cache((supabase: SupabaseClient, organizationId: string, now: Date) => getDashboardBriefingInputs(supabase, organizationId, now));
-
-async function getAiEscalationCount(supabase: SupabaseClient, organizationId: string): Promise<number> {
-  const { count } = await supabase
-    .from("conversations")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId)
-    .eq("status", "open")
-    .eq("ai_enabled", false);
-  return count ?? 0;
-}
+/** One dashboard_briefing call per request, org, `now` and bounds (pass the same Date and bounds object to both loaders to share it). Request-scoped via React.cache. */
+const getBriefingInputsForRequest = cache((supabase: SupabaseClient, organizationId: string, now: Date, dayBounds: DayBounds | undefined) => getDashboardBriefingInputs(supabase, organizationId, now, dayBounds));
 
 // ---------------------------------------------------------------------------
 // Owner Daily Briefing (Part 5)
@@ -89,7 +83,6 @@ export type OwnerDailyBriefing = {
   jobsRecentlyCompleted: BriefingJob[];
   reviewReferralOpportunities: BriefingReviewReferralItem[];
   automationProblems: BriefingProblem[];
-  aiEscalationsCount: number;
   /** A short, deterministic, non-AI-generated sentence composed from the fields above. */
   summary: string;
   /**
@@ -104,7 +97,7 @@ export type OwnerDailyBriefing = {
 
 export async function getOwnerDailyBriefing(supabase: SupabaseClient, organizationId: string, now: Date = new Date(), options: BriefingOptions = {}): Promise<OwnerDailyBriefing> {
   if (options.source === "sql") {
-    const [dashboard, briefing, health] = await Promise.all([getDashboardSqlData(supabase, organizationId), getBriefingInputsForRequest(supabase, organizationId, now), getOrganizationHealth(supabase, organizationId)]);
+    const [dashboard, briefing, health] = await Promise.all([getDashboardSqlData(supabase, organizationId), getBriefingInputsForRequest(supabase, organizationId, now, options.dayBounds), getOrganizationHealth(supabase, organizationId)]);
     return composeOwnerDailyBriefing({
       organizationId,
       dashboard,
@@ -114,11 +107,10 @@ export async function getOwnerDailyBriefing(supabase: SupabaseClient, organizati
       estimatesAwaitingAction: briefing.data.estimates_awaiting.map((row) => ({ id: row.id, title: row.title, value: briefingMoney(row.amount), contactName: briefingContactName(row), href: `/estimates/${row.id}` })),
       jobsRecentlyCompleted: briefing.data.jobs_recently_completed.map((row) => ({ id: row.id, title: row.title, value: briefingMoney(row.amount), contactName: briefingContactName(row), href: `/jobs/${row.id}` })),
       reviewReferralOpportunities: responsesAsOpportunities(briefing.data),
-      aiEscalationsCount: briefing.data.ai_escalations_count,
       hotLeadCount: briefing.data.hot_lead_count,
     });
   }
-  const [dashboard, appointmentsResult, estimatesResult, jobsResult, reviewRequestsResult, referralRequestsResult, health, aiEscalationsCount, hotLeadCount] = await Promise.all([
+  const [dashboard, appointmentsResult, estimatesResult, jobsResult, reviewRequestsResult, referralRequestsResult, health, hotLeadCount] = await Promise.all([
     getDashboardData(supabase, organizationId),
     getAppointmentsResult(supabase, organizationId),
     getEstimatesResult(supabase, organizationId),
@@ -126,7 +118,6 @@ export async function getOwnerDailyBriefing(supabase: SupabaseClient, organizati
     getReviewRequestsResult(supabase, organizationId),
     getReferralRequestsResult(supabase, organizationId),
     getOrganizationHealth(supabase, organizationId),
-    getAiEscalationCount(supabase, organizationId),
     // Finalization pass, product-consistency audit: the summary sentence
     // below used to say `${hotLeads.length} hot`, capped at MAX_LIST_ITEMS
     // (5) by the same slice() that bounds the (unrendered) hotLeads list -
@@ -168,7 +159,7 @@ export async function getOwnerDailyBriefing(supabase: SupabaseClient, organizati
     ...referralRequests.filter((r) => r.status === "responded").map((r) => ({ id: r.id, kind: "referral" as const, status: r.status, href: `/jobs/${r.job_id}` })),
   ].slice(0, MAX_LIST_ITEMS);
 
-  return composeOwnerDailyBriefing({ organizationId, dashboard, health, partialData, appointmentsToday, estimatesAwaitingAction, jobsRecentlyCompleted, reviewReferralOpportunities, aiEscalationsCount, hotLeadCount });
+  return composeOwnerDailyBriefing({ organizationId, dashboard, health, partialData, appointmentsToday, estimatesAwaitingAction, jobsRecentlyCompleted, reviewReferralOpportunities, hotLeadCount });
 }
 
 function responsesAsOpportunities(briefing: DashboardBriefingInputs): BriefingReviewReferralItem[] {
@@ -188,10 +179,9 @@ function composeOwnerDailyBriefing(input: {
   estimatesAwaitingAction: BriefingEstimate[];
   jobsRecentlyCompleted: BriefingJob[];
   reviewReferralOpportunities: BriefingReviewReferralItem[];
-  aiEscalationsCount: number;
   hotLeadCount: number;
 }): OwnerDailyBriefing {
-  const { organizationId, dashboard, health, partialData, appointmentsToday, estimatesAwaitingAction, jobsRecentlyCompleted, reviewReferralOpportunities, aiEscalationsCount, hotLeadCount } = input;
+  const { organizationId, dashboard, health, partialData, appointmentsToday, estimatesAwaitingAction, jobsRecentlyCompleted, reviewReferralOpportunities, hotLeadCount } = input;
 
   const hotLeads: BriefingLead[] = dashboard.attentionItems
     .filter((item): item is AttentionItem & { kind: "hot_lead" } => item.kind === "hot_lead")
@@ -216,7 +206,6 @@ function composeOwnerDailyBriefing(input: {
   if (hotLeadCount > 0) summaryParts.push(`${hotLeadCount} hot`);
   if (appointmentsToday.length > 0) summaryParts.push(`${appointmentsToday.length} appointment${appointmentsToday.length === 1 ? "" : "s"} today`);
   if (estimatesAwaitingAction.length > 0) summaryParts.push(`${estimatesAwaitingAction.length} estimate${estimatesAwaitingAction.length === 1 ? "" : "s"} awaiting a reply`);
-  if (aiEscalationsCount > 0) summaryParts.push(`${aiEscalationsCount} conversation${aiEscalationsCount === 1 ? "" : "s"} waiting on you`);
   if (automationProblems.length > 0) summaryParts.push(`${automationProblems.length} automation problem${automationProblems.length === 1 ? "" : "s"}`);
 
   const summary = summaryParts.length > 0 ? summaryParts.join(", ") + "." : "You're all caught up.";
@@ -232,7 +221,6 @@ function composeOwnerDailyBriefing(input: {
     jobsRecentlyCompleted,
     reviewReferralOpportunities,
     automationProblems,
-    aiEscalationsCount,
     summary,
     partialData,
   };
@@ -265,41 +253,46 @@ export type EndOfDaySummary = {
    */
   unresolvedItemsCount: number;
   automationIncidentsCount: number;
-  aiEscalationsCount: number;
   summary: string;
   /** Trackpr 2.0, Phase 4C (P2 #2): true when any of this summary's own reads returned a real Postgrest error - see OwnerDailyBriefing.partialData's own comment for the full discipline. */
   partialData: boolean;
 };
 
 /**
- * "Today" throughout this function means the server process's local
- * calendar day (JS `Date` local getters) - the same documented
- * simplification lib/bi/queries.ts's own resolveDateRange already uses for
- * its "today" preset, not yet organization-timezone-aware.
+ * "Today": with `source: "sql"`, the day in `options.dayBounds` (Today
+ * passes the organization's own calendar day) or, omitted, the server-local
+ * day; leads received is an uncapped count over that same day. The legacy
+ * source keeps the server process's local calendar day (JS `Date` local
+ * getters) and its recent-activity lead count.
  */
 export async function getEndOfDaySummary(supabase: SupabaseClient, organizationId: string, now: Date = new Date(), options: BriefingOptions = {}): Promise<EndOfDaySummary> {
   if (options.source === "sql") {
-    const [dashboard, briefing, health] = await Promise.all([getDashboardSqlData(supabase, organizationId), getBriefingInputsForRequest(supabase, organizationId, now), getOrganizationHealth(supabase, organizationId)]);
+    const day = options.dayBounds ?? serverLocalDayBounds(now);
+    const [dashboard, briefing, health, leads] = await Promise.all([
+      getDashboardSqlData(supabase, organizationId),
+      getBriefingInputsForRequest(supabase, organizationId, now, options.dayBounds),
+      getOrganizationHealth(supabase, organizationId),
+      getLeadsCreatedCount(supabase, organizationId, { from: day.dayStart, to: day.dayEnd }),
+    ]);
     return composeEndOfDaySummary({
       organizationId,
       now,
       dashboard,
       health,
-      partialData: dashboard.partialData || briefing.failed,
+      partialData: dashboard.partialData || briefing.failed || leads.failed,
+      leadsReceived: leads.count,
       appointmentsBooked: briefing.data.appointments_booked_today,
       estimatesSent: briefing.data.estimates_sent_today,
       jobsWonOrCompleted: briefing.data.jobs_won_or_completed_today,
       valueRepresented: briefing.data.estimates_sent_today_value + briefing.data.jobs_won_or_completed_today_value,
-      aiEscalationsCount: briefing.data.ai_escalations_count,
     });
   }
-  const [dashboard, appointmentsResult, estimatesResult, jobsResult, health, aiEscalationsCount] = await Promise.all([
+  const [dashboard, appointmentsResult, estimatesResult, jobsResult, health] = await Promise.all([
     getDashboardData(supabase, organizationId),
     getAppointmentsResult(supabase, organizationId),
     getEstimatesResult(supabase, organizationId),
     getJobsResult(supabase, organizationId),
     getOrganizationHealth(supabase, organizationId),
-    getAiEscalationCount(supabase, organizationId),
   ]);
   const appointments = appointmentsResult.data;
   const estimates = estimatesResult.data;
@@ -330,7 +323,6 @@ export async function getEndOfDaySummary(supabase: SupabaseClient, organizationI
     estimatesSent: estimatesSentToday.length,
     jobsWonOrCompleted: jobsWonOrCompletedToday.length,
     valueRepresented: estimateValueRepresented + jobValueRepresented,
-    aiEscalationsCount,
   });
 }
 
@@ -341,15 +333,16 @@ function composeEndOfDaySummary(input: {
   dashboard: DashboardData;
   health: Awaited<ReturnType<typeof getOrganizationHealth>>;
   partialData: boolean;
+  /** The sql source's uncapped count; omitted (legacy), it is derived from the dashboard's recent activity. */
+  leadsReceived?: number;
   appointmentsBooked: number;
   estimatesSent: number;
   jobsWonOrCompleted: number;
   valueRepresented: number;
-  aiEscalationsCount: number;
 }): EndOfDaySummary {
-  const { organizationId, now, dashboard, health, partialData, appointmentsBooked, estimatesSent, jobsWonOrCompleted, valueRepresented, aiEscalationsCount } = input;
+  const { organizationId, now, dashboard, health, partialData, appointmentsBooked, estimatesSent, jobsWonOrCompleted, valueRepresented } = input;
 
-  const leadsReceived = dashboard.recentActivity.filter((item) => item.id.startsWith("lead-") && isToday(item.timestamp, now)).length;
+  const leadsReceived = input.leadsReceived ?? dashboard.recentActivity.filter((item) => item.id.startsWith("lead-") && isToday(item.timestamp, now)).length;
 
   const unresolvedItemsCount = dashboard.attentionItems.length;
   const automationIncidentsCount = health.activeIncidentCount;
@@ -384,7 +377,6 @@ function composeEndOfDaySummary(input: {
     valueRepresented,
     unresolvedItemsCount,
     automationIncidentsCount,
-    aiEscalationsCount,
     summary,
     partialData,
   };

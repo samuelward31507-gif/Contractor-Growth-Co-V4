@@ -51,7 +51,8 @@ export async function generateDashboardInsights(
     return { error: "We couldn't generate insights right now. Please try again shortly." };
   }
 
-  revalidatePath("/today");
+  // The observations render on Analytics (they moved there from Today).
+  revalidatePath("/insights");
   return {};
 }
 

@@ -1,4 +1,4 @@
-import type { PeriodComparison } from "@/lib/bi/types";
+import type { BusinessMetricsSnapshot, PeriodComparison } from "@/lib/bi/types";
 
 /**
  * Local formatting helpers for the BusinessMetricsSnapshot fields this page
@@ -48,4 +48,28 @@ export function formatComparisonBadge(comparison: PeriodComparison): string | nu
   const rounded = Math.round(comparison.percentageChange);
   const sign = rounded > 0 ? "+" : "";
   return `${sign}${rounded}% vs previous period`;
+}
+
+/**
+ * The owner-facing version of snapshot.dataQuality.notes for the Analytics
+ * calculations footer - the same facts, built from the snapshot's own flags
+ * and counts, in plain business language. The source notes stay as they are
+ * (the AI observations prompt and agency cost-readiness read them); they
+ * name internal fields and providers, so the page never renders them raw.
+ */
+export function ownerDataNotes(snapshot: Pick<BusinessMetricsSnapshot, "dataQuality" | "leadStageFunnel" | "aiMetrics">): string[] {
+  const { dataQuality, leadStageFunnel, aiMetrics } = snapshot;
+  const { leadsWithRecordedHistory, leadsInRange } = leadStageFunnel.timing;
+  return [
+    dataQuality.collectedRevenueUnavailable
+      ? "Your invoice and payment records couldn't be read for this period, so payment figures show as unavailable rather than zero. Open lead value, estimate value and contracted job value are quoted or contracted amounts, never money received."
+      : "Only Collected is money received. Open lead value, estimate value, contracted job value and Invoiced are quoted, contracted or billed amounts.",
+    "Lead source is typed by hand and not standardized, so sources are shown for visibility only, never ranked by performance.",
+    dataQuality.stageHistoryUnavailable
+      ? "No lead stage changes were recorded in this period, so stage timing isn't available yet."
+      : `Stage timing only covers leads whose stage changes were recorded: ${leadsWithRecordedHistory} of ${leadsInRange} ${leadsInRange === 1 ? "lead" : "leads"} in this period. Treat the averages as a sample, not every lead.`,
+    dataQuality.aiTokenUsageUnavailable
+      ? "None of this period's AI work reported usage details."
+      : `Usage details were reported for ${aiMetrics.interactionsWithUsageData} of ${aiMetrics.aiInteractions} AI ${aiMetrics.aiInteractions === 1 ? "interaction" : "interactions"} in this period.`,
+  ];
 }

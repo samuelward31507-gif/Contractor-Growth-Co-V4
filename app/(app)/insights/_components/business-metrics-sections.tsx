@@ -1,334 +1,163 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { sectionLabelClass, metaClass, statLabelClass, statValueClass } from "@/lib/ui/typography";
-import { StatGrid, StatCard } from "@/lib/ui/stat-card";
+import { ArrowRight } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { formatMoney } from "@/lib/invoices/domain";
 import { SANCTIONED_COLLECTED_REVENUE_DEFINITION } from "@/lib/bi/billing";
-import type { BusinessMetricsSnapshot } from "@/lib/bi/types";
+import type { BusinessMetricsSnapshot, PeriodComparison } from "@/lib/bi/types";
 import type { RepeatCustomerSummary } from "@/lib/customers/lifecycle";
-import { formatRate, formatComparisonBadge, formatDuration } from "./bi-format";
+import { formatRate, formatComparisonBadge, formatDuration, ownerDataNotes } from "./bi-format";
 import { BarList } from "./bar-list";
+import { BreakdownGrid, Panel, PanelBlock, PanelBody, PanelNote, PrimaryMetrics, SecondaryMetrics, scopeLabel, type Metric } from "./metric-panel";
 
 /**
- * The Analytics page's genuine business-performance breakdown - reads
- * BusinessMetricsSnapshot (lib/bi/metrics.ts's getBusinessMetricsSnapshot,
- * the exact same function the Dashboard calls via
- * lib/dashboard/business-metrics.ts's getDashboardBusinessMetrics) and
- * calculates nothing itself, matching KeyMetrics's own discipline
- * (app/(app)/dashboard/_components/key-metrics.tsx). This is a second,
- * wider READ of the same BI layer at a caller-selected period (see
- * range-tabs.tsx), not a second computation path - no query or aggregation
- * logic is duplicated here.
- *
- * Trackpr 2.0 Phase 5: reframed into named groups (see analytics/page.tsx)
- * telling a coherent revenue story - business at a glance, revenue pipeline
- * (leads/estimates/jobs/appointments), conversion, where follow-up is
- * leaking, AI & automation, data quality - rather than nine flat sections in
- * an arbitrary row. Every individual Section function below is unchanged in
- * what it reads and computes; only the page-level grouping around them, and
- * two new sections (ConversionSection, RevenueOpportunitySection) built
- * entirely from already-computed snapshot fields, are new. Each section is a
- * flush stat strip (matching LeadsSummary/ActivitySummaryCards/KeyMetrics)
- * with a BarList only where a category breakdown has enough buckets that a
- * bare number list would be hard to compare at a glance - never a fabricated
- * or decorative chart.
+ * Analytics' business-performance panels - each reads
+ * BusinessMetricsSnapshot (lib/bi/metrics.ts's getBusinessMetricsSnapshot)
+ * and calculates nothing itself; every rate, comparison and total is read
+ * as-is. Each figure appears once on the page, in the panel that owns it,
+ * and every panel's header states the time scope its numbers cover:
+ *   - the selected period (Collected, Invoiced, leads, estimates, jobs...);
+ *   - "As of today" for current-state balances and leaks;
+ *   - "All time" for repeat customers.
+ * Where a single figure's scope differs from its panel's, its own detail or
+ * block label says so. Detailed definitions live once, in
+ * CalculationsPanel, instead of under every section.
  */
 
-type Stat = { key: string; label: string; value: string; detail?: string | null };
+const count = (n: number, singular: string, plural: string) => `${n} ${n === 1 ? singular : plural}`;
 
-function StatRow({ stats }: { stats: Stat[] }) {
-  return (
-    <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-4">
-      {stats.map((stat) => (
-        <div key={stat.key}>
-          <dt className={statLabelClass}>{stat.label}</dt>
-          <dd className={statValueClass}>{stat.value}</dd>
-          {stat.detail ? <p className="mt-0.5 text-xs text-ink-3">{stat.detail}</p> : null}
-        </div>
-      ))}
-    </dl>
-  );
+/** A previous-period comparison as a metric detail, colored by direction - or the fallback when there is no comparison. */
+function compared(comparison: PeriodComparison, fallback?: string | null): Pick<Metric, "detail" | "tone"> {
+  const badge = formatComparisonBadge(comparison);
+  if (!badge) return { detail: fallback ?? null };
+  return { detail: badge, tone: comparison.change != null && comparison.change > 0 ? "positive" : comparison.change != null && comparison.change < 0 ? "negative" : undefined };
 }
 
-/**
- * Deliberately no border-t of its own - the caller (activity/page.tsx) wraps
- * every Section in a single `divide-y` container so a divider appears
- * BETWEEN sections but never redundantly right under the "Business
- * performance" period-picker header above the first one.
- */
-function Section({
-  label,
-  children,
-  note,
-}: {
-  label: string;
-  children: ReactNode;
-  note?: string;
-}) {
+function ViewLink({ href, children }: { href: string; children: string }) {
   return (
-    <div className="pt-8 first:pt-6">
-      <p className={sectionLabelClass}>{label}</p>
+    <Link href={href} className="inline-flex min-h-11 items-center gap-1 self-start rounded-md text-[13px] font-medium text-ink-2 transition-colors hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:min-h-0">
       {children}
-      {note ? <p className={`mt-4 ${metaClass}`}>{note}</p> : null}
-    </div>
+      <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+    </Link>
   );
 }
 
-/**
- * Trackpr 2.0 Phase 5: the page's executive summary - the numbers that most
- * directly answer "how is the business doing," each already computed and
- * already reliable (comparisons.leadCount, and the two Phase 5 additions to
- * BiEstimateMetrics/BiJobMetrics - acceptedEstimateValue,
- * completedContractedJobValue - both threaded through from an existing
- * lib/bi/queries.ts computation, not a new query). Deliberately keeps
- * "accepted"/"completed" in every label rather than a bare dollar amount -
- * every value figure there is a quoted/contracted amount.
- *
- * Phase 1B-4: "Collected" leads the row - billingMetrics.collectedValue, the
- * customer_payments ledger net of reversals for the selected period, and
- * the only figure on this page that is money received.
- */
-export function BusinessAtAGlance({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { comparisons, estimateMetrics, jobMetrics, leadMetrics, billingMetrics, dataQuality } = snapshot;
-
-  return (
-    <StatGrid columns={5}>
-      <StatCard
-        label="Collected"
-        value={dataQuality.collectedRevenueUnavailable ? "Unavailable" : formatMoney(billingMetrics.collectedValue)}
-        description={dataQuality.collectedRevenueUnavailable ? "The payment ledger could not be read" : (formatComparisonBadge(comparisons.collectedValue) ?? "Customer payments, net of reversals")}
-        tone="success"
-      />
-      <StatCard label="Leads" value={String(comparisons.leadCount.current)} description={formatComparisonBadge(comparisons.leadCount)} />
-      <StatCard label="Accepted estimate value" value={formatCurrency(estimateMetrics.acceptedEstimateValue)} description="Quoted work customers said yes to" />
-      <StatCard label="Completed job value" value={formatCurrency(jobMetrics.completedContractedJobValue)} description="Contracted value of finished jobs" />
-      <StatCard label="Lead → booking rate" value={formatRate(leadMetrics.leadToBookingRate)} description="Leads that got an appointment" />
-    </StatGrid>
-  );
-}
+// ---------------------------------------------------------------------------
+// 1. Revenue & payments
+// ---------------------------------------------------------------------------
 
 /**
- * Phase 1B-4: the invoice/payment ledger for the selected period -
- * snapshot.billingMetrics (lib/bi/billing.ts), read as-is like every other
- * section here. Collected and Invoiced are period totals (received_at /
- * issued_at in range) with the same previous-period badge convention as
- * leadCount; Outstanding and Overdue are balances as of today and say so;
+ * The invoice/payment ledger - snapshot.billingMetrics (lib/bi/billing.ts).
+ * Collected and Invoiced are period totals (received_at / issued_at in
+ * range); Outstanding and Overdue are balances as of today and say so;
  * days to payment is always paired with the count of invoices it was
- * measured over, never shown bare; reversals are shown separately so the
- * net Collected figure is transparent.
+ * measured over; reversals are shown separately so net Collected stays
+ * transparent.
  */
-export function BillingSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { billingMetrics, comparisons, dataQuality } = snapshot;
-  const count = (n: number, singular: string, plural: string) => `${n} ${n === 1 ? singular : plural}`;
+export function RevenuePaymentsPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { billingMetrics, comparisons, dataQuality, period } = snapshot;
+  const scope = scopeLabel(period.label);
 
   if (dataQuality.collectedRevenueUnavailable) {
     return (
-      <Section label="Invoices & payments" note={SANCTIONED_COLLECTED_REVENUE_DEFINITION}>
-        <p className="mt-3 text-sm text-ink-3">The invoice and payment ledger could not be read for this period. Nothing below is estimated in its place.</p>
-      </Section>
+      <Panel id="revenue" title="Revenue & payments" scope={scope}>
+        <p className="px-4 py-4 text-sm text-ink-3 sm:px-5">The invoice and payment ledger could not be read for this period. Nothing is estimated in its place.</p>
+      </Panel>
     );
   }
 
+  const days = billingMetrics.averageDaysToPayment === null ? null : Math.round(billingMetrics.averageDaysToPayment);
+
   return (
-    <Section
-      label="Invoices & payments"
-      note={`${SANCTIONED_COLLECTED_REVENUE_DEFINITION} Invoiced is money asked for, not received. Outstanding and Overdue are balances as of today, not period totals.`}
-    >
-      <StatRow
-        stats={[
-          { key: "collected", label: "Collected", value: formatMoney(billingMetrics.collectedValue), detail: formatComparisonBadge(comparisons.collectedValue) ?? `${count(billingMetrics.paymentsReceived, "payment", "payments")} received` },
-          { key: "invoiced", label: "Invoiced", value: formatMoney(billingMetrics.invoicedValue), detail: formatComparisonBadge(comparisons.invoicedValue) ?? `${count(billingMetrics.invoicesIssued, "invoice", "invoices")} issued` },
+    <Panel id="revenue" title="Revenue & payments" scope={scope}>
+      <PrimaryMetrics
+        metrics={[
+          { key: "collected", label: "Collected", value: formatMoney(billingMetrics.collectedValue), ...compared(comparisons.collectedValue, `${count(billingMetrics.paymentsReceived, "payment", "payments")} received`) },
+          { key: "invoiced", label: "Invoiced", value: formatMoney(billingMetrics.invoicedValue), ...compared(comparisons.invoicedValue, `${count(billingMetrics.invoicesIssued, "invoice", "invoices")} issued`) },
           { key: "outstanding", label: "Outstanding", value: formatMoney(billingMetrics.outstandingValue), detail: `${count(billingMetrics.outstandingInvoices, "open invoice", "open invoices")} · as of today` },
-          { key: "overdue", label: "Overdue", value: formatMoney(billingMetrics.overdueValue), detail: `${count(billingMetrics.overdueInvoices, "invoice", "invoices")} past due · as of today` },
           {
-            key: "days-to-payment",
-            label: "Avg. days to payment",
-            value: billingMetrics.averageDaysToPayment === null ? "Not enough data yet" : `${Math.round(billingMetrics.averageDaysToPayment)} ${Math.round(billingMetrics.averageDaysToPayment) === 1 ? "day" : "days"}`,
-            detail: `Based on ${count(billingMetrics.invoicesPaid, "invoice", "invoices")} paid in this period · issue date to the payment that settled it`,
+            key: "overdue",
+            label: "Overdue",
+            value: formatMoney(billingMetrics.overdueValue),
+            detail: `${count(billingMetrics.overdueInvoices, "invoice", "invoices")} past due · as of today`,
+            tone: billingMetrics.overdueInvoices > 0 ? "attention" : undefined,
           },
-          { key: "reversed", label: "Reversed", value: formatMoney(billingMetrics.reversedValue), detail: `${count(billingMetrics.reversalCount, "reversal", "reversals")} · already subtracted from Collected` },
         ]}
       />
-    </Section>
+      <PanelBody>
+        <SecondaryMetrics
+          metrics={[
+            { key: "days-to-payment", label: "Avg. days to payment", value: days === null ? "Not enough data yet" : `${days} ${days === 1 ? "day" : "days"}`, detail: `Based on ${count(billingMetrics.invoicesPaid, "invoice", "invoices")} paid` },
+            { key: "reversed", label: "Reversed", value: formatMoney(billingMetrics.reversedValue), detail: `${count(billingMetrics.reversalCount, "reversal", "reversals")} · already subtracted from Collected` },
+            { key: "payments", label: "Payments received", value: String(billingMetrics.paymentsReceived) },
+            { key: "issued", label: "Invoices issued", value: String(billingMetrics.invoicesIssued) },
+            { key: "paid", label: "Invoices paid", value: String(billingMetrics.invoicesPaid) },
+          ]}
+        />
+        <PanelNote>{SANCTIONED_COLLECTED_REVENUE_DEFINITION} Invoiced is money asked for, not received.</PanelNote>
+      </PanelBody>
+    </Panel>
   );
 }
 
-/**
- * Trackpr 2.0 Phase 5: the four conversion rates that already exist, each
- * computed inside its own metric group (leadMetrics.leadToBookingRate,
- * estimateMetrics.estimateAcceptanceRate, estimateMetrics.estimateToJobRate,
- * jobMetrics.jobCompletionRate) but previously scattered across four
- * separate sections with no single place to read the funnel end to end.
- * Nothing here is recomputed - every rate is read as-is from the snapshot.
- * Appointment -> estimate conversion is deliberately not included: no
- * existing query reliably answers "did this specific appointment lead to an
- * estimate," and inventing one is out of scope for a reframe.
- */
-export function ConversionSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { leadMetrics, estimateMetrics, jobMetrics } = snapshot;
-
-  return (
-    <Section label="Conversion" note="Each rate is a current-state ratio over real records, not a time-based or causal claim - see each section's own definition above.">
-      <StatRow
-        stats={[
-          { key: "lead-booking", label: "Lead → booking", value: formatRate(leadMetrics.leadToBookingRate), detail: "Leads with a real appointment" },
-          { key: "estimate-acceptance", label: "Estimate acceptance", value: formatRate(estimateMetrics.estimateAcceptanceRate), detail: "Accepted vs. accepted + declined" },
-          { key: "estimate-job", label: "Estimate → job", value: formatRate(estimateMetrics.estimateToJobRate), detail: "Jobs per accepted estimate" },
-          { key: "job-completion", label: "Job completion", value: formatRate(jobMetrics.jobCompletionRate), detail: "Completed vs. completed + cancelled" },
-        ]}
-      />
-    </Section>
-  );
-}
+// ---------------------------------------------------------------------------
+// 3. Leads & conversion
+// ---------------------------------------------------------------------------
 
 /**
- * Pass 5C, Batch 3B: the historical counterpart to ConversionSection above -
- * deliberately a separate, clearly-labeled section rather than merged into
- * it, since every stat here is fundamentally different in kind: real,
- * timestamped lead.stage_changed events (snapshot.leadStageFunnel), not a
- * current-state cross-reference. Transition counts are the same
- * comparison-count convention as BusinessAtAGlance's own leadCount
- * (formatComparisonBadge). Timing averages are NEVER shown bare - each is
- * always paired with its own real coverage detail ("Based on N of M leads
- * with recorded history"), so a reader can never mistake a partial-coverage
- * average for a complete historical record. Raw transitionCounts (e.g.
- * "new->contacted": 4) are deliberately never rendered - the Batch 3B audit
- * classified that raw pair breakdown as low business value.
+ * Lead volume and the conversion rates end to end - each rate read as-is
+ * from its own metric group - plus the historical funnel (real,
+ * timestamped lead.stage_changed events). Timing averages are never shown
+ * bare: each carries its own coverage ("N of M leads with recorded
+ * history"). The day-by-day chart is passed in as `trend`.
  */
-export function HistoricalFunnelSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { leadStageFunnel, comparisons } = snapshot;
+export function LeadsConversionPanel({ snapshot, trend }: { snapshot: BusinessMetricsSnapshot; trend: ReactNode }) {
+  const { leadMetrics, estimateMetrics, jobMetrics, leadStageFunnel, comparisons, period } = snapshot;
   const { transitions, timing } = leadStageFunnel;
 
   return (
-    <Section
-      label="Historical funnel"
-      note="Based on real, timestamped stage-change events - not a current-state snapshot like Conversion above. Timing averages only ever cover leads with a recorded transition; see each stat's own coverage detail."
-    >
-      <StatRow
-        stats={[
-          { key: "to-qualified", label: "Leads → Qualified", value: String(transitions.leadsTransitionedToQualified), detail: formatComparisonBadge(comparisons.leadsTransitionedToQualified) },
-          { key: "to-won", label: "Leads → Won", value: String(transitions.leadsTransitionedToWon), detail: formatComparisonBadge(comparisons.leadsTransitionedToWon) },
-          {
-            key: "time-to-qualified",
-            label: "Avg. time to qualified",
-            value: formatDuration(timing.averageTimeToQualifiedMs),
-            detail: `Based on ${timing.leadsWithQualifiedTiming} of ${timing.leadsInRange} lead(s) with recorded history`,
-          },
-          {
-            key: "time-to-won",
-            label: "Avg. time to won",
-            value: formatDuration(timing.averageTimeToWonMs),
-            detail: `Based on ${timing.leadsWithWonTiming} of ${timing.leadsInRange} lead(s) with recorded history`,
-          },
+    <Panel id="leads" title="Leads & conversion" scope={scopeLabel(period.label)}>
+      <PrimaryMetrics
+        metrics={[
+          { key: "leads", label: "Leads", value: String(comparisons.leadCount.current), ...compared(comparisons.leadCount) },
+          { key: "lead-booking", label: "Lead → booking", value: formatRate(leadMetrics.leadToBookingRate), detail: "Leads with a real appointment" },
+          { key: "estimate-acceptance", label: "Estimate acceptance", value: formatRate(estimateMetrics.estimateAcceptanceRate), detail: "Accepted vs. accepted + declined" },
+          { key: "job-completion", label: "Job completion", value: formatRate(jobMetrics.jobCompletionRate), detail: "Completed vs. completed + cancelled" },
         ]}
       />
-    </Section>
+      <PanelBody>
+        <SecondaryMetrics
+          metrics={[
+            { key: "estimate-job", label: "Estimate → job", value: formatRate(estimateMetrics.estimateToJobRate), detail: "Accepted estimates that became a job" },
+            { key: "to-qualified", label: "Leads → Qualified", value: String(transitions.leadsTransitionedToQualified), ...compared(comparisons.leadsTransitionedToQualified) },
+            { key: "to-won", label: "Leads → Won", value: String(transitions.leadsTransitionedToWon), ...compared(comparisons.leadsTransitionedToWon) },
+            { key: "time-to-qualified", label: "Avg. time to qualified", value: formatDuration(timing.averageTimeToQualifiedMs), detail: `${timing.leadsWithQualifiedTiming} of ${timing.leadsInRange} leads with history` },
+            { key: "time-to-won", label: "Avg. time to won", value: formatDuration(timing.averageTimeToWonMs), detail: `${timing.leadsWithWonTiming} of ${timing.leadsInRange} leads with history` },
+          ]}
+        />
+        {trend}
+      </PanelBody>
+    </Panel>
   );
 }
 
+// ---------------------------------------------------------------------------
+// 4. Pipeline & follow-up leaks
+// ---------------------------------------------------------------------------
+
 /**
- * Trackpr 2.0 Phase 5: surfaces BiRevenueOpportunity (lib/bi/types.ts),
- * already computed by getBusinessMetricsSnapshot for every caller but
- * previously only ever rendered on the Dashboard (business-glance.tsx) -
- * never on the Analytics page itself, despite this being exactly "where is
- * follow-up leaking" (real, quoted work with no decision yet, and real
- * leads/visits that stalled before the next real step). Same fields, same
- * captions as the Dashboard's own rendering, for consistency.
+ * What is open right now: open leads and their entered value (unbounded -
+ * "what's open" doesn't care when the lead was created) and
+ * BiRevenueOpportunity's real, quoted work that may be slipping away. The
+ * per-item next actions live in Today's queue - this links there rather
+ * than inventing a second recommendation surface. Lost rate and the
+ * stage/source/temperature breakdowns cover leads created in the selected
+ * period, and are labeled that way.
  */
-export function RevenueOpportunitySection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { revenueOpportunity } = snapshot;
+export function PipelineLeaksPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { leadMetrics, pipelineMetrics, revenueOpportunity, period } = snapshot;
   const hasOpenItems = revenueOpportunity.qualifiedLeadsWithoutAppointment > 0 || revenueOpportunity.completedAppointmentsWithoutEstimate > 0 || revenueOpportunity.recoverableEstimateValue > 0;
-
-  return (
-    <Section label="Where follow-up is leaking" note="Real opportunity, not guaranteed revenue or a close probability.">
-      <StatRow
-        stats={[
-          { key: "recoverable", label: "Recoverable estimate value", value: formatCurrency(revenueOpportunity.recoverableEstimateValue), detail: "Open + expired, not yet declined" },
-          { key: "qualified-no-appt", label: "Qualified leads, no appointment", value: String(revenueOpportunity.qualifiedLeadsWithoutAppointment) },
-          { key: "completed-no-estimate", label: "Completed visits, no estimate", value: String(revenueOpportunity.completedAppointmentsWithoutEstimate) },
-        ]}
-      />
-      {/* Final completion program, Phase 5 (Insights): these three numbers
-          are the exact same underlying opportunities Today's queue already
-          tracks individually, each with its own real, explainable next
-          action (see lib/opportunities/detect.ts). Rather than inventing a
-          second, parallel "recommendation" here, this points at the one
-          place that already has the real per-item action - one source of
-          truth per concept, not a duplicate intelligence surface. */}
-      {hasOpenItems ? (
-        <p className="mt-3 text-sm text-ink-3">
-          This is work you already have - a real quote, a qualified conversation, a finished visit - not speculative pipeline.{" "}
-          <Link href="/today?view=by-type" className="font-medium text-ink-2 underline decoration-line-strong underline-offset-2 hover:decoration-ink-3">
-            Review these in Today
-          </Link>
-          .
-        </p>
-      ) : null}
-    </Section>
-  );
-}
-
-/**
- * Pass 3 (Revenue Intelligence Foundation), Part 9: reconnects
- * ReviewReferralMetrics - real, already-computed by
- * lib/bi/queries.ts's getReviewReferralMetrics and threaded onto the
- * current BusinessMetricsSnapshot by lib/bi/metrics.ts, but previously only
- * ever reachable through the superseded Phase 5.1 BusinessIntelligenceSnapshot
- * type that nothing in the app calls anymore - this is its first live UI
- * surface. Same range-scoped semantics as every other section on this page
- * ("how many review/referral requests were created and resolved in this
- * window"), unlike RepeatCustomerSection below.
- */
-export function ReviewReferralSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { reviewReferralMetrics } = snapshot;
-
-  return (
-    <Section label="Reviews &amp; referrals" note="Response/completion counts reflect an explicit contractor confirmation, not an automated inference.">
-      <StatRow
-        stats={[
-          { key: "review-response", label: "Review response rate", value: formatRate(reviewReferralMetrics.reviewResponseRate), detail: `${reviewReferralMetrics.reviewsRequested} requested` },
-          { key: "review-completion", label: "Review completion rate", value: formatRate(reviewReferralMetrics.reviewCompletionRate), detail: `${reviewReferralMetrics.reviewsCompleted} completed` },
-          { key: "referral-response", label: "Referral response rate", value: formatRate(reviewReferralMetrics.referralResponseRate), detail: `${reviewReferralMetrics.referralsRequested} requested` },
-          { key: "referral-conversion", label: "Referral conversion rate", value: formatRate(reviewReferralMetrics.referralConversionRate), detail: `${reviewReferralMetrics.referralsConverted} converted` },
-        ]}
-      />
-    </Section>
-  );
-}
-
-/**
- * Pass 3, Part 9: repeat-customer + known completed-job value, sourced from
- * lib/customers/lifecycle.ts's getRepeatCustomerSummary - deliberately a
- * separate prop from `snapshot`, not a BusinessMetricsSnapshot field,
- * because (like revenueOpportunity) "has this customer come back, ever" is
- * a current-state fact, not scoped to whatever period the page's range
- * tabs have selected. No fabricated CLV formula - only the real underlying
- * counts/sums this schema can actually support.
- */
-export function RepeatCustomerSection({ summary }: { summary: RepeatCustomerSummary }) {
-  return (
-    <Section label="Repeat customers" note="Completed job value is the contracted amount, not collected revenue - see Invoices & payments for what was actually collected.">
-      <StatRow
-        stats={[
-          { key: "repeat-count", label: "Repeat customers", value: String(summary.repeatCustomerCount), detail: `of ${summary.customersWithCompletedJob} with a completed job` },
-          { key: "repeat-rate", label: "Repeat customer rate", value: formatRate(summary.repeatCustomerRate) },
-          { key: "completed-jobs", label: "Completed jobs", value: String(summary.completedJobCount) },
-          { key: "known-value", label: "Known completed job value", value: formatCurrency(summary.knownCompletedJobValue), detail: summary.averageKnownCompletedJobValue != null ? `${formatCurrency(summary.averageKnownCompletedJobValue)} average` : undefined },
-          {
-            key: "additional-jobs",
-            label: "Additional jobs from repeat customers",
-            value: String(summary.additionalCompletedJobCount),
-            detail: summary.additionalCompletedJobKnownValue > 0 ? `${formatCurrency(summary.additionalCompletedJobKnownValue)} known value` : "Never counts a customer's first job",
-          },
-        ]}
-      />
-    </Section>
-  );
-}
-
-export function LeadsPipelineSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { leadMetrics, pipelineMetrics, comparisons } = snapshot;
+  const periodScope = scopeLabel(period.label);
 
   const stageBreakdown = [
     { key: "new", label: "New", value: leadMetrics.newLeads },
@@ -339,332 +168,350 @@ export function LeadsPipelineSection({ snapshot }: { snapshot: BusinessMetricsSn
     { key: "won", label: "Won", value: leadMetrics.wonLeads },
     { key: "lost", label: "Lost", value: leadMetrics.lostLeads },
   ];
-
   const sourceEntries = Object.entries(leadMetrics.sourceCounts)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 8)
-    .map(([source, count]) => ({ key: source, label: source, value: count }));
+    .map(([source, value]) => ({ key: source, label: source, value }));
 
   return (
-    <Section
-      label="Leads & pipeline"
-      note="Pipeline and average pipeline value are manually entered estimates on the lead, not revenue - collected payments are only ever counted under Invoices & payments."
-    >
-      <div className="mt-3">
-        <StatGrid columns={5}>
-          <StatCard label="Leads" value={String(comparisons.leadCount.current)} description={formatComparisonBadge(comparisons.leadCount)} />
-          <StatCard label="Open opportunities" value={String(pipelineMetrics.openOpportunityCount)} />
-          <StatCard label="Pipeline value" value={formatCurrency(pipelineMetrics.pipelineValue)} />
-          <StatCard
-            label="Avg. opportunity value"
-            value={pipelineMetrics.averagePipelineValue === null ? "Not enough data yet" : formatCurrency(pipelineMetrics.averagePipelineValue)}
-          />
-          <StatCard label="Lost rate" value={formatRate(leadMetrics.lostRate)} />
-        </StatGrid>
-      </div>
-
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div>
-          <p className="text-xs font-medium text-ink-2">Lead stage</p>
-          <div className="mt-3">
+    <Panel id="pipeline" title="Pipeline & follow-up leaks" scope="As of today">
+      <PrimaryMetrics
+        metrics={[
+          { key: "open-leads", label: "Open leads", value: String(pipelineMetrics.openOpportunityCount) },
+          { key: "open-lead-value", label: "Open lead value", value: formatCurrency(pipelineMetrics.pipelineValue), detail: "Entered on each open lead" },
+          { key: "avg-open-lead-value", label: "Avg. open lead value", value: pipelineMetrics.averagePipelineValue === null ? "Not enough data yet" : formatCurrency(pipelineMetrics.averagePipelineValue) },
+          { key: "recoverable", label: "Recoverable estimate value", value: formatCurrency(revenueOpportunity.recoverableEstimateValue), detail: "Open + expired, not yet declined" },
+        ]}
+      />
+      <PanelBody>
+        <SecondaryMetrics
+          metrics={[
+            { key: "qualified-no-appt", label: "Qualified, no appointment", value: String(revenueOpportunity.qualifiedLeadsWithoutAppointment) },
+            { key: "completed-no-estimate", label: "Visits, no estimate", value: String(revenueOpportunity.completedAppointmentsWithoutEstimate) },
+            { key: "lost-rate", label: "Lost rate", value: formatRate(leadMetrics.lostRate), detail: `Leads created · ${periodScope}` },
+          ]}
+        />
+        <BreakdownGrid>
+          <PanelBlock label="Lead stage" scope={`Leads created · ${periodScope}`}>
             <BarList items={stageBreakdown} />
-          </div>
-        </div>
-
-        {sourceEntries.length > 0 ? (
-          <div>
-            <p className="text-xs font-medium text-ink-2">Lead sources</p>
-            <div className="mt-3">
+          </PanelBlock>
+          {sourceEntries.length > 0 ? (
+            <PanelBlock label="Lead sources" scope={`Leads created · ${periodScope}`}>
               <BarList items={sourceEntries} />
-            </div>
-            <p className="mt-2 text-xs text-ink-3">
-              Source is free-text and not standardized - shown for visibility only, never ranked by performance.
-            </p>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="mt-6">
-        <p className="text-xs font-medium text-ink-2">Temperature</p>
-        <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
-          <div>
-            <dt className="text-xs text-ink-3">Hot</dt>
-            <dd className="text-sm font-semibold tabular-nums text-ink">{leadMetrics.hotLeads}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-3">Warm</dt>
-            <dd className="text-sm font-semibold tabular-nums text-ink">{leadMetrics.warmLeads}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-3">Cold</dt>
-            <dd className="text-sm font-semibold tabular-nums text-ink">{leadMetrics.coldLeads}</dd>
-          </div>
-        </dl>
-      </div>
-    </Section>
+            </PanelBlock>
+          ) : null}
+          <PanelBlock label="Temperature" scope={`Leads created · ${periodScope}`}>
+            <BarList
+              items={[
+                { key: "hot", label: "Hot", value: leadMetrics.hotLeads },
+                { key: "warm", label: "Warm", value: leadMetrics.warmLeads },
+                { key: "cold", label: "Cold", value: leadMetrics.coldLeads },
+              ]}
+            />
+          </PanelBlock>
+        </BreakdownGrid>
+        {hasOpenItems ? <ViewLink href="/today?view=by-type">Review in Today</ViewLink> : null}
+      </PanelBody>
+    </Panel>
   );
 }
 
-export function EstimatesSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { estimateMetrics, comparisons } = snapshot;
-
-  const statusBreakdown = [
-    { key: "draft", label: "Draft", value: estimateMetrics.draftEstimates },
-    { key: "sent", label: "Sent", value: estimateMetrics.sentEstimates },
-    { key: "accepted", label: "Accepted", value: estimateMetrics.acceptedEstimates },
-    { key: "declined", label: "Declined", value: estimateMetrics.declinedEstimates },
-    { key: "cancelled", label: "Cancelled", value: estimateMetrics.cancelledEstimates },
-    { key: "expired", label: "Expired", value: estimateMetrics.expiredEstimates },
-  ];
-
-  return (
-    <Section label="Estimates" note="Estimate value is a quoted total, not revenue.">
-      <StatRow
-        stats={[
-          { key: "estimates", label: "Estimates", value: String(comparisons.estimateCount.current), detail: formatComparisonBadge(comparisons.estimateCount) },
-          { key: "estimate-value", label: "Estimate value", value: formatCurrency(estimateMetrics.estimateValue) },
-          { key: "accepted-estimate-value", label: "Accepted estimate value", value: formatCurrency(estimateMetrics.acceptedEstimateValue) },
-          {
-            key: "avg-estimate-value",
-            label: "Avg. estimate value",
-            value: estimateMetrics.averageEstimateValue === null ? "Not enough data yet" : formatCurrency(estimateMetrics.averageEstimateValue),
-          },
-          { key: "acceptance-rate", label: "Acceptance rate", value: formatRate(estimateMetrics.estimateAcceptanceRate) },
-          { key: "estimate-to-job-rate", label: "Estimate → job rate", value: formatRate(estimateMetrics.estimateToJobRate) },
-        ]}
-      />
-
-      <div className="mt-6 max-w-md">
-        <BarList items={statusBreakdown} />
-      </div>
-    </Section>
-  );
-}
-
-export function JobsSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { jobMetrics, comparisons } = snapshot;
-
-  const statusBreakdown = [
-    { key: "scheduled", label: "Scheduled", value: jobMetrics.scheduledJobs },
-    { key: "in-progress", label: "In progress", value: jobMetrics.inProgressJobs },
-    { key: "completed", label: "Completed", value: jobMetrics.completedJobs },
-    { key: "cancelled", label: "Cancelled", value: jobMetrics.cancelledJobs },
-  ];
-
-  return (
-    <Section label="Jobs" note="Contracted job value is a quoted/contracted figure, never collected revenue - only customer payments recorded in Trackpr are (see Invoices & payments).">
-      <StatRow
-        stats={[
-          { key: "jobs", label: "Jobs", value: String(comparisons.jobCount.current), detail: formatComparisonBadge(comparisons.jobCount) },
-          { key: "contracted-value", label: "Contracted job value", value: formatCurrency(jobMetrics.contractedJobValue) },
-          { key: "completed-value", label: "Completed job value", value: formatCurrency(jobMetrics.completedContractedJobValue) },
-          {
-            key: "avg-contracted-value",
-            label: "Avg. contracted value",
-            value: jobMetrics.averageContractedJobValue === null ? "Not enough data yet" : formatCurrency(jobMetrics.averageContractedJobValue),
-          },
-          { key: "completion-rate", label: "Completion rate", value: formatRate(jobMetrics.jobCompletionRate) },
-        ]}
-      />
-
-      <div className="mt-6 max-w-md">
-        <BarList items={statusBreakdown} />
-      </div>
-    </Section>
-  );
-}
-
-export function AppointmentsSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { appointmentMetrics } = snapshot;
-
-  return (
-    <Section label="Appointments">
-      <StatRow
-        stats={[
-          { key: "total", label: "Total", value: String(appointmentMetrics.totalAppointments) },
-          { key: "scheduled", label: "Scheduled", value: String(appointmentMetrics.scheduledAppointments) },
-          { key: "confirmed", label: "Confirmed", value: String(appointmentMetrics.confirmedAppointments) },
-          { key: "completed", label: "Completed", value: String(appointmentMetrics.completedAppointments) },
-          { key: "cancelled", label: "Cancelled", value: String(appointmentMetrics.cancelledAppointments) },
-          { key: "no-show", label: "No-show", value: String(appointmentMetrics.noShowAppointments) },
-          { key: "no-show-rate", label: "No-show rate", value: formatRate(appointmentMetrics.appointmentNoShowRate) },
-        ]}
-      />
-    </Section>
-  );
-}
-
-export function FollowUpSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { followUpMetrics } = snapshot;
-
-  return (
-    <Section label="Follow-up automation" note="Activity counts only - not a claim that a follow-up touch caused any change in leads, jobs, or pipeline value.">
-      <StatRow
-        stats={[
-          { key: "lost-nurture", label: "Lost-lead nurture", value: String(followUpMetrics.lostLeadNurtureEvents) },
-          { key: "reactivation", label: "Reactivation", value: String(followUpMetrics.reactivationEvents) },
-          { key: "appointment-reminders", label: "Appointment reminders", value: String(followUpMetrics.appointmentReminderEvents) },
-          { key: "estimate-followups", label: "Estimate follow-ups", value: String(followUpMetrics.estimateFollowUpEvents) },
-          { key: "job-followups", label: "Post-job follow-ups", value: String(followUpMetrics.postJobFollowUpEvents) },
-          { key: "leads-touched", label: "Leads touched by automation", value: String(followUpMetrics.leadsTouchedByAutomation) },
-        ]}
-      />
-    </Section>
-  );
-}
-
-export function CommunicationSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { communicationMetrics } = snapshot;
-
-  return (
-    <Section label="Communication">
-      <StatRow
-        stats={[
-          { key: "inbound", label: "Inbound messages", value: String(communicationMetrics.inboundMessages) },
-          { key: "outbound", label: "Outbound messages", value: String(communicationMetrics.outboundMessages) },
-          { key: "customer-replies", label: "Customer replies", value: String(communicationMetrics.customerReplies) },
-          { key: "opened", label: "Conversations opened", value: String(communicationMetrics.conversationsOpened) },
-          { key: "closed", label: "Conversations closed", value: String(communicationMetrics.conversationsClosed) },
-          { key: "opt-outs", label: "Opted-out contacts", value: String(communicationMetrics.optOutCount) },
-        ]}
-      />
-
-      <div className="mt-6">
-        <p className="text-xs font-medium text-ink-2">Outbound sent by</p>
-        <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
-          <div>
-            <dt className="text-xs text-ink-3">AI</dt>
-            <dd className="text-sm font-semibold tabular-nums text-ink">{communicationMetrics.aiOutboundMessages}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-3">Your team</dt>
-            <dd className="text-sm font-semibold tabular-nums text-ink">{communicationMetrics.userOutboundMessages}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-3">System</dt>
-            <dd className="text-sm font-semibold tabular-nums text-ink">{communicationMetrics.systemOutboundMessages}</dd>
-          </div>
-        </dl>
-      </div>
-    </Section>
-  );
-}
+// ---------------------------------------------------------------------------
+// 5. Estimates & jobs
+// ---------------------------------------------------------------------------
 
 /**
- * Pass 5C, Batch 3B: snapshot.responseTime (lib/bi/funnel.ts's
- * getLeadResponseTimeMetrics) - deliberately labeled "time to first
- * recorded response," never "delivery time"/"Twilio delivery time"/"exact
- * response time"/"instant response": the underlying timestamp is when
- * Trackpr recorded the outbound message (messages.created_at), not a
- * guaranteed provider delivery moment - see LeadResponseTimeMetrics's own
- * doc comment in lib/bi/types.ts. "Never contacted" is placed right after
- * the population count so it reads as the single most actionable number in
- * the section, per the Batch 3B audit's own instruction. When no lead in
- * range has been contacted at all, the average/median cells read "No
- * recorded response yet" rather than a fabricated "0 minutes" or "0m".
+ * Estimate and job volume and value for the period. The conversion rates
+ * between them live once, in Leads & conversion, rather than repeating here.
  */
-export function ResponseTimeSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { responseTime, comparisons } = snapshot;
+export function EstimatesJobsPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { estimateMetrics, jobMetrics, comparisons, period } = snapshot;
+
+  return (
+    <Panel id="estimates-jobs" title="Estimates & jobs" scope={scopeLabel(period.label)}>
+      <PrimaryMetrics
+        metrics={[
+          { key: "estimates", label: "Estimates", value: String(comparisons.estimateCount.current), ...compared(comparisons.estimateCount) },
+          { key: "accepted-estimate-value", label: "Accepted estimate value", value: formatCurrency(estimateMetrics.acceptedEstimateValue), detail: "Quoted work customers said yes to" },
+          { key: "jobs", label: "Jobs", value: String(comparisons.jobCount.current), ...compared(comparisons.jobCount) },
+          { key: "completed-value", label: "Completed job value", value: formatCurrency(jobMetrics.completedContractedJobValue), detail: "Contracted value of finished jobs" },
+        ]}
+      />
+      <PanelBody>
+        <SecondaryMetrics
+          metrics={[
+            { key: "estimate-value", label: "Estimate value", value: formatCurrency(estimateMetrics.estimateValue) },
+            { key: "avg-estimate-value", label: "Avg. estimate value", value: estimateMetrics.averageEstimateValue === null ? "Not enough data yet" : formatCurrency(estimateMetrics.averageEstimateValue) },
+            { key: "contracted-value", label: "Contracted job value", value: formatCurrency(jobMetrics.contractedJobValue) },
+            { key: "avg-contracted-value", label: "Avg. contracted value", value: jobMetrics.averageContractedJobValue === null ? "Not enough data yet" : formatCurrency(jobMetrics.averageContractedJobValue) },
+          ]}
+        />
+        <BreakdownGrid>
+          <PanelBlock label="Estimate status">
+            <BarList
+              items={[
+                { key: "draft", label: "Draft", value: estimateMetrics.draftEstimates },
+                { key: "sent", label: "Sent", value: estimateMetrics.sentEstimates },
+                { key: "accepted", label: "Accepted", value: estimateMetrics.acceptedEstimates },
+                { key: "declined", label: "Declined", value: estimateMetrics.declinedEstimates },
+                { key: "cancelled", label: "Cancelled", value: estimateMetrics.cancelledEstimates },
+                { key: "expired", label: "Expired", value: estimateMetrics.expiredEstimates },
+              ]}
+            />
+          </PanelBlock>
+          <PanelBlock label="Job status">
+            <BarList
+              items={[
+                { key: "scheduled", label: "Scheduled", value: jobMetrics.scheduledJobs },
+                { key: "in-progress", label: "In progress", value: jobMetrics.inProgressJobs },
+                { key: "completed", label: "Completed", value: jobMetrics.completedJobs },
+                { key: "cancelled", label: "Cancelled", value: jobMetrics.cancelledJobs },
+              ]}
+            />
+          </PanelBlock>
+        </BreakdownGrid>
+        <PanelNote>Estimate and job values are quoted or contracted amounts, never collected revenue.</PanelNote>
+      </PanelBody>
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 6. Customer response & communication
+// ---------------------------------------------------------------------------
+
+/**
+ * snapshot.responseTime - "time to first recorded response," never a
+ * delivery time: the timestamp is when Trackpr recorded the outbound
+ * message, not a guaranteed provider delivery moment. "Never contacted"
+ * leads the panel as its most actionable number. With no contacted lead,
+ * the averages read "No recorded response yet", never a fabricated 0.
+ */
+export function ResponseCommunicationPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { responseTime, communicationMetrics, comparisons, period } = snapshot;
   const hasAnyResponse = responseTime.leadsContacted > 0;
 
   return (
-    <Section
-      label="Time to first recorded response"
-      note="Time from lead creation to the first outbound message Trackpr recorded as sent or delivered - not a guaranteed delivery timestamp, and never a claim about how quickly the customer actually saw it."
-    >
-      <StatRow
-        stats={[
-          { key: "population", label: "Leads", value: String(responseTime.totalLeadsInPopulation) },
-          { key: "never-contacted", label: "Never contacted", value: String(responseTime.leadsNeverContacted) },
-          { key: "contacted", label: "Contacted", value: String(responseTime.leadsContacted), detail: formatComparisonBadge(comparisons.leadsContacted) },
+    <Panel id="response" title="Customer response & communication" scope={scopeLabel(period.label)}>
+      <PrimaryMetrics
+        metrics={[
+          { key: "never-contacted", label: "Never contacted", value: String(responseTime.leadsNeverContacted), detail: `of ${count(responseTime.totalLeadsInPopulation, "lead", "leads")}`, tone: responseTime.leadsNeverContacted > 0 ? "attention" : undefined },
           { key: "contact-rate", label: "Contact rate", value: formatRate(responseTime.contactRate) },
           { key: "avg-response", label: "Avg. time to first response", value: hasAnyResponse ? formatDuration(responseTime.averageResponseTimeMs) : "No recorded response yet" },
           { key: "median-response", label: "Median time to first response", value: hasAnyResponse ? formatDuration(responseTime.medianResponseTimeMs) : "No recorded response yet" },
         ]}
       />
-
-      {hasAnyResponse ? (
-        <div className="mt-6 max-w-md">
-          <p className="text-xs font-medium text-ink-2">Response time</p>
-          <div className="mt-3">
+      <PanelBody>
+        <SecondaryMetrics
+          metrics={[
+            { key: "contacted", label: "Contacted", value: String(responseTime.leadsContacted), ...compared(comparisons.leadsContacted) },
+            { key: "inbound", label: "Inbound messages", value: String(communicationMetrics.inboundMessages) },
+            { key: "outbound", label: "Outbound messages", value: String(communicationMetrics.outboundMessages) },
+            { key: "customer-replies", label: "Customer replies", value: String(communicationMetrics.customerReplies) },
+            { key: "opened", label: "Conversations opened", value: String(communicationMetrics.conversationsOpened) },
+            { key: "closed", label: "Conversations closed", value: String(communicationMetrics.conversationsClosed) },
+            { key: "opt-outs", label: "Opted-out contacts", value: String(communicationMetrics.optOutCount) },
+          ]}
+        />
+        <BreakdownGrid>
+          {hasAnyResponse ? (
+            <PanelBlock label="Time to first response">
+              <BarList
+                items={[
+                  { key: "under_1_min", label: "Under 1 min", value: responseTime.bucketCounts.under_1_min },
+                  { key: "1_to_5_min", label: "1-5 min", value: responseTime.bucketCounts["1_to_5_min"] },
+                  { key: "5_to_15_min", label: "5-15 min", value: responseTime.bucketCounts["5_to_15_min"] },
+                  { key: "15_to_60_min", label: "15-60 min", value: responseTime.bucketCounts["15_to_60_min"] },
+                  { key: "1_to_24_hours", label: "1-24 hours", value: responseTime.bucketCounts["1_to_24_hours"] },
+                  { key: "over_24_hours", label: "Over 24 hours", value: responseTime.bucketCounts.over_24_hours },
+                ]}
+              />
+            </PanelBlock>
+          ) : null}
+          <PanelBlock label="Outbound sent by">
             <BarList
               items={[
-                { key: "under_1_min", label: "Under 1 min", value: responseTime.bucketCounts.under_1_min },
-                { key: "1_to_5_min", label: "1-5 min", value: responseTime.bucketCounts["1_to_5_min"] },
-                { key: "5_to_15_min", label: "5-15 min", value: responseTime.bucketCounts["5_to_15_min"] },
-                { key: "15_to_60_min", label: "15-60 min", value: responseTime.bucketCounts["15_to_60_min"] },
-                { key: "1_to_24_hours", label: "1-24 hours", value: responseTime.bucketCounts["1_to_24_hours"] },
-                { key: "over_24_hours", label: "Over 24 hours", value: responseTime.bucketCounts.over_24_hours },
+                { key: "ai", label: "AI", value: communicationMetrics.aiOutboundMessages },
+                { key: "team", label: "Your team", value: communicationMetrics.userOutboundMessages },
+                { key: "system", label: "System", value: communicationMetrics.systemOutboundMessages },
               ]}
             />
-          </div>
-        </div>
-      ) : null}
-    </Section>
+          </PanelBlock>
+        </BreakdownGrid>
+      </PanelBody>
+    </Panel>
   );
 }
 
-export function AiActivitySection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { aiMetrics } = snapshot;
+// ---------------------------------------------------------------------------
+// 7. Scheduling
+// ---------------------------------------------------------------------------
+
+export function SchedulingPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { appointmentMetrics, period } = snapshot;
 
   return (
-    <Section label="AI activity">
-      <StatRow
-        stats={[
-          { key: "interactions", label: "AI interactions", value: String(aiMetrics.aiInteractions) },
-          { key: "outbound-interactions", label: "Recommended sending", value: String(aiMetrics.aiOutboundInteractions) },
-          { key: "customer-reply", label: "Customer-reply responses", value: String(aiMetrics.customerReplyAiInteractions) },
-          { key: "needs-human", label: "Flagged for a human", value: String(aiMetrics.aiNeedsHumanCount) },
+    <Panel id="scheduling" title="Scheduling" scope={scopeLabel(period.label)}>
+      <PrimaryMetrics
+        metrics={[
+          { key: "total", label: "Appointments", value: String(appointmentMetrics.totalAppointments) },
+          { key: "completed", label: "Completed", value: String(appointmentMetrics.completedAppointments) },
+          { key: "no-show", label: "No-shows", value: String(appointmentMetrics.noShowAppointments) },
+          { key: "no-show-rate", label: "No-show rate", value: formatRate(appointmentMetrics.appointmentNoShowRate) },
         ]}
       />
-    </Section>
+      <PanelBody>
+        <SecondaryMetrics
+          metrics={[
+            { key: "scheduled", label: "Scheduled", value: String(appointmentMetrics.scheduledAppointments) },
+            { key: "confirmed", label: "Confirmed", value: String(appointmentMetrics.confirmedAppointments) },
+            { key: "cancelled", label: "Cancelled", value: String(appointmentMetrics.cancelledAppointments) },
+          ]}
+        />
+      </PanelBody>
+    </Panel>
   );
 }
 
-export function AutomationSection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { automationMetrics } = snapshot;
+// ---------------------------------------------------------------------------
+// 8. Retention & reputation
+// ---------------------------------------------------------------------------
+
+/**
+ * Review/referral request outcomes for the period, then repeat customers -
+ * deliberately all time (getRepeatCustomerSummary is not range-scoped:
+ * "has this customer come back, ever" isn't a date-range question), so that
+ * block carries its own "All time" scope.
+ */
+export function RetentionPanel({ snapshot, repeat }: { snapshot: BusinessMetricsSnapshot; repeat: RepeatCustomerSummary }) {
+  const { reviewReferralMetrics, period } = snapshot;
 
   return (
-    <Section label="Automation health">
-      <div>
-        <p className="text-xs font-medium text-ink-2">Automation events</p>
-        <StatRow
-          stats={[
-            { key: "events", label: "Total", value: String(automationMetrics.automationEvents) },
-            { key: "completed-events", label: "Completed", value: String(automationMetrics.completedAutomationEvents) },
-            { key: "failed-events", label: "Failed", value: String(automationMetrics.failedAutomationEvents) },
-            { key: "pending-events", label: "Pending", value: String(automationMetrics.pendingAutomationEvents) },
-          ]}
-        />
-      </div>
-
-      <div className="mt-6">
-        <p className="text-xs font-medium text-ink-2">Workflow executions</p>
-        <StatRow
-          stats={[
-            { key: "executions", label: "Total", value: String(automationMetrics.workflowExecutions) },
-            { key: "successful", label: "Successful", value: String(automationMetrics.successfulWorkflowExecutions) },
-            { key: "failed", label: "Failed", value: String(automationMetrics.failedWorkflowExecutions) },
-            { key: "running", label: "Running", value: String(automationMetrics.runningWorkflowExecutions) },
-            { key: "success-rate", label: "Success rate", value: formatRate(automationMetrics.automationSuccessRate) },
-          ]}
-        />
-      </div>
-    </Section>
+    <Panel id="retention" title="Retention & reputation" scope={scopeLabel(period.label)}>
+      <PrimaryMetrics
+        metrics={[
+          { key: "review-response", label: "Review response rate", value: formatRate(reviewReferralMetrics.reviewResponseRate), detail: `${reviewReferralMetrics.reviewsRequested} requested` },
+          { key: "review-completion", label: "Review completion rate", value: formatRate(reviewReferralMetrics.reviewCompletionRate), detail: `${reviewReferralMetrics.reviewsCompleted} completed` },
+          { key: "referral-response", label: "Referral response rate", value: formatRate(reviewReferralMetrics.referralResponseRate), detail: `${reviewReferralMetrics.referralsRequested} requested` },
+          { key: "referral-conversion", label: "Referral conversion rate", value: formatRate(reviewReferralMetrics.referralConversionRate), detail: `${reviewReferralMetrics.referralsConverted} converted` },
+        ]}
+      />
+      <PanelBody>
+        <PanelBlock label="Repeat customers" scope="All time">
+          <SecondaryMetrics
+            metrics={[
+              { key: "repeat-count", label: "Repeat customers", value: String(repeat.repeatCustomerCount), detail: `of ${repeat.customersWithCompletedJob} with a completed job` },
+              { key: "repeat-rate", label: "Repeat customer rate", value: formatRate(repeat.repeatCustomerRate) },
+              { key: "completed-jobs", label: "Completed jobs", value: String(repeat.completedJobCount) },
+              { key: "known-value", label: "Known completed job value", value: formatCurrency(repeat.knownCompletedJobValue), detail: repeat.averageKnownCompletedJobValue != null ? `${formatCurrency(repeat.averageKnownCompletedJobValue)} average` : undefined },
+              {
+                key: "additional-jobs",
+                label: "Jobs from repeat customers",
+                value: String(repeat.additionalCompletedJobCount),
+                detail: repeat.additionalCompletedJobKnownValue > 0 ? `${formatCurrency(repeat.additionalCompletedJobKnownValue)} known value` : "Never counts a first job",
+              },
+            ]}
+          />
+        </PanelBlock>
+      </PanelBody>
+    </Panel>
   );
 }
 
-export function DataQualitySection({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+// ---------------------------------------------------------------------------
+// 9. Trackpr automation
+// ---------------------------------------------------------------------------
+
+/**
+ * What the AI and the follow-up automations did in the period - activity
+ * counts only. Automation health (events, workflow executions, success
+ * rate) belongs to /automations and is linked, not repeated.
+ */
+export function AutomationPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const { aiMetrics, followUpMetrics, period } = snapshot;
+
   return (
-    <Section label="Data quality notes">
-      <ul className="mt-3 space-y-1.5 text-xs text-ink-3">
-        {snapshot.dataQuality.notes.map((note) => (
-          <li key={note} className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-            {note}
-          </li>
-        ))}
-      </ul>
-    </Section>
+    <Panel id="automation" title="Trackpr automation" scope={scopeLabel(period.label)}>
+      <PrimaryMetrics
+        metrics={[
+          { key: "interactions", label: "AI interactions", value: String(aiMetrics.customerAiInteractions) },
+          { key: "customer-reply", label: "Customer replies answered", value: String(aiMetrics.customerReplyAiInteractions) },
+          { key: "outbound-interactions", label: "Messages recommended", value: String(aiMetrics.aiOutboundInteractions) },
+          { key: "needs-human", label: "Handed to you", value: String(aiMetrics.aiNeedsHumanCount) },
+        ]}
+      />
+      <PanelBody>
+        <SecondaryMetrics
+          metrics={[
+            { key: "lost-nurture", label: "Lost-lead nurture", value: String(followUpMetrics.lostLeadNurtureEvents) },
+            { key: "reactivation", label: "Reactivation", value: String(followUpMetrics.reactivationEvents) },
+            { key: "appointment-reminders", label: "Appointment reminders", value: String(followUpMetrics.appointmentReminderEvents) },
+            { key: "estimate-followups", label: "Estimate follow-ups", value: String(followUpMetrics.estimateFollowUpEvents) },
+            { key: "job-followups", label: "Post-job follow-ups", value: String(followUpMetrics.postJobFollowUpEvents) },
+            { key: "leads-touched", label: "Leads touched", value: String(followUpMetrics.leadsTouchedByAutomation) },
+          ]}
+        />
+        <ViewLink href="/automations">Automation health in Automations</ViewLink>
+      </PanelBody>
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// How these numbers are calculated
+// ---------------------------------------------------------------------------
+
+const DEFINITIONS: { term: string; definition: string }[] = [
+  { term: "Collected", definition: `${SANCTIONED_COLLECTED_REVENUE_DEFINITION} Counted by the date the payment was received, within the selected period.` },
+  { term: "Invoiced", definition: "Issued invoices dated within the selected period - money asked for, not received." },
+  { term: "Outstanding and Overdue", definition: "Open invoice balances as of today, whatever period is selected. Overdue is judged against today's date in your business's timezone." },
+  { term: "Avg. days to payment", definition: "Issue date to the payment that settled the invoice, over invoices fully paid in the period." },
+  { term: "Conversion rates", definition: "Ratios over real records, not time-based or causal claims. Lead → booking: leads with a real appointment. Estimate acceptance: accepted vs. accepted + declined. Estimate → job: accepted estimates that became a job. Job completion: completed vs. completed + cancelled." },
+  { term: "Leads → Qualified / Won and timing", definition: "Based on real, timestamped stage-change events. Timing averages only cover leads with a recorded transition - each shows its own coverage." },
+  { term: "Open leads and open lead value", definition: "Leads in an open stage right now, and the estimated value entered on each - a manual estimate, not revenue." },
+  { term: "Recoverable estimate value", definition: "Open and expired estimates not yet declined - real opportunity, never guaranteed revenue or a close probability." },
+  { term: "Lead sources", definition: "Free text, not standardized - shown for visibility only, never ranked by performance." },
+  { term: "Estimate and job values", definition: "Quoted or contracted amounts. Only customer payments recorded in Trackpr count as collected." },
+  { term: "Time to first response", definition: "From lead creation to the first outbound message Trackpr recorded as sent or delivered - not a provider delivery timestamp, and never a claim about when the customer saw it." },
+  { term: "Reviews and referrals", definition: "Response and completion counts reflect an explicit contractor confirmation, not an automated inference." },
+  { term: "Repeat customers", definition: "All time, whatever period is selected. Completed job value is the contracted amount, not collected revenue." },
+  { term: "Automation", definition: "Activity counts only - not a claim that a follow-up caused any change in leads, jobs or value. Messages recommended counts what the AI suggested sending, before Trackpr's own send checks." },
+  { term: "Observations", definition: "Generated on request from the last 30 days, whatever period is selected above." },
+];
+
+/** Every definition the page used to repeat under each section, once, collapsed - plus this period's data-quality notes, in owner-facing language (ownerDataNotes), never the snapshot's raw internal notes. */
+export function CalculationsPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
+  const dataNotes = ownerDataNotes(snapshot);
+  return (
+    <details className="group rounded-lg border border-line bg-surface">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-ink-2 hover:text-ink sm:px-5 [&::-webkit-details-marker]:hidden">
+        How these numbers are calculated
+        <span className="text-xs text-ink-3 group-open:hidden">Show</span>
+        <span className="hidden text-xs text-ink-3 group-open:inline">Hide</span>
+      </summary>
+      <div className="border-t border-line px-4 py-4 sm:px-5">
+        <dl className="grid grid-cols-1 gap-x-8 gap-y-3 lg:grid-cols-2">
+          {DEFINITIONS.map((item) => (
+            <div key={item.term}>
+              <dt className="text-xs font-medium text-ink-2">{item.term}</dt>
+              <dd className="mt-0.5 text-xs leading-5 text-ink-3">{item.definition}</dd>
+            </div>
+          ))}
+        </dl>
+        {dataNotes.length > 0 ? (
+          <div className="mt-4 border-t border-line pt-3">
+            <p className="text-xs font-medium text-ink-2">About this period&apos;s data</p>
+            <ul className="mt-2 space-y-1.5 text-xs text-ink-3">
+              {dataNotes.map((note) => (
+                <li key={note} className="flex gap-2">
+                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
+                  {note}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </details>
   );
 }

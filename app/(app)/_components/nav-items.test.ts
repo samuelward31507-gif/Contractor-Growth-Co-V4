@@ -2,7 +2,7 @@
  * Pure, dependency-free tests of the nav foundation. Originally Gym
  * Foundation Phase 1, Section 6; rewritten for the IA consolidation pass and
  * the nav-restructure pass; rewritten again for the Trackpr 2.0 (step 2C)
- * grouped IA - Dashboard, Customers, Schedule, Work, Growth, Insights, and a
+ * grouped IA - Today, Customers, Schedule, Work, Growth, Insights, and a
  * pinned Settings / Agency Command Center group. See nav-items.ts's header
  * comment for the full reasoning. Run with:
  *
@@ -84,7 +84,7 @@ test("B3. /money is a Work destination again for a contractor (Trackpr 2.0 step 
 test("C. every label renders exactly as specified, for a contractor", () => {
   const entries = flatten(getNavGroupsForVertical("contractor", false));
   const expected = [
-    "/today:Dashboard",
+    "/today:Today",
     "/people:Contacts",
     "/people?temperature=hot:Leads",
     "/conversations:Inbox",
@@ -114,7 +114,7 @@ test("C2. gym nav relabels Contacts to Members; contractor keeps Contacts", () =
 // D. Correct groups are rendered.
 // ===========================================================================
 
-test("D. the group structure exists in the exact order: Dashboard, Customers, Schedule, Work, Growth, Insights, then the pinned system group", () => {
+test("D. the group structure exists in the exact order: Today, Customers, Schedule, Work, Growth, Insights, then the pinned system group", () => {
   assert.deepEqual(
     NAV_GROUPS.map((g) => [g.id, g.label]),
     [
@@ -132,7 +132,7 @@ test("D. the group structure exists in the exact order: Dashboard, Customers, Sc
 test("D2. each group contains exactly its destinations, in order (contractor)", () => {
   const groups = Object.fromEntries(getNavGroupsForVertical("contractor", false).map((g) => [g.id, g.items.map((i) => i.label)]));
   assert.deepEqual(groups, {
-    home: ["Dashboard"],
+    home: ["Today"],
     customers: ["Contacts", "Leads", "Inbox"],
     schedule: ["Calendar", "Appointments"],
     work: ["Estimates", "Jobs", "Money"],
@@ -231,7 +231,7 @@ test("R1. two views of one route resolve to the more specific entry only when it
   assert.equal(activeLabel("/schedule", "view=week&date=2026-09-28"), "Calendar");
   assert.equal(activeLabel("/schedule", "view=list"), "Appointments");
   assert.equal(activeLabel("/schedule", "view=list&apptView=past"), "Appointments");
-  assert.equal(activeLabel("/today"), "Dashboard");
+  assert.equal(activeLabel("/today"), "Today");
   assert.equal(activeLabel("/today", "view=by-type"), "Opportunities");
   // A fragment is a soft preference: plain /growth is the first entry.
   assert.equal(activeLabel("/growth"), "Reviews");

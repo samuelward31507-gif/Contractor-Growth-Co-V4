@@ -14,7 +14,7 @@ export function BarList({ items }: { items: { key: string; label: string; value:
     <ul className="space-y-2.5">
       {items.map((item) => (
         <li key={item.key} className="flex items-center gap-3">
-          <span className="w-32 shrink-0 truncate text-xs text-ink-2 sm:w-40" title={item.label}>
+          <span className="w-28 shrink-0 truncate text-xs text-ink-2 sm:w-36" title={item.label}>
             {item.label}
           </span>
           <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-inset" aria-hidden>

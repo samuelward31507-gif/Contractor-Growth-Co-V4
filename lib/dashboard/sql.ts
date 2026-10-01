@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { contactDisplayName } from "@/lib/contacts/format";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
-import { fromCents, isOverdue, toCents } from "@/lib/invoices/domain";
+import { calendarDateInTimeZone, fromCents, isOverdue, toCents } from "@/lib/invoices/domain";
+import { zonedWallTimeToUtc } from "@/lib/scheduling/availability";
 import { INVOICING_LIVE_AT, type InvoiceMoneySummary } from "@/lib/invoices/summary";
 import type { AttentionItem } from "./queries";
 
@@ -14,16 +15,45 @@ import type { AttentionItem } from "./queries";
  * existing TypeScript ones (see the SQL file's header); parity is proved by
  * supabase/pending/scratch/validate-dashboard-sql.mjs.
  *
- * Time semantics are unchanged and stay here: "today" for appointments and
- * the briefing is the server-local calendar day (what
- * summarizeAppointments / briefing isToday have always used), passed to SQL
- * as [dayStart, dayEnd); invoice "overdue" is still judged by isOverdue
- * against the organization-timezone date the page computes.
+ * Time semantics stay here: "today" for appointments and the briefing is
+ * passed to SQL as [dayStart, dayEnd) - the organization's own calendar day
+ * when the caller passes organizationDayBounds (Today does), else the
+ * server-local day (what summarizeAppointments / briefing isToday have
+ * always used); invoice "overdue" is still judged by isOverdue against the
+ * organization-timezone date the page computes.
  */
 
-/** The server-local calendar day containing `now`, as [start, end) - exactly the day isSameCalendarDay/isToday compare against. */
-export function serverLocalDayBounds(now: Date): { dayStart: Date; dayEnd: Date } {
+export type DayBounds = { dayStart: Date; dayEnd: Date };
+
+/** The server-local calendar day containing `now`, as [start, end) - exactly the day isSameCalendarDay/isToday compare against. The default for every caller that doesn't pass organization-day bounds. */
+export function serverLocalDayBounds(now: Date): DayBounds {
   return { dayStart: new Date(now.getFullYear(), now.getMonth(), now.getDate()), dayEnd: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) };
+}
+
+function isValidTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The organization's own calendar day containing `now`, as [local midnight,
+ * next local midnight) in UTC instants - DST-safe via zonedWallTimeToUtc, so
+ * a spring-forward day is 23 hours and a fall-back day 25. An unknown zone
+ * falls back to UTC rather than throwing. Today passes these bounds to every
+ * day-scoped read so "today" never rolls over at the server's midnight.
+ */
+export function organizationDayBounds(now: Date, timeZone: string): DayBounds {
+  const zone = isValidTimeZone(timeZone) ? timeZone : "UTC";
+  const [year, month, day] = calendarDateInTimeZone(now, zone).split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  return {
+    dayStart: zonedWallTimeToUtc(year, month, day, 0, zone),
+    dayEnd: zonedWallTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, zone),
+  };
 }
 
 const sumCents = (values: number[]) => fromCents(values.reduce((sum, value) => sum + toCents(value), 0));
@@ -79,8 +109,8 @@ export const EMPTY_DASHBOARD_SUMMARY: DashboardSummary = {
   not_yet_invoiced_unknown_count: 0,
 };
 
-export async function getDashboardSummary(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<{ data: DashboardSummary; failed: boolean }> {
-  const { dayStart, dayEnd } = serverLocalDayBounds(now);
+export async function getDashboardSummary(supabase: SupabaseClient, organizationId: string, now: Date = new Date(), bounds?: DayBounds): Promise<{ data: DashboardSummary; failed: boolean }> {
+  const { dayStart, dayEnd } = bounds ?? serverLocalDayBounds(now);
   const { data, error } = await supabase.rpc("dashboard_summary", {
     p_organization_id: organizationId,
     p_day_start: dayStart.toISOString(),
@@ -206,8 +236,8 @@ export const EMPTY_BRIEFING_INPUTS: DashboardBriefingInputs = {
   hot_lead_count: 0,
 };
 
-export async function getDashboardBriefingInputs(supabase: SupabaseClient, organizationId: string, now: Date = new Date()): Promise<{ data: DashboardBriefingInputs; failed: boolean }> {
-  const { dayStart, dayEnd } = serverLocalDayBounds(now);
+export async function getDashboardBriefingInputs(supabase: SupabaseClient, organizationId: string, now: Date = new Date(), bounds?: DayBounds): Promise<{ data: DashboardBriefingInputs; failed: boolean }> {
+  const { dayStart, dayEnd } = bounds ?? serverLocalDayBounds(now);
   const { data, error } = await supabase.rpc("dashboard_briefing", {
     p_organization_id: organizationId,
     p_day_start: dayStart.toISOString(),

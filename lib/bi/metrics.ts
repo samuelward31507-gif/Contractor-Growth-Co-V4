@@ -361,10 +361,42 @@ async function buildLeadMetrics(
 }
 
 /** Trackpr 2.0, Phase 4B (P1 #2): `failed` propagates getEstimateMetrics's own error signal up to getBusinessMetricsSnapshot's partialData - see lib/bi/queries.ts's getLeadAndPipelineMetrics for the full discipline. getNonNullAmountCount's own error handling is a narrower, already-safe-direction case (a failure there can only ever force a real average into "not enough data yet," never fabricate one) and is left as-is, matching this phase's scope. */
+/** An accepted estimate with whatever job is linked to it through jobs.estimate_id (PostgREST returns the embed as an array, or an object for a detected one-to-one). */
+export type AcceptedEstimateJobRow = { id: string; jobs: { id: string }[] | { id: string } | null };
+
+/**
+ * Estimate → job: of the estimates accepted in the period, the share that
+ * became a job - the numerator counts only accepted estimates with a linked
+ * job (jobs.estimate_id), never all jobs, so a job created directly (no
+ * estimate) can't inflate it. jobs_estimate_id_unique allows at most one job
+ * per estimate, so the numerator can't exceed the denominator; it is still
+ * capped at it in case the two reads saw a row change in between. `null`
+ * when nothing was accepted.
+ */
+export function estimateToJobRate(acceptedRows: AcceptedEstimateJobRow[], acceptedEstimates: number): number | null {
+  const withJob = acceptedRows.filter((row) => (Array.isArray(row.jobs) ? row.jobs.length > 0 : row.jobs != null)).length;
+  return rate(Math.min(withJob, acceptedEstimates), acceptedEstimates);
+}
+
+/**
+ * The accepted estimates created in `range` (the same filters
+ * getEstimateMetrics counts acceptedEstimates with), each with its linked
+ * job. The embed names its foreign key because invoices (job_id +
+ * estimate_id) is a second path between the two tables.
+ */
+async function getAcceptedEstimateJobRows(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ rows: AcceptedEstimateJobRow[]; failed: boolean }> {
+  let query = supabase.from("estimates").select("id, jobs!jobs_estimate_id_fkey(id)").eq("organization_id", organizationId).eq("status", "accepted").limit(MAX_ROWS);
+  if (range.from) query = query.gte("created_at", range.from);
+  if (range.to) query = query.lt("created_at", range.to);
+  const { data, error } = await query;
+  return { rows: (data ?? []) as AcceptedEstimateJobRow[], failed: error != null };
+}
+
 async function buildEstimateMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiEstimateMetrics; failed: boolean }> {
-  const [estimates, amountCount] = await Promise.all([
+  const [estimates, amountCount, acceptedJobRows] = await Promise.all([
     getEstimateMetrics(supabase, organizationId, range),
     getNonNullAmountCount(supabase, "estimates", organizationId, range),
+    getAcceptedEstimateJobRows(supabase, organizationId, range),
   ]);
   return {
     metrics: {
@@ -379,9 +411,9 @@ async function buildEstimateMetrics(supabase: SupabaseClient, organizationId: st
       acceptedEstimateValue: estimates.acceptedEstimateValue,
       averageEstimateValue: amountCount === 0 ? null : estimates.averageEstimateValue,
       estimateAcceptanceRate: rate(estimates.acceptedEstimates, estimates.acceptedEstimates + estimates.declinedEstimates),
-      estimateToJobRate: null, // filled in by the caller once job metrics are available
+      estimateToJobRate: estimateToJobRate(acceptedJobRows.rows, estimates.acceptedEstimates),
     },
-    failed: estimates.failed,
+    failed: estimates.failed || acceptedJobRows.failed,
   };
 }
 
@@ -508,6 +540,11 @@ async function getAiUsageTotals(
 // Phase 2A-1: exported (unchanged) so the Dashboard's "What AI handled"
 // panel can compute exactly these metrics without building a whole snapshot -
 // see lib/dashboard/business-metrics.ts's getDashboardAiHandled.
+/** Every AI interaction except the owner-requested business_insights reports - see BiAiMetrics.customerAiInteractions. */
+export function customerAiInteractions(totalAiInteractions: number, aiInteractionsByType: Record<string, number>): number {
+  return totalAiInteractions - (aiInteractionsByType.business_insights ?? 0);
+}
+
 export async function buildAiMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiAiMetrics; failed: boolean }> {
   const [ai, outputFields, usage] = await Promise.all([
     getAiMetrics(supabase, organizationId, range),
@@ -518,6 +555,7 @@ export async function buildAiMetrics(supabase: SupabaseClient, organizationId: s
   return {
     metrics: {
       aiInteractions: ai.totalAiInteractions,
+      customerAiInteractions: customerAiInteractions(ai.totalAiInteractions, ai.aiInteractionsByType),
       aiOutboundInteractions: outputFields.aiOutboundInteractions,
       customerReplyAiInteractions: outputFields.customerReplyAiInteractions,
       aiNeedsHumanCount: outputFields.aiNeedsHumanCount,
@@ -652,7 +690,6 @@ export async function getBusinessMetricsSnapshot(
       getOrganizationTimezone(supabase, organizationId),
     ]);
 
-  estimateMetrics.estimateToJobRate = rate(jobMetrics.totalJobs, estimateMetrics.acceptedEstimates);
 
   const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
   const billingMetrics: BiBillingMetrics = computeBillingMetrics({ invoices: billingRows.invoices, payments: billingRows.payments, range, today });

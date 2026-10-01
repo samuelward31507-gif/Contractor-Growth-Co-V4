@@ -25,7 +25,7 @@ type Tab = { label: string; icon: LucideIcon; href: string; groupId?: string };
  */
 function tabsFor(vertical: OrganizationVertical, contactsLabel: string): Tab[] {
   return [
-    { label: "Dashboard", icon: LayoutDashboard, href: "/today" },
+    { label: "Today", icon: LayoutDashboard, href: "/today" },
     { label: "Inbox", icon: Inbox, href: "/conversations" },
     { label: "Schedule", icon: CalendarDays, href: "/schedule", groupId: "schedule" },
     vertical === "contractor" ? { label: "Jobs", icon: Hammer, href: "/jobs" } : { label: contactsLabel, icon: Users, href: "/people" },

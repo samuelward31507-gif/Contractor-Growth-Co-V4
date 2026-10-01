@@ -3,8 +3,8 @@ import { redirect } from "next/navigation";
 import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { AlertCircle } from "lucide-react";
 import { getDashboardSqlData } from "@/lib/dashboard/queries";
-import { dashboardInvoiceSummary, dashboardMoneyCounts, getDashboardSummary } from "@/lib/dashboard/sql";
-import { getCachedBusinessInsights, getDashboardAiHandled } from "@/lib/dashboard/business-metrics";
+import { dashboardInvoiceSummary, getDashboardSummary, organizationDayBounds } from "@/lib/dashboard/sql";
+import { getDashboardAiHandled } from "@/lib/dashboard/business-metrics";
 import { getOwnerDailyBriefing, getEndOfDaySummary } from "@/lib/briefing/queries";
 import { scheduleOpportunitySync } from "@/lib/opportunities/background-sync";
 import { getOpenOpportunitiesResult } from "@/lib/opportunities/queries";
@@ -30,8 +30,8 @@ import type { StatusTone } from "@/lib/ui/status";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
 import { OpportunitiesList } from "../opportunities/_components/opportunities-list";
 import { TodayViewTabs, type TodayView } from "./_components/today-view-tabs";
-import { activityItems, attentionLine, briefingLines, greetingForHour, handledItems, hourInTimeZone, pipelineStages } from "./_components/dashboard-model";
-import { BriefingBody, DashboardSection, FigureList, InsightsBody, PipelineFlow, RevenuePanel, SectionLink, ShowAllLink, type RevenueFigure } from "./_components/dashboard-sections";
+import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, hourInTimeZone, pipelineStages, todayFigures } from "./_components/dashboard-model";
+import { DashboardSection, PipelineFlow, SectionLink, ShowAllLink, TodayPanel } from "./_components/dashboard-sections";
 
 type QueueEntry = {
   key: string;
@@ -127,18 +127,18 @@ function normalizeView(value: string | undefined): TodayView {
 const ATTENTION_PREVIEW = 6;
 
 /**
- * Trackpr 2.0 (step 2E): Dashboard 2.0 - the screen that answers, in this
- * order: what needs me (the priority list, first and widest), where my
- * money is (revenue), what's going on today (the briefing), what Trackpr
- * handled, where the work stands (pipeline), and what happened (today's
- * activity, observations). System health is not repeated here - the top
- * bar (step 2D) is its one home.
+ * Today - the "right now" page: what needs me (the priority list, first
+ * and widest), what is happening today (new leads, appointments,
+ * conversations waiting on a reply, recent follow-ups, what Trackpr
+ * handled), and where the work and the money owed stand right now.
+ * Historical performance - period revenue, conversion, the cached AI
+ * observations - lives on Analytics (/insights), never here. System health
+ * is not repeated here - the top bar is its one home.
  *
- * Data is unchanged: the same single parallel batch of request-memoized
- * reads as before (no read added, none removed), the same background
+ * Data: one parallel batch of request-memoized reads, the same background
  * opportunity sync scheduled inside it, and the same partial-data
- * disclosure. Only presentation changed; the wording lives in
- * ./_components/dashboard-model.ts, composed from those same values.
+ * disclosure. The wording lives in ./_components/dashboard-model.ts,
+ * composed from those values.
  *
  * The priority list still comes from lib/opportunities/intelligence.ts
  * (persisted opportunities, tiered and explained, merged with conversation
@@ -162,20 +162,25 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     redirect("/onboarding");
   }
 
-  // One `now` for the briefing and the end-of-day summary, so they share a
-  // single dashboard_briefing call (request-scoped - see lib/briefing/queries.ts).
+  // "Today" is the organization's own calendar day, never the server's
+  // (UTC on Vercel): the timezone is read first so every day-scoped read
+  // below - appointments today, the briefing, new leads, what Trackpr
+  // handled - shares one set of organization-day bounds. One `now` and one
+  // bounds object for the briefing and the end-of-day summary, so they share
+  // a single dashboard_briefing call (request-scoped - see
+  // lib/briefing/queries.ts).
+  const timeZone = await getOrganizationTimezone(supabase, membership.organizationId);
   const briefingNow = new Date();
+  const dayBounds = organizationDayBounds(briefingNow, timeZone ?? "UTC");
   const [
     data,
     summary,
-    cachedInsights,
     contacts,
     aiHandled,
     dailyBriefing,
     endOfDaySummary,
     opportunitiesResult,
     prioritizedOpportunities,
-    timeZone,
   ] = await Promise.all([
     // Phase 2D: getDashboardData with its conversation attention computed in
     // SQL, memoized for this request so the briefing and end-of-day summary
@@ -184,26 +189,23 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     // Phase 2D: every header / Money / invoice figure this page shows -
     // counted and summed by the database over the organization's complete
     // data (dashboard_summary). See lib/dashboard/sql.ts.
-    getDashboardSummary(supabase, membership.organizationId),
-    getCachedBusinessInsights(supabase, membership.organizationId),
+    getDashboardSummary(supabase, membership.organizationId, briefingNow, dayBounds),
     getContacts(supabase, membership.organizationId),
     // Phase 2A-1: only today's AI metrics - see lib/dashboard/business-metrics.ts.
-    getDashboardAiHandled(supabase, membership.organizationId),
-    getOwnerDailyBriefing(supabase, membership.organizationId, briefingNow, { source: "sql" }),
-    getEndOfDaySummary(supabase, membership.organizationId, briefingNow, { source: "sql" }),
+    getDashboardAiHandled(supabase, membership.organizationId, dayBounds),
+    getOwnerDailyBriefing(supabase, membership.organizationId, briefingNow, { source: "sql", dayBounds }),
+    getEndOfDaySummary(supabase, membership.organizationId, briefingNow, { source: "sql", dayBounds }),
     getOpenOpportunitiesResult(supabase, membership.organizationId),
     // Canonical Opportunity Intelligence Layer: the one prioritized,
     // explained, actionability-checked read every consumer of "what needs
     // attention" shares.
     getPrioritizedOpportunities(supabase, membership.organizationId),
-    getOrganizationTimezone(supabase, membership.organizationId),
     // Phase 2C: opportunity detection never blocks this render - scheduled
     // here, run after the response (next/server after()). Never rejects.
     scheduleOpportunitySync(supabase, membership.organizationId),
   ]);
 
   const openOpportunities = opportunitiesResult.data;
-  const money = dashboardMoneyCounts(summary.data);
   // A failed summary is disclosed exactly as the reads it replaced were.
   const moneyDataFailed = summary.failed;
   // "Overdue" is judged against today's date in the organization's own
@@ -224,62 +226,27 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
 
   const greeting = greetingForHour(hourInTimeZone(briefingNow, timeZone ?? null));
 
-  const revenue: RevenueFigure[] = [
-    {
-      key: "collected",
-      label: "Collected",
-      value: formatMoney(invoiceSummary.collected),
-      detail: invoiceSummary.paymentCount > 0 ? `${invoiceSummary.paymentCount} payment${invoiceSummary.paymentCount === 1 ? "" : "s"} received` : "No payments recorded yet",
-      href: "/money?browse=invoices&status=paid",
-      tone: invoiceSummary.paymentCount > 0 ? "positive" : undefined,
-    },
-    {
-      key: "outstanding",
-      label: "Outstanding",
-      value: formatMoney(invoiceSummary.outstanding),
-      detail:
-        invoiceSummary.overdueCount > 0
-          ? `${formatMoney(invoiceSummary.overdue)} past due`
-          : invoiceSummary.outstandingCount > 0
-            ? `${invoiceSummary.outstandingCount} invoice${invoiceSummary.outstandingCount === 1 ? "" : "s"} awaiting payment`
-            : "Nothing awaiting payment",
-      href: invoiceSummary.overdueCount > 0 ? "/money?browse=invoices&status=overdue" : "/money?browse=invoices&status=sent",
-      tone: invoiceSummary.overdueCount > 0 ? "attention" : undefined,
-    },
-    {
-      key: "invoiced",
-      label: "Invoiced",
-      value: formatMoney(invoiceSummary.invoiced),
-      detail: invoiceSummary.invoicedCount > 0 ? `${invoiceSummary.invoicedCount} issued invoice${invoiceSummary.invoicedCount === 1 ? "" : "s"}` : "No invoices issued yet",
-      href: "/money?browse=invoices",
-    },
-    {
-      key: "open",
-      label: "Open opportunities",
-      value: formatCurrency(money.knownOpportunityValue),
-      detail: "Estimates out, accepted work and jobs in progress",
-      href: "/money",
-    },
-  ];
-
-  const briefing = briefingLines({
+  const figures = todayFigures({
     leadsReceivedToday: endOfDaySummary.leadsReceived,
     appointmentsToday: summary.data.appointments_today,
-    quotesOutCount: summary.data.quotes_out_count,
-    quotesOutValue: formatCurrency(summary.data.quotes_out_value),
-    readyToScheduleCount: summary.data.ready_to_schedule_count,
-    overdueCount: invoiceSummary.overdueCount,
-    overdueValue: formatMoney(invoiceSummary.overdue),
-    conversationsWaiting: dailyBriefing.aiEscalationsCount,
+    // The awaiting_reply items the attention list already renders - not
+    // dailyBriefing.aiEscalationsCount (open conversations with AI off).
+    conversationsWaiting: conversationsWaitingCount(data.attentionItems),
   });
 
-  const stages = pipelineStages(summary.data, {
-    openLeads: formatCurrency(summary.data.pipeline_value),
-    quotesOut: formatCurrency(summary.data.quotes_out_value),
-    readyToSchedule: formatCurrency(summary.data.ready_to_schedule_value),
-    inProgress: formatCurrency(summary.data.won_not_finished_value),
-    outstanding: formatMoney(invoiceSummary.outstanding),
-  });
+  const stages = pipelineStages(
+    summary.data,
+    {
+      openLeads: formatCurrency(summary.data.pipeline_value),
+      quotesOut: formatCurrency(summary.data.quotes_out_value),
+      readyToSchedule: formatCurrency(summary.data.ready_to_schedule_value),
+      inProgress: formatCurrency(summary.data.won_not_finished_value),
+      readyToInvoice: formatMoney(invoiceSummary.notYetInvoicedKnownValue),
+      outstanding: formatMoney(invoiceSummary.outstanding),
+    },
+    { count: invoiceSummary.overdueCount, value: formatMoney(invoiceSummary.overdue) },
+  );
+
   // Estimates, jobs and invoices are contractor workflows - the same
   // vertical rule navigation uses (nav-items.ts) - so the pipeline flow
   // only renders for a contractor organization.
@@ -367,34 +334,15 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         )}
       </DashboardSection>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        <DashboardSection id="revenue" title="Revenue" action={<SectionLink href="/money">Open Money</SectionLink>} className="lg:col-span-7">
-          <RevenuePanel figures={revenue} />
-        </DashboardSection>
-        <DashboardSection id="briefing" title="Today's briefing" className="lg:col-span-5">
-          <BriefingBody lines={briefing} briefing={dailyBriefing} />
-        </DashboardSection>
-      </div>
+      <DashboardSection id="today" title="Today">
+        <TodayPanel figures={figures} briefing={dailyBriefing} handled={handledLine(aiHandled.aiMetrics)} />
+      </DashboardSection>
 
-      <div className="grid grid-cols-1 gap-8 border-t border-line pt-8 lg:grid-cols-12">
-        <DashboardSection id="handled" title="Trackpr handled today" action={<SectionLink href="/automations">View automations</SectionLink>} className="lg:col-span-5">
-          <FigureList items={handledItems(aiHandled.aiMetrics)} emptyText="Nothing handled yet today. Customer conversations Trackpr answers will show here." />
+      {showPipeline ? (
+        <DashboardSection id="pipeline" title="Where the work stands" action={<SectionLink href="/money">Open Money</SectionLink>}>
+          <PipelineFlow stages={stages} />
         </DashboardSection>
-        {showPipeline ? (
-          <DashboardSection id="pipeline" title="Where the work stands" className="lg:col-span-7">
-            <PipelineFlow stages={stages} />
-          </DashboardSection>
-        ) : null}
-      </div>
-
-      <div className="grid grid-cols-1 gap-8 border-t border-line pt-8 lg:grid-cols-12">
-        <DashboardSection id="activity" title="Today so far" action={<SectionLink href="/insights">View activity</SectionLink>} className="lg:col-span-5">
-          <FigureList items={activityItems(endOfDaySummary)} emptyText="Nothing yet today." />
-        </DashboardSection>
-        <DashboardSection id="insights" title="Insights" className="lg:col-span-7">
-          <InsightsBody cached={cachedInsights} />
-        </DashboardSection>
-      </div>
+      ) : null}
     </PageContainer>
   );
 }

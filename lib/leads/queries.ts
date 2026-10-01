@@ -124,6 +124,18 @@ export async function getHotLeadCount(supabase: SupabaseClient, organizationId: 
   return count ?? 0;
 }
 
+/** Leads created in [from, to) - an uncapped count (head request), never a sample list's length. `failed` is true only on a real Postgrest error. */
+export async function getLeadsCreatedCount(supabase: SupabaseClient, organizationId: string, range: { from: Date; to: Date }): Promise<{ count: number; failed: boolean }> {
+  const { count, error } = await supabase
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .gte("created_at", range.from.toISOString())
+    .lt("created_at", range.to.toISOString());
+
+  return { count: count ?? 0, failed: error != null };
+}
+
 export type LeadFilters = {
   query?: string;
   status?: LeadStatus | "all";

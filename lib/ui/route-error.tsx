@@ -29,7 +29,7 @@ export function RouteError({
   error,
   reset,
   homeHref = "/today",
-  homeLabel = "Back to Dashboard",
+  homeLabel = "Back to Today",
 }: {
   error: Error & { digest?: string };
   reset: () => void;

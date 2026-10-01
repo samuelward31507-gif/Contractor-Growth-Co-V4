@@ -36,7 +36,7 @@ export type NavItem = {
 
 /**
  * `id` is the stable key (sidebar collapse preferences, React keys); `label`
- * is what renders as the group heading - null for the ungrouped Dashboard
+ * is what renders as the group heading - null for the ungrouped Today
  * entry and the pinned system group (Settings, Agency Command Center).
  */
 export type NavGroup = { id: string; label: string | null; items: NavItem[] };
@@ -51,7 +51,7 @@ export type NavGroup = { id: string; label: string | null; items: NavItem[] };
  * navigation, never new pages or backend:
  *   Contacts / Leads        -> /people, /people?temperature=hot
  *   Calendar / Appointments -> /schedule, /schedule?view=list
- *   Opportunities           -> /today?view=by-type (Dashboard's "By type" tab)
+ *   Opportunities           -> /today?view=by-type (Today's "By type" tab)
  *   Reviews / Referrals     -> /growth#reviews, /growth#referrals (one page, two sections)
  * Every href is the route the visitor actually lands on: /contacts, /leads,
  * /calendar, /appointments, /opportunities and /analytics all still work as
@@ -63,7 +63,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: "home",
     label: null,
-    items: [{ href: "/today", label: "Dashboard", icon: "LayoutDashboard", activeFor: ["/dashboard"] }],
+    items: [{ href: "/today", label: "Today", icon: "LayoutDashboard", activeFor: ["/dashboard"] }],
   },
   {
     id: "customers",
@@ -167,7 +167,7 @@ function isWithin(pathname: string, prefix: string) {
 /**
  * The one nav item the current URL belongs to, or null. Exactly one item is
  * ever active, even where two entries share a route (Contacts/Leads,
- * Calendar/Appointments, Dashboard/Opportunities, Reviews/Referrals): on the
+ * Calendar/Appointments, Today/Opportunities, Reviews/Referrals): on the
  * item's own route it qualifies only when every query param it names is
  * present in the URL, and the qualifying item matching the most wins (ties
  * go to the entry listed first) - so /people?temperature=hot is Leads and

@@ -1,6 +1,7 @@
-import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { metaClass } from "@/lib/ui/typography";
 import { BarSeries } from "@/lib/ui/chart/bar-series";
 import type { DailyCount } from "@/lib/bi/series";
+import { PanelBlock } from "./metric-panel";
 
 function formatDayLabel(dateKey: string): string {
   // dateKey is a plain YYYY-MM-DD (lib/bi/series.ts's own local-day bucket
@@ -13,8 +14,8 @@ function formatDayLabel(dateKey: string): string {
 /**
  * Phase 6 (Trend chart pass): the one new visual - leads created per day
  * over the selected period, so "is this getting better or worse" has a
- * shape to look at instead of only the single current-period number
- * BusinessAtAGlance shows above it. Reads lib/bi/series.ts's
+ * shape to look at instead of only the single current-period Leads figure
+ * beside it in the Leads & conversion panel. Reads lib/bi/series.ts's
  * getLeadsCreatedPerDay (this whole redesign's only new query) - a separate,
  * smaller read from the main BusinessMetricsSnapshot every other section on
  * this page reads, so it's kept in its own component rather than folded
@@ -35,19 +36,16 @@ export function TrendSection({
   const total = series.reduce((sum, point) => sum + point.count, 0);
 
   return (
-    <div className="mt-6">
-      <p className={sectionLabelClass}>Leads, day by day{isFallbackWindow ? " (last 30 days)" : ""}</p>
-      <div className="mt-3">
-        {failed ? (
-          <p className="text-sm text-ink-3">Some information is temporarily unavailable. Please try again.</p>
-        ) : (
-          <BarSeries data={series.map((point) => ({ key: point.date, label: formatDayLabel(point.date), value: point.count }))} emptyLabel="No leads created in this range." />
-        )}
-      </div>
+    <PanelBlock label="Leads, day by day" scope={isFallbackWindow ? "Last 30 days" : undefined}>
+      {failed ? (
+        <p className="text-sm text-ink-3">Some information is temporarily unavailable. Please try again.</p>
+      ) : (
+        <BarSeries data={series.map((point) => ({ key: point.date, label: formatDayLabel(point.date), value: point.count }))} emptyLabel="No leads created in this range." />
+      )}
       <p className={`mt-3 ${metaClass}`}>
         {total} new lead{total === 1 ? "" : "s"} over this period, by the day they were created.
         {isFallbackWindow ? " This chart always shows the last 30 days, even when a wider range is selected above." : ""}
       </p>
-    </div>
+    </PanelBlock>
   );
 }

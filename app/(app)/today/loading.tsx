@@ -7,7 +7,7 @@ import { Bone, SkeletonPage } from "@/lib/ui/skeleton";
  * revenue panel beside the briefing, then the two lower rows. No data, no
  * text.
  */
-export default function DashboardLoading() {
+export default function TodayLoading() {
   return (
     <SkeletonPage width="content">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -37,35 +37,34 @@ export default function DashboardLoading() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        <div className="lg:col-span-7">
-          <Bone className="mb-3 h-4 w-20" />
-          <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-line bg-surface lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="px-5 py-4">
-                <Bone className="h-3 w-16" />
-                <Bone className="mt-2 h-6 w-24" />
-                <Bone className="mt-2 h-3 w-20" />
+      <div>
+        <Bone className="mb-3 h-4 w-16" />
+        <div className="overflow-hidden rounded-lg border border-line bg-surface">
+          <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="bg-surface px-5 py-4">
+                <Bone className="h-3 w-20" />
+                <Bone className="mt-2 h-6 w-12" />
+                <Bone className="mt-2 h-3 w-24" />
               </div>
             ))}
           </div>
-        </div>
-        <div className="lg:col-span-5">
-          <Bone className="mb-3 h-4 w-28" />
-          <Bone className="h-4 w-full" />
-          <Bone className="mt-3 h-4 w-5/6" />
-          <Bone className="mt-3 h-4 w-2/3" />
+          <div className="border-t border-line px-5 py-3">
+            <Bone className="h-3.5 w-64 max-w-full" />
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-8 border-t border-line pt-8 lg:grid-cols-12">
-        <div className="lg:col-span-5">
-          <Bone className="mb-3 h-4 w-36" />
-          <Bone className="h-24 w-full rounded-md" />
-        </div>
-        <div className="lg:col-span-7">
-          <Bone className="mb-3 h-4 w-32" />
-          <Bone className="h-24 w-full rounded-lg" />
+      <div>
+        <Bone className="mb-3 h-4 w-36" />
+        <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="bg-surface px-4 py-3.5">
+              <Bone className="h-3 w-16" />
+              <Bone className="mt-2 h-5 w-20" />
+              <Bone className="mt-2 h-3 w-14" />
+            </div>
+          ))}
         </div>
       </div>
     </SkeletonPage>
