@@ -113,8 +113,9 @@ function priorityItemToQueueEntry(item: PriorityItem): QueueEntry {
     sentence: buildSentence(explanation.primaryReason, [], [], recommendedAction),
     phone: null,
     secondaryHref: href,
-    // A conversation waiting on the contractor gets the direct verb.
-    secondaryLabel: kind === "awaiting_reply" ? "Reply" : "View",
+    // A conversation waiting on the contractor opens that conversation -
+    // labeled for what the page does (it has no compose box).
+    secondaryLabel: kind === "awaiting_reply" ? "Open conversation" : "View",
   };
 }
 

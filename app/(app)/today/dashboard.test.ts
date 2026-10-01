@@ -164,7 +164,7 @@ test("every money figure comes from the loaded summary through its existing form
 test("actions: every attention row, revenue figure and pipeline stage is a real link with a specific label", () => {
   assert.match(PAGE, /secondaryLabel=\{entry\.secondaryLabel\}/);
   assert.match(PAGE, /secondaryLabel="Review"/);
-  assert.match(PAGE, /secondaryLabel: kind === "awaiting_reply" \? "Reply" : "View"/);
+  assert.match(PAGE, /secondaryLabel: kind === "awaiting_reply" \? "Open conversation" : "View"/);
   assert.match(SECTIONS, /<Link\s+key=\{figure\.key\}\s+href=\{figure\.href\}/);
   assert.match(SECTIONS, /href=\{stage\.href\}/);
   assert.doesNotMatch(PAGE + SECTIONS, /Learn more/);
