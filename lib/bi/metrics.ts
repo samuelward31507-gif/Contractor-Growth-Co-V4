@@ -116,20 +116,27 @@ function computeComparison(current: number, previous: number | null): PeriodComp
 // individually. None of these duplicate a Phase 5.1 query.
 // ---------------------------------------------------------------------------
 
-async function getSourceCounts(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<Record<string, number>> {
-  let query = supabase.from("leads").select("source").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data } = await query;
-  const rows = (data ?? []) as { source: string | null }[];
+/**
+ * Phase 2I: paged (readAllPages, stable id order) - the API caps a response
+ * at 1000 rows, which silently undercounted sources, and a read error used
+ * to become "no sources". A failed page or the row limit returns `failed`
+ * with no counts - never partial or false ones.
+ */
+async function getSourceCounts(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ counts: Record<string, number>; failed: boolean }> {
+  const read = await readAllPages<{ source: string | null }>(() => {
+    let query = supabase.from("leads").select("source").eq("organization_id", organizationId);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  if (read.failed) return { counts: {}, failed: true };
 
   const counts: Record<string, number> = {};
-  for (const row of rows) {
+  for (const row of read.rows) {
     const key = row.source?.trim() || "unknown";
     counts[key] = (counts[key] ?? 0) + 1;
   }
-  return counts;
+  return { counts, failed: false };
 }
 
 /**
@@ -424,8 +431,8 @@ async function buildLeadMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<{ lead: BiLeadMetrics; pipeline: BiPipelineMetrics; failed: boolean }> {
-  const [{ leads, pipeline, failed }, sourceCounts, bookingCrossReference] = await Promise.all([
+): Promise<{ lead: BiLeadMetrics; pipeline: BiPipelineMetrics; failed: boolean; sourcesFailed: boolean }> {
+  const [{ leads, pipeline, failed }, sources, bookingCrossReference] = await Promise.all([
     getLeadAndPipelineMetrics(supabase, organizationId, range),
     getSourceCounts(supabase, organizationId, range),
     getLeadBookingCrossReference(supabase, organizationId, range),
@@ -444,7 +451,8 @@ async function buildLeadMetrics(
     warmLeads: leads.warmLeads,
     coldLeads: leads.coldLeads,
     lostRate: rate(leads.lostLeads, leads.wonLeads + leads.lostLeads),
-    sourceCounts,
+    // Phase 2I: {} when the source read failed - no partial or false counts.
+    sourceCounts: sources.counts,
     // Phase 2G: a failed cross-reference is unavailable (null), never 0%.
     leadToBookingRate: bookingCrossReference.failed ? null : rate(bookingCrossReference.leadsWithAppointment, bookingCrossReference.leadsInRange),
   };
@@ -455,7 +463,7 @@ async function buildLeadMetrics(
     averagePipelineValue: safeAverage(pipeline.pipelineValue, leads.openLeads),
   };
 
-  return { lead, pipeline: biPipeline, failed };
+  return { lead, pipeline: biPipeline, failed, sourcesFailed: sources.failed };
 }
 
 /** Trackpr 2.0, Phase 4B (P1 #2): `failed` propagates getEstimateMetrics's own error signal up to getBusinessMetricsSnapshot's partialData - see lib/bi/queries.ts's getLeadAndPipelineMetrics for the full discipline. getNonNullAmountCount's own error handling is a narrower, already-safe-direction case (a failure there can only ever force a real average into "not enough data yet," never fabricate one) and is left as-is, matching this phase's scope. */
@@ -827,7 +835,7 @@ export async function getBusinessMetricsSnapshot(
   const previousRange = organizationTimeZone !== undefined ? previousOrganizationRange(dateRangeInput, range, now, organizationTimeZone) : previousPeriodOf(range);
 
   const [
-    { lead, pipeline, failed: leadFailed },
+    { lead, pipeline, failed: leadFailed, sourcesFailed },
     { metrics: estimateMetrics, failed: estimatesFailed },
     { metrics: jobMetrics, failed: jobsFailed },
     { metrics: appointmentMetrics, failed: appointmentsFailed },
@@ -980,6 +988,7 @@ export async function getBusinessMetricsSnapshot(
     billingMetrics,
     revenueOpportunity,
     revenueOpportunityUnavailable,
+    sourceCountsUnavailable: sourcesFailed,
     invoiceAging,
     estimateAging,
     reviewReferralMetrics,

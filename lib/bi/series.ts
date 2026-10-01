@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysToCalendarDate, calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { safeTimeZone } from "./date-range";
+import { readAllPages } from "./revenue-attribution";
 
-const MAX_ROWS = 10_000;
 /** Safety bound on the number of day buckets a single call can produce - matches this file's own "cap, don't remove" convention (see lib/bi/queries.ts's MAX_ROWS comment). A caller should never need more than a year of daily buckets in one chart. */
 const MAX_BUCKETS = 366;
 
@@ -70,19 +70,18 @@ export async function getLeadsCreatedPerDay(
   range: { from: string; to: string },
   timeZone?: string,
 ): Promise<DailyCountSeries> {
-  const { data, error } = await supabase
-    .from("leads")
-    .select("created_at")
-    .eq("organization_id", organizationId)
-    .gte("created_at", range.from)
-    .lt("created_at", range.to)
-    .limit(MAX_ROWS);
+  // Phase 2I: every lead in the range, paged (readAllPages) - the API caps a
+  // response at 1000 rows, which silently cut the chart short. A failed page
+  // or the row limit is a failure, never partial buckets.
+  const read = await readAllPages<{ created_at: string }>(() =>
+    supabase.from("leads").select("created_at").eq("organization_id", organizationId).gte("created_at", range.from).lt("created_at", range.to).order("id"),
+  );
 
-  if (error) {
+  if (read.failed) {
     return { data: [], failed: true };
   }
 
-  return { data: countByDay((data ?? []).map((row) => row.created_at as string), range, timeZone), failed: false };
+  return { data: countByDay(read.rows.map((row) => row.created_at), range, timeZone), failed: false };
 }
 
 /**

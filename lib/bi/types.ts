@@ -736,6 +736,8 @@ export type BusinessMetricsSnapshot = {
   revenueOpportunity: BiRevenueOpportunity;
   /** Phase 2G: which revenueOpportunity / estimateAging groups could not be read - see BiRevenueOpportunityUnavailable. */
   revenueOpportunityUnavailable: BiRevenueOpportunityUnavailable;
+  /** Phase 2I: the lead-source read failed (or reached the row limit) - leadMetrics.sourceCounts is then {}, never partial counts. Not part of the AI observations input, and not an input to partialData. */
+  sourceCountsUnavailable: boolean;
   /**
    * Phase 2A (Analytics): open invoices by days past due, as of the
    * organization's today (billing.ts computeInvoiceAging). Deliberately

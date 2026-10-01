@@ -333,3 +333,14 @@ test("Phase 2G: a leak figure whose read failed shows as unavailable - never 0 o
     assert.doesNotMatch(body, /\.limit\(|\.in\("lead_id"|\[\.\.\.leadIds\]\)/, fn);
   }
 });
+
+test("Phase 2I: a failed lead-source read shows the Lead sources block as unavailable - never an empty or partial list - and turns on the banner; lead and pipeline tiles keep the existing banner semantics", () => {
+  assert.match(SECTIONS, /\{snapshot\.sourceCountsUnavailable \? \(/);
+  assert.match(SECTIONS, /<SecondaryMetrics metrics=\{\[\{ key: "lead-sources", label: "By source", \.\.\.unreadable \}\]\} \/>/);
+  assert.match(PAGE, /Object\.values\(snapshot\.revenueOpportunityUnavailable\)\.some\(Boolean\) \|\| snapshot\.sourceCountsUnavailable \|\|/);
+  // No per-tile unavailable state for Leads, Open leads, Open lead value or Avg. open lead value in this phase.
+  assert.match(SECTIONS, /\{ key: "open-leads", label: "Open leads", value: String\(pipelineMetrics\.openOpportunityCount\) \}/);
+  assert.match(SECTIONS, /\{ key: "leads", label: "Leads", value: String\(comparisons\.leadCount\.current\), \.\.\.compared\(comparisons\.leadCount\) \}/);
+  // The flag never reaches the AI input.
+  assert.doesNotMatch(read("lib/bi/insights.ts"), /sourceCountsUnavailable/);
+});
