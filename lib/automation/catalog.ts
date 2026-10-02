@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Zap, MessageSquareReply, ShieldCheck, CalendarClock, BellRing, FileText, Wrench, Star, HeartPulse, RotateCcw, PhoneMissed, Sparkles, UserX } from "lucide-react";
+import { Zap, MessageSquareReply, ShieldCheck, CalendarClock, BellRing, FileText, Wrench, Star, HeartPulse, RotateCcw, PhoneMissed, Sparkles, UserX, Receipt } from "lucide-react";
 import type { OrganizationVertical } from "@/lib/auth/organization";
 
 /**
@@ -55,6 +55,13 @@ export type AutomationDefinition = {
   dispatch: AutomationDispatch;
   /** Ordered, human-readable steps for the detail page's "How it works" section - only steps that are actually implemented, never invented. */
   steps: string[];
+  /**
+   * Phase 3G-2: whether this automation is on for an organization that has
+   * never set it (no automation_settings row). Omitted means true - every
+   * existing automation keeps its on-by-default behavior. Only an automation
+   * that must be explicitly opted into sets false.
+   */
+  defaultEnabled?: boolean;
 };
 
 export const AUTOMATION_CATALOG: AutomationDefinition[] = [
@@ -332,6 +339,28 @@ export const AUTOMATION_CATALOG: AutomationDefinition[] = [
       "Execution recorded as completed",
     ],
   },
+  {
+    // Phase 3G-2b: off until an organization explicitly turns it on.
+    id: "invoice-reminders",
+    name: "Invoice Reminders",
+    description: "Texts a customer a reminder with their payment link when an invoice you've already sent them goes overdue - at 1, 7 and 14 days past due, then stops. Composed directly by Trackpr.",
+    category: "Billing",
+    icon: Receipt,
+    kind: "scheduled",
+    trigger: "Scheduled - runs on a recurring schedule, between 9am and 6pm in your timezone, for invoices you've sent to the customer that are 1, 7 or 14 days past due",
+    eventTypes: ["invoice.reminder"],
+    workflowNames: ["invoice_reminder"],
+    dispatch: "trackpr",
+    defaultEnabled: false,
+    steps: [
+      "Scheduled run finds sent or partially paid invoices that were sent to the customer with Send to customer and are 1-6, 7-13 or 14-20 days past due",
+      "Skips any invoice sent to the customer in the last 48 hours, and sends at most one reminder per customer per day",
+      "Trackpr composes the reminder directly with the balance due and the secure payment link - no AI, no n8n round trip, and never without a working payment link",
+      "Safe AI Outbound gate re-verifies the invoice is still unpaid and not voided, the customer, opt-out status, automation pause and payment status before sending",
+      "Message sent; each stage is sent at most once and never retried",
+      "Execution recorded as completed",
+    ],
+  },
 ];
 
 export function getAutomationDefinition(id: string): AutomationDefinition | null {
@@ -363,6 +392,16 @@ export function getAutomationForEventType(eventType: string): AutomationDefiniti
  */
 export function getAutomationForWorkflowName(workflowName: string): AutomationDefinition | null {
   return AUTOMATION_CATALOG.find((a) => a.workflowNames.includes(workflowName)) ?? null;
+}
+
+/**
+ * Phase 3G-2: the enabled state to assume when an organization has no
+ * automation_settings row for `automationId` - the catalog entry's
+ * defaultEnabled, or true (the long-standing default) for every automation
+ * that doesn't set it and for unknown ids.
+ */
+export function getAutomationDefaultEnabled(automationId: string): boolean {
+  return getAutomationDefinition(automationId)?.defaultEnabled ?? true;
 }
 
 /**

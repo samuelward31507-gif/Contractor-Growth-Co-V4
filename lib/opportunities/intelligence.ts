@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { getOpenOpportunitiesResult, type Opportunity, type OpportunityType } from "./queries";
 import { getAutomationEnabledMap } from "@/lib/automation/settings";
+import { getAutomationDefaultEnabled } from "@/lib/automation/catalog";
 import { E164_PATTERN } from "@/lib/automation/sms";
 import { getCustomerLifecycle, type CustomerLifecycle } from "@/lib/customers/lifecycle";
 import { formatCurrency } from "@/lib/dashboard/format";
@@ -264,7 +265,7 @@ export function resolveActionability(
   }
 
   const automationId = AUTOMATION_ID_BY_TYPE[opportunity.type];
-  const automatable = automationId != null && orgEligibleForAutomation && (automationEnabledMap.get(automationId) ?? true);
+  const automatable = automationId != null && orgEligibleForAutomation && (automationEnabledMap.get(automationId) ?? getAutomationDefaultEnabled(automationId));
 
   return { recommendedAction, automatable };
 }

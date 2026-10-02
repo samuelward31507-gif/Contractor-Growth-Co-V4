@@ -18,6 +18,8 @@ import {
   type RecordedPayment,
   type ReversedPayment,
 } from "@/lib/invoices/service";
+import { deliverInvoiceToCustomer, type InvoiceDeliveryResult } from "@/lib/invoices/delivery";
+import { resolveAppBaseUrl } from "@/lib/automation/sms";
 
 /**
  * Phase 1B-2 (Close the Money Loop): the Server Action surface for invoices
@@ -28,10 +30,11 @@ import {
  * the session client means RLS (is_org_member + the payment-active
  * restrictive policy) re-verifies every read and write at the database.
  *
- * Deliberately absent: any outbound message, n8n dispatch or Stripe call.
- * Phase 1B-5 adds internal lifecycle markers only (invoice.issued/.paid/
- * .voided, payment.recorded on automation_events - see
- * lib/automation/invoices.ts); issuing an invoice still sends nothing.
+ * Deliberately absent: n8n dispatch and Stripe calls. Phase 1B-5 adds
+ * internal lifecycle markers only (invoice.issued/.paid/.voided,
+ * payment.recorded on automation_events - see lib/automation/invoices.ts);
+ * issuing an invoice still sends nothing. Phase 3G-2a: the one outbound
+ * message is sendInvoiceToCustomer below - an explicit contractor action.
  */
 
 async function requireOrganization() {
@@ -50,7 +53,7 @@ async function requireOrganization() {
     redirect("/onboarding");
   }
 
-  return { supabase, organizationId: membership.organizationId, userId: user.id };
+  return { supabase, organizationId: membership.organizationId, userId: user.id, paymentStatus: membership.paymentStatus, organizationName: membership.organizationName };
 }
 
 function revalidateInvoiceSurfaces(invoiceId: string | null, jobId: string | null) {
@@ -93,5 +96,18 @@ export async function reverseCustomerPayment(paymentId: string, notes?: string |
   const { supabase, organizationId, userId } = await requireOrganization();
   const result = await reverseCustomerPaymentForOrganization(supabase, organizationId, userId, { paymentId, notes });
   if (result.ok) revalidateInvoiceSurfaces(result.data.invoice.id, null);
+  return result;
+}
+
+/**
+ * Phase 3G-2a: "Send to customer" / "Send again" - one SMS with the payment
+ * link to the invoice's own customer. The session client means RLS and the
+ * payment gate apply; lib/invoices/delivery.ts re-checks everything right
+ * before sending and records invoice.delivered only on success.
+ */
+export async function sendInvoiceToCustomer(invoiceId: string): Promise<InvoiceDeliveryResult> {
+  const { supabase, organizationId, paymentStatus, organizationName } = await requireOrganization();
+  const result = await deliverInvoiceToCustomer(supabase, organizationId, invoiceId, { paymentStatus, baseUrl: resolveAppBaseUrl(), businessName: organizationName });
+  if (result.ok) revalidateInvoiceSurfaces(invoiceId, null);
   return result;
 }

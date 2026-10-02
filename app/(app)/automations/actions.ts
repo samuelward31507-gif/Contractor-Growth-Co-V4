@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { assertOrgAdmin } from "@/lib/automation/authorization";
-import { getAutomationDefinition } from "@/lib/automation/catalog";
+import { getAutomationDefinition, getAutomationDefaultEnabled } from "@/lib/automation/catalog";
 import {
   getAutomationEnabled,
   shouldAuditEnableToggle,
@@ -119,8 +119,8 @@ export async function setAutomationEnabled(automationId: string, enabled: boolea
 
   // Read the prior state before mutating, so a repeated no-op toggle (e.g.
   // clicking "enable" on an automation that's already enabled) never writes
-  // a misleading transition into the audit log below. Missing row = enabled,
-  // matching getAutomationEnabled's own default exactly.
+  // a misleading transition into the audit log below. Missing row = the
+  // catalog default, matching getAutomationEnabled's own default exactly.
   const { data: existingRow } = await supabase
     .from("automation_settings")
     .select("enabled")
@@ -128,7 +128,7 @@ export async function setAutomationEnabled(automationId: string, enabled: boolea
     .eq("automation_id", automationId)
     .maybeSingle();
 
-  const previousEnabled = (existingRow?.enabled as boolean | undefined) ?? true;
+  const previousEnabled = (existingRow?.enabled as boolean | undefined) ?? getAutomationDefaultEnabled(automationId);
 
   // created_at is intentionally omitted so a first insert gets its own
   // DEFAULT now() and an existing row's created_at is never touched by the

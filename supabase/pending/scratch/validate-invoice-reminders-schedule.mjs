@@ -1,7 +1,7 @@
-// Validates supabase/migrations/20261002150020_owner_digest_schedule.sql and
-// its rollback (supabase/pending/owner_digest_schedule_rollback.sql),
-// applied on top of the Phase 3D scheduler
-// (supabase/migrations/20261002102849_scheduler_version_control.sql)
+// Validates supabase/pending/invoice_reminders_schedule.sql and its rollback,
+// applied on top of the Phase 3D and 3G-1 schedulers
+// (supabase/migrations/20261002102849_scheduler_version_control.sql, then
+// supabase/migrations/20261002150020_owner_digest_schedule.sql),
 // against an in-memory Postgres (PGlite), with minimal stand-ins for the
 // three Supabase schemas it touches: cron (pg_cron's job table, plus
 // schedule/unschedule matching pg_cron's per-user name semantics), vault
@@ -9,7 +9,7 @@
 // Uses dummy values only - no real secret, URL or Supabase project.
 //
 // Run with:
-//   node supabase/pending/scratch/validate-owner-digest-schedule.mjs
+//   node supabase/pending/scratch/validate-invoice-reminders-schedule.mjs
 import { PGlite } from "@electric-sql/pglite";
 import fs from "node:fs";
 import path from "node:path";
@@ -18,8 +18,9 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const phase3d = fs.readFileSync(path.join(here, "..", "..", "migrations", "20261002102849_scheduler_version_control.sql"), "utf8");
-const forward = fs.readFileSync(path.join(here, "..", "..", "migrations", "20261002150020_owner_digest_schedule.sql"), "utf8");
-const rollback = fs.readFileSync(path.join(here, "..", "owner_digest_schedule_rollback.sql"), "utf8");
+const ownerDigest = fs.readFileSync(path.join(here, "..", "..", "migrations", "20261002150020_owner_digest_schedule.sql"), "utf8");
+const forward = fs.readFileSync(path.join(here, "..", "invoice_reminders_schedule.sql"), "utf8");
+const rollback = fs.readFileSync(path.join(here, "..", "invoice_reminders_schedule_rollback.sql"), "utf8");
 
 const ROLES = `
   do $$ begin
@@ -80,48 +81,51 @@ async function db(setup) {
 const jobs = async (pg) => (await pg.query("select jobid, jobname, schedule, command, active from cron.job order by jobid")).rows;
 
 const helperBody = async (pg) => (await pg.query("select prosrc from pg_proc where proname = 'invoke_trackpr_scheduled'")).rows[0].prosrc;
-const PATHS_3D = [...EXISTING_JOBS.map((j) => j[2]), "/api/automation/opportunity-sync"];
+const PATHS_PREV = [...EXISTING_JOBS.map((j) => j[2]), "/api/automation/opportunity-sync", "/api/automation/owner-digest"];
 
 // 1. No pg_cron, no Vault (TEST, a fresh project): the helper is re-created, no job, no error.
 {
   const pg = await db(NET);
   await pg.exec(phase3d);
+  await pg.exec(ownerDigest);
   await pg.exec(forward);
-  assert.match(await helperBody(pg), /'\/api\/automation\/owner-digest'/);
-  console.log("ok 1 - without pg_cron: helper re-created with owner-digest, job section skipped");
+  assert.match(await helperBody(pg), /'\/api\/automation\/invoice-reminders'/);
+  console.log("ok 1 - without pg_cron: helper re-created with invoice-reminders, job section skipped");
 }
 
 // 2. pg_cron present but Vault secrets missing: no job.
 {
   const pg = await db(CRON + VAULT(false) + NET);
   await pg.exec(phase3d);
+  await pg.exec(ownerDigest);
   await pg.exec(forward);
   assert.equal((await jobs(pg)).length, 0);
   console.log("ok 2 - without Vault secrets: no job created");
 }
 
-// 3. Production-like (3D applied, 8 jobs + inactive cleanup). Apply twice.
+// 3. Production-like (3D + 3G-1 applied, 9 jobs + inactive cleanup). Apply twice.
 {
   const pg = await db(CRON + VAULT(true) + NET + seedProductionJobs());
   await pg.exec(phase3d);
+  await pg.exec(ownerDigest);
   const before = await jobs(pg);
   await pg.exec(forward);
   await pg.exec(forward);
   const after = await jobs(pg);
   assert.equal(after.length, before.length + 1, "exactly one new job, nothing duplicated");
   for (const job of before) assert.deepEqual(after.find((j) => j.jobid === job.jobid), job, `${job.jobname} untouched`);
-  const digest = after.filter((j) => j.jobname === "trackpr_owner_digest");
-  assert.deepEqual([digest.length, digest[0].schedule, digest[0].command, digest[0].active], [1, "8,23,38,53 * * * *", command("/api/automation/owner-digest"), true]);
+  const job = after.filter((j) => j.jobname === "trackpr_invoice_reminders");
+  assert.deepEqual([job.length, job[0].schedule, job[0].command, job[0].active], [1, "9,24,39,54 * * * *", command("/api/automation/invoice-reminders"), true]);
   assert.equal(after.find((j) => j.jobname === "trackpr_cron_history_cleanup").active, false, "cleanup stays inactive");
-  console.log("ok 3 - owner-digest job added once at 8,23,38,53; existing jobs and cleanup untouched; idempotent");
+  console.log("ok 3 - invoice-reminders job added once at 9,24,39,54; existing jobs (incl. owner-digest) and cleanup untouched; idempotent");
 
   // Helper: all nine paths reach net.http_get with the Vault-built header; unknown paths rejected.
-  for (const p of [...PATHS_3D, "/api/automation/owner-digest"]) await pg.query("select public.invoke_trackpr_scheduled($1)", [p]);
+  for (const p of [...PATHS_PREV, "/api/automation/invoice-reminders"]) await pg.query("select public.invoke_trackpr_scheduled($1)", [p]);
   const calls = (await pg.query("select url, headers, timeout_milliseconds from net.calls order by id")).rows;
-  assert.equal(calls.length, 9);
+  assert.equal(calls.length, 10);
   assert.ok(calls.every((c) => c.url.startsWith("https://example.test/api/automation/") && c.timeout_milliseconds === 300000 && c.headers.Authorization === "Bearer dummy-not-a-secret"));
   await assert.rejects(pg.query("select public.invoke_trackpr_scheduled('/api/automation/not-a-route')"), /unknown scheduler path/);
-  console.log("ok 4 - helper: 9 allowlisted paths, https origin, Vault-sourced Bearer header, 300000 ms timeout");
+  console.log("ok 4 - helper: 10 allowlisted paths, https origin, Vault-sourced Bearer header, 300000 ms timeout");
 
   const grants = (await pg.query(`select
       has_function_privilege('anon', 'public.invoke_trackpr_scheduled(text)', 'EXECUTE') as anon,
@@ -130,30 +134,33 @@ const PATHS_3D = [...EXISTING_JOBS.map((j) => j[2]), "/api/automation/opportunit
   assert.deepEqual(grants, { anon: false, authenticated: false, service_role: false });
   console.log("ok 5 - EXECUTE still revoked from anon, authenticated and service_role");
 
-  // Rollback: job removed, helper back to the exact 3D body.
+  // Rollback: job removed, helper back to the exact 3G-1 body.
   const body3d = await (async () => {
     const ref = await db(NET);
     await ref.exec(phase3d);
+    await ref.exec(ownerDigest);
     return helperBody(ref);
   })();
   await pg.exec(rollback);
   const rolledBack = await jobs(pg);
-  assert.deepEqual(rolledBack, before, "back to the pre-3G-1 jobs exactly");
-  assert.equal(await helperBody(pg), body3d, "helper body identical to Phase 3D");
-  await assert.rejects(pg.query("select public.invoke_trackpr_scheduled('/api/automation/owner-digest')"), /unknown scheduler path/);
-  console.log("ok 6 - rollback: owner-digest unscheduled, helper restored to the exact 3D body, other jobs untouched");
+  assert.deepEqual(rolledBack, before, "back to the pre-3G-2b jobs exactly");
+  assert.equal(await helperBody(pg), body3d, "helper body identical to Phase 3G-1");
+  await assert.rejects(pg.query("select public.invoke_trackpr_scheduled('/api/automation/invoice-reminders')"), /unknown scheduler path/);
+  await pg.query("select public.invoke_trackpr_scheduled('/api/automation/owner-digest')");
+  console.log("ok 6 - rollback: invoice-reminders unscheduled, helper restored to the exact 3G-1 body, other jobs untouched");
 }
 
 // 7. A same-named job owned by another role: refuse, nothing changes.
 {
   const pg = await db(CRON + VAULT(true) + NET + seedProductionJobs());
   await pg.exec(phase3d);
-  await pg.exec("insert into cron.job (jobname, schedule, command, username) values ('trackpr_owner_digest', '0 0 * * *', 'select 1', 'other_owner')");
+  await pg.exec(ownerDigest);
+  await pg.exec("insert into cron.job (jobname, schedule, command, username) values ('trackpr_invoice_reminders', '0 0 * * *', 'select 1', 'other_owner')");
   const before = await jobs(pg);
   await assert.rejects(pg.exec(forward), /exists under a different role/);
   await pg.exec("rollback").catch(() => {});
   assert.deepEqual(await jobs(pg), before);
-  console.log("ok 7 - refuses when trackpr_owner_digest belongs to a different role; nothing changed");
+  console.log("ok 7 - refuses when trackpr_invoice_reminders belongs to a different role; nothing changed");
 }
 
-console.log("owner_digest_schedule: all checks passed");
+console.log("invoice_reminders_schedule: all checks passed");

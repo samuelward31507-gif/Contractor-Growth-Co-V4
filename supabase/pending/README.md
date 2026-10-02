@@ -318,7 +318,7 @@ Why: running the SQL rollback while the Phase 3D code is still deployed removes 
 
 The file now lives at `supabase/migrations/20261002102849_scheduler_version_control.sql`, unmodified (SHA-256 `7f4ad2c5...`, identical to what production applied); its header comment still reads "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback file and the PGlite harness stay here; the harness and `lib/automation-health/scheduler-config.structural.test.ts` now read the migration from its `supabase/migrations/` location.
 
-## owner_digest_notification_setting.sql and owner_digest_schedule.sql (PENDING - not applied anywhere)
+## owner_digest_notification_setting.sql and owner_digest_schedule.sql (moved to supabase/migrations/20261002143550_owner_digest_notification_setting.sql and supabase/migrations/20261002150020_owner_digest_schedule.sql)
 
 Phase 3G-1 (Owner Digest): a weekly SMS to each organization's own notification contact, Monday 7:00 in the organization's timezone, through the existing owner-notification path (`notifyFounder`, kind `owner_digest`). Two small scripts, applied separately:
 
@@ -340,4 +340,32 @@ Revert/redeploy the application code first, then run `owner_digest_schedule_roll
 
 ### Status
 
-Written and validated locally (PGlite, 7 scenario checks). SHA-256: `owner_digest_notification_setting.sql` `ae80039db1a1f5d4318d3eb4c9812086847a36c3a263b396bc34a74a246d4b2a`; `owner_digest_schedule.sql` `5092dd1bcf392be4bd2ece310c62aa69e3bda2a47512dd1d7dff86276c8c4edb`. Not applied to TEST or production.
+**Applied and version-controlled - no longer pending.** Written and validated locally (PGlite, 7 scenario checks). SHA-256: `owner_digest_notification_setting.sql` `ae80039db1a1f5d4318d3eb4c9812086847a36c3a263b396bc34a74a246d4b2a`; `owner_digest_schedule.sql` `5092dd1bcf392be4bd2ece310c62aa69e3bda2a47512dd1d7dff86276c8c4edb`.
+
+**Production (mywznmxtlgajnczjvbmk):** `owner_digest_notification_setting.sql` applied on 2026-10-02 (before the 3G-1 code deployed) via the MCP `apply_migration` mechanism, once, as the file's exact text; ledger version `20261002143550`. Verified read-only: the column exists, boolean, NOT NULL, default true; other columns, policies, grants and RLS unchanged. `owner_digest_schedule.sql` applied on 2026-10-02 after PR #38 (`ac2af28`) deployed, the same way; ledger version `20261002150020`. Verified read-only: the helper allows nine paths including `/api/automation/owner-digest`, owner `postgres`, not SECURITY DEFINER, EXECUTE revoked from anon/authenticated/service_role; `trackpr_owner_digest` (job 17) once at `8,23,38,53 * * * *`, active, owned by `postgres`; existing jobs and the inactive cleanup job unchanged. The first natural run (15:08 UTC) returned 200 and recorded liveness.
+
+The files now live at `supabase/migrations/20261002143550_owner_digest_notification_setting.sql` and `supabase/migrations/20261002150020_owner_digest_schedule.sql`, unmodified (same SHA-256s as applied); their header comments still read "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback files and the PGlite harness stay here; the harness and `lib/automation-health/owner-digest-schedule.structural.test.ts` now read the migrations from their `supabase/migrations/` location.
+
+## invoice_reminders_schedule.sql (PENDING - not applied anywhere)
+
+Phase 3G-2b (Invoice Reminders): schedules `/api/automation/invoice-reminders` on the existing pg_cron scheduler. Re-creates `public.invoke_trackpr_scheduled` from `supabase/migrations/20261002150020_owner_digest_schedule.sql` with exactly one change (`/api/automation/invoice-reminders` added to the allowlist) and schedules one new job, `trackpr_invoice_reminders`, at `9,24,39,54 * * * *` (the first unused minute after the nine existing jobs). The same guards as 3D and 3G-1: nothing without pg_cron or both Vault secrets, refuse a same-named job owned by another role, exactly one job by name. Existing jobs (including `trackpr_owner_digest`) and `trackpr_cron_history_cleanup` are untouched. No schema change.
+
+The route only does anything for organizations that have explicitly turned Invoice Reminders on (the catalog entry defaults off), between 9:00 and 18:00 local, for invoices already sent with Send to customer that are 1-20 days past due.
+
+- Rollback: `invoice_reminders_schedule_rollback.sql` (unschedules the job and restores the exact 3G-1 helper).
+- `scratch/validate-invoice-reminders-schedule.mjs` applies 3D, then 3G-1, then this script to PGlite (dummy values only): skip without pg_cron or Vault; one new job, existing jobs untouched, idempotent; ten allowlisted paths; grants revoked; refusal on another role's job; and the rollback back to the exact 3G-1 helper.
+
+### Apply order
+
+1. Merge and deploy the 3G-2b code (the route must exist before pg_cron calls it).
+2. Apply `invoice_reminders_schedule.sql` with the same read-only pre-checks and post-checks as `owner_digest_schedule.sql`.
+3. Watch one cycle: `/api/automation/invoice-reminders` returns 200 every 15 minutes and its liveness turns "Observed recently". Nothing is sent until an organization turns Invoice Reminders on.
+4. After production has it: `git mv` it into `supabase/migrations/<recorded version>_invoice_reminders_schedule.sql`.
+
+### Rollback order
+
+Revert/redeploy the application code first, then run `invoice_reminders_schedule_rollback.sql` (otherwise invoice-reminders' liveness goes stale while the catalog still expects it and raises false "Automation needs attention" alerts).
+
+### Status
+
+Written and validated locally (PGlite, 7 scenario checks). SHA-256 `504a7ec95d54fa12d5a900e9a0bc7f6b9e0beb6cd7d866a16d6fd565110d563e`. Not applied to TEST or production.

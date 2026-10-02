@@ -46,6 +46,10 @@ export const SCHEDULED_AUTOMATION_IDS = [
   // digest. Called every 15 minutes (it only sends on Monday mornings), so
   // the same 45-minute staleness threshold applies.
   "owner-digest",
+  // Phase 3G-2b: app/api/automation/invoice-reminders/route.ts - the
+  // invoice-reminders catalog automation (off by default, so most runs have
+  // no candidates; the route still records every run).
+  "invoice-reminders",
 ] as const;
 
 /** Display names for scheduled routes that aren't automation catalog entries. */

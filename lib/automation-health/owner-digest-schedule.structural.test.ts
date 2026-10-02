@@ -1,6 +1,7 @@
 /**
  * Phase 3G-1: static checks on the owner-digest scheduler migration
- * (supabase/pending/owner_digest_schedule.sql and its rollback) and the
+ * (supabase/migrations/20261002150020_owner_digest_schedule.sql and its
+ * rollback in supabase/pending/) and the
  * notify_on_owner_digest setting migration. The SQL's runtime behavior is
  * exercised against PGlite by
  * supabase/pending/scratch/validate-owner-digest-schedule.mjs.
@@ -16,9 +17,9 @@ import path from "node:path";
 const ROOT = process.cwd();
 const read = (file: string) => fs.readFileSync(path.join(ROOT, file), "utf8");
 const PHASE_3D = read("supabase/migrations/20261002102849_scheduler_version_control.sql");
-const FORWARD = read("supabase/pending/owner_digest_schedule.sql");
+const FORWARD = read("supabase/migrations/20261002150020_owner_digest_schedule.sql");
 const ROLLBACK = read("supabase/pending/owner_digest_schedule_rollback.sql");
-const SETTING = read("supabase/pending/owner_digest_notification_setting.sql");
+const SETTING = read("supabase/migrations/20261002143550_owner_digest_notification_setting.sql");
 const SETTING_ROLLBACK = read("supabase/pending/owner_digest_notification_setting_rollback.sql");
 const sqlCode = (sql: string) => sql.replace(/--.*$/gm, "");
 const helper = (sql: string) => sql.slice(sql.indexOf("create or replace function public.invoke_trackpr_scheduled"), sql.indexOf("revoke all on function public.invoke_trackpr_scheduled(text) from service_role;"));
