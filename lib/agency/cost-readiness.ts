@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAgencyUsageSummary, type ClientUsageSummary, type AgencyUsageTotals } from "./usage";
 import { resolveDateRange } from "@/lib/bi/queries";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { DASHBOARD_DEFAULT_RANGE } from "@/lib/dashboard/business-metrics";
 import type { ResolvedDateRange } from "@/lib/bi/types";
 import type { AgencyAuthFailure } from "./queries";
@@ -114,8 +115,6 @@ export function extractAiTokenUsage(output: unknown): ExtractedAiUsage {
   };
 }
 
-const MAX_AI_TOKEN_ROWS = 10_000;
-
 type AiOutputRow = { organization_id: string; output: unknown };
 
 /**
@@ -134,23 +133,23 @@ export async function loadAiTokenBreakdown(
 ): Promise<{ byOrganization: Map<string, ExtractedAiUsage>; failed: boolean }> {
   if (organizationIds.length === 0) return { byOrganization: new Map(), failed: false };
 
-  let query = serviceSupabase
-    .from("ai_interactions")
-    .select("organization_id, output")
-    .in("organization_id", organizationIds)
-    .limit(MAX_AI_TOKEN_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  if (error) return { byOrganization: new Map(), failed: true };
+  // Phase 3A-3a: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently undercounted token totals. A
+  // failed page or the row limit returns failed with no totals.
+  const read = await readAllPages<AiOutputRow>(() => {
+    let query = serviceSupabase.from("ai_interactions").select("organization_id, output").in("organization_id", organizationIds);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  if (read.failed) return { byOrganization: new Map(), failed: true };
 
   const inputSums = new Map<string, number>();
   const inputSeen = new Set<string>();
   const outputSums = new Map<string, number>();
   const outputSeen = new Set<string>();
 
-  for (const row of (data ?? []) as AiOutputRow[]) {
+  for (const row of read.rows) {
     const { inputTokens, outputTokens } = extractAiTokenUsage(row.output);
     if (inputTokens !== null) {
       inputSeen.add(row.organization_id);
