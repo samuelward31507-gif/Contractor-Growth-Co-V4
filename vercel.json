@@ -1,1 +1,8 @@
-{}
+{
+  "crons": [
+    {
+      "path": "/api/automation/scheduler-watchdog",
+      "schedule": "30 14 * * *"
+    }
+  ]
+}

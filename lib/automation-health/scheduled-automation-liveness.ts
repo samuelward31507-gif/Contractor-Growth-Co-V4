@@ -38,7 +38,16 @@ export const SCHEDULED_AUTOMATION_IDS = [
   "customer-reactivation",
   // Pass 5B: app/api/automation/no-show-detection/route.ts.
   "no-show-detection",
+  // Phase 3D: app/api/automation/opportunity-sync/route.ts - scheduled
+  // opportunity detection. Not an automation catalog entry, so its display
+  // name comes from NON_CATALOG_SCHEDULED_NAMES below.
+  "opportunity-sync",
 ] as const;
+
+/** Display names for scheduled routes that aren't automation catalog entries. */
+const NON_CATALOG_SCHEDULED_NAMES: Partial<Record<(typeof SCHEDULED_AUTOMATION_IDS)[number], string>> = {
+  "opportunity-sync": "Opportunity Detection",
+};
 
 export type ScheduledAutomationId = (typeof SCHEDULED_AUTOMATION_IDS)[number];
 
@@ -115,7 +124,7 @@ export async function getScheduledAutomationLiveness(supabase: SupabaseClient, n
     const definition = getAutomationDefinition(automationId);
     return {
       automationId,
-      automationName: definition?.name ?? automationId,
+      automationName: definition?.name ?? NON_CATALOG_SCHEDULED_NAMES[automationId] ?? automationId,
       state: computeScheduledAutomationLivenessState(row?.last_ran_at ?? null, now.getTime()),
       lastRanAt: row?.last_ran_at ?? null,
       lastCandidateCount: row?.last_candidate_count ?? null,
