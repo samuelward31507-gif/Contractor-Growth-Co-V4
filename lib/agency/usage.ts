@@ -232,6 +232,10 @@ export async function getAgencyUsageSummary(sessionSupabase: SupabaseClient, ser
     if (missedCallsFailed) {
       notes.push("Missed-call data temporarily unavailable.");
     }
+    // Phase 2J: unreadable message counts are disclosed, never shown as a genuine zero.
+    if (snapshot.communicationFailed) {
+      notes.push("Message counts temporarily unavailable.");
+    }
 
     return {
       organizationId: snapshot.organizationId,
@@ -270,7 +274,7 @@ export async function getAgencyUsageSummary(sessionSupabase: SupabaseClient, ser
         referralsRequested: metrics.reviewReferralMetrics.referralsRequested,
       },
       dataQuality: {
-        partialData: metrics.partialData || missedCallsFailed,
+        partialData: metrics.partialData || missedCallsFailed || snapshot.communicationFailed,
         notes,
       },
     };

@@ -144,14 +144,17 @@ async function getSourceCounts(supabase: SupabaseClient, organizationId: string,
  * contacts.created_at - see BiCommunicationMetrics.optOutCount in
  * lib/bi/types.ts for the exact caveat this implies.
  */
-async function getOptOutCount(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<number> {
-  let query = supabase.from("contacts").select("sms_opt_out").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data } = await query;
-  const rows = (data ?? []) as { sms_opt_out: boolean }[];
-  return rows.filter((row) => row.sms_opt_out).length;
+async function getOptOutCount(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ count: number; failed: boolean }> {
+  // Phase 2J: paged (readAllPages, stable id order); a failed page or the row
+  // limit is `failed` with no count - never a silent partial or zero.
+  const read = await readAllPages<{ sms_opt_out: boolean }>(() => {
+    let query = supabase.from("contacts").select("sms_opt_out").eq("organization_id", organizationId);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  if (read.failed) return { count: 0, failed: true };
+  return { count: read.rows.filter((row) => row.sms_opt_out).length, failed: false };
 }
 
 type AiOutputFields = { aiOutboundInteractions: number; customerReplyAiInteractions: number; aiNeedsHumanCount: number; failed: boolean };
@@ -650,13 +653,14 @@ export async function getJobLeadLinkage(supabase: SupabaseClient, organizationId
   return { linked: linked.count ?? 0, total: all.count ?? 0, failed: all.error != null || linked.error != null };
 }
 
-async function buildCommunicationMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<BiCommunicationMetrics> {
-  const [communication, optOutCount] = await Promise.all([
+/** Phase 2J: `failed` when the message, conversation or opt-out read failed - the figures are then zeroed placeholders (see BusinessMetricsSnapshot.communicationUnavailable). */
+async function buildCommunicationMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiCommunicationMetrics; failed: boolean }> {
+  const [communication, optOut] = await Promise.all([
     getCommunicationMetrics(supabase, organizationId, range),
     getOptOutCount(supabase, organizationId, range),
   ]);
 
-  return {
+  const metrics: BiCommunicationMetrics = {
     inboundMessages: communication.totalInboundMessages,
     outboundMessages: communication.totalOutboundMessages,
     customerReplies: communication.totalInboundMessages,
@@ -665,8 +669,9 @@ async function buildCommunicationMetrics(supabase: SupabaseClient, organizationI
     systemOutboundMessages: communication.systemOutboundMessages,
     conversationsOpened: communication.openConversations,
     conversationsClosed: communication.closedConversations,
-    optOutCount,
+    optOutCount: optOut.count,
   };
+  return { metrics, failed: communication.failed || optOut.failed };
 }
 
 async function buildAutomationMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ automation: BiAutomationMetrics; followUp: BiFollowUpMetrics }> {
@@ -773,7 +778,7 @@ export async function buildAiMetrics(supabase: SupabaseClient, organizationId: s
  * states that explicitly, using the real counts already computed by
  * getLeadStageTimingMetrics for this same snapshot.
  */
-function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean, stageHistoryReadFailed = false): BiDataQuality {
+function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean, stageHistoryReadFailed = false, communicationUnavailable = false): BiDataQuality {
   const aiTokenUsageUnavailable = aiUsage.interactionsWithUsageData === 0;
   // Phase 1B-4: the payment ledger exists now. The first note states the one
   // sanctioned definition of collected revenue and keeps every quoted/
@@ -797,6 +802,12 @@ function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean
       ? "No ai_interactions row in this period has provider-reported token usage - n8n's own AI call did not report it for any interaction in range."
       : `Token usage is available for ${aiUsage.interactionsWithUsageData} of ${aiUsage.aiInteractions} AI interaction(s) in this period - only n8n calls that reported usage are included.`,
   );
+  // Phase 2J: a failed message, conversation or opt-out read leaves
+  // communicationMetrics zeroed - the AI must never report those zeros as
+  // "0 messages". Only added on failure; the field set is unchanged.
+  if (communicationUnavailable) {
+    notes.push("Message, conversation and opt-out counts could not be read for this snapshot - communicationMetrics is zeroed, not measured. Do not cite or describe communicationMetrics, and never report zero messages from it.");
+  }
 
   return {
     collectedRevenueUnavailable,
@@ -839,7 +850,7 @@ export async function getBusinessMetricsSnapshot(
     { metrics: estimateMetrics, failed: estimatesFailed },
     { metrics: jobMetrics, failed: jobsFailed },
     { metrics: appointmentMetrics, failed: appointmentsFailed },
-    communicationMetrics,
+    { metrics: communicationMetrics, failed: communicationFailed },
     { automation, followUp },
     { metrics: aiMetrics, failed: aiFailed },
     reviewReferralMetrics,
@@ -989,12 +1000,13 @@ export async function getBusinessMetricsSnapshot(
     revenueOpportunity,
     revenueOpportunityUnavailable,
     sourceCountsUnavailable: sourcesFailed,
+    communicationUnavailable: communicationFailed,
     invoiceAging,
     estimateAging,
     reviewReferralMetrics,
     leadStageFunnel: { transitions: transitionMetrics, timing: timingMetrics },
     responseTime: responseTimeMetrics,
-    dataQuality: buildDataQuality(aiMetrics, !stageHistory.exists, timingMetrics, billingRows.failed, stageHistory.failed || funnelUnavailable.stageTransitions || funnelUnavailable.stageTiming),
+    dataQuality: buildDataQuality(aiMetrics, !stageHistory.exists, timingMetrics, billingRows.failed, stageHistory.failed || funnelUnavailable.stageTransitions || funnelUnavailable.stageTiming, communicationFailed),
     partialData,
     partialDataSourceCount,
     funnelUnavailable,
