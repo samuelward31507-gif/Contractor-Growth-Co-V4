@@ -2,7 +2,8 @@
  * Pure, dependency-free tests of the nav foundation. Originally Gym
  * Foundation Phase 1, Section 6; rewritten for the IA consolidation pass and
  * the nav-restructure pass; rewritten again for the Trackpr 2.0 (step 2C)
- * grouped IA - Today, Customers, Schedule, Work, Growth, Insights, and a
+ * grouped IA, and again for the Phase 1 correction back to the agreed
+ * Trackpr 2.0 IA - Today, People, Money, Schedule, Insights, More, and a
  * pinned Settings / Agency Command Center group. See nav-items.ts's header
  * comment for the full reasoning. Run with:
  *
@@ -67,14 +68,21 @@ test("B2. the entries that replace redirect routes link to exactly the URL each 
   assert.equal(byLabel.get("Leads"), "/people?temperature=hot"); // /leads -> /people?temperature=hot
   assert.equal(byLabel.get("Calendar"), "/schedule"); // /calendar -> /schedule
   assert.equal(byLabel.get("Appointments"), "/schedule?view=list"); // /appointments -> /schedule?view=list
-  assert.equal(byLabel.get("Opportunities"), "/today?view=by-type"); // /opportunities -> /today?view=by-type
+  assert.equal(byLabel.get("Opportunities"), "/today?view=by-type#opportunities"); // /opportunities -> /today?view=by-type#opportunities
+  assert.equal(byLabel.get("Invoices"), "/money?browse=invoices"); // Money's own Invoices tab
   assert.equal(byLabel.get("Analytics"), "/insights"); // /analytics -> /insights
 });
 
-test("B3. /money is a Work destination again for a contractor (Trackpr 2.0 step 2C), and stays hidden for a gym", () => {
-  const work = getNavGroupsForVertical("contractor", false).find((g) => g.id === "work");
-  assert.ok(work?.items.some((i) => i.href === "/money"));
-  assert.ok(!hrefsOf(getNavGroupsForVertical("gym", false)).includes("/money"));
+test("B3. Money is a primary group for a contractor - its overview, invoices, estimates and jobs - and stays hidden for a gym", () => {
+  const money = getNavGroupsForVertical("contractor", false).find((g) => g.id === "money");
+  assert.deepEqual(money?.items.map((i) => i.href), ["/money", "/money?browse=invoices", "/estimates", "/jobs"]);
+  assert.ok(!hrefsOf(getNavGroupsForVertical("gym", false)).map(pathOf).includes("/money"));
+});
+
+test("B4. the /opportunities redirect lands exactly where the Opportunities nav entry points", () => {
+  const fs = require("node:fs") as typeof import("node:fs");
+  const source = fs.readFileSync("app/(app)/opportunities/page.tsx", "utf8");
+  assert.match(source, /redirect\("\/today\?view=by-type#opportunities"\)/);
 });
 
 // ===========================================================================
@@ -88,15 +96,16 @@ test("C. every label renders exactly as specified, for a contractor", () => {
     "/people:Contacts",
     "/people?temperature=hot:Leads",
     "/conversations:Inbox",
-    "/schedule:Calendar",
-    "/schedule?view=list:Appointments",
+    "/money:Overview",
+    "/money?browse=invoices:Invoices",
     "/estimates:Estimates",
     "/jobs:Jobs",
-    "/money:Money",
-    "/today?view=by-type:Opportunities",
+    "/schedule:Calendar",
+    "/schedule?view=list:Appointments",
+    "/insights:Analytics",
+    "/today?view=by-type#opportunities:Opportunities",
     "/growth#reviews:Reviews",
     "/growth#referrals:Referrals",
-    "/insights:Analytics",
     "/automations:Automations",
     "/settings:Settings",
   ];
@@ -114,16 +123,16 @@ test("C2. gym nav relabels Contacts to Members; contractor keeps Contacts", () =
 // D. Correct groups are rendered.
 // ===========================================================================
 
-test("D. the group structure exists in the exact order: Today, Customers, Schedule, Work, Growth, Insights, then the pinned system group", () => {
+test("D. the group structure exists in the exact order: Today, People, Money, Schedule, Insights, More, then the pinned system group", () => {
   assert.deepEqual(
     NAV_GROUPS.map((g) => [g.id, g.label]),
     [
       ["home", null],
-      ["customers", "Customers"],
+      ["people", "People"],
+      ["money", "Money"],
       ["schedule", "Schedule"],
-      ["work", "Work"],
-      ["growth", "Growth"],
       ["insights", "Insights"],
+      ["more", "More"],
       ["system", null],
     ],
   );
@@ -133,11 +142,11 @@ test("D2. each group contains exactly its destinations, in order (contractor)", 
   const groups = Object.fromEntries(getNavGroupsForVertical("contractor", false).map((g) => [g.id, g.items.map((i) => i.label)]));
   assert.deepEqual(groups, {
     home: ["Today"],
-    customers: ["Contacts", "Leads", "Inbox"],
+    people: ["Contacts", "Leads", "Inbox"],
+    money: ["Overview", "Invoices", "Estimates", "Jobs"],
     schedule: ["Calendar", "Appointments"],
-    work: ["Estimates", "Jobs", "Money"],
-    growth: ["Opportunities", "Reviews", "Referrals"],
-    insights: ["Analytics", "Automations"],
+    insights: ["Analytics", "Opportunities"],
+    more: ["Reviews", "Referrals", "Automations"],
     system: ["Settings"],
   });
 });
@@ -163,6 +172,24 @@ test("D6. Agency Command Center never appears as its own group or in any other g
   }
 });
 
+test("D7. the mobile tab bar is the same IA: Today, People, Money (Insights for a gym), Schedule, then More - every group tab is a real nav group", () => {
+  const fs = require("node:fs") as typeof import("node:fs");
+  const source = fs.readFileSync("app/(app)/_components/mobile-tab-bar.tsx", "utf8");
+  const tabs = [...source.matchAll(/\{ label: "([^"]+)", icon: \w+, href: "([^"]+)"(?:, groupId: "([^"]+)")? \}/g)].map((m) => [m[1], m[2], m[3] ?? null]);
+  assert.deepEqual(tabs, [
+    ["Today", "/today", null],
+    ["People", "/people", "people"],
+    ["Money", "/money", "money"],
+    ["Insights", "/insights", "insights"],
+    ["Schedule", "/schedule", "schedule"],
+  ]);
+  for (const [, href, groupId] of tabs.filter((tab) => tab[2])) {
+    const group = NAV_GROUPS.find((g) => g.id === groupId);
+    assert.equal(group?.items[0].href, href, `the ${groupId} tab opens its group's first destination`);
+  }
+  assert.match(source, /<span>More<\/span>/);
+});
+
 // ===========================================================================
 // Vertical filtering
 // ===========================================================================
@@ -172,16 +199,16 @@ test("contractor nav includes Estimates, Jobs and Money", () => {
   for (const href of ["/estimates", "/jobs", "/money"]) assert.ok(hrefs.includes(href), href);
 });
 
-test("gym nav excludes Estimates, Jobs and Money, and drops the then-empty Work group", () => {
+test("gym nav excludes Estimates, Jobs, Money and Invoices, and drops the then-empty Money group", () => {
   const groups = getNavGroupsForVertical("gym", false);
   const hrefs = hrefsOf(groups);
-  for (const href of ["/estimates", "/jobs", "/money"]) assert.ok(!hrefs.includes(href), href);
-  assert.ok(!groups.some((g) => g.id === "work"));
+  for (const href of ["/estimates", "/jobs", "/money", "/money?browse=invoices"]) assert.ok(!hrefs.includes(href), href);
+  assert.ok(!groups.some((g) => g.id === "money"));
 });
 
 test("gym nav still includes every vertical-neutral item", () => {
   const hrefs = hrefsOf(getNavGroupsForVertical("gym", false));
-  for (const href of ["/today", "/people", "/people?temperature=hot", "/conversations", "/schedule", "/schedule?view=list", "/today?view=by-type", "/growth#reviews", "/growth#referrals", "/insights", "/automations", "/settings"]) {
+  for (const href of ["/today", "/people", "/people?temperature=hot", "/conversations", "/schedule", "/schedule?view=list", "/today?view=by-type#opportunities", "/growth#reviews", "/growth#referrals", "/insights", "/automations", "/settings"]) {
     assert.ok(hrefs.includes(href), `expected ${href} to remain visible for gym`);
   }
 });
@@ -232,7 +259,13 @@ test("R1. two views of one route resolve to the more specific entry only when it
   assert.equal(activeLabel("/schedule", "view=list"), "Appointments");
   assert.equal(activeLabel("/schedule", "view=list&apptView=past"), "Appointments");
   assert.equal(activeLabel("/today"), "Today");
-  assert.equal(activeLabel("/today", "view=by-type"), "Opportunities");
+  assert.equal(activeLabel("/today", "view=by-type", "#opportunities"), "Opportunities");
+  // The act's other tab, and an old fragment-less link, are still Today.
+  assert.equal(activeLabel("/today", "", "#opportunities"), "Today");
+  assert.equal(activeLabel("/money"), "Overview");
+  assert.equal(activeLabel("/money", "browse=jobs"), "Overview");
+  assert.equal(activeLabel("/money", "browse=invoices"), "Invoices");
+  assert.equal(activeLabel("/money", "browse=invoices&status=overdue"), "Invoices");
   // A fragment is a soft preference: plain /growth is the first entry.
   assert.equal(activeLabel("/growth"), "Reviews");
   assert.equal(activeLabel("/growth", "", "#referrals"), "Referrals");
@@ -246,7 +279,10 @@ test("R2. detail and legacy routes resolve to the destination they belong to", (
   assert.equal(activeLabel("/appointments/abc"), "Appointments");
   assert.equal(activeLabel("/jobs/abc"), "Jobs");
   assert.equal(activeLabel("/estimates/abc"), "Estimates");
-  assert.equal(activeLabel("/invoices/abc"), "Money");
+  assert.equal(activeLabel("/invoices/abc"), "Invoices");
+  assert.equal(activeLabel("/work"), "Overview");
+  assert.equal(activeLabel("/opportunities"), "Opportunities");
+  assert.equal(activeLabel("/automation-health"), "Automations");
   assert.equal(activeLabel("/conversations/abc"), "Inbox");
   assert.equal(activeLabel("/settings/sms"), "Settings");
   assert.equal(activeLabel("/agency/usage"), "Agency Command Center");

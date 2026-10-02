@@ -94,7 +94,7 @@ function priorityItemToQueueEntry(item: PriorityItem): QueueEntry {
       problemLabel: OPPORTUNITY_TYPE_LABEL[opportunity.type],
       age: formatRelativeTime(opportunity.createdAt),
       personName: opportunity.title,
-      personHref: opportunity.contactId ? `/people/${opportunity.contactId}` : "/today?view=by-type",
+      personHref: opportunity.contactId ? `/people/${opportunity.contactId}` : "/today?view=by-type#opportunities",
       money: opportunity.estimatedValue != null ? formatCurrency(opportunity.estimatedValue) : undefined,
       sentence: buildSentence(explanation.primaryReason, explanation.supportingSignals, explanation.counterSignals, recommendedAction),
       phone: contactPhone,
@@ -126,11 +126,30 @@ function normalizeView(value: string | undefined): TodayView {
 /** How many attention rows show before "Show all" - the top of the priority order is what matters at a glance. */
 const ATTENTION_PREVIEW = 6;
 
+/** How many opportunity rows the third act previews before "Show all" opens every open opportunity by type. */
+const OPPORTUNITY_PREVIEW = 6;
+
 /**
- * Today - the "right now" page: what needs me (the priority list, first
- * and widest), what is happening today (new leads, appointments,
- * conversations waiting on a reply, recent follow-ups, what Trackpr
- * handled), and where the work and the money owed stand right now.
+ * The two tiers that are worth pursuing but never need the owner to step in
+ * (lib/opportunities/intelligence.ts's TIER_ORDER: last and second to last) -
+ * reactivating a dormant customer, asking for a review or a referral. They
+ * belong to "what opportunity exists", not "what needs attention", so they
+ * never keep the owner from being caught up. Every other tier stays in the
+ * attention list.
+ */
+const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set(["recoverable", "growth"]);
+
+/**
+ * Today - the "right now" page, in three acts:
+ *   I.   What happened - new leads, appointments, conversations waiting on a
+ *        reply, recent follow-ups and completed work, what Trackpr handled.
+ *   II.  What needs attention - operational exceptions, then the priority
+ *        list's time-sensitive tiers (replies, revenue at risk, leads to
+ *        pursue, at-risk estimates and bookings). "You're all caught up"
+ *        when it is empty.
+ *   III. What opportunity exists - the recoverable and growth tiers
+ *        (reactivation, reviews, referrals), every open opportunity by type
+ *        one click away, and where the work and the money owed stand.
  * Historical performance - period revenue, conversion, the cached AI
  * observations - lives on Analytics (/insights), never here. System health
  * is not repeated here - the top bar is its one home.
@@ -143,8 +162,10 @@ const ATTENTION_PREVIEW = 6;
  * The priority list still comes from lib/opportunities/intelligence.ts
  * (persisted opportunities, tiered and explained, merged with conversation
  * signals); operational exceptions still render first and are never tiered
- * alongside revenue opportunities. "By type" (TodayViewTabs) is the
- * Opportunities nav destination and reuses OpportunitiesList unmodified.
+ * alongside revenue opportunities. The priority order is split by tier, never
+ * re-detected. "By type" (TodayViewTabs, /today?view=by-type#opportunities)
+ * is the Opportunities nav destination and reuses OpportunitiesList
+ * unmodified.
  */
 export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const params = await searchParams;
@@ -219,10 +240,14 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const operationalExceptions = getOperationalExceptions(data.attentionItems);
   const conversationSignals = getConversationSignals(data.attentionItems);
   const priorityQueue = buildPriorityQueue(prioritizedOpportunities, conversationSignals);
-  const queue: QueueEntry[] = priorityQueue.map(priorityItemToQueueEntry);
+  const queue: QueueEntry[] = priorityQueue.filter((item) => !OPPORTUNITY_TIERS.has(item.tier)).map(priorityItemToQueueEntry);
+  const opportunityQueue: QueueEntry[] = priorityQueue.filter((item) => OPPORTUNITY_TIERS.has(item.tier)).map(priorityItemToQueueEntry);
+  // The one attention state: the header line, the Act II count and
+  // "You're all caught up" all read this number.
   const totalNeedingAttention = operationalExceptions.length + queue.length;
   const visibleQueue = showAllAttention ? queue : queue.slice(0, Math.max(0, ATTENTION_PREVIEW - operationalExceptions.length));
   const hiddenCount = queue.length - visibleQueue.length;
+  const visibleOpportunityQueue = opportunityQueue.slice(0, OPPORTUNITY_PREVIEW);
 
   const greeting = greetingForHour(hourInTimeZone(briefingNow, timeZone ?? null));
 
@@ -282,60 +307,68 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         ) : null}
       </header>
 
-      <DashboardSection
-        id="needs-attention"
-        title={view === "by-type" ? "Opportunities" : totalNeedingAttention > 0 ? `Needs your attention · ${totalNeedingAttention}` : "Needs your attention"}
-        action={<TodayViewTabs active={view} opportunityCount={openOpportunities.length} />}
-      >
+      {/* Act I - what happened. */}
+      <DashboardSection id="today" title="What happened today">
+        <TodayPanel figures={figures} briefing={dailyBriefing} handled={handledLine(aiHandled.aiMetrics)} />
+      </DashboardSection>
+
+      {/* Act II - what needs attention. */}
+      <DashboardSection id="needs-attention" title={totalNeedingAttention > 0 ? `Needs your attention · ${totalNeedingAttention}` : "Needs your attention"}>
+        <div className="overflow-hidden rounded-lg border border-line bg-surface">
+          {totalNeedingAttention === 0 ? (
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm font-medium text-ink">You&apos;re all caught up.</p>
+              <p className="mt-1 text-[13px] text-ink-3">Anything new that needs you will appear here first.</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-line">
+              {operationalExceptions.map((exception) => (
+                <li key={exception.incidentId ?? `${exception.kind}-${exception.href}`}>
+                  <QueueRow
+                    tone="urgent"
+                    problemLabel={ATTENTION_COPY[exception.kind].label}
+                    personName={exception.title}
+                    personHref={exception.href}
+                    sentence={exception.detail}
+                    secondaryHref={exception.href}
+                    secondaryLabel="Review"
+                  />
+                </li>
+              ))}
+              {visibleQueue.map((entry) => (
+                <li key={entry.key}>
+                  <QueueEntryRow entry={entry} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {hiddenCount > 0 ? <ShowAllLink href="/today?all=1" count={totalNeedingAttention} /> : null}
+        </div>
+      </DashboardSection>
+
+      {/* Act III - what opportunity exists. */}
+      <DashboardSection id="opportunities" title="Opportunities" action={<TodayViewTabs active={view} opportunityCount={openOpportunities.length} />}>
         {view === "priority" ? (
           <div className="overflow-hidden rounded-lg border border-line bg-surface">
-            {totalNeedingAttention === 0 ? (
-              <div className="px-5 py-10 text-center">
-                <p className="text-sm font-medium text-ink">You&apos;re all caught up.</p>
-                <p className="mt-1 text-[13px] text-ink-3">Anything new that needs you will appear here first.</p>
+            {opportunityQueue.length === 0 ? (
+              <div className="px-5 py-8 text-center">
+                <p className="text-sm font-medium text-ink">Nothing else to pursue right now.</p>
+                <p className="mt-1 text-[13px] text-ink-3">Customers to win back and reviews or referrals to ask for will appear here.</p>
               </div>
             ) : (
               <ul className="divide-y divide-line">
-                {operationalExceptions.map((exception) => (
-                  <li key={exception.incidentId ?? `${exception.kind}-${exception.href}`}>
-                    <QueueRow
-                      tone="urgent"
-                      problemLabel={ATTENTION_COPY[exception.kind].label}
-                      personName={exception.title}
-                      personHref={exception.href}
-                      sentence={exception.detail}
-                      secondaryHref={exception.href}
-                      secondaryLabel="Review"
-                    />
-                  </li>
-                ))}
-                {visibleQueue.map((entry) => (
+                {visibleOpportunityQueue.map((entry) => (
                   <li key={entry.key}>
-                    <QueueRow
-                      tone={entry.tone}
-                      problemLabel={entry.problemLabel}
-                      age={entry.age}
-                      personName={entry.personName}
-                      personHref={entry.personHref}
-                      money={entry.money}
-                      sentence={entry.sentence}
-                      phone={entry.phone}
-                      secondaryHref={entry.secondaryHref}
-                      secondaryLabel={entry.secondaryLabel}
-                    />
+                    <QueueEntryRow entry={entry} />
                   </li>
                 ))}
               </ul>
             )}
-            {hiddenCount > 0 ? <ShowAllLink href="/today?all=1" count={totalNeedingAttention} /> : null}
+            {opportunityQueue.length > visibleOpportunityQueue.length ? <ShowAllLink href="/today?view=by-type#opportunities" count={openOpportunities.length} /> : null}
           </div>
         ) : (
           <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
         )}
-      </DashboardSection>
-
-      <DashboardSection id="today" title="Today">
-        <TodayPanel figures={figures} briefing={dailyBriefing} handled={handledLine(aiHandled.aiMetrics)} />
       </DashboardSection>
 
       {showPipeline ? (
@@ -344,5 +377,23 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         </DashboardSection>
       ) : null}
     </PageContainer>
+  );
+}
+
+/** One priority-list row - the same QueueRow in the attention list and the opportunity preview. */
+function QueueEntryRow({ entry }: { entry: QueueEntry }) {
+  return (
+    <QueueRow
+      tone={entry.tone}
+      problemLabel={entry.problemLabel}
+      age={entry.age}
+      personName={entry.personName}
+      personHref={entry.personHref}
+      money={entry.money}
+      sentence={entry.sentence}
+      phone={entry.phone}
+      secondaryHref={entry.secondaryHref}
+      secondaryLabel={entry.secondaryLabel}
+    />
   );
 }

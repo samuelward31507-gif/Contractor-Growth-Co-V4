@@ -105,8 +105,8 @@ test("Unpaid is the one money-owed figure; anything past due is its secondary de
 // 2. Page structure
 // ---------------------------------------------------------------------------
 
-test("hierarchy: needs attention, then Today, then where the work stands - nothing historical", () => {
-  const order = ["id=\"needs-attention\"", "id=\"today\"", "id=\"pipeline\""].map((marker) => PAGE.indexOf(marker));
+test("hierarchy: the three acts - what happened, what needs attention, what opportunity exists (opportunities, then where the work stands) - nothing historical", () => {
+  const order = ["id=\"today\"", "id=\"needs-attention\"", "id=\"opportunities\"", "id=\"pipeline\""].map((marker) => PAGE.indexOf(marker));
   assert.ok(order.every((index) => index > 0), `every section is present: ${order}`);
   assert.deepEqual([...order].sort((a, b) => a - b), order, "sections appear in the approved order (also the mobile stacking order)");
   assert.match(PAGE, /<h1 className=\{pageTitleClass\}>\{greeting\}<\/h1>/);
@@ -173,7 +173,22 @@ test("actions: every attention row, today figure and pipeline stage is a real li
   assert.match(PAGE, /<ShowAllLink href="\/today\?all=1" count=\{totalNeedingAttention\} \/>/);
 });
 
-test("the Opportunities view (/today?view=by-type) still renders the full grouped list", () => {
+test("attention and opportunity split the existing priority order by tier - nothing re-detected - and one attention count drives the header, Act II and \"You're all caught up\"", () => {
+  assert.match(PAGE, /const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set\(\["recoverable", "growth"\]\);/);
+  assert.match(PAGE, /const queue: QueueEntry\[\] = priorityQueue\.filter\(\(item\) => !OPPORTUNITY_TIERS\.has\(item\.tier\)\)\.map\(priorityItemToQueueEntry\);/);
+  assert.match(PAGE, /const opportunityQueue: QueueEntry\[\] = priorityQueue\.filter\(\(item\) => OPPORTUNITY_TIERS\.has\(item\.tier\)\)\.map\(priorityItemToQueueEntry\);/);
+  assert.match(PAGE, /const totalNeedingAttention = operationalExceptions\.length \+ queue\.length;/);
+  assert.match(PAGE, /attentionLine\(totalNeedingAttention\)/);
+  assert.match(PAGE, /\{totalNeedingAttention === 0 \? \(\s*<div className="px-5 py-10 text-center">\s*<p className="text-sm font-medium text-ink">You&apos;re all caught up\.<\/p>/);
+  assert.equal((PAGE.match(/You&apos;re all caught up/g) ?? []).length, 1, "one caught-up state, in Act II");
+  const attention = PAGE.slice(PAGE.indexOf('id="needs-attention"'), PAGE.indexOf('id="opportunities"'));
+  assert.doesNotMatch(attention, /TodayViewTabs|OpportunitiesList/, "the attention act has no tabs to hunt through");
+});
+
+test("the Opportunities view (/today?view=by-type#opportunities) still renders the full grouped list, inside the third act", () => {
+  assert.match(PAGE, /<DashboardSection id="opportunities" title="Opportunities" action=\{<TodayViewTabs active=\{view\} opportunityCount=\{openOpportunities\.length\} \/>\}>/);
+  assert.match(read("app/(app)/today/_components/today-view-tabs.tsx"), /href: "\/today#opportunities"[\s\S]*href: "\/today\?view=by-type#opportunities"/);
+  assert.match(PAGE, /<ShowAllLink href="\/today\?view=by-type#opportunities" count=\{openOpportunities\.length\} \/>/);
   assert.match(PAGE, /return value === "by-type" \? "by-type" : "priority";/);
   assert.match(PAGE, /<OpportunitiesList opportunities=\{openOpportunities\} failed=\{opportunitiesResult\.failed\} \/>/);
 });

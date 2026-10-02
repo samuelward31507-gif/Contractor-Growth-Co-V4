@@ -281,7 +281,7 @@ export function PipelineLeaksPanel({ snapshot, outcomes }: { snapshot: BusinessM
             />
           </PanelBlock>
         </BreakdownGrid>
-        {hasOpenItems ? <ViewLink href="/today?view=by-type">Review in Today</ViewLink> : null}
+        {hasOpenItems ? <ViewLink href="/today?view=by-type#opportunities">Review in Today</ViewLink> : null}
       </PanelBody>
     </Panel>
   );

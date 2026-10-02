@@ -12,6 +12,7 @@ export type NavIconName =
   | "FileText"
   | "Hammer"
   | "Wallet"
+  | "Receipt"
   | "TrendingUp"
   | "Star"
   | "Handshake"
@@ -28,7 +29,7 @@ export type NavItem = {
   href: string;
   label: string;
   icon: NavIconName;
-  /** Omitted = visible to every vertical. Jobs, Estimates and Money are contractor-specific. */
+  /** Omitted = visible to every vertical. The Money group (Overview, Invoices, Estimates, Jobs) is contractor-specific. */
   verticals?: OrganizationVertical[];
   /** Extra path prefixes that count as "inside" this destination - legacy or detail routes that render under it (e.g. /appointments/[id] under Appointments). */
   activeFor?: string[];
@@ -42,22 +43,23 @@ export type NavItem = {
 export type NavGroup = { id: string; label: string | null; items: NavItem[] };
 
 /**
- * Trackpr 2.0 (step 2C) information architecture: one ungrouped home, five
- * labelled groups organised around how a contractor thinks about the
- * business (who, when, what work, how it grows, how it's going), and a
- * pinned system group at the foot of the sidebar.
+ * Trackpr 2.0 information architecture (Phase 1 correction): one ungrouped
+ * home, then People, Money, Schedule and Insights - the four questions an
+ * owner asks (who, how the money stands, when, how it's going) - then More
+ * for the less frequent areas, and a pinned system group at the foot of the
+ * sidebar. The mobile tab bar is built from these same groups.
  *
  * Several entries are two views of one existing route - the redesign adds
  * navigation, never new pages or backend:
  *   Contacts / Leads        -> /people, /people?temperature=hot
+ *   Overview / Invoices     -> /money, /money?browse=invoices (Money's own tabs)
  *   Calendar / Appointments -> /schedule, /schedule?view=list
- *   Opportunities           -> /today?view=by-type (Today's "By type" tab)
+ *   Opportunities           -> /today?view=by-type#opportunities (Today's third act, every open opportunity by type)
  *   Reviews / Referrals     -> /growth#reviews, /growth#referrals (one page, two sections)
  * Every href is the route the visitor actually lands on: /contacts, /leads,
  * /calendar, /appointments, /opportunities and /analytics all still work as
  * compatibility redirects for old links, but navigation never pays their
- * extra round trip. /money is linked again under Work (it was un-linked, not
- * removed, by the earlier nav-restructure pass).
+ * extra round trip.
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -66,14 +68,24 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [{ href: "/today", label: "Today", icon: "LayoutDashboard", activeFor: ["/dashboard"] }],
   },
   {
-    id: "customers",
-    label: "Customers",
+    id: "people",
+    label: "People",
     items: [
       { href: "/people", label: "Contacts", icon: "Users", activeFor: ["/customers", "/contacts"] },
       { href: "/people?temperature=hot", label: "Leads", icon: "Target", activeFor: ["/leads"] },
       // Performance Pass A: points straight at /conversations - the route the
       // Inbox actually renders - instead of /inbox, a compatibility redirect.
       { href: "/conversations", label: "Inbox", icon: "Inbox", activeFor: ["/inbox"] },
+    ],
+  },
+  {
+    id: "money",
+    label: "Money",
+    items: [
+      { href: "/money", label: "Overview", icon: "Wallet", verticals: ["contractor"], activeFor: ["/work"] },
+      { href: "/money?browse=invoices", label: "Invoices", icon: "Receipt", verticals: ["contractor"], activeFor: ["/invoices"] },
+      { href: "/estimates", label: "Estimates", icon: "FileText", verticals: ["contractor"] },
+      { href: "/jobs", label: "Jobs", icon: "Hammer", verticals: ["contractor"] },
     ],
   },
   {
@@ -85,28 +97,19 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: "work",
-    label: "Work",
-    items: [
-      { href: "/estimates", label: "Estimates", icon: "FileText", verticals: ["contractor"] },
-      { href: "/jobs", label: "Jobs", icon: "Hammer", verticals: ["contractor"] },
-      { href: "/money", label: "Money", icon: "Wallet", verticals: ["contractor"], activeFor: ["/invoices", "/work"] },
-    ],
-  },
-  {
-    id: "growth",
-    label: "Growth",
-    items: [
-      { href: "/today?view=by-type", label: "Opportunities", icon: "TrendingUp", activeFor: ["/opportunities"] },
-      { href: "/growth#reviews", label: "Reviews", icon: "Star" },
-      { href: "/growth#referrals", label: "Referrals", icon: "Handshake" },
-    ],
-  },
-  {
     id: "insights",
     label: "Insights",
     items: [
       { href: "/insights", label: "Analytics", icon: "BarChart3", activeFor: ["/analytics", "/activity"] },
+      { href: "/today?view=by-type#opportunities", label: "Opportunities", icon: "TrendingUp", activeFor: ["/opportunities"] },
+    ],
+  },
+  {
+    id: "more",
+    label: "More",
+    items: [
+      { href: "/growth#reviews", label: "Reviews", icon: "Star" },
+      { href: "/growth#referrals", label: "Referrals", icon: "Handshake" },
       { href: "/automations", label: "Automations", icon: "Workflow", activeFor: ["/automation-health"] },
     ],
   },
@@ -130,7 +133,7 @@ export const AGENCY_NAV_ITEM: NavItem = { href: "/agency", label: "Agency Comman
  * Filters NAV_GROUPS down to items visible for a given vertical, relabels
  * Contacts via lib/verticals/terminology.ts (gym: "Members"), folds a
  * verified agency admin's AGENCY_NAV_ITEM into the system group, and drops
- * any group left empty (a gym has no Work group).
+ * any group left empty (a gym has no Money group).
  */
 export function getNavGroupsForVertical(vertical: OrganizationVertical, showAgencyLink: boolean): NavGroup[] {
   const terminology = getTerminology(vertical);
