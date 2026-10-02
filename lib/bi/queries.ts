@@ -515,27 +515,30 @@ export async function getAutomationAndFollowUpMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<{ automation: AutomationMetrics; followUp: FollowUpMetrics }> {
-  let eventsQuery = supabase
-    .from("automation_events")
-    .select("event_type, entity_type, status")
-    .eq("organization_id", organizationId)
-    .limit(MAX_ROWS);
-  if (range.from) eventsQuery = eventsQuery.gte("created_at", range.from);
-  if (range.to) eventsQuery = eventsQuery.lt("created_at", range.to);
+): Promise<{ automation: AutomationMetrics; followUp: FollowUpMetrics; failed: boolean }> {
+  // Phase 2K: both reads are paged (readAllPages, stable id order) - the API
+  // caps a response at 1000 rows, which silently undercounted events and
+  // executions (failed executions past the cap included), and a read error
+  // used to become zeros. A failed page or the row limit sets `failed` and
+  // that read contributes no rows - the counts are then placeholders, never
+  // data. Definitions, statuses and breakdowns are unchanged.
+  const [eventRead, executionRead] = await Promise.all([
+    readAllPages<{ event_type: string; entity_type: string | null; status: (typeof AUTOMATION_EVENT_STATUSES)[number] }>(() => {
+      let eventsQuery = supabase.from("automation_events").select("event_type, entity_type, status").eq("organization_id", organizationId);
+      if (range.from) eventsQuery = eventsQuery.gte("created_at", range.from);
+      if (range.to) eventsQuery = eventsQuery.lt("created_at", range.to);
+      return eventsQuery.order("id");
+    }),
+    readAllPages<{ workflow_name: string; status: (typeof WORKFLOW_EXECUTION_STATUSES)[number] }>(() => {
+      let executionsQuery = supabase.from("workflow_executions").select("workflow_name, status").eq("organization_id", organizationId);
+      if (range.from) executionsQuery = executionsQuery.gte("started_at", range.from);
+      if (range.to) executionsQuery = executionsQuery.lt("started_at", range.to);
+      return executionsQuery.order("id");
+    }),
+  ]);
 
-  let executionsQuery = supabase
-    .from("workflow_executions")
-    .select("workflow_name, status")
-    .eq("organization_id", organizationId)
-    .limit(MAX_ROWS);
-  if (range.from) executionsQuery = executionsQuery.gte("started_at", range.from);
-  if (range.to) executionsQuery = executionsQuery.lt("started_at", range.to);
-
-  const [{ data: eventRows }, { data: executionRows }] = await Promise.all([eventsQuery, executionsQuery]);
-
-  const events = (eventRows ?? []) as { event_type: string; entity_type: string | null; status: (typeof AUTOMATION_EVENT_STATUSES)[number] }[];
-  const executions = (executionRows ?? []) as { workflow_name: string; status: (typeof WORKFLOW_EXECUTION_STATUSES)[number] }[];
+  const events = eventRead.failed ? [] : eventRead.rows;
+  const executions = executionRead.failed ? [] : executionRead.rows;
 
   const eventStatusCounts = zeroCounts(AUTOMATION_EVENT_STATUSES);
   const automationEventsByType: Record<string, number> = {};
@@ -586,7 +589,7 @@ export async function getAutomationAndFollowUpMetrics(
     appointmentAutomationEvents,
   };
 
-  return { automation, followUp };
+  return { automation, followUp, failed: eventRead.failed || executionRead.failed };
 }
 
 // ---------------------------------------------------------------------------

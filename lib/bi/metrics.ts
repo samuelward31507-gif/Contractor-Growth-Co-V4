@@ -202,19 +202,17 @@ async function getNonNullAmountCount(supabase: SupabaseClient, table: "estimates
  * (entity_type = 'lead') - see BiFollowUpMetrics.leadsTouchedByAutomation in
  * lib/bi/types.ts for why this is deliberately conservative.
  */
-async function getLeadsTouchedByAutomation(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<number> {
-  let query = supabase
-    .from("automation_events")
-    .select("entity_id")
-    .eq("organization_id", organizationId)
-    .eq("entity_type", "lead")
-    .limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data } = await query;
-  const rows = (data ?? []) as { entity_id: string | null }[];
-  return new Set(rows.map((row) => row.entity_id).filter((id): id is string => id !== null)).size;
+async function getLeadsTouchedByAutomation(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ count: number; failed: boolean }> {
+  // Phase 2K: paged (readAllPages, stable id order); a failed page or the row
+  // limit is `failed` with no count - never a silent partial or zero.
+  const read = await readAllPages<{ entity_id: string | null }>(() => {
+    let query = supabase.from("automation_events").select("entity_id").eq("organization_id", organizationId).eq("entity_type", "lead");
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  if (read.failed) return { count: 0, failed: true };
+  return { count: new Set(read.rows.map((row) => row.entity_id).filter((id): id is string => id !== null)).size, failed: false };
 }
 
 /**
@@ -674,8 +672,9 @@ async function buildCommunicationMetrics(supabase: SupabaseClient, organizationI
   return { metrics, failed: communication.failed || optOut.failed };
 }
 
-async function buildAutomationMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ automation: BiAutomationMetrics; followUp: BiFollowUpMetrics }> {
-  const [{ automation, followUp }, leadsTouchedByAutomation] = await Promise.all([
+/** Phase 2K: `failed` when the automation event, workflow execution or leads-touched read failed - the figures are then zeroed placeholders (see BusinessMetricsSnapshot.automationUnavailable). */
+async function buildAutomationMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ automation: BiAutomationMetrics; followUp: BiFollowUpMetrics; failed: boolean }> {
+  const [{ automation, followUp, failed }, leadsTouched] = await Promise.all([
     getAutomationAndFollowUpMetrics(supabase, organizationId, range),
     getLeadsTouchedByAutomation(supabase, organizationId, range),
   ]);
@@ -698,10 +697,10 @@ async function buildAutomationMetrics(supabase: SupabaseClient, organizationId: 
     appointmentReminderEvents: automation.automationEventsByType["appointment.reminder"] ?? 0,
     estimateFollowUpEvents: followUp.estimateFollowupEvents,
     postJobFollowUpEvents: followUp.postJobFollowupEvents,
-    leadsTouchedByAutomation,
+    leadsTouchedByAutomation: leadsTouched.count,
   };
 
-  return { automation: biAutomation, followUp: biFollowUp };
+  return { automation: biAutomation, followUp: biFollowUp, failed: failed || leadsTouched.failed };
 }
 
 /**
@@ -778,7 +777,7 @@ export async function buildAiMetrics(supabase: SupabaseClient, organizationId: s
  * states that explicitly, using the real counts already computed by
  * getLeadStageTimingMetrics for this same snapshot.
  */
-function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean, stageHistoryReadFailed = false, communicationUnavailable = false): BiDataQuality {
+function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean, stageHistoryReadFailed = false, communicationUnavailable = false, automationUnavailable = false): BiDataQuality {
   const aiTokenUsageUnavailable = aiUsage.interactionsWithUsageData === 0;
   // Phase 1B-4: the payment ledger exists now. The first note states the one
   // sanctioned definition of collected revenue and keeps every quoted/
@@ -807,6 +806,11 @@ function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean
   // "0 messages". Only added on failure; the field set is unchanged.
   if (communicationUnavailable) {
     notes.push("Message, conversation and opt-out counts could not be read for this snapshot - communicationMetrics is zeroed, not measured. Do not cite or describe communicationMetrics, and never report zero messages from it.");
+  }
+  // Phase 2K: the same for a failed automation event, workflow execution or
+  // leads-touched read - automationMetrics and followUpMetrics are zeroed.
+  if (automationUnavailable) {
+    notes.push("Automation and follow-up counts could not be read for this snapshot - automationMetrics and followUpMetrics are zeroed, not measured. Do not cite or describe automationMetrics or followUpMetrics, and never report zero automation activity from them.");
   }
 
   return {
@@ -851,7 +855,7 @@ export async function getBusinessMetricsSnapshot(
     { metrics: jobMetrics, failed: jobsFailed },
     { metrics: appointmentMetrics, failed: appointmentsFailed },
     { metrics: communicationMetrics, failed: communicationFailed },
-    { automation, followUp },
+    { automation, followUp, failed: automationFailed },
     { metrics: aiMetrics, failed: aiFailed },
     reviewReferralMetrics,
     stageHistory,
@@ -1001,12 +1005,13 @@ export async function getBusinessMetricsSnapshot(
     revenueOpportunityUnavailable,
     sourceCountsUnavailable: sourcesFailed,
     communicationUnavailable: communicationFailed,
+    automationUnavailable: automationFailed,
     invoiceAging,
     estimateAging,
     reviewReferralMetrics,
     leadStageFunnel: { transitions: transitionMetrics, timing: timingMetrics },
     responseTime: responseTimeMetrics,
-    dataQuality: buildDataQuality(aiMetrics, !stageHistory.exists, timingMetrics, billingRows.failed, stageHistory.failed || funnelUnavailable.stageTransitions || funnelUnavailable.stageTiming, communicationFailed),
+    dataQuality: buildDataQuality(aiMetrics, !stageHistory.exists, timingMetrics, billingRows.failed, stageHistory.failed || funnelUnavailable.stageTransitions || funnelUnavailable.stageTiming, communicationFailed, automationFailed),
     partialData,
     partialDataSourceCount,
     funnelUnavailable,

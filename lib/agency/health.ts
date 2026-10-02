@@ -50,6 +50,8 @@ export type AgencyOrganizationHealth = {
   undeliveredMessages: number;
   /** Phase 2J: the message counts above could not be read - they are zeroed placeholders, so this organization can't be confirmed healthy. */
   communicationUnavailable: boolean;
+  /** Phase 2K: the workflow execution counts above (or the organization's other automation counts) could not be read - they are zeroed placeholders, so this organization can't be confirmed healthy. */
+  automationUnavailable: boolean;
   aiInteractions: number;
   /** Growth System Completion Pass 1: safe-metadata-only (status/last_error, never a token) - see getCalendarConnection's own documentation for why calendar_credentials is never touched from agency code. */
   calendarStatus: AgencyCalendarStatus;
@@ -294,7 +296,9 @@ export async function getAgencyHealth(
   // calendar issues / no payment problem" - see each loader's own comment.
   // Phase 2J: an organization whose message counts couldn't be read is
   // disclosed the same way - its zeros must never read as "no failed sends".
-  const partialData = stuckFailed || calendarFailed || paymentFailed || organizations.some((org) => org.communicationFailed);
+  // Phase 2K: likewise an organization whose automation counts couldn't be
+  // read - its zeros must never read as "no failed executions".
+  const partialData = stuckFailed || calendarFailed || paymentFailed || organizations.some((org) => org.communicationFailed) || organizations.some((org) => org.automationFailed);
 
   const now = Date.now();
   const stuck: StuckExecution[] = stuckRows.map((row) => ({
@@ -343,6 +347,7 @@ export async function getAgencyHealth(
       failedMessages,
       undeliveredMessages,
       communicationUnavailable: org.communicationFailed,
+      automationUnavailable: org.automationFailed,
       aiInteractions: org.metrics.aiMetrics.aiInteractions,
       calendarStatus,
       calendarLastError,
@@ -380,6 +385,8 @@ export async function getAgencyHealth(
         org.undeliveredMessages > 0 ||
         // Phase 2J: unreadable message counts can't confirm health - fail closed. A genuine zero still reads as healthy.
         org.communicationUnavailable ||
+        // Phase 2K: unreadable automation counts can't confirm health either - fail closed. Genuine zero activity still reads as healthy.
+        org.automationUnavailable ||
         activeIncidentCount > 0 ||
         org.calendarStatus === "error" ||
         org.automationPaused ||
