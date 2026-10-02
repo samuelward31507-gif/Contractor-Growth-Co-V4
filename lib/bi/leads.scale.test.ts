@@ -185,6 +185,56 @@ test("snapshot: a lead-read failure still reaches partialData through the existi
 });
 
 // ---------------------------------------------------------------------------
+// Phase 2I follow-up: the AI is told when lead or source figures are zeroed
+// ---------------------------------------------------------------------------
+
+const LEAD_NOTE = "Lead and open-lead counts could not be read for this snapshot";
+const SOURCE_NOTE = "Lead sources could not be read for this snapshot";
+const AI_FIELDS = ["aiMetrics", "appointmentMetrics", "automationMetrics", "billingMetrics", "communicationMetrics", "comparisons", "dataQuality", "estimateMetrics", "followUpMetrics", "jobMetrics", "leadMetrics", "period", "pipelineMetrics"];
+const notesOf = (s: Awaited<ReturnType<typeof snapshotWith>>) => buildAiInsightsInput(s).dataQuality.notes;
+const hasNote = (notes: string[], prefix: string) => notes.some((n) => n.startsWith(prefix));
+
+test("AI note: a period-lead or open-lead read failing on page 1, page 2 or at the row limit tells the AI the lead figures are zeroed; partialData and the AI field set unchanged", async () => {
+  const reads = [
+    ["period", (q: Query) => isPeriodLeads(q) && isCurrent(q), { status: "new", temperature: "warm" }],
+    ["open", isOpenLeads, { estimated_value: 100 }],
+  ] as const;
+  for (const [name, failing, row] of reads) {
+    for (const failure of [{ error: true }, { failOnPage: 2 }, { rows: Array.from({ length: MAX_ATTRIBUTION_ROWS + 1 }, () => row) }]) {
+      const s = await snapshotWith((q) => (failing(q) ? { rows: name === "period" ? periodLeads() : Array.from({ length: 1200 }, () => row), ...failure } : baseAnswer(q)));
+      const notes = notesOf(s);
+      assert.ok(hasNote(notes, LEAD_NOTE), name);
+      assert.ok(!hasNote(notes, SOURCE_NOTE), `${name}: sources were read`);
+      assert.equal(s.partialData, true, "the existing failed flag still feeds partialData");
+      assert.deepEqual(Object.keys(buildAiInsightsInput(s)).sort(), AI_FIELDS);
+    }
+  }
+});
+
+test("AI note: a source read failing on page 1, page 2 or at the row limit tells the AI sourceCounts is empty because the read failed; partialData and the AI field set unchanged", async () => {
+  for (const failure of [{ error: true }, { failOnPage: 2 }, { rows: Array.from({ length: MAX_ATTRIBUTION_ROWS + 1 }, () => ({ source: "Google" })) }]) {
+    const s = await snapshotWith((q) => (isSourceLeads(q) ? { ...baseAnswer(q), ...failure } : baseAnswer(q)));
+    const notes = notesOf(s);
+    assert.ok(hasNote(notes, SOURCE_NOTE));
+    assert.ok(!hasNote(notes, LEAD_NOTE), "the lead reads succeeded");
+    assert.deepEqual(s.leadMetrics.sourceCounts, {});
+    assert.equal(s.partialData, false, "a source failure never feeds partialData");
+    assert.deepEqual(Object.keys(buildAiInsightsInput(s)).sort(), AI_FIELDS);
+    assert.ok(!("sourceCountsUnavailable" in buildAiInsightsInput(s)));
+  }
+});
+
+test("AI note: complete reads and a genuinely empty organization get neither note - an empty organization's sourceCounts is {} and not unavailable", async () => {
+  const complete = await snapshotWith(baseAnswer);
+  assert.ok(!hasNote(notesOf(complete), LEAD_NOTE) && !hasNote(notesOf(complete), SOURCE_NOTE));
+
+  const empty = await snapshotWith(() => ({}));
+  assert.ok(!hasNote(notesOf(empty), LEAD_NOTE) && !hasNote(notesOf(empty), SOURCE_NOTE));
+  assert.deepEqual(empty.leadMetrics.sourceCounts, {});
+  assert.deepEqual([empty.sourceCountsUnavailable, empty.partialData, empty.leadMetrics.totalLeads, empty.pipelineMetrics.pipelineValue], [false, false, 0, 0]);
+});
+
+// ---------------------------------------------------------------------------
 // D. getLeadsCreatedPerDay
 // ---------------------------------------------------------------------------
 
@@ -208,6 +258,13 @@ test("leads per day: a page-2 failure or the row limit is a failure with no buck
     const series = await getLeadsCreatedPerDay(fakeSupabase((q) => (isChartLeads(q) ? { rows: chartLeads(), ...failure } : {})).supabase, "org-1", CHART, "America/Denver");
     assert.deepEqual(series, { data: [], failed: true });
   }
+});
+
+test("leads per day: a genuinely empty range is not a failure - every day is a real zero", async () => {
+  const series = await getLeadsCreatedPerDay(fakeSupabase().supabase, "org-1", CHART, "America/Denver");
+  assert.equal(series.failed, false);
+  assert.equal(series.data.length, 30);
+  assert.ok(series.data.every((day) => day.count === 0));
 });
 
 // ---------------------------------------------------------------------------

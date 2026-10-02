@@ -777,7 +777,7 @@ export async function buildAiMetrics(supabase: SupabaseClient, organizationId: s
  * states that explicitly, using the real counts already computed by
  * getLeadStageTimingMetrics for this same snapshot.
  */
-function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean, stageHistoryReadFailed = false, communicationUnavailable = false, automationUnavailable = false): BiDataQuality {
+function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean, stageHistoryReadFailed = false, communicationUnavailable = false, automationUnavailable = false, leadsUnavailable = false, sourceCountsUnavailable = false): BiDataQuality {
   const aiTokenUsageUnavailable = aiUsage.interactionsWithUsageData === 0;
   // Phase 1B-4: the payment ledger exists now. The first note states the one
   // sanctioned definition of collected revenue and keeps every quoted/
@@ -811,6 +811,15 @@ function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean
   // leads-touched read - automationMetrics and followUpMetrics are zeroed.
   if (automationUnavailable) {
     notes.push("Automation and follow-up counts could not be read for this snapshot - automationMetrics and followUpMetrics are zeroed, not measured. Do not cite or describe automationMetrics or followUpMetrics, and never report zero automation activity from them.");
+  }
+  // Phase 2I follow-up: the same for a failed lead or open-lead read
+  // (leadMetrics, pipelineMetrics and the lead-count comparison are zeroed)
+  // and for a failed lead-source read (sourceCounts is {}).
+  if (leadsUnavailable) {
+    notes.push("Lead and open-lead counts could not be read for this snapshot - leadMetrics, pipelineMetrics and comparisons.leadCount are zeroed, not measured. Do not cite or describe them, and never report zero leads or zero pipeline from them.");
+  }
+  if (sourceCountsUnavailable) {
+    notes.push("Lead sources could not be read for this snapshot - leadMetrics.sourceCounts is empty because the read failed, not because leads had no source. Do not cite or describe sourceCounts.");
   }
 
   return {
@@ -1011,7 +1020,7 @@ export async function getBusinessMetricsSnapshot(
     reviewReferralMetrics,
     leadStageFunnel: { transitions: transitionMetrics, timing: timingMetrics },
     responseTime: responseTimeMetrics,
-    dataQuality: buildDataQuality(aiMetrics, !stageHistory.exists, timingMetrics, billingRows.failed, stageHistory.failed || funnelUnavailable.stageTransitions || funnelUnavailable.stageTiming, communicationFailed, automationFailed),
+    dataQuality: buildDataQuality(aiMetrics, !stageHistory.exists, timingMetrics, billingRows.failed, stageHistory.failed || funnelUnavailable.stageTransitions || funnelUnavailable.stageTiming, communicationFailed, automationFailed, leadFailed, sourcesFailed),
     partialData,
     partialDataSourceCount,
     funnelUnavailable,
