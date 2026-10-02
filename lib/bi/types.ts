@@ -742,6 +742,8 @@ export type BusinessMetricsSnapshot = {
   communicationUnavailable: boolean;
   /** Phase 2K: the automation event, workflow execution or leads-touched read failed (or reached the row limit) - automationMetrics and followUpMetrics are then zeroed placeholders, never data. Not part of the AI observations input (the AI is told through a dataQuality note instead), and not an input to partialData. */
   automationUnavailable: boolean;
+  /** Phase 3A-2: the review-request or referral-request read failed (or reached the row limit) - reviewReferralMetrics is then zeroed placeholders, never data. Disclosed through Analytics' existing banner; not an input to partialData, and reviewReferralMetrics is not part of the AI observations input. */
+  reviewReferralUnavailable: boolean;
   /**
    * Phase 2A (Analytics): open invoices by days past due, as of the
    * organization's today (billing.ts computeInvoiceAging). Deliberately

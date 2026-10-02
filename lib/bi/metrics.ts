@@ -62,8 +62,6 @@ import type {
  * query. No new authorization mechanism is introduced.
  */
 
-const MAX_ROWS = 10_000;
-
 // ---------------------------------------------------------------------------
 // Rate / comparison helpers
 // ---------------------------------------------------------------------------
@@ -600,11 +598,15 @@ export function summarizeAppointmentStatuses(rows: { status: string }[]): BiAppo
  * (created_at) is unchanged: Agency and the AI observations read it.
  */
 export async function getAppointmentOccurrenceMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiAppointmentMetrics; failed: boolean }> {
-  let query = supabase.from("appointments").select("status").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) query = query.gte("start_at", range.from);
-  if (range.to) query = query.lt("start_at", range.to);
-  const { data, error } = await query;
-  return { metrics: summarizeAppointmentStatuses((data ?? []) as { status: string }[]), failed: error != null };
+  // Phase 3A-2: paged (readAllPages, stable id order); a failed page or the
+  // row limit sets `failed` and contributes no rows - never a partial count.
+  const read = await readAllPages<{ status: string }>(() => {
+    let query = supabase.from("appointments").select("status").eq("organization_id", organizationId);
+    if (range.from) query = query.gte("start_at", range.from);
+    if (range.to) query = query.lt("start_at", range.to);
+    return query.order("id");
+  });
+  return { metrics: summarizeAppointmentStatuses(read.failed ? [] : read.rows), failed: read.failed };
 }
 
 export type OpportunityOutcomeGroup = { key: "lost" | "no_longer_applies" | "dismissed" | "other"; label: string; count: number; value: number };
@@ -640,11 +642,15 @@ export function groupOpportunityOutcomes(rows: { status: string; resolution_reas
  * necessarily when it happened.
  */
 export async function getOpportunityOutcomes(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ groups: OpportunityOutcomeGroup[]; failed: boolean }> {
-  let query = supabase.from("opportunities").select("status, resolution_reason, estimated_value").eq("organization_id", organizationId).in("status", ["resolved", "dismissed"]).limit(MAX_ROWS);
-  if (range.from) query = query.gte("resolved_at", range.from);
-  if (range.to) query = query.lt("resolved_at", range.to);
-  const { data, error } = await query;
-  return { groups: groupOpportunityOutcomes((data ?? []) as { status: string; resolution_reason: string | null; estimated_value: number | null }[]), failed: error != null };
+  // Phase 3A-2: paged (readAllPages, stable id order); a failed page or the
+  // row limit sets `failed` and contributes no rows - never a partial count.
+  const read = await readAllPages<{ status: string; resolution_reason: string | null; estimated_value: number | null }>(() => {
+    let query = supabase.from("opportunities").select("status, resolution_reason, estimated_value").eq("organization_id", organizationId).in("status", ["resolved", "dismissed"]);
+    if (range.from) query = query.gte("resolved_at", range.from);
+    if (range.to) query = query.lt("resolved_at", range.to);
+    return query.order("id");
+  });
+  return { groups: groupOpportunityOutcomes(read.failed ? [] : read.rows), failed: read.failed };
 }
 
 /**
@@ -901,7 +907,7 @@ export async function getBusinessMetricsSnapshot(
     { metrics: communicationMetrics, failed: communicationFailed },
     { automation, followUp, failed: automationFailed },
     { metrics: aiMetrics, failed: aiFailed },
-    reviewReferralMetrics,
+    { failed: reviewReferralFailed, ...reviewReferralMetrics },
     stageHistory,
     { leads: sharedLeads, failed: sharedLeadsFailed },
     transitionMetrics,
@@ -1050,6 +1056,7 @@ export async function getBusinessMetricsSnapshot(
     sourceCountsUnavailable: sourcesFailed,
     communicationUnavailable: communicationFailed,
     automationUnavailable: automationFailed,
+    reviewReferralUnavailable: reviewReferralFailed,
     invoiceAging,
     estimateAging,
     reviewReferralMetrics,
