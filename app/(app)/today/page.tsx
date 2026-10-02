@@ -30,6 +30,7 @@ import type { StatusTone } from "@/lib/ui/status";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
 import { OpportunitiesList } from "../opportunities/_components/opportunities-list";
 import { TodayViewTabs, type TodayView } from "./_components/today-view-tabs";
+import { ScrollToAnchorOnLoad } from "./_components/scroll-to-anchor-on-load";
 import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, hourInTimeZone, pipelineStages, todayFigures } from "./_components/dashboard-model";
 import { DashboardSection, PipelineFlow, SectionLink, ShowAllLink, TodayPanel } from "./_components/dashboard-sections";
 
@@ -348,6 +349,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
 
       {/* Act III - what opportunity exists. */}
       <DashboardSection id="opportunities" title="Opportunities" action={<TodayViewTabs active={view} opportunityCount={openOpportunities.length} />}>
+        <ScrollToAnchorOnLoad id="opportunities" />
         {view === "priority" ? (
           <div className="overflow-hidden rounded-lg border border-line bg-surface">
             {opportunityQueue.length === 0 ? (

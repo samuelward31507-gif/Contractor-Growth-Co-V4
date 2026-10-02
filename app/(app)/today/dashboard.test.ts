@@ -193,6 +193,17 @@ test("the Opportunities view (/today?view=by-type#opportunities) still renders t
   assert.match(PAGE, /<OpportunitiesList opportunities=\{openOpportunities\} failed=\{opportunitiesResult\.failed\} \/>/);
 });
 
+test("a fresh load of #opportunities lands on Act III: the section mounts a client scroll that runs only for its own fragment", () => {
+  const SCROLL = read("app/(app)/today/_components/scroll-to-anchor-on-load.tsx");
+  assert.match(SCROLL, /^"use client";/);
+  assert.match(SCROLL, /useEffect\(\(\) => \{\s*if \(window\.location\.hash !== `#\$\{id\}`\) return;\s*document\.getElementById\(id\)\?\.scrollIntoView\(\{ block: "start" \}\);\s*\}, \[id\]\);/);
+  assert.match(SCROLL, /return null;/, "renders nothing");
+  const act3 = PAGE.slice(PAGE.indexOf('<DashboardSection id="opportunities"'), PAGE.indexOf("</DashboardSection>", PAGE.indexOf('<DashboardSection id="opportunities"')));
+  assert.match(act3, /<ScrollToAnchorOnLoad id="opportunities" \/>/, "inside Act III, so it mounts only once that section has streamed in");
+  assert.equal((PAGE.match(/<ScrollToAnchorOnLoad /g) ?? []).length, 1);
+  assert.match(read("app/(app)/opportunities/page.tsx"), /redirect\("\/today\?view=by-type#opportunities"\)/, "the redirect target is unchanged");
+});
+
 test("vertical: the estimates/jobs/invoices pipeline only renders for a contractor organization", () => {
   assert.match(PAGE, /const showPipeline = membership\.vertical === "contractor";/);
   assert.match(PAGE, /\{showPipeline \? \(\s*<DashboardSection id="pipeline"/);
