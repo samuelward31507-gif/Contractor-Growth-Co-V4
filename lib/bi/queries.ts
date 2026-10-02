@@ -272,16 +272,17 @@ export async function getEstimateMetrics(
   organizationId: string,
   range: ResolvedDateRange,
 ): Promise<EstimateMetrics & { failed: boolean }> {
-  let query = supabase
-    .from("estimates")
-    .select("status, amount")
-    .eq("organization_id", organizationId)
-    .limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  const rows = (data ?? []) as { status: EstimateStatus; amount: number | null }[];
+  // Phase 3A-1: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently cut the estimate counts and values short. A failed
+  // page or the row limit sets `failed` and contributes no rows - never a
+  // partial count. Filters, definitions and the return shape are unchanged.
+  const read = await readAllPages<{ status: EstimateStatus; amount: number | null }>(() => {
+    let query = supabase.from("estimates").select("status, amount").eq("organization_id", organizationId);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  const rows = read.failed ? [] : read.rows;
 
   const byStatus = zeroCounts(ESTIMATE_STATUSES.map((s) => s.value));
   for (const row of rows) {
@@ -305,7 +306,7 @@ export async function getEstimateMetrics(
     sentEstimateValue: sum(sentAmounts),
     acceptedEstimateValue: sum(acceptedAmounts),
     averageEstimateValue: average(amounts),
-    failed: error != null,
+    failed: read.failed,
   };
 }
 
@@ -327,16 +328,17 @@ export async function getJobMetrics(
   organizationId: string,
   range: ResolvedDateRange,
 ): Promise<JobMetrics & { failed: boolean }> {
-  let query = supabase
-    .from("jobs")
-    .select("status, amount")
-    .eq("organization_id", organizationId)
-    .limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  const rows = (data ?? []) as { status: JobStatus; amount: number | null }[];
+  // Phase 3A-1: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently cut the job counts and contracted values short. A failed
+  // page or the row limit sets `failed` and contributes no rows - never a
+  // partial count. Filters, definitions and the return shape are unchanged.
+  const read = await readAllPages<{ status: JobStatus; amount: number | null }>(() => {
+    let query = supabase.from("jobs").select("status, amount").eq("organization_id", organizationId);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  const rows = read.failed ? [] : read.rows;
 
   const byStatus = zeroCounts(JOB_STATUSES.map((s) => s.value));
   for (const row of rows) {
@@ -356,7 +358,7 @@ export async function getJobMetrics(
     totalContractedJobValue: sum(amounts),
     completedContractedJobValue: sum(completedAmounts),
     averageContractedJobValue: average(amounts),
-    failed: error != null,
+    failed: read.failed,
   };
 }
 
@@ -376,16 +378,17 @@ export async function getAppointmentMetrics(
   organizationId: string,
   range: ResolvedDateRange,
 ): Promise<AppointmentMetrics & { failed: boolean }> {
-  let query = supabase
-    .from("appointments")
-    .select("status")
-    .eq("organization_id", organizationId)
-    .limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  const rows = (data ?? []) as { status: AppointmentStatus }[];
+  // Phase 3A-1: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently cut the appointment counts short. A failed
+  // page or the row limit sets `failed` and contributes no rows - never a
+  // partial count. Filters, definitions and the return shape are unchanged.
+  const read = await readAllPages<{ status: AppointmentStatus }>(() => {
+    let query = supabase.from("appointments").select("status").eq("organization_id", organizationId);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  const rows = read.failed ? [] : read.rows;
 
   const byStatus = zeroCounts(APPOINTMENT_STATUSES.map((s) => s.value));
   for (const row of rows) {
@@ -400,7 +403,7 @@ export async function getAppointmentMetrics(
     completedAppointments: byStatus.completed,
     cancelledAppointments: byStatus.cancelled,
     noShowAppointments: byStatus.no_show,
-    failed: error != null,
+    failed: read.failed,
   };
 }
 
@@ -610,16 +613,17 @@ export async function getAiMetrics(
   organizationId: string,
   range: ResolvedDateRange,
 ): Promise<AiMetrics & { failed: boolean }> {
-  let query = supabase
-    .from("ai_interactions")
-    .select("interaction_type, model")
-    .eq("organization_id", organizationId)
-    .limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  const rows = (data ?? []) as { interaction_type: string; model: string | null }[];
+  // Phase 3A-1: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently cut the AI interaction counts short. A failed
+  // page or the row limit sets `failed` and contributes no rows - never a
+  // partial count. Filters, definitions and the return shape are unchanged.
+  const read = await readAllPages<{ interaction_type: string; model: string | null }>(() => {
+    let query = supabase.from("ai_interactions").select("interaction_type, model").eq("organization_id", organizationId);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  const rows = read.failed ? [] : read.rows;
 
   const aiInteractionsByType: Record<string, number> = {};
   const aiInteractionsByModel: Record<string, number> = {};
@@ -634,7 +638,7 @@ export async function getAiMetrics(
     totalAiInteractions: rows.length,
     aiInteractionsByType,
     aiInteractionsByModel,
-    failed: error != null,
+    failed: read.failed,
   };
 }
 
