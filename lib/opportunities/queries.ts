@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 /**
  * Pass 3 (Revenue Intelligence Foundation): the read layer for
@@ -129,15 +130,17 @@ export type OpenOpportunitiesResult = { data: Opportunity[]; failed: boolean };
  * getOpenOpportunities below unchanged.
  */
 export async function getOpenOpportunitiesResult(supabase: SupabaseClient, organizationId: string): Promise<OpenOpportunitiesResult> {
-  const { data, error } = await supabase
-    .from("opportunities")
-    .select(OPPORTUNITY_COLUMNS)
-    .eq("organization_id", organizationId)
-    .eq("status", "open")
-    .order("created_at", { ascending: false })
-    .limit(500);
+  // Phase 3A-4: every open opportunity, paged (readAllPages) - the old single
+  // read capped at 500 rows silently dropped the oldest open opportunities from the
+  // summary totals and per-contact lists. Newest first with id as the
+  // tie-break, so pages are stable and the order callers see is unchanged.
+  // A failed page or the row limit is `failed` with no rows - never a
+  // partial total.
+  const read = await readAllPages<OpportunityRow>(() =>
+    supabase.from("opportunities").select(OPPORTUNITY_COLUMNS).eq("organization_id", organizationId).eq("status", "open").order("created_at", { ascending: false }).order("id"),
+  );
 
-  return { data: ((data ?? []) as OpportunityRow[]).map(normalizeOpportunity), failed: error != null };
+  return { data: read.failed ? [] : read.rows.map(normalizeOpportunity), failed: read.failed };
 }
 
 /** Every currently-open opportunity for the org, newest first - the primary read for both the dashboard summary and the Attention Engine. */

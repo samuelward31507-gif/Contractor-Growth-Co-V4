@@ -62,6 +62,8 @@ function makeQueryBuilder(result: MockResult) {
     not: () => builder,
     order: () => builder,
     limit: () => Promise.resolve(result),
+    // Phase 3A-4: paged reads (readAllPages) resolve through range().
+    range: () => Promise.resolve(result),
     maybeSingle: () => Promise.resolve(result),
   };
   return builder;
