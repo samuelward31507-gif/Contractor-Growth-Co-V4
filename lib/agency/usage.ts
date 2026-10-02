@@ -51,6 +51,8 @@ export type ClientMessagingUsage = {
 };
 
 export type ClientAiUsage = {
+  /** Phase 3E: the AI read failed (the snapshot's AI read, or the direct breakdown read) - the figures below are then zeroed placeholders, never zero usage. */
+  unavailable: boolean;
   interactions: number;
   /** Count of interactions with a non-null tokens_used - lets the UI show "usage data available for N of M interactions" rather than implying full coverage. */
   interactionsWithUsageData: number;
@@ -98,6 +100,8 @@ export type ClientOperationalActivity = {
   jobs: number;
   reviewsRequested: number;
   referralsRequested: number;
+  /** Phase 3E: the review/referral read failed - reviewsRequested/referralsRequested are then zeroed placeholders, never zero requests. */
+  reviewReferralUnavailable: boolean;
 };
 
 export type ClientUsageDataQuality = {
@@ -224,7 +228,11 @@ export async function getAgencyUsageSummary(sessionSupabase: SupabaseClient, ser
     const metrics = snapshot.metrics;
     const notes: string[] = [];
 
-    if (metrics.dataQuality.aiTokenUsageUnavailable) {
+    // Phase 3E: an unreadable AI read is disclosed - never "no token usage reported".
+    const aiUnavailable = metrics.aiUnavailable || snapshot.aiFailed;
+    if (aiUnavailable) {
+      notes.push("AI usage temporarily unavailable.");
+    } else if (metrics.dataQuality.aiTokenUsageUnavailable) {
       notes.push("No AI interaction in this period reported token usage.");
     }
     if (missedCallsFailed) {
@@ -238,6 +246,10 @@ export async function getAgencyUsageSummary(sessionSupabase: SupabaseClient, ser
     if (snapshot.automationFailed) {
       notes.push("Automation counts temporarily unavailable.");
     }
+    // Phase 3E: unreadable review/referral counts are disclosed the same way.
+    if (metrics.reviewReferralUnavailable) {
+      notes.push("Review and referral counts temporarily unavailable.");
+    }
 
     return {
       organizationId: snapshot.organizationId,
@@ -250,6 +262,7 @@ export async function getAgencyUsageSummary(sessionSupabase: SupabaseClient, ser
         byStatus: snapshot.messagesByStatus,
       },
       ai: {
+        unavailable: aiUnavailable,
         interactions: metrics.aiMetrics.aiInteractions,
         interactionsWithUsageData: metrics.aiMetrics.interactionsWithUsageData,
         tokens: metrics.aiMetrics.totalTokensUsed,
@@ -274,9 +287,10 @@ export async function getAgencyUsageSummary(sessionSupabase: SupabaseClient, ser
         jobs: metrics.jobMetrics.totalJobs,
         reviewsRequested: metrics.reviewReferralMetrics.reviewsRequested,
         referralsRequested: metrics.reviewReferralMetrics.referralsRequested,
+        reviewReferralUnavailable: metrics.reviewReferralUnavailable,
       },
       dataQuality: {
-        partialData: metrics.partialData || missedCallsFailed || snapshot.communicationFailed || snapshot.automationFailed,
+        partialData: metrics.partialData || missedCallsFailed || snapshot.communicationFailed || snapshot.automationFailed || snapshot.aiFailed || metrics.reviewReferralUnavailable,
         notes,
       },
     };

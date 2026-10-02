@@ -139,6 +139,8 @@ export type AgencyOrganizationSnapshot = {
   communicationFailed: boolean;
   /** Phase 2K: this organization's automation event, workflow execution or leads-touched read failed - metrics.automationMetrics and metrics.followUpMetrics are then zeroed placeholders, never a genuine zero. */
   automationFailed: boolean;
+  /** Phase 3E: this organization's direct AI breakdown read (getAiMetrics) failed - aiInteractionsByType/aiInteractionsByModel are then empty placeholders, never "no AI activity". */
+  aiFailed: boolean;
   /** ai_interactions counted by interaction_type, from Phase 5.1. */
   aiInteractionsByType: Record<string, number>;
   /** ai_interactions counted by model, from Phase 5.1. A missing model is grouped under "unknown". */
@@ -173,6 +175,7 @@ export async function getAgencyOrganizationSnapshots(
         messagesByStatus: communication.byMessageStatus,
         communicationFailed: communication.failed || metrics.communicationUnavailable,
         automationFailed: metrics.automationUnavailable,
+        aiFailed: ai.failed,
         aiInteractionsByType: ai.aiInteractionsByType,
         aiInteractionsByModel: ai.aiInteractionsByModel,
       };
@@ -258,6 +261,8 @@ export type AgencyBusinessMetricsResult =
         sourceAttributionLimited: true;
         stageHistoryUnavailable: true;
         aiTokenUsageUnavailable: boolean;
+        /** Phase 3E: AI figures could not be read for at least one client - the token note below then never claims "no usage reported". */
+        aiUnavailable: boolean;
         notes: string[];
       };
       generatedAt: string;
@@ -354,6 +359,7 @@ export async function getAgencyBusinessMetrics(
   };
 
   const aiTokenUsageUnavailable = summary.organizationsWithUsageData === 0;
+  const aiUnavailableCount = organizations.filter((s) => s.metrics.aiUnavailable || s.aiFailed).length;
 
   return {
     ok: true,
@@ -364,9 +370,13 @@ export async function getAgencyBusinessMetrics(
       sourceAttributionLimited: true,
       stageHistoryUnavailable: true,
       aiTokenUsageUnavailable,
+      aiUnavailable: aiUnavailableCount > 0,
       notes: [
         "No payment infrastructure exists - every value figure across the agency is quoted/contracted, never confirmed collected money.",
-        aiTokenUsageUnavailable
+        // Phase 3E: an unreadable AI read is never described as "no usage reported".
+        aiUnavailableCount > 0
+          ? `AI figures could not be read for ${aiUnavailableCount} of ${organizations.length} client(s) - their AI counts and token usage are unavailable, not zero.`
+          : aiTokenUsageUnavailable
           ? "No organization has any ai_interactions row with provider-reported token usage yet - n8n's own AI call has not reported it for any interaction."
           : `Token usage is available for ${summary.organizationsWithUsageData} of ${organizations.length} client(s) - only n8n calls that reported usage are included.`,
       ],

@@ -66,6 +66,9 @@ function attentionReasons(health: AgencyOrganizationHealth | undefined): string[
   if (health.calendarStatus === "error") reasons.push("Calendar");
   if (health.failedMessages > 0 || health.undeliveredMessages > 0) reasons.push("SMS");
   if (health.stuckExecutionCount > 0 && !reasons.includes("Incidents")) reasons.push("Stuck");
+  // Phase 3E: the remaining health-flag signals, so the badge never reads "Healthy" for a flagged client.
+  if (health.failedWorkflowExecutions > 0 && !reasons.includes("Incidents")) reasons.push("Failed runs");
+  if (health.communicationUnavailable || health.automationUnavailable || health.incidentsUnavailable) reasons.push("Unavailable");
   return reasons;
 }
 
@@ -83,10 +86,13 @@ function HealthBadge({ health }: { health: AgencyOrganizationHealth | undefined 
 export type ClientRow = {
   organization: AgencyOrganizationSnapshot;
   health: AgencyOrganizationHealth | undefined;
+  /** Phase 3E: this client is in the distinct needs-attention set (its health flag, or any open feed item) - the same set the Agency header counts. */
+  needsAttention: boolean;
   stage: OnboardingStage;
   incompleteCount: number;
   lastActivityAt: string | null;
-  escalationCount: number;
+  /** Phase 3E: null when the escalation read failed - shown as unavailable, never as "no escalations". */
+  escalationCount: number | null;
   /** Usability audit fix (#4): "NEXT ACTION" column - reuses the same NeedsAttentionItem.why text app/agency/_components/needs-attention.tsx already shows for this org's most urgent open item (see agency/page.tsx's own nextActionByOrg map). Null when the org has no open attention item - never invented copy. */
   nextAction: string | null;
 };
@@ -155,7 +161,7 @@ export function ClientOperations({ rows, totalCount }: { rows: ClientRow[]; tota
 }
 
 function railTone(row: ClientRow): BadgeTone {
-  if (row.health?.needsAttention) return "danger";
+  if (row.needsAttention) return "danger";
   return STAGE_TONE[row.stage];
 }
 
@@ -236,7 +242,11 @@ function ClientRowMobile({ row }: { row: ClientRow }) {
           </span>
           <span className="mt-0.5 block text-xs tabular-nums text-ink-3">
             {formatCount(m.leadMetrics.totalLeads)} leads · {formatCount(m.appointmentMetrics.totalAppointments)} appts · {formatCount(m.jobMetrics.totalJobs)} jobs
-            {row.escalationCount > 0 ? <span className="font-medium text-warning"> · {formatCount(row.escalationCount)} AI escalation{row.escalationCount === 1 ? "" : "s"}</span> : null}
+            {row.escalationCount === null ? (
+              <span className="text-ink-3"> · escalations unavailable</span>
+            ) : row.escalationCount > 0 ? (
+              <span className="font-medium text-warning"> · {formatCount(row.escalationCount)} AI escalation{row.escalationCount === 1 ? "" : "s"}</span>
+            ) : null}
           </span>
           {row.nextAction ? <span className="mt-0.5 block truncate text-xs text-ink-3">{row.nextAction}</span> : null}
         </span>

@@ -77,7 +77,8 @@ async function computeOrganizationHealth(supabase: SupabaseClient, organizationI
   // own failure: zero workflow counts, no name stats, no incidents, no
   // organization row (-> fails closed to payment_required below), and no
   // liveness rows (-> every scheduled automation "unverified", never stale).
-  const inputs: OrganizationHealthInputs = error || !data ? {} : (data as OrganizationHealthInputs);
+  const incidentsUnavailable = error != null || !data;
+  const inputs: OrganizationHealthInputs = incidentsUnavailable ? {} : (data as OrganizationHealthInputs);
 
   const overview = { completedWorkflows: inputs.window_status_counts?.completed ?? 0, failedWorkflows: inputs.window_status_counts?.failed ?? 0 };
   // One entry per workflow_name (the function groups by it), as getWorkflowNameStats' map values were.
@@ -160,6 +161,8 @@ async function computeOrganizationHealth(supabase: SupabaseClient, organizationI
     automationSuccessRate: successRate,
     lastSuccessfulActivityAt,
     lastFailureAt,
+    // Phase 3E: lets a caller tell "no incidents" from "incidents unreadable".
+    incidentsUnavailable,
     generatedAt: new Date().toISOString(),
   };
 }

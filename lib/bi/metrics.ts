@@ -1057,6 +1057,7 @@ export async function getBusinessMetricsSnapshot(
     communicationUnavailable: communicationFailed,
     automationUnavailable: automationFailed,
     reviewReferralUnavailable: reviewReferralFailed,
+    aiUnavailable: aiFailed,
     invoiceAging,
     estimateAging,
     reviewReferralMetrics,

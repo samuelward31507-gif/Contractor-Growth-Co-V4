@@ -22,10 +22,10 @@ function client(overrides: Partial<Parameters<typeof summarizeAgencyUsage>[0][nu
     organizationName: "Org One",
     period: { from: null, to: null, label: "last 30 days" },
     messaging: { inbound: 0, outbound: 0, total: 0, byStatus: { queued: 0, sent: 0, delivered: 0, failed: 0, undelivered: 0, received: 0, logged: 0 } },
-    ai: { interactions: 0, interactionsWithUsageData: 0, tokens: null, byType: {}, byModel: {}, needsHumanCount: 0 },
+    ai: { unavailable: false, interactions: 0, interactionsWithUsageData: 0, tokens: null, byType: {}, byModel: {}, needsHumanCount: 0 },
     automation: { executions: 0, successful: 0, failed: 0, running: 0, successRate: null },
     voice: { missedCalls: 0 },
-    operational: { leads: 0, appointments: 0, estimates: 0, jobs: 0, reviewsRequested: 0, referralsRequested: 0 },
+    operational: { leads: 0, appointments: 0, estimates: 0, jobs: 0, reviewsRequested: 0, referralsRequested: 0, reviewReferralUnavailable: false },
     dataQuality: { partialData: false, notes: [] },
     ...overrides,
   };

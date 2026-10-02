@@ -39,7 +39,8 @@ function fakeSupabase(answer: (query: Query) => Answer = () => ({})) {
   const queries: Query[] = [];
   const supabase = {
     auth: { getUser: async () => ({ data: { user: { id: "agency-admin" } }, error: null }) },
-    rpc: async (name: string) => ({ data: name === "is_agency_admin" ? true : null, error: null }),
+    // Phase 3E: organization_health_inputs answers like the real function (an object, even when empty) - a null answer now reads as a failed incident read.
+    rpc: async (name: string) => ({ data: name === "is_agency_admin" ? true : name === "organization_health_inputs" ? {} : null, error: null }),
     from(table: string) {
       const query: Query = { table, calls: [] };
       queries.push(query);

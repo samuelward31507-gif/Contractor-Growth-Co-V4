@@ -31,7 +31,8 @@ function normalizeFilter(value: string | undefined): AgencyClientFilter {
 function matchesFilter(row: ClientRow, filter: AgencyClientFilter): boolean {
   switch (filter) {
     case "attention":
-      return row.health?.needsAttention === true;
+      // Phase 3E: the same distinct-client set the header counts.
+      return row.needsAttention;
     case "live":
       return row.stage === "live";
     case "onboarding":
@@ -113,15 +114,22 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
     }
   }
 
+  // Phase 3E: one distinct-client set - a client's own health flag or any
+  // open feed item (lib/agency/needs-attention.ts) - drives the header count,
+  // the "attention" filter and each row's attention state alike.
+  const attentionOrganizationIds = new Set(needsAttention.attentionOrganizationIds);
+
   const allRows: ClientRow[] = metrics.organizations.map((org) => {
     const stageInfo = stages.stageByOrg.get(org.organizationId);
     return {
       organization: org,
       health: healthByOrg.get(org.organizationId),
+      needsAttention: attentionOrganizationIds.has(org.organizationId),
       stage: stageInfo?.stage ?? "new",
       incompleteCount: stageInfo?.incompleteCount ?? 0,
       lastActivityAt: activity.lastActivityByOrg.get(org.organizationId) ?? null,
-      escalationCount: escalations.countByOrg.get(org.organizationId) ?? 0,
+      // Phase 3E: null when the escalation read failed - never "no escalations".
+      escalationCount: escalations.failed ? null : (escalations.countByOrg.get(org.organizationId) ?? 0),
       nextAction: nextActionByOrg.get(org.organizationId) ?? null,
     };
   });
@@ -141,7 +149,13 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
 
   const smsFailureCount = (metrics.summary.messagesByStatus.failed ?? 0) + (metrics.summary.messagesByStatus.undelivered ?? 0);
 
-  const hasAttentionItems = needsAttention.items.length > 0;
+  const attentionClientCount = allRows.filter((row) => row.needsAttention).length;
+  const hasAttentionClients = attentionClientCount > 0;
+  // Phase 3E: any read failure behind this page - agency health (Phase 4C,
+  // 2J, 2K, heartbeat, incidents), escalations, or a client's shared metrics
+  // snapshot - is disclosed, never shown as a clean, healthy page.
+  const snapshotPartialData = metrics.organizations.some((org) => org.metrics.partialData || org.metrics.reviewReferralUnavailable || org.aiFailed);
+  const pagePartialData = health.partialData || escalations.failed || needsAttention.partialData || snapshotPartialData;
 
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
@@ -160,11 +174,11 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         action={
           <div className="sm:text-right">
             <p className="text-xs font-medium text-ink-3">Needs attention</p>
-            <p className={`mt-1 text-[26px] font-semibold leading-tight tracking-[-0.02em] ${numericDisplayClass} ${hasAttentionItems ? "text-danger-text" : "text-accent-text"}`}>
-              {formatCount(needsAttention.items.length)}
+            <p className={`mt-1 text-[26px] font-semibold leading-tight tracking-[-0.02em] ${numericDisplayClass} ${hasAttentionClients ? "text-danger-text" : "text-accent-text"}`}>
+              {formatCount(attentionClientCount)}
             </p>
             <p className="mt-1 text-xs text-ink-3">
-              {hasAttentionItems ? `client${needsAttention.items.length === 1 ? "" : "s"} to review` : "All clients operating normally"}
+              {hasAttentionClients ? `client${attentionClientCount === 1 ? "" : "s"} to review` : pagePartialData ? "Some data is unavailable" : "All clients operating normally"}
             </p>
           </div>
         }
@@ -173,8 +187,10 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
       {/* Trackpr 2.0, Phase 4C (P2 #1): a real Postgrest error on the
           stuck-execution, calendar-health, or payment/pause read must never
           silently render as "nothing wrong" in the System Health row below -
-          see getAgencyHealth's own AgencyHealthResult.partialData comment. */}
-      {health.partialData ? (
+          see getAgencyHealth's own AgencyHealthResult.partialData comment.
+          Phase 3E: also escalations, the feed, and the shared metrics
+          snapshot (pagePartialData above). */}
+      {pagePartialData ? (
         <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>Some information is temporarily unavailable. Please try again.</p>
@@ -285,7 +301,7 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
           rollup={health.incidentRollup}
           schedulerHeartbeat={health.schedulerHeartbeat}
           smsFailureCount={smsFailureCount}
-          aiEscalationCount={escalations.conversations.length}
+          aiEscalationCount={escalations.failed ? null : escalations.conversations.length}
           paymentIssueCount={health.organizations.filter((org) => org.paymentStatus === "suspended" || org.paymentStatus === "cancelled").length}
           automationPausedCount={health.organizations.filter((org) => org.automationPaused).length}
         />

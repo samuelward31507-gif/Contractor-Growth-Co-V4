@@ -26,7 +26,21 @@ export type NeedsAttentionItem = {
   actionLabel: string;
 };
 
-export type NeedsAttentionResult = { ok: true; items: NeedsAttentionItem[] } | AgencyAuthFailure;
+export type NeedsAttentionResult =
+  | {
+      ok: true;
+      items: NeedsAttentionItem[];
+      /**
+       * Phase 3E: the distinct clients needing attention - every client whose
+       * own health flag (AgencyOrganizationHealth.needsAttention) is set OR
+       * that has at least one item above. The Agency header count and its
+       * "attention" filter both use this one set, so they always agree.
+       */
+      attentionOrganizationIds: string[];
+      /** Phase 3E: a read behind this feed failed (agency health, escalations, or a client's incident read) - an empty feed then can't be read as "all clients operating normally". */
+      partialData: boolean;
+    }
+  | AgencyAuthFailure;
 
 /**
  * Agency Command Center 2.0 - the richer "Needs Attention" feed Section 5.C
@@ -102,6 +116,38 @@ export async function getAgencyNeedsAttentionItems(
         actionHref,
         actionLabel: "View client",
       });
+    } else if (detail.activeIncidentCount > 0) {
+      // Phase 3E: an info-only incident already flags the client's health
+      // (activeIncidentCount > 0) - give it a reason in the feed too.
+      items.push({
+        id: `incident-info-${org.organizationId}`,
+        severity: "warning",
+        category: "automation",
+        organizationId: org.organizationId,
+        organizationName: org.organizationName,
+        problem: "Automation incident open",
+        why: `${detail.activeIncidentCount} incident${detail.activeIncidentCount === 1 ? "" : "s"} open`,
+        timestamp: detail.lastFailureAt ?? detail.generatedAt,
+        actionHref,
+        actionLabel: "View client",
+      });
+    }
+    const hasIncidentItem = detail.activeIncidentCount > 0;
+
+    // Phase 3E: a failed incident read is never "no incidents".
+    if (detail.incidentsUnavailable) {
+      items.push({
+        id: `incidents-unavailable-${org.organizationId}`,
+        severity: "warning",
+        category: "system",
+        organizationId: org.organizationId,
+        organizationName: org.organizationName,
+        problem: "Automation health unavailable",
+        why: "Incident status could not be read - this client can't be confirmed healthy.",
+        timestamp: detail.generatedAt,
+        actionHref,
+        actionLabel: "View client",
+      });
     }
 
     // Growth System Completion Pass 1: surfaces lib/agency/health.ts's own
@@ -138,6 +184,87 @@ export async function getAgencyNeedsAttentionItems(
         organizationName: org.organizationName,
         problem: orgHealthSummary.paymentStatus === "cancelled" ? "Billing cancelled" : "Billing suspended",
         why: "Automation is gated until payment is resolved - see lib/automation/outbound-gate.ts's own payment check.",
+        timestamp: detail.generatedAt,
+        actionHref,
+        actionLabel: "View client",
+      });
+    }
+
+    // Phase 3E: the signals that already set this client's health flag
+    // (lib/agency/health.ts's needsAttention) but had no item of their own,
+    // so every flagged client has a reason here. Failed executions and
+    // failed messages are only itemized when no incident item already
+    // covers them, to avoid two rows for one problem.
+    if (orgHealthSummary && !hasIncidentItem && orgHealthSummary.failedWorkflowExecutions > 0) {
+      items.push({
+        id: `executions-failed-${org.organizationId}`,
+        severity: "warning",
+        category: "automation",
+        organizationId: org.organizationId,
+        organizationName: org.organizationName,
+        problem: "Automation executions failed",
+        why: `${orgHealthSummary.failedWorkflowExecutions} failed execution${orgHealthSummary.failedWorkflowExecutions === 1 ? "" : "s"} in the last 30 days`,
+        timestamp: detail.lastFailureAt ?? detail.generatedAt,
+        actionHref,
+        actionLabel: "View client",
+      });
+    }
+
+    const failedMessageCount = orgHealthSummary ? orgHealthSummary.failedMessages + orgHealthSummary.undeliveredMessages : 0;
+    if (detail.smsDeliveryFailureCount === 0 && failedMessageCount > 0) {
+      items.push({
+        id: `messages-failed-${org.organizationId}`,
+        severity: "warning",
+        category: "communication",
+        organizationId: org.organizationId,
+        organizationName: org.organizationName,
+        problem: "Messages not delivered",
+        why: `${failedMessageCount} failed or undelivered message${failedMessageCount === 1 ? "" : "s"} in the last 30 days`,
+        timestamp: detail.generatedAt,
+        actionHref,
+        actionLabel: "View client",
+      });
+    }
+
+    if (orgHealthSummary?.automationPaused) {
+      items.push({
+        id: `paused-${org.organizationId}`,
+        severity: "warning",
+        category: "automation",
+        organizationId: org.organizationId,
+        organizationName: org.organizationName,
+        problem: "Automation paused",
+        why: "Automated sends are paused for this client.",
+        timestamp: detail.generatedAt,
+        actionHref,
+        actionLabel: "View client",
+      });
+    }
+
+    if (orgHealthSummary?.communicationUnavailable) {
+      items.push({
+        id: `communication-unavailable-${org.organizationId}`,
+        severity: "warning",
+        category: "system",
+        organizationId: org.organizationId,
+        organizationName: org.organizationName,
+        problem: "Message counts unavailable",
+        why: "Message counts could not be read - this client can't be confirmed healthy.",
+        timestamp: detail.generatedAt,
+        actionHref,
+        actionLabel: "View client",
+      });
+    }
+
+    if (orgHealthSummary?.automationUnavailable) {
+      items.push({
+        id: `automation-unavailable-${org.organizationId}`,
+        severity: "warning",
+        category: "system",
+        organizationId: org.organizationId,
+        organizationName: org.organizationName,
+        problem: "Automation counts unavailable",
+        why: "Automation counts could not be read - this client can't be confirmed healthy.",
         timestamp: detail.generatedAt,
         actionHref,
         actionLabel: "View client",
@@ -223,5 +350,14 @@ export async function getAgencyNeedsAttentionItems(
     return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
   });
 
-  return { ok: true, items };
+  // Phase 3E: one distinct-client set for the header count and the
+  // "attention" filter - a client's own health flag or any item above.
+  const attentionIds = new Set<string>(items.map((item) => item.organizationId));
+  for (const orgHealth of health.organizations) {
+    if (orgHealth.needsAttention) attentionIds.add(orgHealth.organizationId);
+  }
+  const attentionOrganizationIds = resolved.organizations.map((org) => org.organizationId).filter((id) => attentionIds.has(id));
+  const partialData = health.partialData || escalations.failed || perOrgHealth.some((detail) => detail.incidentsUnavailable);
+
+  return { ok: true, items, attentionOrganizationIds, partialData };
 }

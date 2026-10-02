@@ -137,8 +137,21 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   }
 
   const orgToday = today.byOrg.get(id);
-  const escalationCount = escalations.countByOrg.get(id) ?? 0;
+  // Phase 3E: null when the escalation read failed - never "None".
+  const escalationCount = escalations.failed ? null : (escalations.countByOrg.get(id) ?? 0);
   const clientNeedsAttention = needsAttention.items.filter((item) => item.organizationId === id);
+  // Phase 3E: the same distinct-client set the Agency header counts.
+  const clientInAttention = needsAttention.attentionOrganizationIds.includes(id);
+  const aiUnavailable = org.metrics.aiUnavailable || org.aiFailed;
+  // Phase 3E: any read behind this client's figures that failed is disclosed, never shown as a clean page of zeros.
+  const clientPartialData =
+    org.metrics.partialData ||
+    org.metrics.reviewReferralUnavailable ||
+    aiUnavailable ||
+    orgHealth.communicationUnavailable ||
+    orgHealth.automationUnavailable ||
+    orgHealth.incidentsUnavailable ||
+    escalations.failed;
 
   // Only reached once `id` is confirmed to be one of THIS agency's own
   // already-authorized organizations (the check immediately above) - never
@@ -183,7 +196,7 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           action={
             <div className="flex items-center gap-2">
               <Badge tone={STAGE_TONE[checklist.stage]}>{ONBOARDING_STAGE_LABEL[checklist.stage]}</Badge>
-              {orgHealth.needsAttention ? (
+              {clientInAttention ? (
                 <Badge tone="danger" icon={AlertTriangle}>Needs attention</Badge>
               ) : (
                 <Badge tone="success" icon={CheckCircle2}>Healthy</Badge>
@@ -196,6 +209,13 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       <div className="mt-4">
         <AutomationPauseControl organizationId={id} isPaused={isAutomationPaused} />
       </div>
+
+      {clientPartialData ? (
+        <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>Some information for this client is temporarily unavailable. Figures marked Unavailable could not be read - they are not zero.</p>
+        </div>
+      ) : null}
 
       {clientNeedsAttention.length > 0 ? (
         <div className="mt-8">
@@ -291,12 +311,16 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
               <Row label="Queued" value={formatCount(org.messagesByStatus.queued ?? 0)} />
             </>
           )}
-          <Row
-            label="AI escalations waiting"
-            value={escalationCount > 0 ? formatCount(escalationCount) : "None"}
-            tone={escalationCount > 0 ? "warning" : "default"}
-            description={escalationCount > 0 ? "AI is paused on these conversations until a human replies." : undefined}
-          />
+          {escalationCount === null ? (
+            <Row label="AI escalations waiting" value="Unavailable" tone="warning" />
+          ) : (
+            <Row
+              label="AI escalations waiting"
+              value={escalationCount > 0 ? formatCount(escalationCount) : "None"}
+              tone={escalationCount > 0 ? "warning" : "default"}
+              description={escalationCount > 0 ? "AI is paused on these conversations until a human replies." : undefined}
+            />
+          )}
         </RowGroup>
       </div>
 
@@ -433,7 +457,14 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
         </RowGroup>
       </div>
 
-      {Object.keys(org.aiInteractionsByType).length > 0 ? (
+      {/* Phase 3E: a failed AI read keeps the section, marked Unavailable - never hidden as if there were no AI activity. */}
+      {aiUnavailable ? (
+        <div className="mt-8 border-t border-line pt-8">
+          <RowGroup label="AI activity">
+            <Row label="Total interactions" value="Unavailable" tone="warning" />
+          </RowGroup>
+        </div>
+      ) : Object.keys(org.aiInteractionsByType).length > 0 ? (
         <div className="mt-8 border-t border-line pt-8">
           <RowGroup label="AI activity">
             <Row label="Total interactions" value={formatCount(m.aiMetrics.aiInteractions)} />
@@ -468,7 +499,12 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
             <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
             No stage-transition history exists - rates are current-state or activity-count metrics, never true historical conversion rates.
           </li>
-          {metrics.dataQuality.aiTokenUsageUnavailable ? (
+          {aiUnavailable ? (
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
+              AI data temporarily unavailable - AI counts and token usage could not be read for this client.
+            </li>
+          ) : metrics.dataQuality.aiTokenUsageUnavailable ? (
             <li className="flex gap-2">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
               AI token usage unavailable - not populated by any automation path yet.

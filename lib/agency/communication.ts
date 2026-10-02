@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { resolveAgencyOrganizations, type AgencyAuthFailure } from "./queries";
 
 /**
@@ -18,7 +19,8 @@ export type AgencyEscalatedConversation = {
 };
 
 export type AgencyEscalationsResult =
-  | { ok: true; conversations: AgencyEscalatedConversation[]; countByOrg: Map<string, number> }
+  /** Phase 3E: `failed` is true when the escalation read failed (a page error or the row limit) - the list and counts are then empty placeholders, never "no escalations". */
+  | { ok: true; conversations: AgencyEscalatedConversation[]; countByOrg: Map<string, number>; failed: boolean }
   | AgencyAuthFailure;
 
 type EscalatedConversationRow = {
@@ -38,22 +40,30 @@ export async function getAgencyEscalatedConversations(
 
   const organizationIds = resolved.organizations.map((org) => org.organizationId);
   if (organizationIds.length === 0) {
-    return { ok: true, conversations: [], countByOrg: new Map() };
+    return { ok: true, conversations: [], countByOrg: new Map(), failed: false };
   }
 
-  const { data, error } = await serviceSupabase
-    .from("conversations")
-    .select("id, organization_id, contact_id, lead_id, updated_at")
-    .in("organization_id", organizationIds)
-    .eq("status", "open")
-    .eq("ai_enabled", false)
-    .order("updated_at", { ascending: false });
+  // Phase 3E: paged (readAllPages) - the API caps a response at 1000 rows,
+  // which silently cut the escalation counts short. Newest first with id as
+  // the tie-break, so pages are stable and the first row seen per
+  // organization stays its most recent escalation. A failed page or the row
+  // limit returns failed with no rows - never "no escalations".
+  const read = await readAllPages<EscalatedConversationRow>(() =>
+    serviceSupabase
+      .from("conversations")
+      .select("id, organization_id, contact_id, lead_id, updated_at")
+      .in("organization_id", organizationIds)
+      .eq("status", "open")
+      .eq("ai_enabled", false)
+      .order("updated_at", { ascending: false })
+      .order("id"),
+  );
 
-  if (error || !data) {
-    return { ok: true, conversations: [], countByOrg: new Map() };
+  if (read.failed) {
+    return { ok: true, conversations: [], countByOrg: new Map(), failed: true };
   }
 
-  const conversations: AgencyEscalatedConversation[] = (data as EscalatedConversationRow[]).map((row) => ({
+  const conversations: AgencyEscalatedConversation[] = read.rows.map((row) => ({
     id: row.id,
     organizationId: row.organization_id,
     contactId: row.contact_id,
@@ -66,5 +76,5 @@ export async function getAgencyEscalatedConversations(
     countByOrg.set(conversation.organizationId, (countByOrg.get(conversation.organizationId) ?? 0) + 1);
   }
 
-  return { ok: true, conversations, countByOrg };
+  return { ok: true, conversations, countByOrg, failed: false };
 }
