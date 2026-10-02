@@ -1,4 +1,5 @@
-// Validates supabase/pending/invoice_reminders_schedule.sql and its rollback,
+// Validates supabase/migrations/20261002162913_invoice_reminders_schedule.sql
+// and its rollback (supabase/pending/invoice_reminders_schedule_rollback.sql),
 // applied on top of the Phase 3D and 3G-1 schedulers
 // (supabase/migrations/20261002102849_scheduler_version_control.sql, then
 // supabase/migrations/20261002150020_owner_digest_schedule.sql),
@@ -19,7 +20,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const phase3d = fs.readFileSync(path.join(here, "..", "..", "migrations", "20261002102849_scheduler_version_control.sql"), "utf8");
 const ownerDigest = fs.readFileSync(path.join(here, "..", "..", "migrations", "20261002150020_owner_digest_schedule.sql"), "utf8");
-const forward = fs.readFileSync(path.join(here, "..", "invoice_reminders_schedule.sql"), "utf8");
+const forward = fs.readFileSync(path.join(here, "..", "..", "migrations", "20261002162913_invoice_reminders_schedule.sql"), "utf8");
 const rollback = fs.readFileSync(path.join(here, "..", "invoice_reminders_schedule_rollback.sql"), "utf8");
 
 const ROLES = `

@@ -1,6 +1,7 @@
 /**
  * Phase 3G-2b: static checks on the invoice-reminders scheduler migration
- * (supabase/pending/invoice_reminders_schedule.sql and its rollback). The
+ * (supabase/migrations/20261002162913_invoice_reminders_schedule.sql and its
+ * rollback in supabase/pending/). The
  * SQL's runtime behavior is exercised against PGlite by
  * supabase/pending/scratch/validate-invoice-reminders-schedule.mjs.
  *
@@ -15,7 +16,7 @@ import path from "node:path";
 const ROOT = process.cwd();
 const read = (file: string) => fs.readFileSync(path.join(ROOT, file), "utf8");
 const PREVIOUS = read("supabase/migrations/20261002150020_owner_digest_schedule.sql");
-const FORWARD = read("supabase/pending/invoice_reminders_schedule.sql");
+const FORWARD = read("supabase/migrations/20261002162913_invoice_reminders_schedule.sql");
 const ROLLBACK = read("supabase/pending/invoice_reminders_schedule_rollback.sql");
 const sqlCode = (sql: string) => sql.replace(/--.*$/gm, "");
 const helper = (sql: string) => sql.slice(sql.indexOf("create or replace function public.invoke_trackpr_scheduled"), sql.indexOf("revoke all on function public.invoke_trackpr_scheduled(text) from service_role;"));
