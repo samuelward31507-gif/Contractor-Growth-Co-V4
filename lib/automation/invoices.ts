@@ -28,6 +28,9 @@ import { startWorkflowExecution, completeWorkflowExecution, startWorkflowExecuti
  *                    (an invoice reopened by a reversal and paid again is a
  *                    genuinely new fact, keyed by the payment that closed it)
  *   payment.recorded payment.recorded:<payment_id>
+ *   invoice.delivered invoice.delivered:<invoice_id>:<message_id>
+ *                    (Phase 3G-2: one per successful "Send to customer" -
+ *                    each send, including "Send again", is its own fact)
  *
  * Payloads carry ids, amounts, statuses and dates only - never notes,
  * references or anything written for internal eyes. Never throws: the
@@ -35,15 +38,17 @@ import { startWorkflowExecution, completeWorkflowExecution, startWorkflowExecuti
  * record the marker is logged, never surfaced as a failure to the user.
  */
 
-export type InvoiceLifecycleEventType = "invoice.issued" | "invoice.paid" | "invoice.voided" | "payment.recorded";
+export type InvoiceLifecycleEventType = "invoice.issued" | "invoice.paid" | "invoice.voided" | "payment.recorded" | "invoice.delivered";
 
-export const INVOICE_LIFECYCLE_EVENT_TYPES: readonly InvoiceLifecycleEventType[] = ["invoice.issued", "invoice.paid", "invoice.voided", "payment.recorded"];
+export const INVOICE_LIFECYCLE_EVENT_TYPES: readonly InvoiceLifecycleEventType[] = ["invoice.issued", "invoice.paid", "invoice.voided", "payment.recorded", "invoice.delivered"];
 
 export type InvoiceLifecycleEventInput =
   | { eventType: "invoice.issued"; invoiceId: string; payload: { invoice_id: string; number: number; job_id: string; contact_id: string | null; total: number; issued_at: string | null; due_date: string | null } }
   | { eventType: "invoice.voided"; invoiceId: string; payload: { invoice_id: string; number: number; job_id: string; contact_id: string | null; total: number; previous_status: string } }
   | { eventType: "invoice.paid"; invoiceId: string; completingPaymentId: string; payload: { invoice_id: string; number: number; job_id: string; contact_id: string | null; total: number; amount_paid: number; paid_at: string | null; completing_payment_id: string } }
-  | { eventType: "payment.recorded"; paymentId: string; payload: { payment_id: string; invoice_id: string; number: number; job_id: string; contact_id: string | null; amount: number; method: string; received_at: string; invoice_status_after: string; amount_paid_after: number } };
+  | { eventType: "payment.recorded"; paymentId: string; payload: { payment_id: string; invoice_id: string; number: number; job_id: string; contact_id: string | null; amount: number; method: string; received_at: string; invoice_status_after: string; amount_paid_after: number } }
+  /** Phase 3G-2: a successful "Send to customer". Ids, amounts and dates only - never the message text, phone number or payment link. */
+  | { eventType: "invoice.delivered"; invoiceId: string; messageId: string; payload: { invoice_id: string; number: number; contact_id: string; message_id: string; balance_due: number; due_date: string | null } };
 
 export function invoiceLifecycleIdempotencyKey(input: InvoiceLifecycleEventInput): string {
   switch (input.eventType) {
@@ -54,6 +59,8 @@ export function invoiceLifecycleIdempotencyKey(input: InvoiceLifecycleEventInput
       return `invoice.paid:${input.invoiceId}:${input.completingPaymentId}`;
     case "payment.recorded":
       return `payment.recorded:${input.paymentId}`;
+    case "invoice.delivered":
+      return `invoice.delivered:${input.invoiceId}:${input.messageId}`;
   }
 }
 

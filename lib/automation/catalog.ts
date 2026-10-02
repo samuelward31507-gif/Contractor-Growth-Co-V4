@@ -55,6 +55,13 @@ export type AutomationDefinition = {
   dispatch: AutomationDispatch;
   /** Ordered, human-readable steps for the detail page's "How it works" section - only steps that are actually implemented, never invented. */
   steps: string[];
+  /**
+   * Phase 3G-2: whether this automation is on for an organization that has
+   * never set it (no automation_settings row). Omitted means true - every
+   * existing automation keeps its on-by-default behavior. Only an automation
+   * that must be explicitly opted into sets false.
+   */
+  defaultEnabled?: boolean;
 };
 
 export const AUTOMATION_CATALOG: AutomationDefinition[] = [
@@ -363,6 +370,16 @@ export function getAutomationForEventType(eventType: string): AutomationDefiniti
  */
 export function getAutomationForWorkflowName(workflowName: string): AutomationDefinition | null {
   return AUTOMATION_CATALOG.find((a) => a.workflowNames.includes(workflowName)) ?? null;
+}
+
+/**
+ * Phase 3G-2: the enabled state to assume when an organization has no
+ * automation_settings row for `automationId` - the catalog entry's
+ * defaultEnabled, or true (the long-standing default) for every automation
+ * that doesn't set it and for unknown ids.
+ */
+export function getAutomationDefaultEnabled(automationId: string): boolean {
+  return getAutomationDefinition(automationId)?.defaultEnabled ?? true;
 }
 
 /**

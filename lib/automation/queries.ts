@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAutomationAndFollowUpMetrics, resolveDateRange } from "@/lib/bi/queries";
 import type { AutomationMetrics } from "@/lib/bi/types";
-import { AUTOMATION_CATALOG, type AutomationDefinition } from "./catalog";
+import { AUTOMATION_CATALOG, getAutomationDefaultEnabled, type AutomationDefinition } from "./catalog";
 
 /**
  * Automation Control Center read layer - server-only, RLS-scoped by the
@@ -203,7 +203,7 @@ export function buildAutomationSummaries(statsByName: Map<string, WorkflowNameSt
       };
     }
 
-    const enabled = enabledByAutomationId.get(definition.id) ?? true;
+    const enabled = enabledByAutomationId.get(definition.id) ?? getAutomationDefaultEnabled(definition.id);
 
     const relevantStats = definition.workflowNames.map((name) => statsByName.get(name)).filter((s): s is WorkflowNameStats => s !== undefined);
 

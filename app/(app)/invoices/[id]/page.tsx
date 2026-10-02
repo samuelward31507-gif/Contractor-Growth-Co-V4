@@ -17,6 +17,7 @@ import { PaymentHistory } from "./_components/payment-history";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 import { PaymentLinkRow } from "./_components/payment-link-row";
 import { getInvoicePaymentLink } from "@/lib/payments/payment-link";
+import { getInvoiceDeliveryState, DELIVERY_BLOCK_MESSAGE } from "@/lib/invoices/delivery";
 import { resolveAppBaseUrl } from "@/lib/automation/sms";
 
 /**
@@ -58,6 +59,19 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   // Phase 1C: the public payment link, read with this member's own session
   // (no Stripe call, no write) - see lib/payments/payment-link.ts.
   const paymentLink = await getInvoicePaymentLink(supabase, { organizationId: membership.organizationId, paymentStatus: membership.paymentStatus, invoiceId: invoice.id, baseUrl: resolveAppBaseUrl() });
+  // Phase 3G-2a: "Send to customer" - whether it is possible right now, why
+  // not, the masked number and the latest successful send (same session).
+  const deliveryState =
+    invoice.status === "sent" || invoice.status === "partially_paid"
+      ? await getInvoiceDeliveryState(supabase, membership.organizationId, invoice.id, { paymentStatus: membership.paymentStatus, baseUrl: resolveAppBaseUrl() })
+      : null;
+  const delivery = deliveryState
+    ? {
+        blockedMessage: deliveryState.blockedReason ? DELIVERY_BLOCK_MESSAGE[deliveryState.blockedReason] : null,
+        maskedPhone: deliveryState.maskedPhone,
+        lastDeliveredLabel: deliveryState.lastDeliveredAt ? formatContactDate(deliveryState.lastDeliveredAt) : null,
+      }
+    : undefined;
   const label = formatInvoiceNumber(invoice.number);
   const customerName = invoice.contact ? contactDisplayName(invoice.contact) : "No contact";
   const dueLabel = invoice.due_date ? formatContactDate(`${invoice.due_date}T12:00:00Z`) : null;
@@ -82,7 +96,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             ) : null}
           </>
         }
-        action={<InvoiceActions invoice={{ id: invoice.id, number: invoice.number, status: invoice.status, total: invoice.total, amountPaid: invoice.amount_paid, dueDate: invoice.due_date }} />}
+        action={<InvoiceActions invoice={{ id: invoice.id, number: invoice.number, status: invoice.status, total: invoice.total, amountPaid: invoice.amount_paid, dueDate: invoice.due_date }} delivery={delivery} />}
         meta={
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
             <div>

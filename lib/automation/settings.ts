@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getAutomationDefaultEnabled } from "./catalog";
 
 /**
  * The sole read path for automation_settings.enabled. No row for a given
@@ -24,17 +25,19 @@ export async function getAutomationEnabled(
     .eq("automation_id", automationId)
     .maybeSingle();
 
-  return (data?.enabled as boolean | undefined) ?? true;
+  // Phase 3G-2: no row means the catalog default - true for every automation
+  // except one that explicitly defaults off (defaultEnabled: false).
+  return (data?.enabled as boolean | undefined) ?? getAutomationDefaultEnabled(automationId);
 }
 
 /**
  * Phase G: batch variant of getAutomationEnabled for rendering an entire
  * automation list/detail page - one query for every automation_settings
  * row this organization has ever touched, instead of one query per catalog
- * automation. Missing from the returned map still means enabled (same
- * default as getAutomationEnabled) - callers should read it as
- * `map.get(id) ?? true`, never assume a present-but-false entry is the only
- * way to be disabled.
+ * automation. Missing from the returned map means the catalog default (the
+ * same default as getAutomationEnabled) - callers should read it as
+ * `map.get(id) ?? getAutomationDefaultEnabled(id)`, never assume a
+ * present-but-false entry is the only way to be disabled.
  */
 export async function getAutomationEnabledMap(supabase: SupabaseClient, organizationId: string): Promise<Map<string, boolean>> {
   const map = new Map<string, boolean>();
