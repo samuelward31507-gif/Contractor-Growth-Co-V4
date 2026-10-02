@@ -1,8 +1,19 @@
 -- Rollback for scheduler_version_control.sql. Run as one transaction, by a
 -- person, only if the forward script must be undone.
 --
--- ORDER MATTERS: revert the application code first only if you also want
--- the opportunity-sync route gone; the route is harmless without its job.
+-- ORDER MATTERS - always in this sequence:
+--  1. Revert/redeploy the application code first, so opportunity-sync is
+--     no longer in SCHEDULED_AUTOMATION_IDS (no longer an expected
+--     scheduled automation).
+--  2. Only then run this script.
+-- Why: running this script while the Phase 3D code is still deployed
+-- removes opportunity-sync's schedule while the liveness catalog still
+-- expects it. Its liveness turns stale after ~45 minutes, and
+-- /api/automation/health (and the daily watchdog) would then raise the
+-- customer-facing "Automation needs attention" alert to every live, paying
+-- organization's owners - a false alarm. (The reverse order is harmless:
+-- with the old code deployed, the still-scheduled job just gets a 404 with
+-- no side effects until this script removes it.)
 --
 -- What it does:
 --  1. Unschedules trackpr_opportunity_sync (if present).

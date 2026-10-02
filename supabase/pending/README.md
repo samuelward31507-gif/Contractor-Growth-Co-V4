@@ -280,7 +280,7 @@ Not managed here: the pg_cron / pg_net extensions and the Vault secrets (created
 
 Companion files:
 
-- `scheduler_version_control_rollback.sql` unschedules `trackpr_opportunity_sync` and restores the helper's exact pre-Phase-3D body (seven paths), leaving the seven jobs - already identical to before - and the cleanup job alone.
+- `scheduler_version_control_rollback.sql` unschedules `trackpr_opportunity_sync` and restores the helper's exact pre-Phase-3D body (seven paths), leaving the seven jobs - already identical to before - and the cleanup job alone. See "Rollback order" below.
 - `scratch/validate-scheduler-version-control.mjs` applies the script to PGlite with stand-in cron/vault/net schemas (dummy values only): skip without pg_cron or Vault; existing jobs updated in place with the same job ids; idempotent; cleanup untouched; helper behavior (8 paths, https check, Bearer header, timeout); grants revoked; refusal on a job owned by another role; and the rollback.
 
 ### Deploy order
@@ -295,6 +295,13 @@ Deploy the application code first (the `/api/automation/opportunity-sync` route 
 4. Verify read-only: the same `cron.job` query shows the seven jobs with the SAME jobids and schedules, `trackpr_opportunity_sync` once at `7,22,37,52 * * * *`, and `trackpr_cron_history_cleanup` still inactive; `has_function_privilege` for anon, authenticated and service_role on `public.invoke_trackpr_scheduled(text)` is false.
 5. Watch Vercel's request logs for one cycle: the seven routes plus `/api/automation/opportunity-sync`, all 200.
 6. Only after production has it: `git mv` the file into `supabase/migrations/<recorded production version>_scheduler_version_control.sql`.
+
+### Rollback order
+
+1. Revert/redeploy the application code first, so `opportunity-sync` is no longer tracked as an expected scheduled automation (`SCHEDULED_AUTOMATION_IDS`).
+2. Then run `scheduler_version_control_rollback.sql`.
+
+Why: running the SQL rollback while the Phase 3D code is still deployed removes `opportunity-sync`'s schedule while the liveness catalog still expects it. Its liveness becomes stale after ~45 minutes, and `/api/automation/health` (and the daily watchdog) would then raise the customer-facing "Automation needs attention" alert to every live, paying organization's owners - a false alarm. The reverse order is harmless: with the old code deployed, the still-scheduled job only gets a 404, with no side effects, until the SQL rollback removes it.
 
 ### Status
 
