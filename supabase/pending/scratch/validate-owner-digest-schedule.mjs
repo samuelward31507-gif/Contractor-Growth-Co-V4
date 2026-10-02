@@ -1,4 +1,5 @@
-// Validates supabase/pending/owner_digest_schedule.sql and its rollback,
+// Validates supabase/migrations/20261002150020_owner_digest_schedule.sql and
+// its rollback (supabase/pending/owner_digest_schedule_rollback.sql),
 // applied on top of the Phase 3D scheduler
 // (supabase/migrations/20261002102849_scheduler_version_control.sql)
 // against an in-memory Postgres (PGlite), with minimal stand-ins for the
@@ -17,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const phase3d = fs.readFileSync(path.join(here, "..", "..", "migrations", "20261002102849_scheduler_version_control.sql"), "utf8");
-const forward = fs.readFileSync(path.join(here, "..", "owner_digest_schedule.sql"), "utf8");
+const forward = fs.readFileSync(path.join(here, "..", "..", "migrations", "20261002150020_owner_digest_schedule.sql"), "utf8");
 const rollback = fs.readFileSync(path.join(here, "..", "owner_digest_schedule_rollback.sql"), "utf8");
 
 const ROLES = `
