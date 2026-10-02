@@ -346,7 +346,7 @@ Revert/redeploy the application code first, then run `owner_digest_schedule_roll
 
 The files now live at `supabase/migrations/20261002143550_owner_digest_notification_setting.sql` and `supabase/migrations/20261002150020_owner_digest_schedule.sql`, unmodified (same SHA-256s as applied); their header comments still read "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback files and the PGlite harness stay here; the harness and `lib/automation-health/owner-digest-schedule.structural.test.ts` now read the migrations from their `supabase/migrations/` location.
 
-## invoice_reminders_schedule.sql (PENDING - not applied anywhere)
+## invoice_reminders_schedule.sql (moved to supabase/migrations/20261002162913_invoice_reminders_schedule.sql)
 
 Phase 3G-2b (Invoice Reminders): schedules `/api/automation/invoice-reminders` on the existing pg_cron scheduler. Re-creates `public.invoke_trackpr_scheduled` from `supabase/migrations/20261002150020_owner_digest_schedule.sql` with exactly one change (`/api/automation/invoice-reminders` added to the allowlist) and schedules one new job, `trackpr_invoice_reminders`, at `9,24,39,54 * * * *` (the first unused minute after the nine existing jobs). The same guards as 3D and 3G-1: nothing without pg_cron or both Vault secrets, refuse a same-named job owned by another role, exactly one job by name. Existing jobs (including `trackpr_owner_digest`) and `trackpr_cron_history_cleanup` are untouched. No schema change.
 
@@ -368,4 +368,10 @@ Revert/redeploy the application code first, then run `invoice_reminders_schedule
 
 ### Status
 
-Written and validated locally (PGlite, 7 scenario checks). SHA-256 `504a7ec95d54fa12d5a900e9a0bc7f6b9e0beb6cd7d866a16d6fd565110d563e`. Not applied to TEST or production.
+**Applied and version-controlled - no longer pending.** Written and validated locally (PGlite, 7 scenario checks). SHA-256 `504a7ec95d54fa12d5a900e9a0bc7f6b9e0beb6cd7d866a16d6fd565110d563e`.
+
+**Production (mywznmxtlgajnczjvbmk):** applied on 2026-10-02 after PR #39 (merge `608456f`) deployed, via the MCP `apply_migration` mechanism with the name `invoice_reminders_schedule`, once, as the file's exact text, as `postgres`; ledger version `20261002162913`. Read-only preflight beforehand: the live helper body matched the 3G-1 helper exactly (md5 `6df0ee49...`), nine paths, no `trackpr_invoice_reminders`, 0 `automation_settings` rows for `invoice-reminders`. Verified read-only afterwards: the helper allows ten paths including `/api/automation/invoice-reminders` (body md5 `edd1af96...`, identical to this file's), owner `postgres`, not SECURITY DEFINER, EXECUTE revoked from anon/authenticated/service_role; `trackpr_invoice_reminders` (job 18) once at `9,24,39,54 * * * *`, active, owned by `postgres`; other jobs and the inactive cleanup job unchanged. The first natural run (16:39 UTC) returned 200 and recorded liveness with 0 candidates; no message, event or execution was created. Invoice Reminders remains off for every organization (no settings rows).
+
+**trackpr-stripe-test:** not applied.
+
+The file now lives at `supabase/migrations/20261002162913_invoice_reminders_schedule.sql`, unmodified (same SHA-256 as applied); its header comment still reads "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback file and the PGlite harness stay here; the harness and `lib/automation-health/invoice-reminders-schedule.structural.test.ts` now read the migration from its `supabase/migrations/` location.
