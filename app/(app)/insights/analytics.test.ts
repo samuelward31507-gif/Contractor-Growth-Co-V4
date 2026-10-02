@@ -355,3 +355,18 @@ test("Phase 2J: message, conversation and opt-out figures whose read failed show
   assert.match(PAGE, /snapshot\.sourceCountsUnavailable \|\| snapshot\.communicationUnavailable \|\|/);
   assert.doesNotMatch(read("lib/bi/insights.ts"), /communicationUnavailable/, "the AI is told through a dataQuality note, not a new field");
 });
+
+test("Phase 2K: follow-up figures whose automation read failed show as unavailable - never 0 - and turn on the banner; Agency's detail shows the execution rows as Unavailable", () => {
+  assert.match(SECTIONS, /const followUpValue = \(value: number\) => \(automationUnavailable \? \{ value: "-", detail: "Couldn't be read for this period" \} : \{ value: String\(value\) \}\);/);
+  for (const [key, field] of [["lost-nurture", "lostLeadNurtureEvents"], ["reactivation", "reactivationEvents"], ["appointment-reminders", "appointmentReminderEvents"], ["estimate-followups", "estimateFollowUpEvents"], ["job-followups", "postJobFollowUpEvents"], ["leads-touched", "leadsTouchedByAutomation"]]) {
+    assert.match(SECTIONS, new RegExp(`\\{ key: "${key}", label: "[^"]+", \\.\\.\\.followUpValue\\(followUpMetrics\\.${field}\\) \\}`), key);
+  }
+  // The AI-handled tiles come from ai_interactions, not the automation reads - unchanged.
+  assert.match(SECTIONS, /\{ key: "interactions", label: "AI interactions", value: String\(aiMetrics\.customerAiInteractions\) \}/);
+  assert.match(PAGE, /snapshot\.communicationUnavailable \|\| snapshot\.automationUnavailable \|\|/);
+  assert.doesNotMatch(read("lib/bi/insights.ts"), /automationUnavailable/, "the AI is told through a dataQuality note, not a new field");
+  const detail = read("app/agency/organizations/[id]/page.tsx");
+  assert.match(detail, /\{org\.automationFailed \? \(\s*<>\s*\{\["Executions", "Completed", "Failed", "Running"\]\.map\(\(label\) => \(\s*<Row key=\{label\} label=\{label\} value="Unavailable" tone="warning" \/>/);
+  assert.match(detail, /\{org\.automationFailed \? <Row label="Success rate" value="Unavailable" tone="warning" \/> :/);
+  assert.match(detail, /<Row label="Stuck" value=\{formatCount\(orgHealth\.stuckExecutionCount\)\}/, "Stuck has its own read and stays real");
+});

@@ -137,6 +137,8 @@ export type AgencyOrganizationSnapshot = {
   messagesByStatus: Record<MessageStatus, number>;
   /** Phase 2J: this organization's message, conversation or opt-out counts could not be read (here or in its snapshot) - messagesByStatus and communicationMetrics are then zeroed placeholders, never a genuine zero. */
   communicationFailed: boolean;
+  /** Phase 2K: this organization's automation event, workflow execution or leads-touched read failed - metrics.automationMetrics and metrics.followUpMetrics are then zeroed placeholders, never a genuine zero. */
+  automationFailed: boolean;
   /** ai_interactions counted by interaction_type, from Phase 5.1. */
   aiInteractionsByType: Record<string, number>;
   /** ai_interactions counted by model, from Phase 5.1. A missing model is grouped under "unknown". */
@@ -170,6 +172,7 @@ export async function getAgencyOrganizationSnapshots(
         metrics,
         messagesByStatus: communication.byMessageStatus,
         communicationFailed: communication.failed || metrics.communicationUnavailable,
+        automationFailed: metrics.automationUnavailable,
         aiInteractionsByType: ai.aiInteractionsByType,
         aiInteractionsByModel: ai.aiInteractionsByModel,
       };

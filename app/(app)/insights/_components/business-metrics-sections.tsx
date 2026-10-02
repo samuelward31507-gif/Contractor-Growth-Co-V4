@@ -594,7 +594,9 @@ export function RetentionPanel({ snapshot, repeat }: { snapshot: BusinessMetrics
  * rate) belongs to /automations and is linked, not repeated.
  */
 export function AutomationPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { aiMetrics, followUpMetrics, period } = snapshot;
+  const { aiMetrics, followUpMetrics, period, automationUnavailable } = snapshot;
+  // Phase 2K: an unreadable automation read shows "-", never a zeroed count.
+  const followUpValue = (value: number) => (automationUnavailable ? { value: "-", detail: "Couldn't be read for this period" } : { value: String(value) });
 
   return (
     <Panel id="automation" title="Trackpr automation" scope={scopeLabel(period.label)}>
@@ -609,12 +611,12 @@ export function AutomationPanel({ snapshot }: { snapshot: BusinessMetricsSnapsho
       <PanelBody>
         <SecondaryMetrics
           metrics={[
-            { key: "lost-nurture", label: "Lost-lead nurture", value: String(followUpMetrics.lostLeadNurtureEvents) },
-            { key: "reactivation", label: "Reactivation", value: String(followUpMetrics.reactivationEvents) },
-            { key: "appointment-reminders", label: "Appointment reminders", value: String(followUpMetrics.appointmentReminderEvents) },
-            { key: "estimate-followups", label: "Estimate follow-ups", value: String(followUpMetrics.estimateFollowUpEvents) },
-            { key: "job-followups", label: "Post-job follow-ups", value: String(followUpMetrics.postJobFollowUpEvents) },
-            { key: "leads-touched", label: "Leads touched", value: String(followUpMetrics.leadsTouchedByAutomation) },
+            { key: "lost-nurture", label: "Lost-lead nurture", ...followUpValue(followUpMetrics.lostLeadNurtureEvents) },
+            { key: "reactivation", label: "Reactivation", ...followUpValue(followUpMetrics.reactivationEvents) },
+            { key: "appointment-reminders", label: "Appointment reminders", ...followUpValue(followUpMetrics.appointmentReminderEvents) },
+            { key: "estimate-followups", label: "Estimate follow-ups", ...followUpValue(followUpMetrics.estimateFollowUpEvents) },
+            { key: "job-followups", label: "Post-job follow-ups", ...followUpValue(followUpMetrics.postJobFollowUpEvents) },
+            { key: "leads-touched", label: "Leads touched", ...followUpValue(followUpMetrics.leadsTouchedByAutomation) },
           ]}
         />
         <ViewLink href="/automations">Automation health in Automations</ViewLink>

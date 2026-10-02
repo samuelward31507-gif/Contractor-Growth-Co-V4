@@ -236,6 +236,10 @@ export async function getAgencyUsageSummary(sessionSupabase: SupabaseClient, ser
     if (snapshot.communicationFailed) {
       notes.push("Message counts temporarily unavailable.");
     }
+    // Phase 2K: unreadable automation counts are disclosed the same way.
+    if (snapshot.automationFailed) {
+      notes.push("Automation counts temporarily unavailable.");
+    }
 
     return {
       organizationId: snapshot.organizationId,
@@ -274,7 +278,7 @@ export async function getAgencyUsageSummary(sessionSupabase: SupabaseClient, ser
         referralsRequested: metrics.reviewReferralMetrics.referralsRequested,
       },
       dataQuality: {
-        partialData: metrics.partialData || missedCallsFailed || snapshot.communicationFailed,
+        partialData: metrics.partialData || missedCallsFailed || snapshot.communicationFailed || snapshot.automationFailed,
         notes,
       },
     };

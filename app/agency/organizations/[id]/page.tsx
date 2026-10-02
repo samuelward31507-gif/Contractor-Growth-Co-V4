@@ -255,12 +255,23 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
       */}
       <div className="mt-8 grid grid-cols-1 gap-8 border-t border-line pt-14 sm:grid-cols-2">
         <RowGroup label="Automation">
-          <Row label="Executions" value={formatCount(m.automationMetrics.workflowExecutions)} />
-          <Row label="Completed" value={formatCount(m.automationMetrics.successfulWorkflowExecutions)} tone={m.automationMetrics.successfulWorkflowExecutions > 0 ? "success" : "default"} />
-          <Row label="Failed" value={formatCount(m.automationMetrics.failedWorkflowExecutions)} tone={m.automationMetrics.failedWorkflowExecutions > 0 ? "danger" : "default"} />
-          <Row label="Running" value={formatCount(m.automationMetrics.runningWorkflowExecutions)} />
+          {/* Phase 2K: unreadable execution counts show as Unavailable, never as zeros. Stuck has its own read. */}
+          {org.automationFailed ? (
+            <>
+              {["Executions", "Completed", "Failed", "Running"].map((label) => (
+                <Row key={label} label={label} value="Unavailable" tone="warning" />
+              ))}
+            </>
+          ) : (
+            <>
+              <Row label="Executions" value={formatCount(m.automationMetrics.workflowExecutions)} />
+              <Row label="Completed" value={formatCount(m.automationMetrics.successfulWorkflowExecutions)} tone={m.automationMetrics.successfulWorkflowExecutions > 0 ? "success" : "default"} />
+              <Row label="Failed" value={formatCount(m.automationMetrics.failedWorkflowExecutions)} tone={m.automationMetrics.failedWorkflowExecutions > 0 ? "danger" : "default"} />
+              <Row label="Running" value={formatCount(m.automationMetrics.runningWorkflowExecutions)} />
+            </>
+          )}
           <Row label="Stuck" value={formatCount(orgHealth.stuckExecutionCount)} tone={orgHealth.stuckExecutionCount > 0 ? "warning" : "default"} />
-          <Row label="Success rate" value={formatRate(m.automationMetrics.automationSuccessRate)} />
+          {org.automationFailed ? <Row label="Success rate" value="Unavailable" tone="warning" /> : <Row label="Success rate" value={formatRate(m.automationMetrics.automationSuccessRate)} />}
         </RowGroup>
         <RowGroup label="Communication">
           {/* Phase 2J: unreadable message counts show as Unavailable, never as zeros. */}
