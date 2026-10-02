@@ -11,6 +11,7 @@ import { classifyAndProcessEstimateReply } from "@/lib/automation/estimate-reply
 import { classifyAndProcessBookingReply } from "@/lib/automation/booking-reply";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 import { recordSmsCostEventForMessage } from "@/lib/costs/sms-cost-events";
+import { writeSmsOptOut } from "@/lib/messaging/opt-out";
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
@@ -116,10 +117,25 @@ export async function POST(request: NextRequest) {
   }
 
   const keyword = matchSmsKeyword(body);
-  if (keyword === "stop" && !contact.sms_opt_out) {
-    await service.from("contacts").update({ sms_opt_out: true }).eq("id", contact.id);
-  } else if (keyword === "start" && contact.sms_opt_out) {
-    await service.from("contacts").update({ sms_opt_out: false }).eq("id", contact.id);
+  // Phase 3F: a STOP/START that couldn't be persisted (after one retry) must
+  // never be acknowledged. Returning 500 BEFORE the message is inserted
+  // leaves the duplicate-message check above unarmed, so a redelivery of
+  // this webhook re-runs the whole flow, including this write.
+  const optOutTarget = keyword === "stop" && !contact.sms_opt_out ? true : keyword === "start" && contact.sms_opt_out ? false : null;
+  if (optOutTarget !== null) {
+    const optOutWrite = await writeSmsOptOut(service, contact.id, optOutTarget);
+    if (!optOutWrite.ok) {
+      console.error("[sms][inbound] failed to persist sms_opt_out", {
+        organizationId: organization.id,
+        contactId: contact.id,
+        keyword,
+        attempts: optOutWrite.attempts,
+        finalFailure: true,
+        errorCode: optOutWrite.failure.code,
+        errorMessage: optOutWrite.failure.message,
+      });
+      return NextResponse.json({ ok: false, error: "Could not update SMS opt-out state." }, { status: 500 });
+    }
   }
   // HELP is recorded like any other inbound message below and answered with
   // one deterministic reply (see the sendOutboundMessage() call further
