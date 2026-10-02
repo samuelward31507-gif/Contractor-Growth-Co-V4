@@ -3,6 +3,7 @@ import { resolveAgencyOrganizations, type AgencyAuthFailure } from "./queries";
 import { extractAiTokenUsage } from "./cost-readiness";
 import { resolveTrustedAiProvider } from "@/lib/costs/ai-cost-events";
 import { resolveDateRange } from "@/lib/bi/queries";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import type { DateRangeInput, ResolvedDateRange } from "@/lib/bi/types";
 
 /**
@@ -27,9 +28,6 @@ import type { DateRangeInput, ResolvedDateRange } from "@/lib/bi/types";
  * never sharing state with it, and never changing anything about the
  * existing AI cost behavior.
  */
-
-const MAX_AI_COST_EVENT_ROWS = 50_000;
-const MAX_AI_INTERACTION_ROWS = 10_000;
 
 export type CostCurrencyAmount = { currency: string; amount: number };
 
@@ -102,7 +100,17 @@ function dataQualityFor(known: number, unresolved: number): AiCostDataQuality {
 }
 
 type AiCostEventRow = { organization_id: string; currency: string; total_cost: number };
-type AiInteractionRow = { id: string; organization_id: string; interaction_type: string; output: unknown };
+/**
+ * Phase 3A-3b: `ai_cost_events` is the embedded known-cost link (the unique
+ * ai_cost_events.source_interaction_id foreign key) - an object, a one-item
+ * array or null/[] depending on how PostgREST resolves the one-to-one embed.
+ */
+type AiInteractionRow = { id: string; organization_id: string; interaction_type: string; output: unknown; ai_cost_events?: unknown };
+
+/** Whether an embedded cost-event link (object, array or null) holds at least one row. */
+function hasEmbeddedRow(embed: unknown): boolean {
+  return Array.isArray(embed) ? embed.length > 0 : embed != null;
+}
 
 /**
  * Two batched queries, each scoped to the full authorized organization id
@@ -119,17 +127,16 @@ export async function loadCostEvents(
 ): Promise<{ rows: AiCostEventRow[]; failed: boolean }> {
   if (organizationIds.length === 0) return { rows: [], failed: false };
 
-  let query = serviceSupabase
-    .from("ai_cost_events")
-    .select("organization_id, currency, total_cost")
-    .in("organization_id", organizationIds)
-    .limit(MAX_AI_COST_EVENT_ROWS);
-  if (range.from) query = query.gte("occurred_at", range.from);
-  if (range.to) query = query.lt("occurred_at", range.to);
-
-  const { data, error } = await query;
-  if (error) return { rows: [], failed: true };
-  return { rows: (data ?? []) as AiCostEventRow[], failed: false };
+  // Phase 3A-3b: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently cut known AI cost short. A failed
+  // page or the row limit returns failed with no rows.
+  const read = await readAllPages<AiCostEventRow>(() => {
+    let query = serviceSupabase.from("ai_cost_events").select("organization_id, currency, total_cost").in("organization_id", organizationIds);
+    if (range.from) query = query.gte("occurred_at", range.from);
+    if (range.to) query = query.lt("occurred_at", range.to);
+    return query.order("id");
+  });
+  return read.failed ? { rows: [], failed: true } : { rows: read.rows, failed: false };
 }
 
 export async function loadInteractions(
@@ -139,17 +146,19 @@ export async function loadInteractions(
 ): Promise<{ rows: AiInteractionRow[]; failed: boolean }> {
   if (organizationIds.length === 0) return { rows: [], failed: false };
 
-  let query = serviceSupabase
-    .from("ai_interactions")
-    .select("id, organization_id, interaction_type, output")
-    .in("organization_id", organizationIds)
-    .limit(MAX_AI_INTERACTION_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  if (error) return { rows: [], failed: true };
-  return { rows: (data ?? []) as AiInteractionRow[], failed: false };
+  // Phase 3A-3b: paged (readAllPages, stable id order), with each
+  // interaction's known-cost link embedded through the unique
+  // ai_cost_events.source_interaction_id foreign key - replacing a separate
+  // .in(source_interaction_id, ids) lookup that failed past a few hundred
+  // ids and was silently ignored. A failed page or the row limit returns
+  // failed with no rows.
+  const read = await readAllPages<AiInteractionRow>(() => {
+    let query = serviceSupabase.from("ai_interactions").select("id, organization_id, interaction_type, output, ai_cost_events(source_interaction_id)").in("organization_id", organizationIds);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  return read.failed ? { rows: [], failed: true } : { rows: read.rows, failed: false };
 }
 
 /**
@@ -196,40 +205,18 @@ export async function getAgencyAiCosts(
   let agencyUnpriced = 0;
   let agencyUnknown = 0;
 
-  // The set of interaction ids already represented by a known cost event -
-  // an interaction is either known (in ai_cost_events) OR unresolved
-  // (unpriced/unknown), never both, so this membership check is the entire
-  // classification boundary. ai_cost_events guarantees at most one row per
-  // source_interaction_id (unique constraint), so membership alone is
-  // sufficient - no need to also compare amounts.
-  const knownInteractionIds = new Set<string>();
-
   for (const org of resolved.organizations) {
     unpricedCountByOrg.set(org.organizationId, 0);
     unknownCountByOrg.set(org.organizationId, 0);
   }
 
-  // A second, minimal query: which interaction ids in this exact set already
-  // have a known cost event - needed to avoid double-counting an interaction
-  // as both "known" (via the aggregate query above) and "unresolved" (via
-  // classification below), without having to select total_cost per-row
-  // twice. Scoped to exactly the interaction ids already loaded, never a
-  // second full-table scan.
-  const interactionIds = interactions.rows.map((row) => row.id);
-  if (interactionIds.length > 0 && !interactions.failed) {
-    const { data: knownRows, error: knownError } = await serviceSupabase
-      .from("ai_cost_events")
-      .select("source_interaction_id")
-      .in("source_interaction_id", interactionIds);
-    if (!knownError) {
-      for (const row of (knownRows ?? []) as { source_interaction_id: string }[]) {
-        knownInteractionIds.add(row.source_interaction_id);
-      }
-    }
-  }
-
+  // An interaction is either known (it has an ai_cost_events row) OR
+  // unresolved (unpriced/unknown), never both, so its embedded cost-event
+  // link is the entire classification boundary. ai_cost_events guarantees at
+  // most one row per source_interaction_id (unique constraint), so presence
+  // alone is sufficient - no need to also compare amounts.
   for (const row of interactions.rows) {
-    if (knownInteractionIds.has(row.id)) continue;
+    if (hasEmbeddedRow(row.ai_cost_events)) continue;
 
     const classification = classifyUnresolvedAiInteraction({ interactionType: row.interaction_type, output: row.output });
     if (classification === "unpriced") {
@@ -286,9 +273,6 @@ export async function getAgencyAiCosts(
 // phase makes - automatic reconciliation is explicitly deferred).
 // ---------------------------------------------------------------------------
 
-const MAX_SMS_COST_EVENT_ROWS = 50_000;
-const MAX_MESSAGE_ROWS = 50_000;
-
 export type AgencySmsCostTotals = {
   /** Sum of sms_cost_events.price, per currency. */
   knownCost: CostCurrencyAmount[];
@@ -320,7 +304,8 @@ export type AgencySmsCostResult =
   | AgencyAuthFailure;
 
 type SmsCostEventRow = { organization_id: string; currency: string; price: number };
-type MessageRow = { id: string; organization_id: string };
+/** Phase 3A-3b: `sms_cost_events` is the embedded known-cost link (the unique sms_cost_events.source_message_id foreign key) - see AiInteractionRow. */
+type MessageRow = { id: string; organization_id: string; sms_cost_events?: unknown };
 
 /** Mirrors loadCostEvents above exactly - one batched query across the full authorized organization id list, `failed` true only on a real Postgrest error. */
 export async function loadSmsCostEvents(
@@ -330,17 +315,15 @@ export async function loadSmsCostEvents(
 ): Promise<{ rows: SmsCostEventRow[]; failed: boolean }> {
   if (organizationIds.length === 0) return { rows: [], failed: false };
 
-  let query = serviceSupabase
-    .from("sms_cost_events")
-    .select("organization_id, currency, price")
-    .in("organization_id", organizationIds)
-    .limit(MAX_SMS_COST_EVENT_ROWS);
-  if (range.from) query = query.gte("occurred_at", range.from);
-  if (range.to) query = query.lt("occurred_at", range.to);
-
-  const { data, error } = await query;
-  if (error) return { rows: [], failed: true };
-  return { rows: (data ?? []) as SmsCostEventRow[], failed: false };
+  // Phase 3A-3b: paged (readAllPages, stable id order); a failed page or the
+  // row limit returns failed with no rows.
+  const read = await readAllPages<SmsCostEventRow>(() => {
+    let query = serviceSupabase.from("sms_cost_events").select("organization_id, currency, price").in("organization_id", organizationIds);
+    if (range.from) query = query.gte("occurred_at", range.from);
+    if (range.to) query = query.lt("occurred_at", range.to);
+    return query.order("id");
+  });
+  return read.failed ? { rows: [], failed: true } : { rows: read.rows, failed: false };
 }
 
 /** No interaction_type/output classification needed here (unlike loadInteractions for AI) - SMS has only two states, so membership in sms_cost_events alone determines known vs unknown. */
@@ -351,17 +334,19 @@ export async function loadMessagesForCost(
 ): Promise<{ rows: MessageRow[]; failed: boolean }> {
   if (organizationIds.length === 0) return { rows: [], failed: false };
 
-  let query = serviceSupabase
-    .from("messages")
-    .select("id, organization_id")
-    .in("organization_id", organizationIds)
-    .limit(MAX_MESSAGE_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  if (error) return { rows: [], failed: true };
-  return { rows: (data ?? []) as MessageRow[], failed: false };
+  // Phase 3A-3b: paged (readAllPages, stable id order), with each message's
+  // known-cost link embedded through the unique
+  // sms_cost_events.source_message_id foreign key - replacing a separate
+  // .in(source_message_id, ids) lookup that failed past a few hundred ids and
+  // was silently ignored. A failed page or the row limit returns failed with
+  // no rows.
+  const read = await readAllPages<MessageRow>(() => {
+    let query = serviceSupabase.from("messages").select("id, organization_id, sms_cost_events(source_message_id)").in("organization_id", organizationIds);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  return read.failed ? { rows: [], failed: true } : { rows: read.rows, failed: false };
 }
 
 /**
@@ -414,26 +399,11 @@ export async function getAgencySmsCosts(
     unknownCountByOrg.set(org.organizationId, 0);
   }
 
-  // Which message ids in this exact set already have a known cost event -
-  // needed to avoid double-counting a message as both known (via the
-  // aggregate query above) and unresolved (via the count below). Scoped to
-  // exactly the message ids already loaded, never a second full-table scan.
-  const knownMessageIds = new Set<string>();
-  const messageIds = messages.rows.map((row) => row.id);
-  if (messageIds.length > 0 && !messages.failed) {
-    const { data: knownRows, error: knownError } = await serviceSupabase
-      .from("sms_cost_events")
-      .select("source_message_id")
-      .in("source_message_id", messageIds);
-    if (!knownError) {
-      for (const row of (knownRows ?? []) as { source_message_id: string }[]) {
-        knownMessageIds.add(row.source_message_id);
-      }
-    }
-  }
-
+  // A message with an embedded sms_cost_events row is already counted as
+  // known (via the aggregate query above), so it is never also counted as
+  // unresolved below - the embedded link is the whole boundary.
   for (const row of messages.rows) {
-    if (knownMessageIds.has(row.id)) continue;
+    if (hasEmbeddedRow(row.sms_cost_events)) continue;
     unknownCountByOrg.set(row.organization_id, (unknownCountByOrg.get(row.organization_id) ?? 0) + 1);
     agencyUnknown += 1;
   }
