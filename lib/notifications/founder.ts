@@ -26,7 +26,7 @@ import { sendSms, resolveAppBaseUrl, type SendSmsResult } from "@/lib/automation
  * already established for founder-facing email.
  */
 
-export type FounderNotificationKind = "hot_lead" | "ai_escalation" | "missed_call" | "appointment_booked" | "automation_degraded";
+export type FounderNotificationKind = "hot_lead" | "ai_escalation" | "missed_call" | "appointment_booked" | "automation_degraded" | "owner_digest";
 
 export type FounderNotificationInput = {
   organizationId: string;
@@ -35,7 +35,20 @@ export type FounderNotificationInput = {
   summary: string;
   /** App-relative path the founder can open for detail, e.g. "/leads/<id>". Optional - omitted when there's nothing more specific to link to. */
   detailPath?: string | null;
+  /** Phase 3G-1: restricts delivery to SMS (the weekly owner digest is SMS-only). Omitted, both configured channels are attempted, as before. */
+  smsOnly?: boolean;
 };
+
+/**
+ * Phase 3G-1: what notifyFounder actually did, for callers that must record
+ * a real delivery outcome (the weekly owner digest). Existing callers ignore
+ * it, exactly as they ignored the old void result.
+ */
+export type FounderNotificationResult =
+  | { outcome: "disabled" }
+  | { outcome: "no_recipient" }
+  | { outcome: "delivered"; sms: boolean; email: boolean }
+  | { outcome: "failed" };
 
 const SETTING_KEY: Record<FounderNotificationKind, keyof NotificationSettings> = {
   hot_lead: "notify_on_hot_lead",
@@ -43,6 +56,7 @@ const SETTING_KEY: Record<FounderNotificationKind, keyof NotificationSettings> =
   missed_call: "notify_on_missed_call",
   appointment_booked: "notify_on_appointment_booked",
   automation_degraded: "notify_on_automation_degraded",
+  owner_digest: "notify_on_owner_digest",
 };
 
 const KIND_LABEL: Record<FounderNotificationKind, string> = {
@@ -51,6 +65,7 @@ const KIND_LABEL: Record<FounderNotificationKind, string> = {
   missed_call: "Missed call",
   appointment_booked: "Appointment booked",
   automation_degraded: "Automation needs attention",
+  owner_digest: "Weekly summary",
 };
 
 function buildDetailUrl(detailPath?: string | null): string | null {
@@ -97,31 +112,43 @@ async function sendViaResend(email: { to: string; from: string; subject: string;
   return { error: result.error ?? undefined };
 }
 
-async function notifyByEmail(to: string, input: FounderNotificationInput, organizationName: string, sendEmail: SendEmailFn): Promise<void> {
+/** Resolves true only when the email was actually handed to the provider. */
+async function notifyByEmail(to: string, input: FounderNotificationInput, organizationName: string, sendEmail: SendEmailFn): Promise<boolean> {
   const from = process.env.EMAIL_FROM;
   if (!process.env.RESEND_API_KEY || !from) {
     console.error("[notifications] Skipped founder email: RESEND_API_KEY and/or EMAIL_FROM is not configured.");
-    return;
+    return false;
   }
 
   try {
     const { error } = await sendEmail({ to, from, subject: buildSubject(input.kind, organizationName), text: buildEmailBody(input, organizationName) });
     if (error) {
       console.error("[notifications] Resend returned an error while sending a founder notification", { organizationId: input.organizationId, kind: input.kind, error });
+      return false;
     }
+    return true;
   } catch (error) {
     console.error("[notifications] Failed to send founder notification email", { organizationId: input.organizationId, kind: input.kind, error });
+    return false;
   }
 }
 
-async function notifyBySms(to: string, input: FounderNotificationInput, organizationName: string, sendSmsFn: (input: { organizationId: string; to: string; body: string }) => Promise<SendSmsResult>): Promise<void> {
+/**
+ * Resolves true only when the provider accepted the SMS. Phase 3G-1: failures
+ * log only the provider's error code (or the thrown error's name) - never the
+ * provider's message, which can echo the destination phone number.
+ */
+async function notifyBySms(to: string, input: FounderNotificationInput, organizationName: string, sendSmsFn: (input: { organizationId: string; to: string; body: string }) => Promise<SendSmsResult>): Promise<boolean> {
   try {
     const result = await sendSmsFn({ organizationId: input.organizationId, to, body: buildSmsBody(input, organizationName) });
     if (!result.ok) {
-      console.error("[notifications] Failed to send founder notification SMS", { organizationId: input.organizationId, kind: input.kind, error: result.error });
+      console.error("[notifications] Failed to send founder notification SMS", { organizationId: input.organizationId, kind: input.kind, providerErrorCode: result.providerErrorCode ?? null, unconfigured: result.unconfigured ?? false });
+      return false;
     }
+    return true;
   } catch (error) {
-    console.error("[notifications] Failed to send founder notification SMS", { organizationId: input.organizationId, kind: input.kind, error });
+    console.error("[notifications] Failed to send founder notification SMS", { organizationId: input.organizationId, kind: input.kind, error: error instanceof Error ? error.name : "unknown" });
+    return false;
   }
 }
 
@@ -149,32 +176,34 @@ export async function notifyFounder(
   supabase: SupabaseClient,
   input: FounderNotificationInput,
   deps: { sendEmail?: SendEmailFn; sendSmsFn?: (input: { organizationId: string; to: string; body: string }) => Promise<SendSmsResult> } = {},
-): Promise<void> {
+): Promise<FounderNotificationResult> {
   try {
     const [settings, organization] = await Promise.all([
       getNotificationSettings(supabase, input.organizationId),
       supabase.from("organizations").select("name").eq("id", input.organizationId).maybeSingle(),
     ]);
 
-    if (!settings[SETTING_KEY[input.kind]]) return;
+    if (!settings[SETTING_KEY[input.kind]]) return { outcome: "disabled" };
 
     const organizationName = (organization.data?.name as string | undefined) ?? "Trackpr";
     const sendEmail = deps.sendEmail ?? sendViaResend;
     const sendSmsFn = deps.sendSmsFn ?? sendSms;
 
-    const tasks: Promise<void>[] = [];
-    if (settings.notification_email) {
-      tasks.push(notifyByEmail(settings.notification_email, input, organizationName, sendEmail));
-    }
-    if (settings.notification_phone) {
-      tasks.push(notifyBySms(settings.notification_phone, input, organizationName, sendSmsFn));
-    }
+    const emailTo = input.smsOnly ? null : settings.notification_email;
+    const smsTo = settings.notification_phone;
+    if (!emailTo && !smsTo) return { outcome: "no_recipient" };
 
-    await Promise.all(tasks);
+    const [email, sms] = await Promise.all([
+      emailTo ? notifyByEmail(emailTo, input, organizationName, sendEmail) : Promise.resolve(false),
+      smsTo ? notifyBySms(smsTo, input, organizationName, sendSmsFn) : Promise.resolve(false),
+    ]);
+
+    return email || sms ? { outcome: "delivered", sms, email } : { outcome: "failed" };
   } catch (error) {
     // Fire-and-log, never fire-and-throw - a broken or unconfigured
     // notification path must never roll back or fail the core business
     // event (a lead, an escalation, a call, a booking) that triggered it.
-    console.error("[notifications] notifyFounder failed unexpectedly", { organizationId: input.organizationId, kind: input.kind, error });
+    console.error("[notifications] notifyFounder failed unexpectedly", { organizationId: input.organizationId, kind: input.kind, error: error instanceof Error ? error.name : "unknown" });
+    return { outcome: "failed" };
   }
 }
