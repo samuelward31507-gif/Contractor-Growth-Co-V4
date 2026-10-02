@@ -134,6 +134,8 @@ export type OrganizationHealthSummary = {
   automationPaused: boolean;
   /** Pass 5A: how many of the 5 scheduled (cron-dependent) automations are currently "stale" (were observed running before, have gone quiet past their grace window) - never counts "unverified" (never observed) automations, which must never be treated as a fault. See lib/automation-health/scheduled-automation-liveness.ts. */
   staleScheduledAutomationCount: number;
+  /** Phase 3E: the organization_health_inputs read failed - the incident, execution and activity figures above are zeroed placeholders (never "no incidents"), and paymentStatus has failed closed to "payment_required". Every other field keeps its existing fail-closed behavior. */
+  incidentsUnavailable: boolean;
   generatedAt: string;
 };
 

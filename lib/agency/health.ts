@@ -70,6 +70,8 @@ export type AgencyOrganizationHealth = {
    */
   activeIncidentCount: number;
   criticalIncidentCount: number;
+  /** Phase 3E: this organization's incident read (getOrganizationHealth) failed - activeIncidentCount/criticalIncidentCount are then zeroed placeholders, never "no incidents", so this organization can't be confirmed healthy. */
+  incidentsUnavailable: boolean;
   /** A simple, honest signal - not a score, not a ranking, and never a claim that automation or AI caused any outcome. True when at least one stuck execution, one failed execution, one failed message, one undelivered message, unreadable message counts (Phase 2J), one active automation incident, a broken (status: "error") calendar connection, automation paused, or payment suspended/cancelled was observed in the current period. A newly onboarding organization's payment_status of "payment_required" is deliberately excluded - that is an expected, transient state, not a regression, and flagging it would be a false positive. */
   needsAttention: boolean;
 };
@@ -95,7 +97,7 @@ export type AgencyIncidentRollup = {
   warningIncidents: number;
 };
 
-type PerOrganizationIncidents = { activeIncidentCount: number; criticalIncidentCount: number };
+type PerOrganizationIncidents = { activeIncidentCount: number; criticalIncidentCount: number; incidentsUnavailable: boolean };
 
 async function loadIncidentRollup(
   serviceSupabase: SupabaseClient,
@@ -128,7 +130,7 @@ async function loadIncidentRollup(
     else if (health.status === "unhealthy") organizationsUnhealthy += 1;
     criticalIncidents += health.criticalIncidentCount;
     warningIncidents += health.warningIncidentCount;
-    perOrganization.set(health.organizationId, { activeIncidentCount: health.activeIncidentCount, criticalIncidentCount: health.criticalIncidentCount });
+    perOrganization.set(health.organizationId, { activeIncidentCount: health.activeIncidentCount, criticalIncidentCount: health.criticalIncidentCount, incidentsUnavailable: health.incidentsUnavailable });
   }
 
   return { rollup: { organizationsHealthy, organizationsDegraded, organizationsUnhealthy, criticalIncidents, warningIncidents }, perOrganization };
@@ -155,20 +157,27 @@ const SCHEDULER_STALE_THRESHOLD_MINUTES = 120;
 export type SchedulerHeartbeat = {
   lastCheckedAt: string | null;
   minutesSinceLastCheck: number | null;
-  /** True both when the last run is older than the threshold AND when there has never been a run at all. */
+  /** True both when the last run is older than the threshold AND when there has never been a run at all. Never true when the read failed (see unavailable). */
   stale: boolean;
+  /** Phase 3E: the heartbeat read failed - lastCheckedAt is then unknown, never "never run". */
+  unavailable: boolean;
 };
 
 async function loadSchedulerHeartbeat(serviceSupabase: SupabaseClient): Promise<SchedulerHeartbeat> {
-  const { data } = await serviceSupabase
+  const { data, error } = await serviceSupabase
     .from("automation_health_check_runs")
     .select("checked_at")
     .order("checked_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
+  // Phase 3E: a failed read is unavailable - never "Never run" or stale.
+  if (error) {
+    return { lastCheckedAt: null, minutesSinceLastCheck: null, stale: false, unavailable: true };
+  }
+
   if (!data?.checked_at) {
-    return { lastCheckedAt: null, minutesSinceLastCheck: null, stale: true };
+    return { lastCheckedAt: null, minutesSinceLastCheck: null, stale: true, unavailable: false };
   }
 
   const minutesSinceLastCheck = Math.round((Date.now() - new Date(data.checked_at).getTime()) / 60000);
@@ -176,6 +185,7 @@ async function loadSchedulerHeartbeat(serviceSupabase: SupabaseClient): Promise<
     lastCheckedAt: data.checked_at,
     minutesSinceLastCheck,
     stale: minutesSinceLastCheck > SCHEDULER_STALE_THRESHOLD_MINUTES,
+    unavailable: false,
   };
 }
 
@@ -187,7 +197,7 @@ export type AgencyHealthResult =
       organizations: AgencyOrganizationHealth[];
       incidentRollup: AgencyIncidentRollup;
       schedulerHeartbeat: SchedulerHeartbeat;
-      /** Trackpr 2.0, Phase 4C (P2 #1): true when the stuck-execution, calendar-health, or payment/pause read returned a real Postgrest error - never set by genuine emptiness. See each loader's own comment in this file. */
+      /** Trackpr 2.0, Phase 4C (P2 #1): true when the stuck-execution, calendar-health, or payment/pause read returned a real Postgrest error - never set by genuine emptiness. See each loader's own comment in this file. Phase 2J/2K: also unreadable message or automation counts. Phase 3E: also an unreadable scheduler heartbeat or incident read. */
       partialData: boolean;
       generatedAt: string;
     }
@@ -298,7 +308,7 @@ export async function getAgencyHealth(
   // disclosed the same way - its zeros must never read as "no failed sends".
   // Phase 2K: likewise an organization whose automation counts couldn't be
   // read - its zeros must never read as "no failed executions".
-  const partialData = stuckFailed || calendarFailed || paymentFailed || organizations.some((org) => org.communicationFailed) || organizations.some((org) => org.automationFailed);
+  const basePartialData = stuckFailed || calendarFailed || paymentFailed || organizations.some((org) => org.communicationFailed) || organizations.some((org) => org.automationFailed);
 
   const now = Date.now();
   const stuck: StuckExecution[] = stuckRows.map((row) => ({
@@ -317,11 +327,11 @@ export async function getAgencyHealth(
   }
 
   // Intermediate shape: everything AgencyOrganizationHealth needs except
-  // activeIncidentCount/criticalIncidentCount/needsAttention, which depend on
+  // activeIncidentCount/criticalIncidentCount/incidentsUnavailable/needsAttention, which depend on
   // incidentsByOrg (loaded below) - plus paymentProblem, consumed only by the
   // needsAttention computation right after and stripped before the final
   // AgencyOrganizationHealth objects are built.
-  const orgHealth: (Omit<AgencyOrganizationHealth, "activeIncidentCount" | "criticalIncidentCount" | "needsAttention"> & { paymentProblem: boolean })[] = organizations.map((org) => {
+  const orgHealth: (Omit<AgencyOrganizationHealth, "activeIncidentCount" | "criticalIncidentCount" | "incidentsUnavailable" | "needsAttention"> & { paymentProblem: boolean })[] = organizations.map((org) => {
     const failedWorkflowExecutions = org.metrics.automationMetrics.failedWorkflowExecutions;
     const runningWorkflowExecutions = org.metrics.automationMetrics.runningWorkflowExecutions;
     const stuckExecutionCount = stuckCountByOrg.get(org.organizationId) ?? 0;
@@ -374,10 +384,12 @@ export async function getAgencyHealth(
     const incidents = incidentsByOrg.get(org.organizationId);
     const activeIncidentCount = incidents?.activeIncidentCount ?? 0;
     const criticalIncidentCount = incidents?.criticalIncidentCount ?? 0;
+    const incidentsUnavailable = incidents?.incidentsUnavailable ?? false;
     return {
       ...org,
       activeIncidentCount,
       criticalIncidentCount,
+      incidentsUnavailable,
       needsAttention:
         org.stuckExecutionCount > 0 ||
         org.failedWorkflowExecutions > 0 ||
@@ -387,12 +399,17 @@ export async function getAgencyHealth(
         org.communicationUnavailable ||
         // Phase 2K: unreadable automation counts can't confirm health either - fail closed. Genuine zero activity still reads as healthy.
         org.automationUnavailable ||
+        // Phase 3E: unreadable incidents can't confirm health either - fail closed.
+        incidentsUnavailable ||
         activeIncidentCount > 0 ||
         org.calendarStatus === "error" ||
         org.automationPaused ||
         paymentProblem,
     };
   });
+
+  // Phase 3E: an unreadable heartbeat or incident read is disclosed the same way.
+  const partialData = basePartialData || schedulerHeartbeat.unavailable || orgHealthWithIncidents.some((org) => org.incidentsUnavailable);
 
   return {
     ok: true,

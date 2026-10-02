@@ -20,13 +20,16 @@ export function SystemHealth({
   rollup: AgencyIncidentRollup;
   schedulerHeartbeat: SchedulerHeartbeat;
   smsFailureCount: number;
-  aiEscalationCount: number;
+  /** Phase 3E: null when the escalation read failed - shown as Unavailable, never as 0. */
+  aiEscalationCount: number | null;
   /** Organizations whose payment_status is "suspended" or "cancelled" - never "payment_required", a normal transient onboarding state, not itself a regression. */
   paymentIssueCount: number;
   automationPausedCount: number;
 }) {
-  const heartbeatValue =
-    schedulerHeartbeat.lastCheckedAt === null
+  // Phase 3E: a failed heartbeat read is Unavailable - never "Never run".
+  const heartbeatValue = schedulerHeartbeat.unavailable
+    ? "Unavailable"
+    : schedulerHeartbeat.lastCheckedAt === null
       ? "Never run"
       : schedulerHeartbeat.minutesSinceLastCheck !== null && schedulerHeartbeat.minutesSinceLastCheck < 60
         ? `${schedulerHeartbeat.minutesSinceLastCheck}m ago`
@@ -38,6 +41,7 @@ export function SystemHealth({
     rollup.criticalIncidents > 0 ||
     rollup.warningIncidents > 0 ||
     smsFailureCount > 0 ||
+    aiEscalationCount === null ||
     aiEscalationCount > 0 ||
     paymentIssueCount > 0 ||
     automationPausedCount > 0;
@@ -57,7 +61,11 @@ export function SystemHealth({
           <Row label="Critical incidents" value={formatCount(rollup.criticalIncidents)} tone={rollup.criticalIncidents > 0 ? "danger" : "default"} />
           <Row label="Warning incidents" value={formatCount(rollup.warningIncidents)} tone={rollup.warningIncidents > 0 ? "warning" : "default"} />
           <Row label="SMS delivery failures" value={formatCount(smsFailureCount)} tone={smsFailureCount > 0 ? "warning" : "default"} />
-          <Row label="AI escalations waiting" value={formatCount(aiEscalationCount)} tone={aiEscalationCount > 0 ? "warning" : "default"} />
+          {aiEscalationCount === null ? (
+            <Row label="AI escalations waiting" value="Unavailable" tone="warning" />
+          ) : (
+            <Row label="AI escalations waiting" value={formatCount(aiEscalationCount)} tone={aiEscalationCount > 0 ? "warning" : "default"} />
+          )}
           <Row label="Payment suspended or cancelled" value={formatCount(paymentIssueCount)} tone={paymentIssueCount > 0 ? "danger" : "default"} />
           <Row label="Automation paused" value={formatCount(automationPausedCount)} tone={automationPausedCount > 0 ? "warning" : "default"} />
         </div>
@@ -68,7 +76,12 @@ export function SystemHealth({
       )}
 
       <div className="mt-4 divide-y divide-line border-t border-line pt-1">
-        <Row label="Scheduler last ran" value={heartbeatValue} tone={schedulerHeartbeat.stale ? "danger" : "default"} description={schedulerHeartbeat.stale ? "Stale - scheduled follow-ups may be delayed." : undefined} />
+        <Row
+          label="Scheduler last ran"
+          value={heartbeatValue}
+          tone={schedulerHeartbeat.unavailable ? "warning" : schedulerHeartbeat.stale ? "danger" : "default"}
+          description={schedulerHeartbeat.unavailable ? "The scheduler heartbeat could not be read." : schedulerHeartbeat.stale ? "Stale - scheduled follow-ups may be delayed." : undefined}
+        />
         <Row label="n8n" value="External" description="Not independently monitored" />
       </div>
     </div>

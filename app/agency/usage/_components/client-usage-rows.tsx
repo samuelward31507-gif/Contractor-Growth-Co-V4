@@ -87,9 +87,16 @@ function ClientUsageRowDesktop({ client }: { client: ClientUsageSummary }) {
         </span>
       </span>
 
+      {/* Phase 3E: an unreadable AI read shows as Unavailable, never as zero usage. */}
       <span className="text-right text-xs tabular-nums text-ink-2">
-        {formatCount(client.ai.interactions)}
-        <span className="block text-[11px] text-ink-3">{formatNullableCount(client.ai.tokens)} tokens</span>
+        {client.ai.unavailable ? (
+          <span className="text-ink-3">Unavailable</span>
+        ) : (
+          <>
+            {formatCount(client.ai.interactions)}
+            <span className="block text-[11px] text-ink-3">{formatNullableCount(client.ai.tokens)} tokens</span>
+          </>
+        )}
       </span>
 
       <span className="text-right text-xs tabular-nums text-ink-2">
@@ -136,7 +143,7 @@ function ClientUsageRowMobile({ client }: { client: ClientUsageSummary }) {
             ) : null}
           </span>
           <span className="mt-1 block text-xs tabular-nums text-ink-3">
-            {formatCount(client.messaging.total)} messages · {formatCount(client.ai.interactions)} AI · {formatCount(client.automation.executions)} automation ·{" "}
+            {formatCount(client.messaging.total)} messages · {client.ai.unavailable ? "AI unavailable" : `${formatCount(client.ai.interactions)} AI`} · {formatCount(client.automation.executions)} automation ·{" "}
             {client.voice.missedCalls === null ? "missed calls unavailable" : `${formatCount(client.voice.missedCalls)} missed calls`}
           </span>
           <span className="mt-0.5 block text-xs text-ink-3">{operationalSummary(client)}</span>
