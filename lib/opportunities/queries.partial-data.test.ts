@@ -28,6 +28,8 @@ function makeMockSupabase(result: MockResult): SupabaseClient {
     eq: () => builder,
     order: () => builder,
     limit: () => Promise.resolve(result),
+    // Phase 3A-4: paged reads (readAllPages) resolve through range().
+    range: () => Promise.resolve(result),
   };
   return { from: () => builder } as unknown as SupabaseClient;
 }

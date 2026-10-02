@@ -35,6 +35,8 @@ function makeQueryBuilder(resolve: (filters: Record<string, unknown>) => MockRes
     order: () => builder,
     limit: () => builder,
     maybeSingle: () => Promise.resolve(resolve(filters)),
+    // Phase 3A-4: paged reads (readAllPages) resolve through range().
+    range: () => Promise.resolve(resolve(filters)),
     then: (onFulfilled?: ((value: MockResult) => unknown) | null, onRejected?: ((reason: unknown) => unknown) | null) =>
       Promise.resolve(resolve(filters)).then(onFulfilled ?? undefined, onRejected ?? undefined),
   };

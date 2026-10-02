@@ -307,7 +307,7 @@ test("organization isolation: another organization's records never become candid
   assert.equal(byType(candidates).uncontacted_lead, 225);
 });
 
-test("Today's prioritized opportunities: contact details for 450 opportunities with no contact id list; the 500-newest display limit is unchanged", async () => {
+test("Today's prioritized opportunities: contact details for 450 opportunities with no contact id list; the open-opportunities read is paged newest first (Phase 3A-4 removed the 500 cap)", async () => {
   const tables = scaleFixture(450);
   tables.opportunities = range(450).map((i) => ({ id: `opp-${i}`, organization_id: ORG, type: "stale_estimate", source_entity_type: "estimate", source_entity_id: `e-${i}`, contact_id: `${ORG}-c${i}`, status: "open", title: "t", description: null, estimated_value: null, value_basis: null, metadata: {}, created_at: DAYS_AGO(1), resolved_at: null, resolution_reason: null }));
   const fake = makeFake(tables);
@@ -316,7 +316,7 @@ test("Today's prioritized opportunities: contact details for 450 opportunities w
   assert.ok(prioritized.every((p) => p.contactPhone !== null), "every contact's phone found");
   assert.ok(!fake.calls.some((call) => call.table === "contacts" && call.filters.some((f) => f.kind === "in")), "no contact id list");
   const queriesSource = fs.readFileSync(path.join(process.cwd(), "lib/opportunities/queries.ts"), "utf8");
-  assert.match(queriesSource, /\.eq\("status", "open"\)\s*\.order\("created_at", \{ ascending: false \}\)\s*\.limit\(500\);/, "the 500-newest display read is unchanged");
+  assert.match(queriesSource, /readAllPages<OpportunityRow>\(\(\) =>\s*supabase\.from\("opportunities"\)\.select\(OPPORTUNITY_COLUMNS\)\.eq\("organization_id", organizationId\)\.eq\("status", "open"\)\.order\("created_at", \{ ascending: false \}\)\.order\("id"\)/, "every open opportunity, paged newest first (Phase 3A-4)");
 });
 
 test("structural: detect.ts has no capped read and no id-list read left; every paged read goes through checkedAll", () => {
