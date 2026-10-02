@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAgencyOrganizationSnapshots, type AgencyAuthFailure } from "./queries";
 import { resolveDateRange } from "@/lib/bi/queries";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { DASHBOARD_DEFAULT_RANGE } from "@/lib/dashboard/business-metrics";
 import type { MessageStatus } from "@/lib/conversations/queries";
 import type { Rate, ResolvedDateRange } from "@/lib/bi/types";
@@ -150,8 +151,6 @@ export type AgencyUsageSummaryResult =
     }
   | AgencyAuthFailure;
 
-const MAX_MISSED_CALL_ROWS = 10_000;
-
 type MissedCallRow = { organization_id: string };
 
 /**
@@ -172,23 +171,22 @@ export async function loadMissedCallCounts(
 ): Promise<{ byOrganization: Map<string, number>; failed: boolean }> {
   if (organizationIds.length === 0) return { byOrganization: new Map(), failed: false };
 
-  let query = serviceSupabase
-    .from("automation_events")
-    .select("organization_id")
-    .eq("event_type", "call.missed")
-    .in("organization_id", organizationIds)
-    .limit(MAX_MISSED_CALL_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
+  // Phase 3A-3a: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently undercounted missed calls. A
+  // failed page or the row limit returns failed with no counts.
+  const read = await readAllPages<MissedCallRow>(() => {
+    let query = serviceSupabase.from("automation_events").select("organization_id").eq("event_type", "call.missed").in("organization_id", organizationIds);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
 
   const byOrganization = new Map<string, number>();
-  for (const row of (data ?? []) as MissedCallRow[]) {
+  for (const row of read.failed ? [] : read.rows) {
     byOrganization.set(row.organization_id, (byOrganization.get(row.organization_id) ?? 0) + 1);
   }
 
-  return { byOrganization, failed: error != null };
+  return { byOrganization, failed: read.failed };
 }
 
 /** Pure, no I/O - directly unit-testable, matching lib/opportunities/queries.ts's summarizeOpportunities / lib/agency/expansion.ts's summarizeAgencyExpansion convention. */

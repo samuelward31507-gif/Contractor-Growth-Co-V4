@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveAgencyOrganizations } from "./queries";
 import { resolveDateRange } from "@/lib/bi/queries";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import type { DateRangeInput, ResolvedDateRange } from "@/lib/bi/types";
 import type { AgencyAuthFailure } from "./queries";
 
@@ -24,7 +25,6 @@ import type { AgencyAuthFailure } from "./queries";
  * single currency will simply see an array with one entry.
  */
 
-const MAX_REVENUE_EVENT_ROWS = 50_000;
 const MAX_RECENT_EVENTS = 100;
 
 export type RevenueEventType = "payment_succeeded" | "payment_failed" | "refund";
@@ -167,19 +167,21 @@ export async function loadRevenueEvents(
 ): Promise<{ rows: RevenueEventRow[]; failed: boolean }> {
   if (organizationIds.length === 0) return { rows: [], failed: false };
 
-  let query = serviceSupabase
-    .from("revenue_events")
-    .select("id, organization_id, event_type, revenue_category, amount, currency, occurred_at")
-    .in("organization_id", organizationIds)
-    .order("occurred_at", { ascending: false })
-    .limit(MAX_REVENUE_EVENT_ROWS);
-  if (range.from) query = query.gte("occurred_at", range.from);
-  if (range.to) query = query.lt("occurred_at", range.to);
-
-  const { data, error } = await query;
-  if (error) return { rows: [], failed: true };
-
-  return { rows: (data ?? []) as RevenueEventRow[], failed: false };
+  // Phase 3A-3a: paged (readAllPages) - the API caps a response at 1000 rows,
+  // which silently cut the revenue totals short. Newest first with id as the
+  // tie-break, so pages are stable and getAgencyRevenue's recent-events
+  // slice stays the newest events. A failed page or the row limit returns
+  // failed with no rows - never partial totals.
+  const read = await readAllPages<RevenueEventRow>(() => {
+    let query = serviceSupabase
+      .from("revenue_events")
+      .select("id, organization_id, event_type, revenue_category, amount, currency, occurred_at")
+      .in("organization_id", organizationIds);
+    if (range.from) query = query.gte("occurred_at", range.from);
+    if (range.to) query = query.lt("occurred_at", range.to);
+    return query.order("occurred_at", { ascending: false }).order("id");
+  });
+  return read.failed ? { rows: [], failed: true } : { rows: read.rows, failed: false };
 }
 
 /**
