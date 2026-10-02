@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 /**
  * Pass 3 (Revenue Intelligence Foundation), Part 5: reusable, deterministic
@@ -138,9 +139,15 @@ export type RepeatCustomerSummary = {
  * business-health surfaces.
  */
 export async function getRepeatCustomerSummaryResult(supabase: SupabaseClient, organizationId: string): Promise<RepeatCustomerSummary & { failed: boolean }> {
-  const { data, error } = await supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("status", "completed").not("contact_id", "is", null).limit(MAX_ROWS);
+  // Phase 3A-2: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently undercounted repeat customers and
+  // completed-job value. A failed page or the row limit sets `failed` and
+  // contributes no rows - never a partial rollup.
+  const read = await readAllPages<JobRow>(() =>
+    supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("status", "completed").not("contact_id", "is", null).order("id"),
+  );
 
-  const jobs = (data ?? []) as JobRow[];
+  const jobs = read.failed ? [] : read.rows;
   const byContact = new Map<string, JobRow[]>();
   for (const job of jobs) {
     const contactId = job.contact_id as string;
@@ -184,7 +191,7 @@ export async function getRepeatCustomerSummaryResult(supabase: SupabaseClient, o
     averageKnownCompletedJobValue: knownCompletedJobValueCount === 0 ? null : knownCompletedJobValue / knownCompletedJobValueCount,
     additionalCompletedJobCount,
     additionalCompletedJobKnownValue,
-    failed: error != null,
+    failed: read.failed,
   };
 }
 

@@ -49,15 +49,12 @@ import type {
  * `count: 'exact', head: true` queries per status so that a single table
  * only needs to be read once per metric group even though several counts and
  * sums are derived from it (e.g. the one `leads` fetch below produces both
- * LeadMetrics and PipelineMetrics). Each fetch is capped at MAX_ROWS as a
- * safety bound; at the data volumes confirmed in the Phase 5.1 audit (a
- * handful of rows per table, in one production organization) this is not a
- * practical limitation. If a real organization's row count for one of these
- * tables approaches that cap, the honest next step is a real SQL COUNT/SUM
- * (an RPC) for that table - not raising the cap.
+ * LeadMetrics and PipelineMetrics). Each fetch is paged through the
+ * shared readAllPages helper - pages of 1000 rows under a stable id order,
+ * since the API caps a single response at 1000 rows - up to its row limit.
+ * A failed page or reaching that limit marks the read failed with no rows
+ * used, never a partial count.
  */
-
-const MAX_ROWS = 10_000;
 
 // ---------------------------------------------------------------------------
 // Date range
@@ -690,18 +687,28 @@ export async function getReviewReferralMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<ReviewReferralMetrics> {
-  let reviewQuery = supabase.from("review_requests").select("status, responded_at").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) reviewQuery = reviewQuery.gte("created_at", range.from);
-  if (range.to) reviewQuery = reviewQuery.lt("created_at", range.to);
-
-  let referralQuery = supabase.from("referral_requests").select("status, responded_at").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) referralQuery = referralQuery.gte("created_at", range.from);
-  if (range.to) referralQuery = referralQuery.lt("created_at", range.to);
-
-  const [{ data: reviewData }, { data: referralData }] = await Promise.all([reviewQuery, referralQuery]);
-  const reviewRows = (reviewData ?? []) as { status: string; responded_at: string | null }[];
-  const referralRows = (referralData ?? []) as { status: string; responded_at: string | null }[];
+): Promise<ReviewReferralMetrics & { failed: boolean }> {
+  // Phase 3A-2: both reads are paged (readAllPages, stable id order) - the
+  // API caps a response at 1000 rows, which silently cut these counts short -
+  // and a read error is no longer discarded: a failed page or the row limit
+  // sets `failed` and contributes no rows, never a false zero. Definitions,
+  // filters and the metrics shape are unchanged.
+  const [reviewRead, referralRead] = await Promise.all([
+    readAllPages<{ status: string; responded_at: string | null }>(() => {
+      let reviewQuery = supabase.from("review_requests").select("status, responded_at").eq("organization_id", organizationId);
+      if (range.from) reviewQuery = reviewQuery.gte("created_at", range.from);
+      if (range.to) reviewQuery = reviewQuery.lt("created_at", range.to);
+      return reviewQuery.order("id");
+    }),
+    readAllPages<{ status: string; responded_at: string | null }>(() => {
+      let referralQuery = supabase.from("referral_requests").select("status, responded_at").eq("organization_id", organizationId);
+      if (range.from) referralQuery = referralQuery.gte("created_at", range.from);
+      if (range.to) referralQuery = referralQuery.lt("created_at", range.to);
+      return referralQuery.order("id");
+    }),
+  ]);
+  const reviewRows = reviewRead.failed ? [] : reviewRead.rows;
+  const referralRows = referralRead.failed ? [] : referralRead.rows;
   const reviewsOfSent = sentRequestOutcomes(reviewRows, "completed");
   const referralsOfSent = sentRequestOutcomes(referralRows, "converted");
 
@@ -740,6 +747,7 @@ export async function getReviewReferralMetrics(
     referralsWithResponse: referralsOfSent.withResponse,
     referralResponseRateOfSent: referralsOfSent.responseRate,
     referralConversionRateOfSent: referralsOfSent.outcomeRate,
+    failed: reviewRead.failed || referralRead.failed,
   };
 }
 
