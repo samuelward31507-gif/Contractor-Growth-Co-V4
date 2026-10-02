@@ -777,14 +777,14 @@ export async function buildAiMetrics(supabase: SupabaseClient, organizationId: s
  * states that explicitly, using the real counts already computed by
  * getLeadStageTimingMetrics for this same snapshot.
  */
-function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean, stageHistoryReadFailed = false, communicationUnavailable = false, automationUnavailable = false, leadsUnavailable = false, sourceCountsUnavailable = false): BiDataQuality {
+function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean, timing: LeadStageTimingMetrics, collectedRevenueUnavailable: boolean, stageHistoryReadFailed = false, communicationUnavailable = false, automationUnavailable = false, leadsUnavailable = false, sourceCountsUnavailable = false, estimatesUnavailable = false, jobsUnavailable = false, appointmentsUnavailable = false, aiUsageUnavailable = false): BiDataQuality {
   const aiTokenUsageUnavailable = aiUsage.interactionsWithUsageData === 0;
   // Phase 1B-4: the payment ledger exists now. The first note states the one
   // sanctioned definition of collected revenue and keeps every quoted/
   // contracted figure on the other side of that line.
   const notes = [
     collectedRevenueUnavailable
-      ? "The invoice and payment ledger could not be read for this snapshot - collected revenue is unavailable here, and billingMetrics is zeroed, not measured. pipelineValue, estimateValue, and contractedJobValue remain quoted/contracted figures, never collected revenue."
+      ? "The invoice and payment ledger could not be read for this snapshot - collected revenue is unavailable here, and billingMetrics is zeroed, not measured, and comparisons.invoicedValue and comparisons.collectedValue are unavailable. pipelineValue, estimateValue, and contractedJobValue remain quoted/contracted figures, never collected revenue."
       : `${SANCTIONED_COLLECTED_REVENUE_DEFINITION} Only billingMetrics.collectedValue is collected revenue; pipelineValue, estimateValue, contractedJobValue, and invoicedValue are quoted, contracted, or invoiced figures, never collected revenue.`,
     "leads.source is nullable and not standardized - sourceCounts is exposed for transparency only, never as a performance ranking.",
   ];
@@ -796,11 +796,16 @@ function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean
       ? "No lead.stage_changed event exists for this organization in this period - the historical funnel section below has nothing to compute from yet."
       : `Historical stage timing (time to qualified/won) is available only for leads with a recorded lead.stage_changed event - in this period, that is ${timing.leadsWithRecordedHistory} of ${timing.leadsInRange} lead(s). This is not a complete historical record for every lead; see the funnel section below for the exact current counts before treating any average as representative of the full period.`,
   );
-  notes.push(
-    aiTokenUsageUnavailable
-      ? "No ai_interactions row in this period has provider-reported token usage - n8n's own AI call did not report it for any interaction in range."
-      : `Token usage is available for ${aiUsage.interactionsWithUsageData} of ${aiUsage.aiInteractions} AI interaction(s) in this period - only n8n calls that reported usage are included.`,
-  );
+  // Phase 3C: a failed AI read zeroes the usage counts this note would
+  // describe - its failure note (below) replaces it, so the AI is never told
+  // n8n didn't report usage when the read itself failed.
+  if (!aiUsageUnavailable) {
+    notes.push(
+      aiTokenUsageUnavailable
+        ? "No ai_interactions row in this period has provider-reported token usage - n8n's own AI call did not report it for any interaction in range."
+        : `Token usage is available for ${aiUsage.interactionsWithUsageData} of ${aiUsage.aiInteractions} AI interaction(s) in this period - only n8n calls that reported usage are included.`,
+    );
+  }
   // Phase 2J: a failed message, conversation or opt-out read leaves
   // communicationMetrics zeroed - the AI must never report those zeros as
   // "0 messages". Only added on failure; the field set is unchanged.
@@ -820,6 +825,20 @@ function buildDataQuality(aiUsage: BiAiMetrics, stageHistoryUnavailable: boolean
   }
   if (sourceCountsUnavailable) {
     notes.push("Lead sources could not be read for this snapshot - leadMetrics.sourceCounts is empty because the read failed, not because leads had no source. Do not cite or describe sourceCounts.");
+  }
+  // Phase 3C: the same for a failed estimate, job, appointment or AI read -
+  // each family's figures are zeroed placeholders, never data.
+  if (estimatesUnavailable) {
+    notes.push("Estimate counts could not be read for this snapshot - estimateMetrics and comparisons.estimateCount are zeroed, not measured. Do not cite or describe them, and never report zero estimates or an estimate rate from them.");
+  }
+  if (jobsUnavailable) {
+    notes.push("Job counts could not be read for this snapshot - jobMetrics and comparisons.jobCount are zeroed, not measured. Do not cite or describe them, and never report zero jobs or contracted value from them.");
+  }
+  if (appointmentsUnavailable) {
+    notes.push("Appointment counts could not be read for this snapshot - appointmentMetrics is zeroed, not measured. Do not cite or describe it, and never report zero appointments or a no-show rate from it.");
+  }
+  if (aiUsageUnavailable) {
+    notes.push("AI interaction counts could not be read for this snapshot - aiMetrics is zeroed, not measured. Do not cite or describe aiMetrics, and never report zero AI activity or token usage from it.");
   }
 
   return {
@@ -1020,7 +1039,7 @@ export async function getBusinessMetricsSnapshot(
     reviewReferralMetrics,
     leadStageFunnel: { transitions: transitionMetrics, timing: timingMetrics },
     responseTime: responseTimeMetrics,
-    dataQuality: buildDataQuality(aiMetrics, !stageHistory.exists, timingMetrics, billingRows.failed, stageHistory.failed || funnelUnavailable.stageTransitions || funnelUnavailable.stageTiming, communicationFailed, automationFailed, leadFailed, sourcesFailed),
+    dataQuality: buildDataQuality(aiMetrics, !stageHistory.exists, timingMetrics, billingRows.failed, stageHistory.failed || funnelUnavailable.stageTransitions || funnelUnavailable.stageTiming, communicationFailed, automationFailed, leadFailed, sourcesFailed, estimatesFailed, jobsFailed, appointmentsFailed, aiFailed),
     partialData,
     partialDataSourceCount,
     funnelUnavailable,
