@@ -161,12 +161,17 @@ type AiOutputFields = { aiOutboundInteractions: number; customerReplyAiInteracti
 
 /** Trackpr 2.0, Phase 4B (P1 #2): `failed` feeds buildAiMetrics's own combined failure signal - see getLeadAndPipelineMetrics's own comment in lib/bi/queries.ts for the full discipline this mirrors. */
 async function getAiOutputFields(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<AiOutputFields> {
-  let query = supabase.from("ai_interactions").select("interaction_type, output").eq("organization_id", organizationId).limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  const rows = (data ?? []) as { interaction_type: string; output: Record<string, unknown> | null }[];
+  // Phase 3A-1: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently cut the AI output counts short. A failed
+  // page or the row limit sets `failed` and contributes no rows - never a
+  // partial count. Filters, definitions and the return shape are unchanged.
+  const read = await readAllPages<{ interaction_type: string; output: Record<string, unknown> | null }>(() => {
+    let query = supabase.from("ai_interactions").select("interaction_type, output").eq("organization_id", organizationId);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  const rows = read.failed ? [] : read.rows;
 
   let aiOutboundInteractions = 0;
   let customerReplyAiInteractions = 0;
@@ -178,7 +183,7 @@ async function getAiOutputFields(supabase: SupabaseClient, organizationId: strin
     if (row.interaction_type === "customer_reply_response") customerReplyAiInteractions += 1;
   }
 
-  return { aiOutboundInteractions, customerReplyAiInteractions, aiNeedsHumanCount, failed: error != null };
+  return { aiOutboundInteractions, customerReplyAiInteractions, aiNeedsHumanCount, failed: read.failed };
 }
 
 /**
@@ -492,11 +497,17 @@ export function estimateToJobRate(acceptedRows: AcceptedEstimateJobRow[], accept
  * estimate_id) is a second path between the two tables.
  */
 async function getAcceptedEstimateJobRows(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ rows: AcceptedEstimateJobRow[]; failed: boolean }> {
-  let query = supabase.from("estimates").select("id, jobs!jobs_estimate_id_fkey(id)").eq("organization_id", organizationId).eq("status", "accepted").limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-  const { data, error } = await query;
-  return { rows: (data ?? []) as AcceptedEstimateJobRow[], failed: error != null };
+  // Phase 3A-1: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently cut Estimate -> job short. A failed
+  // page or the row limit sets `failed` and contributes no rows - never a
+  // partial count. Filters, definitions and the return shape are unchanged.
+  const read = await readAllPages<AcceptedEstimateJobRow>(() => {
+    let query = supabase.from("estimates").select("id, jobs!jobs_estimate_id_fkey(id)").eq("organization_id", organizationId).eq("status", "accepted");
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  return read.failed ? { rows: [], failed: true } : { rows: read.rows, failed: false };
 }
 
 async function buildEstimateMetrics(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ metrics: BiEstimateMetrics; failed: boolean }> {
@@ -716,14 +727,19 @@ async function getAiUsageTotals(
   organizationId: string,
   range: ResolvedDateRange,
 ): Promise<{ totalTokensUsed: number | null; averageTokensPerInteraction: number | null; interactionsWithUsageData: number; failed: boolean }> {
-  let query = supabase.from("ai_interactions").select("tokens_used").eq("organization_id", organizationId).not("tokens_used", "is", null).limit(MAX_ROWS);
-  if (range.from) query = query.gte("created_at", range.from);
-  if (range.to) query = query.lt("created_at", range.to);
-
-  const { data, error } = await query;
-  const rows = (data ?? []) as { tokens_used: number | null }[];
+  // Phase 3A-1: paged (readAllPages, stable id order) - the API caps a
+  // response at 1000 rows, which silently cut the token totals short. A failed
+  // page or the row limit sets `failed` and contributes no rows - never a
+  // partial count. Filters, definitions and the return shape are unchanged.
+  const read = await readAllPages<{ tokens_used: number | null }>(() => {
+    let query = supabase.from("ai_interactions").select("tokens_used").eq("organization_id", organizationId).not("tokens_used", "is", null);
+    if (range.from) query = query.gte("created_at", range.from);
+    if (range.to) query = query.lt("created_at", range.to);
+    return query.order("id");
+  });
+  const rows = read.failed ? [] : read.rows;
   const values = rows.map((row) => row.tokens_used).filter((value): value is number => value !== null);
-  const failed = error != null;
+  const failed = read.failed;
 
   if (values.length === 0) {
     return { totalTokensUsed: null, averageTokensPerInteraction: null, interactionsWithUsageData: 0, failed };
