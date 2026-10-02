@@ -344,3 +344,14 @@ test("Phase 2I: a failed lead-source read shows the Lead sources block as unavai
   // The flag never reaches the AI input.
   assert.doesNotMatch(read("lib/bi/insights.ts"), /sourceCountsUnavailable/);
 });
+
+test("Phase 2J: message, conversation and opt-out figures whose read failed show as unavailable - never 0 - and turn on the banner; response times stay independent", () => {
+  assert.match(SECTIONS, /const communicationValue = \(value: number\) => \(communicationUnavailable \? \{ value: "-", detail: "Couldn't be read for this period" \} : \{ value: String\(value\) \}\);/);
+  for (const [key, field] of [["inbound", "inboundMessages"], ["outbound", "outboundMessages"], ["new-open", "conversationsOpened"], ["new-closed", "conversationsClosed"], ["opt-outs", "optOutCount"]]) {
+    assert.match(SECTIONS, new RegExp(`\\{ key: "${key}", label: "[^"]+", \\.\\.\\.communicationValue\\(communicationMetrics\\.${field}\\) \\}`), key);
+  }
+  assert.match(SECTIONS, /\{communicationUnavailable \? \(\s*<p className=\{metaClass\}>Outbound messages could not be read for this period\. Nothing is estimated in its place\.<\/p>/);
+  assert.match(SECTIONS, /const unavailable = funnelUnavailable\.responseTime;/, "the 2F response-time state is separate");
+  assert.match(PAGE, /snapshot\.sourceCountsUnavailable \|\| snapshot\.communicationUnavailable \|\|/);
+  assert.doesNotMatch(read("lib/bi/insights.ts"), /communicationUnavailable/, "the AI is told through a dataQuality note, not a new field");
+});

@@ -48,6 +48,8 @@ export type AgencyOrganizationHealth = {
   automationSuccessRate: number | null;
   failedMessages: number;
   undeliveredMessages: number;
+  /** Phase 2J: the message counts above could not be read - they are zeroed placeholders, so this organization can't be confirmed healthy. */
+  communicationUnavailable: boolean;
   aiInteractions: number;
   /** Growth System Completion Pass 1: safe-metadata-only (status/last_error, never a token) - see getCalendarConnection's own documentation for why calendar_credentials is never touched from agency code. */
   calendarStatus: AgencyCalendarStatus;
@@ -66,7 +68,7 @@ export type AgencyOrganizationHealth = {
    */
   activeIncidentCount: number;
   criticalIncidentCount: number;
-  /** A simple, honest signal - not a score, not a ranking, and never a claim that automation or AI caused any outcome. True when at least one stuck execution, one failed execution, one failed message, one undelivered message, one active automation incident, a broken (status: "error") calendar connection, automation paused, or payment suspended/cancelled was observed in the current period. A newly onboarding organization's payment_status of "payment_required" is deliberately excluded - that is an expected, transient state, not a regression, and flagging it would be a false positive. */
+  /** A simple, honest signal - not a score, not a ranking, and never a claim that automation or AI caused any outcome. True when at least one stuck execution, one failed execution, one failed message, one undelivered message, unreadable message counts (Phase 2J), one active automation incident, a broken (status: "error") calendar connection, automation paused, or payment suspended/cancelled was observed in the current period. A newly onboarding organization's payment_status of "payment_required" is deliberately excluded - that is an expected, transient state, not a regression, and flagging it would be a false positive. */
   needsAttention: boolean;
 };
 
@@ -290,7 +292,9 @@ export async function getAgencyHealth(
   // Trackpr 2.0, Phase 4C (P2 #1): a real error on any of these three reads
   // must be disclosed, never silently folded into "nothing stuck / no
   // calendar issues / no payment problem" - see each loader's own comment.
-  const partialData = stuckFailed || calendarFailed || paymentFailed;
+  // Phase 2J: an organization whose message counts couldn't be read is
+  // disclosed the same way - its zeros must never read as "no failed sends".
+  const partialData = stuckFailed || calendarFailed || paymentFailed || organizations.some((org) => org.communicationFailed);
 
   const now = Date.now();
   const stuck: StuckExecution[] = stuckRows.map((row) => ({
@@ -338,6 +342,7 @@ export async function getAgencyHealth(
       automationSuccessRate: org.metrics.automationMetrics.automationSuccessRate,
       failedMessages,
       undeliveredMessages,
+      communicationUnavailable: org.communicationFailed,
       aiInteractions: org.metrics.aiMetrics.aiInteractions,
       calendarStatus,
       calendarLastError,
@@ -373,6 +378,8 @@ export async function getAgencyHealth(
         org.failedWorkflowExecutions > 0 ||
         org.failedMessages > 0 ||
         org.undeliveredMessages > 0 ||
+        // Phase 2J: unreadable message counts can't confirm health - fail closed. A genuine zero still reads as healthy.
+        org.communicationUnavailable ||
         activeIncidentCount > 0 ||
         org.calendarStatus === "error" ||
         org.automationPaused ||

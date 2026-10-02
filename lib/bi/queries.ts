@@ -420,27 +420,30 @@ export async function getCommunicationMetrics(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-): Promise<CommunicationMetrics> {
-  let conversationsQuery = supabase
-    .from("conversations")
-    .select("status, channel")
-    .eq("organization_id", organizationId)
-    .limit(MAX_ROWS);
-  if (range.from) conversationsQuery = conversationsQuery.gte("created_at", range.from);
-  if (range.to) conversationsQuery = conversationsQuery.lt("created_at", range.to);
+): Promise<CommunicationMetrics & { failed: boolean }> {
+  // Phase 2J: both reads are paged (readAllPages, stable id order) - the API
+  // caps a response at 1000 rows, which silently undercounted messages
+  // (failed sends past the cap included), and a read error used to become
+  // zeros. A failed page or the row limit sets `failed` and that read
+  // contributes no rows - the counts are then placeholders, never data.
+  // Definitions, statuses, channels and sender classes are unchanged.
+  const [conversationRead, messageRead] = await Promise.all([
+    readAllPages<{ status: "open" | "closed"; channel: ConversationChannel }>(() => {
+      let conversationsQuery = supabase.from("conversations").select("status, channel").eq("organization_id", organizationId);
+      if (range.from) conversationsQuery = conversationsQuery.gte("created_at", range.from);
+      if (range.to) conversationsQuery = conversationsQuery.lt("created_at", range.to);
+      return conversationsQuery.order("id");
+    }),
+    readAllPages<{ direction: "inbound" | "outbound"; sender_type: "customer" | "ai" | "user" | "system"; status: MessageStatus }>(() => {
+      let messagesQuery = supabase.from("messages").select("direction, sender_type, status").eq("organization_id", organizationId);
+      if (range.from) messagesQuery = messagesQuery.gte("created_at", range.from);
+      if (range.to) messagesQuery = messagesQuery.lt("created_at", range.to);
+      return messagesQuery.order("id");
+    }),
+  ]);
 
-  let messagesQuery = supabase
-    .from("messages")
-    .select("direction, sender_type, status")
-    .eq("organization_id", organizationId)
-    .limit(MAX_ROWS);
-  if (range.from) messagesQuery = messagesQuery.gte("created_at", range.from);
-  if (range.to) messagesQuery = messagesQuery.lt("created_at", range.to);
-
-  const [{ data: conversationRows }, { data: messageRows }] = await Promise.all([conversationsQuery, messagesQuery]);
-
-  const conversations = (conversationRows ?? []) as { status: "open" | "closed"; channel: ConversationChannel }[];
-  const messages = (messageRows ?? []) as { direction: "inbound" | "outbound"; sender_type: "customer" | "ai" | "user" | "system"; status: MessageStatus }[];
+  const conversations = conversationRead.failed ? [] : conversationRead.rows;
+  const messages = messageRead.failed ? [] : messageRead.rows;
 
   const byChannel = zeroCounts(CONVERSATION_CHANNELS.map((c) => c.value));
   let openConversations = 0;
@@ -487,6 +490,7 @@ export async function getCommunicationMetrics(
     failedMessages: byMessageStatus.failed,
     undeliveredMessages: byMessageStatus.undelivered,
     queuedMessages: byMessageStatus.queued,
+    failed: conversationRead.failed || messageRead.failed,
   };
 }
 

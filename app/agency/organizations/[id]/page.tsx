@@ -263,12 +263,23 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
           <Row label="Success rate" value={formatRate(m.automationMetrics.automationSuccessRate)} />
         </RowGroup>
         <RowGroup label="Communication">
-          <Row label="Inbound" value={formatCount(m.communicationMetrics.inboundMessages)} />
-          <Row label="Outbound" value={formatCount(m.communicationMetrics.outboundMessages)} />
-          <Row label="Delivered" value={formatCount(org.messagesByStatus.delivered ?? 0)} />
-          <Row label="Failed" value={formatCount(org.messagesByStatus.failed ?? 0)} tone={(org.messagesByStatus.failed ?? 0) > 0 ? "danger" : "default"} />
-          <Row label="Undelivered" value={formatCount(org.messagesByStatus.undelivered ?? 0)} tone={(org.messagesByStatus.undelivered ?? 0) > 0 ? "warning" : "default"} />
-          <Row label="Queued" value={formatCount(org.messagesByStatus.queued ?? 0)} />
+          {/* Phase 2J: unreadable message counts show as Unavailable, never as zeros. */}
+          {org.communicationFailed ? (
+            <>
+              {["Inbound", "Outbound", "Delivered", "Failed", "Undelivered", "Queued"].map((label) => (
+                <Row key={label} label={label} value="Unavailable" tone="warning" />
+              ))}
+            </>
+          ) : (
+            <>
+              <Row label="Inbound" value={formatCount(m.communicationMetrics.inboundMessages)} />
+              <Row label="Outbound" value={formatCount(m.communicationMetrics.outboundMessages)} />
+              <Row label="Delivered" value={formatCount(org.messagesByStatus.delivered ?? 0)} />
+              <Row label="Failed" value={formatCount(org.messagesByStatus.failed ?? 0)} tone={(org.messagesByStatus.failed ?? 0) > 0 ? "danger" : "default"} />
+              <Row label="Undelivered" value={formatCount(org.messagesByStatus.undelivered ?? 0)} tone={(org.messagesByStatus.undelivered ?? 0) > 0 ? "warning" : "default"} />
+              <Row label="Queued" value={formatCount(org.messagesByStatus.queued ?? 0)} />
+            </>
+          )}
           <Row
             label="AI escalations waiting"
             value={escalationCount > 0 ? formatCount(escalationCount) : "None"}

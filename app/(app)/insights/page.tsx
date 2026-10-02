@@ -145,7 +145,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
           repeatCustomerSummary's) is disclosed, never rendered as a
           confident $0/0%/"no data" on the page whose purpose is "how is my
           business doing." */}
-      {snapshot.partialData || Object.values(snapshot.revenueOpportunityUnavailable).some(Boolean) || snapshot.sourceCountsUnavailable || repeatCustomerSummary.failed || appointmentOccurrence.failed || opportunityOutcomes.failed || jobLeadLinkage.failed || revenueAttribution.failed || outcomeMetrics.failed || cashAttribution.failed ? (
+      {snapshot.partialData || Object.values(snapshot.revenueOpportunityUnavailable).some(Boolean) || snapshot.sourceCountsUnavailable || snapshot.communicationUnavailable || repeatCustomerSummary.failed || appointmentOccurrence.failed || opportunityOutcomes.failed || jobLeadLinkage.failed || revenueAttribution.failed || outcomeMetrics.failed || cashAttribution.failed ? (
         <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>Some information is temporarily unavailable. Please try again.</p>

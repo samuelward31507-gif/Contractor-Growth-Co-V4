@@ -437,9 +437,11 @@ function RevenueBySourceTable({ attribution, cash }: { attribution: RevenueAttri
  * and the message counts below still show.
  */
 export function ResponseCommunicationPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
-  const { responseTime, communicationMetrics, comparisons, period, funnelUnavailable } = snapshot;
+  const { responseTime, communicationMetrics, comparisons, period, funnelUnavailable, communicationUnavailable } = snapshot;
   const unavailable = funnelUnavailable.responseTime;
   const hasAnyResponse = !unavailable && responseTime.leadsContacted > 0;
+  // Phase 2J: message, conversation and opt-out figures whose read failed are unavailable, never 0.
+  const communicationValue = (value: number) => (communicationUnavailable ? { value: "-", detail: "Couldn't be read for this period" } : { value: String(value) });
 
   return (
     <Panel id="response" title="Customer response & communication" scope={scopeLabel(period.label)}>
@@ -459,11 +461,11 @@ export function ResponseCommunicationPanel({ snapshot }: { snapshot: BusinessMet
         <SecondaryMetrics
           metrics={[
             ...(unavailable ? [] : [{ key: "contacted", label: "Contacted", value: String(responseTime.leadsContacted), ...compared(comparisons.leadsContacted) }]),
-            { key: "inbound", label: "Inbound messages", value: String(communicationMetrics.inboundMessages) },
-            { key: "outbound", label: "Outbound messages", value: String(communicationMetrics.outboundMessages) },
-            { key: "new-open", label: "New conversations · still open", value: String(communicationMetrics.conversationsOpened) },
-            { key: "new-closed", label: "New conversations · now closed", value: String(communicationMetrics.conversationsClosed) },
-            { key: "opt-outs", label: "New contacts who opted out", value: String(communicationMetrics.optOutCount) },
+            { key: "inbound", label: "Inbound messages", ...communicationValue(communicationMetrics.inboundMessages) },
+            { key: "outbound", label: "Outbound messages", ...communicationValue(communicationMetrics.outboundMessages) },
+            { key: "new-open", label: "New conversations · still open", ...communicationValue(communicationMetrics.conversationsOpened) },
+            { key: "new-closed", label: "New conversations · now closed", ...communicationValue(communicationMetrics.conversationsClosed) },
+            { key: "opt-outs", label: "New contacts who opted out", ...communicationValue(communicationMetrics.optOutCount) },
           ]}
         />
         <BreakdownGrid>
@@ -482,6 +484,9 @@ export function ResponseCommunicationPanel({ snapshot }: { snapshot: BusinessMet
             </PanelBlock>
           ) : null}
           <PanelBlock label="Outbound sent by">
+            {communicationUnavailable ? (
+              <p className={metaClass}>Outbound messages could not be read for this period. Nothing is estimated in its place.</p>
+            ) : (
             <BarList
               items={[
                 { key: "ai", label: "AI", value: communicationMetrics.aiOutboundMessages },
@@ -489,6 +494,7 @@ export function ResponseCommunicationPanel({ snapshot }: { snapshot: BusinessMet
                 { key: "system", label: "System", value: communicationMetrics.systemOutboundMessages },
               ]}
             />
+            )}
           </PanelBlock>
         </BreakdownGrid>
       </PanelBody>
