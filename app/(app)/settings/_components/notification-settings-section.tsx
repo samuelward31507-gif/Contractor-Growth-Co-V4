@@ -39,6 +39,12 @@ const TOGGLES: { name: string; key: keyof NotificationSettings; label: string; d
     label: "Notify when automation needs attention",
     description: "When Trackpr detects a degradation in your automation health.",
   },
+  {
+    name: "notifyOnOwnerDigest",
+    key: "notify_on_owner_digest",
+    label: "Weekly summary",
+    description: "A short text every Monday morning with open opportunities, overdue invoices and anything needing attention.",
+  },
 ];
 
 export function NotificationSettingsSection({

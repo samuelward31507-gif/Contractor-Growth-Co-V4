@@ -317,3 +317,27 @@ Why: running the SQL rollback while the Phase 3D code is still deployed removes 
 **trackpr-stripe-test:** not applied (it has no scheduler; the script would only re-create the helper there).
 
 The file now lives at `supabase/migrations/20261002102849_scheduler_version_control.sql`, unmodified (SHA-256 `7f4ad2c5...`, identical to what production applied); its header comment still reads "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback file and the PGlite harness stay here; the harness and `lib/automation-health/scheduler-config.structural.test.ts` now read the migration from its `supabase/migrations/` location.
+
+## owner_digest_notification_setting.sql and owner_digest_schedule.sql (PENDING - not applied anywhere)
+
+Phase 3G-1 (Owner Digest): a weekly SMS to each organization's own notification contact, Monday 7:00 in the organization's timezone, through the existing owner-notification path (`notifyFounder`, kind `owner_digest`). Two small scripts, applied separately:
+
+- `owner_digest_notification_setting.sql` adds `notification_settings.notify_on_owner_digest boolean not null default true` - the owner's own on/off switch, the same shape as `notify_on_automation_degraded`. No policy or grant changes. Rollback: `owner_digest_notification_setting_rollback.sql` (drops only that column).
+- `owner_digest_schedule.sql` re-creates `public.invoke_trackpr_scheduled` from the Phase 3D migration with exactly one change (`/api/automation/owner-digest` added to the allowlist) and schedules one new job, `trackpr_owner_digest`, at `8,23,38,53 * * * *` (the first unused minute after the eight existing jobs). The same guards as 3D: nothing without pg_cron or both Vault secrets, refuse a same-named job owned by another role, exactly one job by name. Existing jobs and `trackpr_cron_history_cleanup` are untouched. Rollback: `owner_digest_schedule_rollback.sql` (unschedules the job and restores the exact 3D helper).
+- `scratch/validate-owner-digest-schedule.mjs` applies the 3D migration and then this script to PGlite (dummy values only): skip without pg_cron or Vault; one new job, existing jobs untouched, idempotent; nine allowlisted paths; grants revoked; refusal on another role's job; and the rollback back to the exact 3D helper.
+
+### Apply order
+
+1. `owner_digest_notification_setting.sql` first, **before** the 3G-1 code deploys - the Settings form saves this column and that save fails until it exists. (Reads are tolerant: `getNotificationSettings` reads `*` and falls back to the default, so notifications keep working either way.)
+2. Merge and deploy the 3G-1 code.
+3. `owner_digest_schedule.sql` after the code is live (the route must exist before pg_cron calls it), with the same read-only pre-checks and post-checks as `scheduler_version_control.sql`: `current_user` and job owners, the existing jobs unchanged, `trackpr_owner_digest` once at `8,23,38,53 * * * *`, the cleanup job inactive, EXECUTE still revoked.
+4. Watch one cycle: `/api/automation/owner-digest` returns 200 every 15 minutes and its liveness turns "Observed recently". It only sends on Monday mornings.
+5. After production has each: `git mv` it into `supabase/migrations/<recorded version>_<name>.sql`.
+
+### Rollback order
+
+Revert/redeploy the application code first, then run `owner_digest_schedule_rollback.sql` (otherwise owner-digest's liveness goes stale while the catalog still expects it and raises false "Automation needs attention" alerts), then `owner_digest_notification_setting_rollback.sql`.
+
+### Status
+
+Written and validated locally (PGlite, 7 scenario checks). SHA-256: `owner_digest_notification_setting.sql` `ae80039db1a1f5d4318d3eb4c9812086847a36c3a263b396bc34a74a246d4b2a`; `owner_digest_schedule.sql` `5092dd1bcf392be4bd2ece310c62aa69e3bda2a47512dd1d7dff86276c8c4edb`. Not applied to TEST or production.

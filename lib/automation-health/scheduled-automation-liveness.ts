@@ -42,11 +42,16 @@ export const SCHEDULED_AUTOMATION_IDS = [
   // opportunity detection. Not an automation catalog entry, so its display
   // name comes from NON_CATALOG_SCHEDULED_NAMES below.
   "opportunity-sync",
+  // Phase 3G-1: app/api/automation/owner-digest/route.ts - the weekly owner
+  // digest. Called every 15 minutes (it only sends on Monday mornings), so
+  // the same 45-minute staleness threshold applies.
+  "owner-digest",
 ] as const;
 
 /** Display names for scheduled routes that aren't automation catalog entries. */
 const NON_CATALOG_SCHEDULED_NAMES: Partial<Record<(typeof SCHEDULED_AUTOMATION_IDS)[number], string>> = {
   "opportunity-sync": "Opportunity Detection",
+  "owner-digest": "Weekly Owner Summary",
 };
 
 export type ScheduledAutomationId = (typeof SCHEDULED_AUTOMATION_IDS)[number];

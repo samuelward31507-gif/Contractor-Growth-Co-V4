@@ -323,6 +323,8 @@ export type NotificationSettings = {
   notify_on_missed_call: boolean;
   notify_on_appointment_booked: boolean;
   notify_on_automation_degraded: boolean;
+  /** Phase 3G-1: the weekly owner digest (SMS). Default on. */
+  notify_on_owner_digest: boolean;
   escalation_contact_name: string | null;
 };
 
@@ -334,6 +336,7 @@ const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   notify_on_missed_call: true,
   notify_on_appointment_booked: true,
   notify_on_automation_degraded: true,
+  notify_on_owner_digest: true,
   escalation_contact_name: null,
 };
 
@@ -341,13 +344,16 @@ export async function getNotificationSettings(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<NotificationSettings> {
-  const { data } = await supabase
-    .from("notification_settings")
-    .select(
-      "notification_email, notification_phone, notify_on_hot_lead, notify_on_ai_escalation, notify_on_missed_call, notify_on_appointment_booked, notify_on_automation_degraded, escalation_contact_name",
-    )
-    .eq("organization_id", organizationId)
-    .maybeSingle();
-
-  return data ? (data as NotificationSettings) : DEFAULT_NOTIFICATION_SETTINGS;
+  // Phase 3G-1: "*" plus the known keys over the defaults, so this read keeps
+  // working whether or not a newer column (notify_on_owner_digest) exists
+  // yet - an explicit column list would fail as a whole on a missing column
+  // and silently drop every founder notification's recipient.
+  const { data } = await supabase.from("notification_settings").select("*").eq("organization_id", organizationId).maybeSingle();
+  if (!data) return DEFAULT_NOTIFICATION_SETTINGS;
+  const row = data as Partial<NotificationSettings>;
+  const settings = { ...DEFAULT_NOTIFICATION_SETTINGS };
+  for (const key of Object.keys(DEFAULT_NOTIFICATION_SETTINGS) as (keyof NotificationSettings)[]) {
+    if (row[key] !== undefined) (settings as Record<string, unknown>)[key] = row[key];
+  }
+  return settings;
 }

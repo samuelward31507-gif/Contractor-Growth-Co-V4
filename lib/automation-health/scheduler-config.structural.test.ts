@@ -115,7 +115,7 @@ test("vercel.json holds exactly one cron - the daily scheduler watchdog - and no
   assert.match(cron.schedule, /^\d{1,2} \d{1,2} \* \* \*$/, "once a day (the Hobby plan's limit)");
 });
 
-test("liveness: opportunity-sync is a scheduled automation; the 45-minute stale threshold is unchanged", () => {
-  assert.deepEqual([...SCHEDULED_AUTOMATION_IDS], ["appointment-reminders", "estimate-followup", "lost-lead-nurture", "lead-reactivation", "customer-reactivation", "no-show-detection", "opportunity-sync"]);
+test("liveness: opportunity-sync (3D) and owner-digest (3G-1) are scheduled automations; the 45-minute stale threshold is unchanged", () => {
+  assert.deepEqual([...SCHEDULED_AUTOMATION_IDS], ["appointment-reminders", "estimate-followup", "lost-lead-nurture", "lead-reactivation", "customer-reactivation", "no-show-detection", "opportunity-sync", "owner-digest"]);
   assert.equal(SCHEDULED_AUTOMATION_STALE_THRESHOLD_MS, 45 * 60 * 1000);
 });
