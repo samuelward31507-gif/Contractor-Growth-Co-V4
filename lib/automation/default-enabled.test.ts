@@ -34,8 +34,9 @@ function fakeSettings(row: { enabled: boolean } | null) {
   } as unknown as SupabaseClient;
 }
 
-test("every existing automation still defaults ON (no entry sets defaultEnabled: false yet); unknown ids default ON", () => {
-  for (const definition of AUTOMATION_CATALOG) assert.equal(getAutomationDefaultEnabled(definition.id), true, definition.id);
+test("every existing automation still defaults ON - only invoice-reminders (Phase 3G-2b) opts out; unknown ids default ON", () => {
+  for (const definition of AUTOMATION_CATALOG) assert.equal(getAutomationDefaultEnabled(definition.id), definition.id !== "invoice-reminders", definition.id);
+  assert.deepEqual(AUTOMATION_CATALOG.filter((d) => d.defaultEnabled === false).map((d) => d.id), ["invoice-reminders"]);
   assert.equal(getAutomationDefaultEnabled("not-a-real-automation"), true);
 });
 

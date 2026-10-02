@@ -6,8 +6,13 @@ import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
 import type { JobStatus } from "@/lib/jobs/queries";
 import type { LeadStatus } from "@/lib/leads/queries";
+import { calendarDateInTimeZone, formatMoney } from "@/lib/invoices/domain";
+import { daysOverdue, reminderStageFor, type InvoiceReminderStage } from "@/lib/invoices/reminder-stages";
 
 const MAX_MESSAGE_LENGTH = 1600;
+
+/** Phase 3G-2b: a dollar amount as formatMoney writes it ("$450", "$1,250.50"). */
+const DOLLAR_AMOUNT_PATTERN = /\$\s?[\d,]+(?:\.\d{1,2})?/g;
 
 // Phase 4.9: the exact "active" status sets the lead-reactivation audit
 // specified, reusing the existing status enums unchanged - not a new
@@ -75,6 +80,16 @@ export type OutboundGateInput = {
    * appointment/estimate/job sends that happen to carry a lead_id).
    */
   leadEligibleStatuses?: LeadStatus[];
+  /**
+   * Phase 3G-2b: same pattern as appointmentId/estimateId/jobId above, for
+   * invoice reminders - re-checks the invoice live immediately before
+   * sending: it belongs to this organization, is still sent or partially
+   * paid, is not voided, still has a balance, and its contact is the one
+   * being messaged. Omit for every non-invoice send - no invoice check runs.
+   */
+  invoiceId?: string | null;
+  /** Phase 3G-2b: with invoiceId, the reminder stage being sent - the invoice must still be in that stage's overdue window today, in the organization's timezone (lib/invoices/reminder-stages.ts). */
+  invoiceReminderStage?: InvoiceReminderStage;
   /**
    * Phase 4.9: for lead.reactivation sends - re-checks, live, that the lead
    * still has no active appointment/estimate/job right before sending. The
@@ -153,6 +168,12 @@ export type OutboundGateDenialReason =
   | "job_not_found"
   | "job_wrong_organization"
   | "job_status_ineligible"
+  | "invoice_not_found"
+  | "invoice_wrong_organization"
+  | "invoice_status_ineligible"
+  | "invoice_settled"
+  | "invoice_contact_mismatch"
+  | "invoice_stage_ineligible"
   | "lead_status_ineligible"
   | "lead_has_active_engagement"
   | "outside_business_hours"
@@ -258,7 +279,12 @@ export async function evaluateOutboundGate(
   if (!body) return deny("missing_response_message");
   if (body.length > MAX_MESSAGE_LENGTH) return deny("response_message_too_long");
 
-  const contentSafety = evaluateContentSafety(body);
+  // Phase 3G-2b: an invoice send states the invoice's balance, which the
+  // price check would always reject. For invoiceId sends only, dollar
+  // amounts are taken out of the content-safety pass (every other pattern
+  // still applies) and must instead equal the live invoice's balance due
+  // exactly - verified in the invoice block below.
+  const contentSafety = evaluateContentSafety(input.invoiceId ? body.replace(DOLLAR_AMOUNT_PATTERN, "") : body);
   if (!contentSafety.safe) return deny("unsafe_content", contentSafety.reason);
 
   if (!input.contactId) return deny("missing_contact_id");
@@ -488,6 +514,30 @@ export async function evaluateOutboundGate(
     const eligible = input.jobEligibleStatuses ?? [];
     if (!eligible.includes(job.status as JobStatus)) {
       return deny("job_status_ineligible", `job status is ${job.status}`);
+    }
+  }
+
+  if (input.invoiceId) {
+    const { data: invoice } = await supabase
+      .from("invoices")
+      .select("id, organization_id, status, balance_due, due_date, contact_id, voided_at")
+      .eq("id", input.invoiceId)
+      .maybeSingle();
+
+    if (!invoice) return deny("invoice_not_found");
+    if (invoice.organization_id !== input.organizationId) return deny("invoice_wrong_organization");
+    if (invoice.status !== "sent" && invoice.status !== "partially_paid") return deny("invoice_status_ineligible", `invoice status is ${invoice.status}`);
+    if (invoice.voided_at || !(Number(invoice.balance_due) > 0)) return deny("invoice_settled");
+    if (invoice.contact_id !== input.contactId) return deny("invoice_contact_mismatch");
+    const statedAmounts = body.match(DOLLAR_AMOUNT_PATTERN) ?? [];
+    const balance = formatMoney(Number(invoice.balance_due));
+    if (statedAmounts.some((amount) => amount.replace(/\s/g, "") !== balance)) return deny("unsafe_content", "message states an amount other than the invoice's balance due");
+
+    if (input.invoiceReminderStage) {
+      const timeZone = await getOrganizationTimezone(supabase, input.organizationId);
+      const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
+      const stage = invoice.due_date ? reminderStageFor(daysOverdue(today, invoice.due_date)) : null;
+      if (stage !== input.invoiceReminderStage) return deny("invoice_stage_ineligible");
     }
   }
 

@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Zap, MessageSquareReply, ShieldCheck, CalendarClock, BellRing, FileText, Wrench, Star, HeartPulse, RotateCcw, PhoneMissed, Sparkles, UserX } from "lucide-react";
+import { Zap, MessageSquareReply, ShieldCheck, CalendarClock, BellRing, FileText, Wrench, Star, HeartPulse, RotateCcw, PhoneMissed, Sparkles, UserX, Receipt } from "lucide-react";
 import type { OrganizationVertical } from "@/lib/auth/organization";
 
 /**
@@ -336,6 +336,28 @@ export const AUTOMATION_CATALOG: AutomationDefinition[] = [
       "Scheduled run finds appointments still 'scheduled' or 'confirmed' whose scheduled end time plus a conservative grace period has already passed",
       "Each eligible appointment is transitioned to 'no_show' with an atomic, conditional update - a concurrent contractor action (completed, cancelled) always wins the race, never both",
       "The existing appointment.no_show automation event fires exactly as it would from a manual click - the same reschedule-invitation dispatch, the same Safe AI Outbound gate, the same no_show opportunity detector",
+      "Execution recorded as completed",
+    ],
+  },
+  {
+    // Phase 3G-2b: off until an organization explicitly turns it on.
+    id: "invoice-reminders",
+    name: "Invoice Reminders",
+    description: "Texts a customer a reminder with their payment link when an invoice you've already sent them goes overdue - at 1, 7 and 14 days past due, then stops. Composed directly by Trackpr.",
+    category: "Billing",
+    icon: Receipt,
+    kind: "scheduled",
+    trigger: "Scheduled - runs on a recurring schedule, between 9am and 6pm in your timezone, for invoices you've sent to the customer that are 1, 7 or 14 days past due",
+    eventTypes: ["invoice.reminder"],
+    workflowNames: ["invoice_reminder"],
+    dispatch: "trackpr",
+    defaultEnabled: false,
+    steps: [
+      "Scheduled run finds sent or partially paid invoices that were sent to the customer with Send to customer and are 1-6, 7-13 or 14-20 days past due",
+      "Skips any invoice sent to the customer in the last 48 hours, and sends at most one reminder per customer per day",
+      "Trackpr composes the reminder directly with the balance due and the secure payment link - no AI, no n8n round trip, and never without a working payment link",
+      "Safe AI Outbound gate re-verifies the invoice is still unpaid and not voided, the customer, opt-out status, automation pause and payment status before sending",
+      "Message sent; each stage is sent at most once and never retried",
       "Execution recorded as completed",
     ],
   },
