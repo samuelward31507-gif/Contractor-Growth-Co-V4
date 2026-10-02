@@ -1,6 +1,7 @@
 /**
  * Phase 3D: static checks on the version-controlled scheduler
- * (supabase/pending/scheduler_version_control.sql and its rollback),
+ * (supabase/migrations/20261002102849_scheduler_version_control.sql
+ * and supabase/pending/scheduler_version_control_rollback.sql),
  * vercel.json and the scheduled-automation liveness catalog. The SQL's
  * runtime behavior is exercised separately against PGlite by
  * supabase/pending/scratch/validate-scheduler-version-control.mjs.
@@ -17,7 +18,7 @@ import path from "node:path";
 const require = createRequire(import.meta.url);
 const ROOT = process.cwd();
 const read = (file: string) => fs.readFileSync(path.join(ROOT, file), "utf8");
-const FORWARD = read("supabase/pending/scheduler_version_control.sql");
+const FORWARD = read("supabase/migrations/20261002102849_scheduler_version_control.sql");
 const ROLLBACK = read("supabase/pending/scheduler_version_control_rollback.sql");
 const sqlCode = (sql: string) => sql.replace(/--.*$/gm, "");
 const { SCHEDULED_AUTOMATION_IDS, SCHEDULED_AUTOMATION_STALE_THRESHOLD_MS }: typeof import("./scheduled-automation-liveness") = require(path.join(ROOT, "lib/automation-health/scheduled-automation-liveness.ts"));

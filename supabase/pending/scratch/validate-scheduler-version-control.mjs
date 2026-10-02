@@ -1,4 +1,5 @@
-// Validates supabase/pending/scheduler_version_control.sql and its rollback
+// Validates supabase/migrations/20261002102849_scheduler_version_control.sql
+// and its rollback (supabase/pending/scheduler_version_control_rollback.sql)
 // against an in-memory Postgres (PGlite), with minimal stand-ins for the
 // three Supabase schemas it touches: cron (pg_cron's job table, plus
 // schedule/unschedule matching pg_cron's per-user name semantics), vault
@@ -14,7 +15,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const forward = fs.readFileSync(path.join(here, "..", "scheduler_version_control.sql"), "utf8");
+const forward = fs.readFileSync(path.join(here, "..", "..", "migrations", "20261002102849_scheduler_version_control.sql"), "utf8");
 const rollback = fs.readFileSync(path.join(here, "..", "scheduler_version_control_rollback.sql"), "utf8");
 
 const ROLES = `

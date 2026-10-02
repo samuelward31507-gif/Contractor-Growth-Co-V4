@@ -268,6 +268,8 @@ The file now lives at `supabase/migrations/20260930044405_organization_health_in
 
 ## scheduler_version_control.sql
 
+**Applied to production 2026-10-02 (ledger `20261002102849`); now at `supabase/migrations/20261002102849_scheduler_version_control.sql` - see Status below.**
+
 Phase 3D (Scheduler Reliability). Production's business scheduler is Supabase pg_cron + pg_net: seven jobs (`trackpr_appointment_reminders`, `trackpr_estimate_followups`, `trackpr_lead_nurture`, `trackpr_lead_reactivation`, `trackpr_customer_reactivation`, `trackpr_no_show_detection`, `trackpr_automation_health`) that run `select public.invoke_trackpr_scheduled('<route>')` every 15 minutes, staggered one minute apart. Until this script, none of it lived in the repository. It was captured read-only on 2026-10-02 - job names and schedules from `cron.job`, the helper body from `pg_get_functiondef` - without reading any secret.
 
 What the script does:
@@ -305,4 +307,13 @@ Why: running the SQL rollback while the Phase 3D code is still deployed removes 
 
 ### Status
 
-Written and validated locally (PGlite, 7 scenario checks). File SHA-256 `7f4ad2c588fb2bb153ac13ccbefc97d97d2fedf5597f60cbd7e5e8784c793c64`. Not applied to TEST or production.
+**Applied and version-controlled - no longer pending.** Written and validated locally (PGlite, 7 scenario checks). File SHA-256 `7f4ad2c588fb2bb153ac13ccbefc97d97d2fedf5597f60cbd7e5e8784c793c64`.
+
+**Production (mywznmxtlgajnczjvbmk):** applied on 2026-10-02, after the application code (PR #34, `0e05817`) was deployed, via the MCP `apply_migration` mechanism with the name `scheduler_version_control`, once, as the file's exact text (SHA-256 `7f4ad2c5...`), as `postgres`. Recorded as ledger version `20261002102849`. Read-only preflight beforehand: `current_user` `postgres`; jobs 1-7 present once each, active, owned by `postgres`, with the expected schedules; no `trackpr_opportunity_sync`; `trackpr_cron_history_cleanup` inactive; the live helper body identical to the rollback file's. Verified read-only afterwards:
+- jobs 1-7 kept their job ids, schedules, commands and `active = true`; `trackpr_opportunity_sync` exists once (job id 16), active, at `7,22,37,52 * * * *`, with the expected command; `trackpr_cron_history_cleanup` still inactive; no other jobs;
+- the helper body equals the forward script's (the seven paths plus `/api/automation/opportunity-sync`; same Vault names, https-origin check, Bearer header, 300000 ms timeout, no retry); owner `postgres`, not SECURITY DEFINER, ACL `{postgres=X/postgres}` - no EXECUTE for anon, authenticated or service_role;
+- the first natural `trackpr_opportunity_sync` run (10:37 UTC) succeeded: `GET /api/automation/opportunity-sync` returned 200, an `opportunity-sync` row was written to `automation_schedule_runs`, and `/automations` shows Opportunity Detection as "Observed recently". The seven existing routes kept returning 200.
+
+**trackpr-stripe-test:** not applied (it has no scheduler; the script would only re-create the helper there).
+
+The file now lives at `supabase/migrations/20261002102849_scheduler_version_control.sql`, unmodified (SHA-256 `7f4ad2c5...`, identical to what production applied); its header comment still reads "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback file and the PGlite harness stay here; the harness and `lib/automation-health/scheduler-config.structural.test.ts` now read the migration from its `supabase/migrations/` location.
