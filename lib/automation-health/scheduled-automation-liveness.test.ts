@@ -50,9 +50,9 @@ test("a run well past the threshold (the schedule has clearly stopped): stale", 
   assert.equal(computeScheduledAutomationLivenessState(veryOldIso, NOW), "stale");
 });
 
-test("the tracked automation id list is exactly the 6 real cron-dependent routes, not derived from catalog kind", () => {
+test("the tracked automation id list is exactly the 7 real cron-dependent routes (Phase 3D added opportunity-sync), not derived from catalog kind", () => {
   assert.deepEqual(
     [...SCHEDULED_AUTOMATION_IDS].sort(),
-    ["appointment-reminders", "customer-reactivation", "estimate-followup", "lead-reactivation", "lost-lead-nurture", "no-show-detection"].sort(),
+    ["appointment-reminders", "customer-reactivation", "estimate-followup", "lead-reactivation", "lost-lead-nurture", "no-show-detection", "opportunity-sync"].sort(),
   );
 });

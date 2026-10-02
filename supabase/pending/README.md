@@ -265,3 +265,37 @@ Integration checks on the test project: the automation-health integration and se
 **Production (mywznmxtlgajnczjvbmk):** applied on 2026-09-30 via the MCP `apply_migration` mechanism with the name `organization_health_inputs`, once, as the same exact text. Recorded as ledger version `20260930044405` (ledger 55 -> 56). Verified read-only afterwards: the same statement md5 `64ce08bb...` and function body md5 `485b0613...` (full definition md5 `15da2c51a7267e93a468a3e6fd0e3bca`, identical to the test project's), the same properties and grants, and every other fingerprint unchanged; the function is the only new object. No behavioural tests were run against production. The application code that calls the function is not yet deployed; the function is inert until it is.
 
 The file now lives at `supabase/migrations/20260930044405_organization_health_inputs.sql`, unmodified (SHA-256 `586a0c30...`, md5 `64ce08bb...`, identical to the statement production's ledger recorded); its header comment still reads "STATUS: PENDING" because the SQL text is deliberately kept byte-identical to what was applied. The rollback file and the PGlite harness stay here; the harness now reads the migration from its `supabase/migrations/` location.
+
+## scheduler_version_control.sql
+
+Phase 3D (Scheduler Reliability). Production's business scheduler is Supabase pg_cron + pg_net: seven jobs (`trackpr_appointment_reminders`, `trackpr_estimate_followups`, `trackpr_lead_nurture`, `trackpr_lead_reactivation`, `trackpr_customer_reactivation`, `trackpr_no_show_detection`, `trackpr_automation_health`) that run `select public.invoke_trackpr_scheduled('<route>')` every 15 minutes, staggered one minute apart. Until this script, none of it lived in the repository. It was captured read-only on 2026-10-02 - job names and schedules from `cron.job`, the helper body from `pg_get_functiondef` - without reading any secret.
+
+What the script does:
+
+1. Re-creates `public.invoke_trackpr_scheduled(p_path text)` byte-for-byte from production, with exactly one change: `/api/automation/opportunity-sync` is added to its route allowlist. Vault secret names (`trackpr_base_url`, `trackpr_cron_secret`), the https-origin check, the GET, the Bearer header and the 300000 ms timeout are unchanged. No secret, URL or token is in the file. Owner stays `postgres`; EXECUTE is revoked from public, anon, authenticated and service_role (as in production).
+2. Re-declares the seven jobs with their exact names, schedules and commands - `cron.schedule` with an existing name updates that job in place - and adds `trackpr_opportunity_sync` at `7,22,37,52 * * * *`. It refuses if a same-named job belongs to another role (pg_cron would create a duplicate) and verifies exactly one job per name. `trackpr_cron_history_cleanup` is not touched and stays inactive.
+3. The job section does nothing unless pg_cron is installed and both Vault secrets exist, so applying it to a database without the scheduler (TEST) creates no failing jobs.
+
+Not managed here: the pg_cron / pg_net extensions and the Vault secrets (created per environment by a person).
+
+Companion files:
+
+- `scheduler_version_control_rollback.sql` unschedules `trackpr_opportunity_sync` and restores the helper's exact pre-Phase-3D body (seven paths), leaving the seven jobs - already identical to before - and the cleanup job alone.
+- `scratch/validate-scheduler-version-control.mjs` applies the script to PGlite with stand-in cron/vault/net schemas (dummy values only): skip without pg_cron or Vault; existing jobs updated in place with the same job ids; idempotent; cleanup untouched; helper behavior (8 paths, https check, Bearer header, timeout); grants revoked; refusal on a job owned by another role; and the rollback.
+
+### Deploy order
+
+Deploy the application code first (the `/api/automation/opportunity-sync` route and the watchdog). Applying the script before the route exists would make `trackpr_opportunity_sync` call a 404 every 15 minutes - harmless (no data change) but noisy, and its liveness would show the route as never having run.
+
+### Apply procedure (a person does this, not tooling)
+
+1. Read-only, names only: `select jobid, jobname, schedule, active from cron.job order by jobid` - confirm the seven jobs and schedules above, and that no `trackpr_opportunity_sync` exists yet. `select name from vault.secrets order by name` - confirm both secret names. Never select `command` or decrypted values.
+2. Apply `scheduler_version_control.sql` as one transaction (MCP `apply_migration` named `scheduler_version_control`, or the SQL editor keeping its `begin;`/`commit;`).
+3. Read back the ledger entry: `select version, name from supabase_migrations.schema_migrations order by version desc limit 1`.
+4. Verify read-only: the same `cron.job` query shows the seven jobs with the SAME jobids and schedules, `trackpr_opportunity_sync` once at `7,22,37,52 * * * *`, and `trackpr_cron_history_cleanup` still inactive; `has_function_privilege` for anon, authenticated and service_role on `public.invoke_trackpr_scheduled(text)` is false.
+5. Watch Vercel's request logs for one cycle: the seven routes plus `/api/automation/opportunity-sync`, all 200.
+6. Only after production has it: `git mv` the file into `supabase/migrations/<recorded production version>_scheduler_version_control.sql`.
+
+### Status
+
+Written and validated locally (PGlite, 7 scenario checks). File SHA-256 `7f4ad2c588fb2bb153ac13ccbefc97d97d2fedf5597f60cbd7e5e8784c793c64`. Not applied to TEST or production.
