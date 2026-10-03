@@ -10,6 +10,7 @@ import { scheduleOpportunitySync } from "@/lib/opportunities/background-sync";
 import { getOpenOpportunitiesResult } from "@/lib/opportunities/queries";
 import { getPrioritizedOpportunities } from "@/lib/opportunities/intelligence";
 import { assembleDecisions } from "@/lib/decisions/assemble";
+import { getDecisionContext } from "@/lib/decisions/context";
 import type { DecisionItem } from "@/lib/decisions/types";
 import { getContacts } from "@/lib/contacts/queries";
 import { calendarDateInTimeZone, formatMoney } from "@/lib/invoices/domain";
@@ -22,7 +23,7 @@ import { AddLeadButton } from "../leads/_components/add-lead-button";
 import { OpportunitiesList } from "../opportunities/_components/opportunities-list";
 import { TodayViewTabs, type TodayView } from "./_components/today-view-tabs";
 import { ScrollToAnchorOnLoad } from "./_components/scroll-to-anchor-on-load";
-import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, hourInTimeZone, pipelineStages, todayFigures } from "./_components/dashboard-model";
+import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, handlingLine, hourInTimeZone, pipelineStages, todayFigures } from "./_components/dashboard-model";
 import { DashboardSection, PipelineFlow, SectionLink, ShowAllLink, TodayPanel } from "./_components/dashboard-sections";
 
 function normalizeView(value: string | undefined): TodayView {
@@ -101,6 +102,8 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     endOfDaySummary,
     opportunitiesResult,
     prioritizedOpportunities,
+    ,
+    decisionContext,
   ] = await Promise.all([
     // Phase 2D: getDashboardData with its conversation attention computed in
     // SQL, memoized for this request so the briefing and end-of-day summary
@@ -123,6 +126,11 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     // Phase 2C: opportunity detection never blocks this render - scheduled
     // here, run after the response (next/server after()). Never rejects.
     scheduleOpportunitySync(supabase, membership.organizationId),
+    // Phase 2-3: who acts - chained onto the request-memoized dashboard
+    // read (its waiting conversations), so it adds no await and never
+    // re-reads the dashboard; the organization/settings reads inside are
+    // shared with getPrioritizedOpportunities.
+    getDashboardSqlData(supabase, membership.organizationId).then((dashboard) => getDecisionContext(supabase, membership.organizationId, { attentionItems: dashboard.attentionItems, timeZone: timeZone ?? null })),
   ]);
 
   const openOpportunities = opportunitiesResult.data;
@@ -137,7 +145,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   // merge with persisted opportunities into one priority order. Zero new
   // queries - assembled from data.attentionItems and the prioritized
   // opportunities, both already fetched above.
-  const decisions = assembleDecisions({ attentionItems: data.attentionItems, prioritizedOpportunities });
+  const decisions = assembleDecisions({ attentionItems: data.attentionItems, prioritizedOpportunities, context: decisionContext });
   const operationalExceptions = decisions.exceptions;
   const queue = decisions.attention;
   const opportunityQueue = decisions.opportunities;
@@ -153,9 +161,9 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const figures = todayFigures({
     leadsReceivedToday: endOfDaySummary.leadsReceived,
     appointmentsToday: summary.data.appointments_today,
-    // The awaiting_reply items the attention list already renders - not
-    // dailyBriefing.aiEscalationsCount (open conversations with AI off).
-    conversationsWaiting: conversationsWaitingCount(data.attentionItems),
+    // The waiting-for-reply rows Act II renders (human only, Phase 2-3b) -
+    // not dailyBriefing.aiEscalationsCount (open conversations with AI off).
+    conversationsWaiting: conversationsWaitingCount(decisions.attention),
   });
 
   const stages = pipelineStages(
@@ -208,7 +216,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
 
       {/* Act I - what happened. */}
       <DashboardSection id="today" title="What happened today">
-        <TodayPanel figures={figures} briefing={dailyBriefing} handled={handledLine(aiHandled.aiMetrics)} />
+        <TodayPanel figures={figures} briefing={dailyBriefing} handled={handledLine(aiHandled.aiMetrics)} handling={handlingLine(decisions.trackprHandling.length)} />
       </DashboardSection>
 
       {/* Act II - what needs attention. */}

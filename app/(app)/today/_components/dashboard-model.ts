@@ -44,13 +44,28 @@ export const CONVERSATION_ATTENTION_CAP = 5;
 
 /**
  * Conversations genuinely waiting on the owner: open conversations whose
- * most recent message is from the customer - exactly the awaiting_reply
- * attention items already loaded for the list above (not open conversations
- * with AI turned off, which is a different population).
+ * most recent message is from the customer - exactly the waiting-for-reply
+ * rows Act II renders (not open conversations with AI turned off, which is
+ * a different population).
+ *
+ * Phase 2-3b (C4): pass Act II's human items (decisions.attention), so a
+ * conversation still inside Trackpr's 15-minute grace period is not
+ * counted - the figure always matches Act II. The cap disclosure still
+ * holds: at the SQL cap every waiting conversation is human (C5), so the
+ * count reaches the cap and reads "5+".
  */
-export function conversationsWaitingCount(attentionItems: { kind: string }[]): { count: number; capped: boolean } {
-  const count = attentionItems.filter((item) => item.kind === "awaiting_reply").length;
+export function conversationsWaitingCount(humanAttentionItems: { reasonCode: string }[]): { count: number; capped: boolean } {
+  const count = humanAttentionItems.filter((item) => item.reasonCode === "customer_awaiting_reply").length;
   return { count, capped: count >= CONVERSATION_ATTENTION_CAP };
+}
+
+/**
+ * Phase 2-3c: the Act I line for work Trackpr is handling right now (Act
+ * II's items set aside as actor "trackpr" - decisions.trackprHandling).
+ * Null when there is none, so the row only renders when N > 0.
+ */
+export function handlingLine(trackprHandlingCount: number): string | null {
+  return trackprHandlingCount > 0 ? `Trackpr is handling ${trackprHandlingCount} automatically` : null;
 }
 
 export type TodayFigure = { key: string; label: string; value: string; detail: string; href: string; tone?: "attention" };

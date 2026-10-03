@@ -179,6 +179,8 @@ export type AttentionItem = {
   incidentStatus?: IncidentStatus;
   /** Pass 3: only present for the three opportunity-backed kinds above - lets the dashboard render the existing dismiss action inline without a second lookup. */
   opportunityId?: string;
+  /** Phase 2-3: the conversation an awaiting_reply item belongs to, so the decision layer can read its AI state without parsing the id or link. */
+  conversationId?: string;
 };
 
 export type ActivityItem = {
@@ -598,6 +600,7 @@ export async function getDashboardData(
           detail: `Waiting for a reply ${formatRelativeTime(conversation.lastActivityAt)}`,
           value: null,
           href: `/conversations/${conversation.id}`,
+          conversationId: conversation.id,
         }));
 
   // Pass 5C, Batch 1: the mirror-image case awaitingReply above doesn't

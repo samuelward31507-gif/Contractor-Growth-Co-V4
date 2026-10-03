@@ -51,11 +51,12 @@ test("the attention line counts what needs the owner, and says so plainly when n
   assert.equal(model.attentionLine(7), "7 things need your attention today.");
 });
 
-test("conversations waiting: counts the awaiting_reply attention items only, and discloses the attention read's cap", () => {
-  const items = (kinds: string[]) => kinds.map((kind) => ({ kind }));
+test("conversations waiting: counts Act II's human waiting-for-reply items only, and discloses the attention read's cap", () => {
+  // Phase 2-3b (C4): the input is Act II's human items (decisions.attention).
+  const items = (codes: string[]) => codes.map((reasonCode) => ({ reasonCode }));
   assert.deepEqual(model.conversationsWaitingCount(items([])), { count: 0, capped: false });
-  assert.deepEqual(model.conversationsWaitingCount(items(["awaiting_reply", "abandoned_conversation", "human_escalation", "awaiting_reply"])), { count: 2, capped: false }, "only conversations whose last message is the customer's count - not escalations or stalled outreach");
-  assert.deepEqual(model.conversationsWaitingCount(items(Array(5).fill("awaiting_reply"))), { count: 5, capped: true });
+  assert.deepEqual(model.conversationsWaitingCount(items(["customer_awaiting_reply", "conversation_stalled", "human_escalation", "customer_awaiting_reply"])), { count: 2, capped: false }, "only conversations whose last message is the customer's count - not escalations or stalled outreach");
+  assert.deepEqual(model.conversationsWaitingCount(items(Array(5).fill("customer_awaiting_reply"))), { count: 5, capped: true });
   assert.equal(model.CONVERSATION_ATTENTION_CAP, 5, "matches dashboard_conversation_attention's own rn <= 5");
 });
 
@@ -83,6 +84,14 @@ test("Trackpr handled: one line from the customer-facing AI count, nothing claim
 
 const SUMMARY = { hot_lead_count: 2, quotes_out_count: 3, ready_to_schedule_count: 1, won_not_finished_count: 4, outstanding_count: 1, not_yet_invoiced_count: 2, not_yet_invoiced_unknown_count: 0 };
 const VALUES = { openLeads: "$10", quotesOut: "$20", readyToSchedule: "$30", inProgress: "$40", readyToInvoice: "$45.00", outstanding: "$50.00" };
+
+test("Phase 2-3c: 'Trackpr is handling N automatically' - only when N > 0, from decisions.trackprHandling, linking to /automations, just above the unchanged 'Trackpr handled' row", () => {
+  assert.equal(model.handlingLine(0), null, "no row when Trackpr is handling nothing");
+  assert.equal(model.handlingLine(1), "Trackpr is handling 1 automatically");
+  assert.equal(model.handlingLine(3), "Trackpr is handling 3 automatically");
+  assert.match(PAGE, /handling=\{handlingLine\(decisions\.trackprHandling\.length\)\}/, "N is the assembler's own trackprHandling - never a second calculation");
+  assert.match(SECTIONS, /\.\.\.\(handling \? \[\{ key: "handling", icon: Workflow, text: handling, href: "\/automations", action: "View automations" \}\] : \[\]\),\s*\{ key: "handled", icon: Workflow, text: handled, href: "\/automations", action: "View automations" \},/, "the same row pattern, immediately before the existing handled row, which is unchanged");
+});
 
 test("where the work stands: six current-state stages, each linking to the page and filter that owns it", () => {
   const stages = model.pipelineStages(SUMMARY, VALUES, { count: 0, value: "$0.00" });
@@ -121,8 +130,9 @@ test("historical figures live on Analytics, not Today: no all-time Collected/Inv
   assert.doesNotMatch(PAGE, /"Open opportunities"|label: "Collected"|label: "Invoiced"/);
 });
 
-test("conversations waiting come from the awaiting_reply attention items, not the AI-off escalation count", () => {
-  assert.match(PAGE, /conversationsWaiting: conversationsWaitingCount\(data\.attentionItems\)/);
+test("conversations waiting come from Act II's human items (Phase 2-3b), not the raw attention list or the AI-off escalation count", () => {
+  assert.match(PAGE, /conversationsWaiting: conversationsWaitingCount\(decisions\.attention\)/);
+  assert.match(PAGE, /const decisions = assembleDecisions\([\s\S]*conversationsWaiting: conversationsWaitingCount\(decisions\.attention\)/, "computed after the assembler, from its human Act II items");
   assert.doesNotMatch(PAGE, /aiEscalationsCount/);
 });
 
@@ -140,7 +150,12 @@ test("data: the organization timezone first, then one batch of reads sharing the
     "scheduleOpportunitySync(supabase, membership.organizationId)",
   ];
   for (const call of calls) assert.ok(batch.includes(call), `batch still contains ${call}`);
-  assert.equal((batch.match(/\(supabase, membership\.organizationId/g) ?? []).length, calls.length, "no read was added to the batch");
+  // Phase 2-3 (approved B5): the one added read - the decision context -
+  // chained onto the request-memoized dashboard read inside this same
+  // batch, so it adds no await and never re-reads the dashboard.
+  const decisionContext = "getDashboardSqlData(supabase, membership.organizationId).then((dashboard) => getDecisionContext(supabase, membership.organizationId, { attentionItems: dashboard.attentionItems, timeZone: timeZone ?? null }))";
+  assert.ok(batch.includes(decisionContext), "the decision context is chained onto the cached dashboard read");
+  assert.equal((batch.match(/\(supabase, membership\.organizationId/g) ?? []).length, calls.length + 2, "nothing else was added: the existing reads plus the chained dashboard (cached) and decision-context calls");
   assert.match(PAGE, /const timeZone = await getOrganizationTimezone\(supabase, membership\.organizationId\);[\s\S]*const dayBounds = organizationDayBounds\(briefingNow, timeZone \?\? "UTC"\);[\s\S]*await Promise\.all\(\[/, "the timezone is read before the batch so every day-scoped read uses the organization's day");
   assert.equal((PAGE.match(/await /g) ?? []).length, 5, "only searchParams, the request client, the membership, the timezone and the one batch are awaited");
   assert.doesNotMatch(PAGE, /\.from\(|\.rpc\(|getOrganizationHealth|getBusinessMetricsSnapshot/);
@@ -185,7 +200,7 @@ test("attention and opportunity split the existing priority order by tier - noth
   assert.match(ASSEMBLE, /export const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set\(\["recoverable", "growth"\]\);/);
   assert.match(ASSEMBLE, /buildPriorityQueue\(input\.prioritizedOpportunities, getConversationSignals\(input\.attentionItems\)\)/, "the unchanged queue, same inputs, same order");
   assert.match(ASSEMBLE, /totalNeedingAttention: exceptions\.length \+ attention\.length/);
-  assert.match(PAGE, /const decisions = assembleDecisions\(\{ attentionItems: data\.attentionItems, prioritizedOpportunities \}\);/);
+  assert.match(PAGE, /const decisions = assembleDecisions\(\{ attentionItems: data\.attentionItems, prioritizedOpportunities, context: decisionContext \}\);/);
   assert.match(PAGE, /const totalNeedingAttention = decisions\.totalNeedingAttention;/);
   assert.match(PAGE, /attentionLine\(totalNeedingAttention\)/);
   assert.match(PAGE, /\{totalNeedingAttention === 0 \? \(\s*<div className="px-5 py-10 text-center">\s*<p className="text-sm font-medium text-ink">You&apos;re all caught up\.<\/p>/);

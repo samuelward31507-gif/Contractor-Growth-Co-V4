@@ -102,3 +102,119 @@ test("the assembler stays pure and synchronous: no awaits, no Supabase, no fetch
   const source = fs.readFileSync(path.join(ROOT, "lib/decisions/assemble.ts"), "utf8");
   assert.doesNotMatch(source, /\bawait\b|async |supabase|fetch\(/i);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2-3a: actor resolution. Every item carries an actor; in 2-3a it is
+// computed but changes nothing else - Act II membership, order, rows and
+// the count stay exactly the frozen pre-2-3 output above.
+// ---------------------------------------------------------------------------
+
+const MIN = 60 * 1000;
+const HOUR = 60 * MIN;
+
+function trackprCapableFixture(now: number) {
+  const fixture = buildParityFixture(now);
+  // conversation "a" waiting 5 minutes (inside the grace period); "b" waiting 40 minutes (past it)
+  fixture.attentionItems = fixture.attentionItems.map((item) => (item.id === "reply-a" ? { ...item, conversationId: "conv-a" } : item.id === "reply-b" ? { ...item, conversationId: "conv-b" } : item));
+  // o6 (pending estimate) sent 30h ago to a reachable, opted-in contact
+  fixture.prioritizedOpportunities = fixture.prioritizedOpportunities.map((p) =>
+    p.opportunity.id === "o6" ? { ...p, contactPhone: "+15125550106", contactSmsOptOut: false, opportunity: { ...p.opportunity, metadata: { ...p.opportunity.metadata, sent_at: new Date(now - 30 * HOUR).toISOString() } } } : p,
+  );
+  return fixture;
+}
+
+function eligibleContext(now: number): import("./actor").DecisionContext {
+  return {
+    now,
+    organizationEligible: true,
+    aiSettingsEnabled: true,
+    inboundReplyEnabled: true,
+    estimateFollowupEnabled: true,
+    inboundReplyWithinHours: true,
+    waitingCapReached: false,
+    waitingConversations: new Map([
+      ["conv-a", { aiEnabled: true, smsOptOut: false, firstUnansweredInboundAt: new Date(now - 5 * MIN).toISOString() }],
+      ["conv-b", { aiEnabled: true, smsOptOut: false, firstUnansweredInboundAt: new Date(now - 40 * MIN).toISOString() }],
+    ]),
+  };
+}
+
+test("2-3a: with no context every item is human - exceptions included", () => {
+  const result = assembleDecisions(buildParityFixture());
+  for (const item of [...result.exceptions, ...result.attention, ...result.opportunities]) assert.equal(item.actor, "human", item.key);
+});
+
+test("2-3a: the context sets actor per item - waiting reply inside the grace period and a pending estimate in its follow-up window are Trackpr; everything else human", () => {
+  const now = Date.now();
+  const result = assembleDecisions({ ...trackprCapableFixture(now), context: eligibleContext(now) });
+  const all = [...result.exceptions, ...result.attention, ...result.trackprHandling, ...result.opportunities];
+  const actorByKey = Object.fromEntries(all.map((item) => [item.key, item.actor]));
+  assert.equal(actorByKey["signal:awaiting_reply:0"], "trackpr", "conv-a, 5 minutes");
+  assert.equal(actorByKey["signal:awaiting_reply:1"], "human", "conv-b, 40 minutes");
+  assert.equal(actorByKey["opportunity:o6"], "trackpr", "pending estimate, 30h, follow-up on");
+  assert.deepEqual(all.filter((item) => item.actor === "trackpr").map((item) => item.key).sort(), ["opportunity:o6", "signal:awaiting_reply:0"]);
+  for (const item of result.exceptions) assert.equal(item.actor, "human", "exceptions are always human");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2-3b: Act II holds only human work; the count and caught-up read it.
+// ---------------------------------------------------------------------------
+
+test("2-3b: a Trackpr-handled item disappears from Act II and moves to trackprHandling; the human items keep their exact frozen rows and relative order", () => {
+  const now = Date.now();
+  const fixture = trackprCapableFixture(now);
+  const baseline = assembleDecisions(fixture);
+  const result = assembleDecisions({ ...fixture, context: eligibleContext(now) });
+  const trackprKeys = ["signal:awaiting_reply:0", "opportunity:o6"];
+  assert.deepEqual(result.trackprHandling.map((item) => item.key), trackprKeys, "in priority order");
+  assert.ok(result.attention.every((item) => item.actor === "human"));
+  assert.deepEqual(result.attention.map(rowOf), baseline.attention.map(rowOf).filter((row) => !trackprKeys.includes(row[0])), "the remaining human rows are byte-identical and in the same relative order");
+});
+
+test("2-3b: the attention count is operational exceptions plus human Act II items - Trackpr items never count, exceptions always do", () => {
+  const now = Date.now();
+  const result = assembleDecisions({ ...trackprCapableFixture(now), context: eligibleContext(now) });
+  assert.equal(result.totalNeedingAttention, result.exceptions.length + result.attention.length);
+  assert.equal(result.totalNeedingAttention, 3 + 11, "16 before, minus the 2 Trackpr-handled items");
+  assert.equal(result.exceptions.length, 3, "exceptions still count");
+});
+
+test("2-3b: with only Trackpr-handled work and no exceptions, the count is 0 - caught up; any exception keeps it above 0", () => {
+  const now = Date.now();
+  const fixture = trackprCapableFixture(now);
+  const onlyTrackprWork = {
+    attentionItems: fixture.attentionItems.filter((item) => item.id === "reply-a"),
+    prioritizedOpportunities: fixture.prioritizedOpportunities.filter((p) => p.opportunity.id === "o6" || p.opportunity.id === "o9"),
+  };
+  const caughtUp = assembleDecisions({ ...onlyTrackprWork, context: eligibleContext(now) });
+  assert.equal(caughtUp.attention.length, 0);
+  assert.equal(caughtUp.trackprHandling.length, 2, "Trackpr is still handling work");
+  assert.equal(caughtUp.opportunities.length, 1, "Act III still lists the review request");
+  assert.equal(caughtUp.totalNeedingAttention, 0, "caught up: Trackpr work and Act III never block it");
+  const withException = assembleDecisions({ attentionItems: [...onlyTrackprWork.attentionItems, fixture.attentionItems.find((item) => item.kind === "calendar_disconnected")!], prioritizedOpportunities: onlyTrackprWork.prioritizedOpportunities, context: eligibleContext(now) });
+  assert.equal(withException.totalNeedingAttention, 1, "an operational exception still blocks caught-up");
+});
+
+test("2-3b: Act III is unchanged by the context - same rows, never counted", () => {
+  const now = Date.now();
+  const fixture = trackprCapableFixture(now);
+  const result = assembleDecisions({ ...fixture, context: eligibleContext(now) });
+  assert.deepEqual(result.opportunities.map(rowOf), assembleDecisions(fixture).opportunities.map(rowOf));
+  assert.ok(!result.trackprHandling.some((item) => item.act === "opportunity"));
+});
+
+test("2-3b (C5): when the waiting cap is reached, waiting conversations stay human in Act II and count, even inside the grace period", () => {
+  const now = Date.now();
+  const result = assembleDecisions({ ...trackprCapableFixture(now), context: { ...eligibleContext(now), waitingCapReached: true } });
+  assert.ok(result.attention.some((item) => item.key === "signal:awaiting_reply:0"), "conv-a stays in Act II");
+  assert.deepEqual(result.trackprHandling.map((item) => item.key), ["opportunity:o6"], "only the pending estimate is set aside");
+  assert.equal(result.totalNeedingAttention, 3 + 12);
+});
+
+test("2-3b: the Act I waiting figure counts exactly Act II's human waiting-for-reply rows", () => {
+  const { conversationsWaitingCount }: typeof import("@/app/(app)/today/_components/dashboard-model") = require(path.join(ROOT, "app/(app)/today/_components/dashboard-model.ts"));
+  const now = Date.now();
+  const result = assembleDecisions({ ...trackprCapableFixture(now), context: eligibleContext(now) });
+  assert.deepEqual(conversationsWaitingCount(result.attention), { count: 1, capped: false }, "conv-b only - conv-a is inside Trackpr's grace period");
+  assert.deepEqual(conversationsWaitingCount(assembleDecisions(trackprCapableFixture(now)).attention), { count: 2, capped: false }, "all-human context: both waiting replies");
+});

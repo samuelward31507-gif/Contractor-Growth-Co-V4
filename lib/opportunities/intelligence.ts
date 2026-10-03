@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { getOpenOpportunitiesResult, type Opportunity, type OpportunityType } from "./queries";
-import { getAutomationEnabledMap } from "@/lib/automation/settings";
+import { getOrganizationAutomationSettings, getOrganizationAutomationState, organizationEligibleForAutomation } from "@/lib/decisions/context";
 import { getAutomationDefaultEnabled } from "@/lib/automation/catalog";
 import { E164_PATTERN } from "@/lib/automation/sms";
 import { getCustomerLifecycle, type CustomerLifecycle } from "@/lib/customers/lifecycle";
@@ -147,6 +147,8 @@ export type PrioritizedOpportunity = {
   /** True only when a real, currently-enabled, currently-eligible automation could act on this in the background right now - never implies Trackpr WILL act, only that it CAN (§17/§18 of the approved design: never bypass automation_paused/payment/enabled). */
   automatable: boolean;
   contactPhone: string | null;
+  /** Phase 2-3: contacts.sms_opt_out for this opportunity's contact (already read with the phone); null when there is no contact. Optional so existing hand-built fixtures stay valid - an absent value is "unknown", which the actor rule treats as not reachable. */
+  contactSmsOptOut?: boolean | null;
 };
 
 /**
@@ -308,8 +310,10 @@ export async function getPrioritizedOpportunities(supabase: SupabaseClient, orga
     readAllPages<{ contact: ContactPhoneRow | ContactPhoneRow[] | null }>(() =>
       supabase.from("opportunities").select("contact:contacts!opportunities_contact_id_fkey(id, phone, sms_opt_out)").eq("organization_id", organizationId).eq("status", "open").not("contact_id", "is", null).order("id"),
     ),
-    getAutomationEnabledMap(supabase, organizationId),
-    supabase.from("organizations").select("automation_mode, payment_status, automation_paused").eq("id", organizationId).maybeSingle(),
+    // Phase 2-3: request-memoized and shared with the decision context
+    // (lib/decisions/context.ts), so Today never reads either twice.
+    getOrganizationAutomationSettings(supabase, organizationId).then((settings) => settings.enabledById),
+    getOrganizationAutomationState(supabase, organizationId),
     Promise.all(dormantCustomerContactIds.map(async (contactId) => [contactId, await getCustomerLifecycle(supabase, organizationId, contactId, now)] as const)),
   ]);
 
@@ -320,8 +324,7 @@ export async function getPrioritizedOpportunities(supabase: SupabaseClient, orga
   // Mirrors lib/opportunities/detect.ts's detectUncontactedLeads' own
   // eligibility check exactly - "could a real automation act on this right
   // now" must fail closed the same way evaluateOutboundGate itself does.
-  const organizationRow = organizationRowResult.data;
-  const orgEligibleForAutomation = organizationRow != null && organizationRow.automation_mode === "live" && organizationRow.payment_status === "active" && !organizationRow.automation_paused;
+  const orgEligibleForAutomation = organizationEligibleForAutomation(organizationRowResult);
 
   return opportunities
     .map((opportunity): PrioritizedOpportunity => {
@@ -339,6 +342,7 @@ export async function getPrioritizedOpportunities(supabase: SupabaseClient, orga
         recommendedAction,
         automatable,
         contactPhone: contact?.phone ?? null,
+        contactSmsOptOut: contact ? contact.smsOptOut : null,
       };
     })
     .sort(comparePriority);
@@ -365,6 +369,8 @@ export type PriorityConversationSignal = {
   tier: PriorityTier;
   explanation: OpportunityExplanation;
   recommendedAction: RecommendedAction;
+  /** Phase 2-3: the source item's conversation, when it carries one (awaiting_reply) - present only then. */
+  conversationId?: string;
 };
 
 const CONVERSATION_SIGNAL_TIER: Partial<Record<AttentionItem["kind"], PriorityTier>> = {
@@ -401,6 +407,7 @@ export function getConversationSignals(attentionItems: AttentionItem[]): Priorit
       tier: CONVERSATION_SIGNAL_TIER[item.kind]!,
       explanation: { primaryReason: item.detail, supportingSignals: [], counterSignals: [], confidence: "confirmed" as const },
       recommendedAction: CONVERSATION_SIGNAL_ACTION[item.kind as ConversationSignalKind],
+      ...(item.conversationId ? { conversationId: item.conversationId } : {}),
     }));
 }
 

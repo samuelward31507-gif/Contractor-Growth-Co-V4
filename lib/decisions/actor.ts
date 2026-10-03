@@ -1,0 +1,131 @@
+import type { AttentionItem } from "@/lib/dashboard/queries";
+import type { PrioritizedOpportunity } from "@/lib/opportunities/intelligence";
+import { E164_PATTERN } from "@/lib/automation/sms";
+
+/**
+ * Phase 2-3: who acts on a decision item. "trackpr" only when a Trackpr
+ * action is genuinely still pending for that specific item (C1); every
+ * other item - including every operational exception - is "human".
+ * PrioritizedOpportunity.automatable is capability only and is not read
+ * here: most of the automations it points at are one-shot and have already
+ * run (or failed) by the time the opportunity exists.
+ *
+ * Pure: the caller resolves a DecisionContext (lib/decisions/context.ts)
+ * from batched reads and passes it in.
+ */
+export type DecisionActor = "human" | "trackpr";
+
+/** How long Trackpr's AI gets to answer a waiting customer before the conversation needs a human (A6). */
+export const AI_REPLY_GRACE_MS = 15 * 60 * 1000;
+
+/** Estimate follow-up's second touch is due 72h after sending (global constant, C7 / A16). Until then Trackpr still has a follow-up to send. */
+export const ESTIMATE_FOLLOWUP_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * dashboard_conversation_attention returns at most this many awaiting_reply
+ * conversations (rn <= 5 - the same cap Today's CONVERSATION_ATTENTION_CAP
+ * discloses). When it is reached, older waits may exist beyond it, so the
+ * grace period is not applied at all (C5).
+ */
+export const WAITING_REPLY_CAP = 5;
+
+export type WaitingConversationState = {
+  /** conversations.ai_enabled - false once staff take over or the AI hands off. */
+  aiEnabled: boolean;
+  smsOptOut: boolean;
+  /** The first inbound customer message after the conversation's last outbound message (C3); null when unknown. */
+  firstUnansweredInboundAt: string | null;
+};
+
+export type DecisionContext = {
+  /** The single "now" every timing rule uses (ms since epoch). */
+  now: number;
+  /** organizations: automation_mode = 'live', payment_status = 'active', automation_paused = false - fails closed on a read error. */
+  organizationEligible: boolean;
+  /** ai_settings.ai_enabled - no row means disabled, matching getAiSettings and the n8n callback's own check. */
+  aiSettingsEnabled: boolean;
+  /** automation_settings, falling back to the catalog default. */
+  inboundReplyEnabled: boolean;
+  estimateFollowupEnabled: boolean;
+  /** True unless inbound-customer-reply respects business hours and they are closed right now (the outbound gate's own isWithinBusinessHours). */
+  inboundReplyWithinHours: boolean;
+  /** The SQL cap was reached: every waiting conversation is human (C5). */
+  waitingCapReached: boolean;
+  /** Keyed by conversation id; a conversation missing here is human. */
+  waitingConversations: ReadonlyMap<string, WaitingConversationState>;
+};
+
+/** Every item human - the context the assembler uses when none is supplied, and the safe fallback. */
+export const ALL_HUMAN_CONTEXT: DecisionContext = {
+  now: 0,
+  organizationEligible: false,
+  aiSettingsEnabled: false,
+  inboundReplyEnabled: false,
+  estimateFollowupEnabled: false,
+  inboundReplyWithinHours: false,
+  waitingCapReached: true,
+  waitingConversations: new Map(),
+};
+
+/**
+ * From a conversation's messages, newest first: the oldest inbound message
+ * in the unbroken run of inbound messages at the top - i.e. the first one
+ * nobody has answered. Any outbound message (AI, staff or a customer-facing
+ * system send - B2) ends the run. Null when the newest message is not
+ * inbound. If every message read is inbound, the oldest read is the best
+ * known start (the run may be longer).
+ */
+export function firstUnansweredInboundAt(messagesNewestFirst: { created_at: string; direction: "inbound" | "outbound" }[]): string | null {
+  let first: string | null = null;
+  for (const message of messagesNewestFirst) {
+    if (message.direction !== "inbound") break;
+    first = message.created_at;
+  }
+  return first;
+}
+
+/**
+ * B4 corrected (C2): Trackpr's AI can answer this conversation right now -
+ * the conversation's AI is on, the organization's AI is on, the
+ * inbound-customer-reply automation is on, the organization is live, paid
+ * and not paused, the contact has not opted out, and (when that
+ * automation respects business hours) they are open.
+ */
+export function aiReplyEligible(conversation: WaitingConversationState, context: DecisionContext): boolean {
+  return (
+    conversation.aiEnabled &&
+    context.aiSettingsEnabled &&
+    context.inboundReplyEnabled &&
+    context.organizationEligible &&
+    !conversation.smsOptOut &&
+    context.inboundReplyWithinHours
+  );
+}
+
+/** The conversation a waiting-for-reply signal belongs to - carried on the item, never parsed from its id or link. */
+export function resolveSignalActor(item: Pick<AttentionItem, "kind" | "conversationId">, context: DecisionContext): DecisionActor {
+  if (item.kind !== "awaiting_reply") return "human";
+  if (context.waitingCapReached || !item.conversationId) return "human";
+  const conversation = context.waitingConversations.get(item.conversationId);
+  if (!conversation || !conversation.firstUnansweredInboundAt) return "human";
+  if (!aiReplyEligible(conversation, context)) return "human";
+  const waitedMs = context.now - new Date(conversation.firstUnansweredInboundAt).getTime();
+  return waitedMs < AI_REPLY_GRACE_MS ? "trackpr" : "human";
+}
+
+/**
+ * Only a sent estimate still has a pending Trackpr action: estimate
+ * follow-up's two touches run until 72h after sending. Every other
+ * opportunity type's automation is one-shot (or absent), so it is human.
+ */
+export function resolveOpportunityActor(prioritized: Pick<PrioritizedOpportunity, "opportunity" | "contactPhone" | "contactSmsOptOut">, context: DecisionContext): DecisionActor {
+  const { opportunity } = prioritized;
+  if (opportunity.type !== "pending_estimate") return "human";
+  if (!context.organizationEligible || !context.estimateFollowupEnabled) return "human";
+  if (!prioritized.contactPhone || !E164_PATTERN.test(prioritized.contactPhone.trim()) || prioritized.contactSmsOptOut !== false) return "human";
+  const sentAt = opportunity.metadata.sent_at;
+  if (typeof sentAt !== "string") return "human";
+  const sentMs = new Date(sentAt).getTime();
+  if (Number.isNaN(sentMs)) return "human";
+  return context.now - sentMs < ESTIMATE_FOLLOWUP_WINDOW_MS ? "trackpr" : "human";
+}

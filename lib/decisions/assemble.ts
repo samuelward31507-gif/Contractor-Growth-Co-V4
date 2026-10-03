@@ -5,6 +5,7 @@ import type { StatusTone } from "@/lib/ui/status";
 import { DECISION_REGISTRY, buildActionSentence, opportunityActionHref, opportunityPersonHref } from "./registry";
 import { REASON_CODE_BY_EXCEPTION_KIND, REASON_CODE_BY_OPPORTUNITY_TYPE, REASON_CODE_BY_SIGNAL_KIND, type ConversationSignalKind, type OperationalExceptionKind } from "./reason-codes";
 import type { AssembledDecisions, DecisionItem } from "./types";
+import { ALL_HUMAN_CONTEXT, resolveOpportunityActor, resolveSignalActor, type DecisionContext } from "./actor";
 
 /** Canonical Opportunity Intelligence Layer: the internal tier is never shown as a number or a tier name - it maps to the same three-tone visual language every other status surface in this app already uses (lib/ui/status.ts). */
 const TONE_BY_TIER: Record<PriorityTier, StatusTone> = {
@@ -26,7 +27,7 @@ const TONE_BY_TIER: Record<PriorityTier, StatusTone> = {
  */
 export const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set(["recoverable", "growth"]);
 
-function priorityItemToDecision(item: PriorityItem): DecisionItem {
+function priorityItemToDecision(item: PriorityItem, context: DecisionContext): DecisionItem {
   if (item.kind === "opportunity") {
     const { opportunity, explanation, recommendedAction, automatable, contactPhone } = item.data;
     const reasonCode = REASON_CODE_BY_OPPORTUNITY_TYPE[opportunity.type];
@@ -36,6 +37,7 @@ function priorityItemToDecision(item: PriorityItem): DecisionItem {
       reasonCode,
       act: OPPORTUNITY_TIERS.has(item.tier) ? "opportunity" : "attention",
       operational: false,
+      actor: resolveOpportunityActor(item.data, context),
       tier: item.tier,
       tone: TONE_BY_TIER[item.tier],
       problemLabel: entry.problemLabel,
@@ -50,7 +52,7 @@ function priorityItemToDecision(item: PriorityItem): DecisionItem {
     };
   }
 
-  const { kind, title, href, explanation, recommendedAction } = item.data;
+  const { kind, title, href, explanation, recommendedAction, conversationId } = item.data;
   const reasonCode = REASON_CODE_BY_SIGNAL_KIND[kind as ConversationSignalKind];
   const entry = DECISION_REGISTRY[reasonCode];
   return {
@@ -58,6 +60,7 @@ function priorityItemToDecision(item: PriorityItem): DecisionItem {
     reasonCode,
     act: OPPORTUNITY_TIERS.has(item.tier) ? "opportunity" : "attention",
     operational: false,
+    actor: resolveSignalActor({ kind, conversationId }, context),
     tier: item.tier,
     tone: TONE_BY_TIER[item.tier],
     problemLabel: entry.problemLabel,
@@ -78,7 +81,9 @@ function priorityItemToDecision(item: PriorityItem): DecisionItem {
  * inputs in the same order, so ordering and ties are exactly as before; the
  * queue then splits by tier into Act II and Act III.
  */
-export function assembleDecisions(input: { attentionItems: AttentionItem[]; prioritizedOpportunities: PrioritizedOpportunity[] }): AssembledDecisions {
+export function assembleDecisions(input: { attentionItems: AttentionItem[]; prioritizedOpportunities: PrioritizedOpportunity[]; context?: DecisionContext }): AssembledDecisions {
+  // Without a resolved context every item is human - the safe default.
+  const context = input.context ?? ALL_HUMAN_CONTEXT;
   const exceptions: DecisionItem[] = getOperationalExceptions(input.attentionItems).map((exception) => {
     const reasonCode = REASON_CODE_BY_EXCEPTION_KIND[exception.kind as OperationalExceptionKind];
     const entry = DECISION_REGISTRY[reasonCode];
@@ -87,6 +92,7 @@ export function assembleDecisions(input: { attentionItems: AttentionItem[]; prio
       reasonCode,
       act: "attention",
       operational: true,
+      actor: "human",
       tier: null,
       tone: "urgent",
       problemLabel: entry.problemLabel,
@@ -99,9 +105,14 @@ export function assembleDecisions(input: { attentionItems: AttentionItem[]; prio
     };
   });
 
-  const queue = buildPriorityQueue(input.prioritizedOpportunities, getConversationSignals(input.attentionItems)).map(priorityItemToDecision);
-  const attention = queue.filter((item) => item.act === "attention");
+  const queue = buildPriorityQueue(input.prioritizedOpportunities, getConversationSignals(input.attentionItems)).map((item) => priorityItemToDecision(item, context));
+  // Phase 2-3b (C8): Act II shows only work a human has to do, in the same
+  // relative priority order; items Trackpr is still handling are set aside
+  // (summarized in Act I) and never counted. Act III is unchanged.
+  const attentionQueue = queue.filter((item) => item.act === "attention");
+  const attention = attentionQueue.filter((item) => item.actor === "human");
+  const trackprHandling = attentionQueue.filter((item) => item.actor === "trackpr");
   const opportunities = queue.filter((item) => item.act === "opportunity");
 
-  return { exceptions, attention, opportunities, totalNeedingAttention: exceptions.length + attention.length };
+  return { exceptions, attention, opportunities, trackprHandling, totalNeedingAttention: exceptions.length + attention.length };
 }

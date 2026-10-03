@@ -4,6 +4,7 @@ import type { OpportunityType } from "@/lib/opportunities/queries";
 import type { AttentionItem } from "@/lib/dashboard/queries";
 import type { StatusTone } from "@/lib/ui/status";
 import type { ReasonCode } from "./reason-codes";
+import type { DecisionActor } from "./actor";
 
 export type DecisionAct = "attention" | "opportunity" | "system";
 
@@ -21,6 +22,8 @@ export type DecisionItem = {
   act: DecisionAct;
   /** True for operational exceptions: always first in Act II, never tiered or scored alongside revenue items. */
   operational: boolean;
+  /** Phase 2-3: "trackpr" only while a Trackpr action is still pending for this item (lib/decisions/actor.ts); otherwise "human". */
+  actor: DecisionActor;
   /** The priority tier; null for operational exceptions, which are untiered. */
   tier: PriorityTier | null;
   tone: StatusTone;
@@ -50,10 +53,12 @@ export type DecisionItem = {
 export type AssembledDecisions = {
   /** Operational exceptions, in attention-list order. Shown first in Act II. */
   exceptions: DecisionItem[];
-  /** Act II's tiered items, in priority order. */
+  /** Act II's tiered items a human has to act on, in priority order (Phase 2-3b: Trackpr-handled items are not here). */
   attention: DecisionItem[];
   /** Act III's items (recoverable and growth tiers), in priority order. */
   opportunities: DecisionItem[];
-  /** The one attention count: the header line, the Act II count and "You're all caught up" all read it. */
+  /** Phase 2-3b: Act II items Trackpr is still handling (actor "trackpr"), in priority order - never counted, never shown in Act II. */
+  trackprHandling: DecisionItem[];
+  /** The one attention count - operational exceptions plus human Act II items: the header line, the Act II count and "You're all caught up" all read it. */
   totalNeedingAttention: number;
 };
