@@ -7,6 +7,8 @@ import { E164_PATTERN } from "@/lib/automation/sms";
 import { getCustomerLifecycle, type CustomerLifecycle } from "@/lib/customers/lifecycle";
 import { formatCurrency } from "@/lib/dashboard/format";
 import type { AttentionItem } from "@/lib/dashboard/queries";
+import { CONVERSATION_SIGNAL_ACTION, DEFAULT_ACTION_BY_TYPE } from "@/lib/decisions/registry";
+import type { ConversationSignalKind } from "@/lib/decisions/reason-codes";
 
 /**
  * Canonical Opportunity Intelligence Layer.
@@ -103,23 +105,11 @@ export type RecommendedAction =
   | "create_invoice"
   | "collect_payment";
 
-/** The action this opportunity type points at BEFORE any actionability check (§11 of the design) - "call"/"text" are downgraded to "follow_up" at build time when no valid, reachable phone exists. */
-const DEFAULT_ACTION_BY_TYPE: Record<OpportunityType, RecommendedAction> = {
-  accepted_estimate_no_job: "create_job",
-  completed_job_not_invoiced: "create_invoice",
-  invoice_overdue: "collect_payment",
-  qualified_lead_unbooked: "call",
-  completed_appointment_no_estimate: "send_estimate",
-  uncontacted_lead: "call",
-  active_lead_signal: "call",
-  pending_estimate: "monitor",
-  no_show: "rebook",
-  cancelled_appointment_no_rebooking: "rebook",
-  stale_estimate: "follow_up_estimate",
-  dormant_customer: "reactivate",
-  completed_job_no_review_request: "request_review",
-  completed_job_no_referral_request: "request_referral",
-};
+// DEFAULT_ACTION_BY_TYPE - the action each opportunity type points at
+// BEFORE any actionability check (§11 of the design; "call"/"text" are
+// downgraded to "follow_up" at build time when no valid, reachable phone
+// exists) - lives in the single next-action registry (Phase 2-2,
+// lib/decisions/registry.ts) and is imported above.
 
 /**
  * The real, existing automation catalog id (lib/automation/catalog.ts) that
@@ -388,12 +378,9 @@ const CONVERSATION_SIGNAL_TIER: Partial<Record<AttentionItem["kind"], PriorityTi
   abandoned_conversation: "at_risk",
 };
 
-const CONVERSATION_SIGNAL_ACTION: Partial<Record<AttentionItem["kind"], RecommendedAction>> = {
-  awaiting_reply: "respond",
-  overdue_appointment: "follow_up",
-  awaiting_confirmation: "follow_up",
-  abandoned_conversation: "follow_up",
-};
+// CONVERSATION_SIGNAL_ACTION (each signal kind's recommended action) lives
+// in the single next-action registry (Phase 2-2, lib/decisions/registry.ts)
+// and is imported above.
 
 /**
  * Extracts only the 4 conversation/appointment-state kinds from an
@@ -413,7 +400,7 @@ export function getConversationSignals(attentionItems: AttentionItem[]): Priorit
       href: item.href,
       tier: CONVERSATION_SIGNAL_TIER[item.kind]!,
       explanation: { primaryReason: item.detail, supportingSignals: [], counterSignals: [], confidence: "confirmed" as const },
-      recommendedAction: CONVERSATION_SIGNAL_ACTION[item.kind]!,
+      recommendedAction: CONVERSATION_SIGNAL_ACTION[item.kind as ConversationSignalKind],
     }));
 }
 

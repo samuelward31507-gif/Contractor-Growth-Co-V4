@@ -1,6 +1,7 @@
 import type { AttentionItem } from "@/lib/dashboard/queries";
 import type { OpportunityType } from "@/lib/opportunities/queries";
 import type { StatusTone } from "@/lib/ui/status";
+import { DECISION_ATTENTION_LABEL } from "@/lib/decisions/registry";
 
 /**
  * Phase 2 (Today pass): translates every machine-named condition the
@@ -22,12 +23,12 @@ import type { StatusTone } from "@/lib/ui/status";
  * file inventing plausible-sounding specifics it can't actually verify.
  */
 export const ATTENTION_COPY: Record<AttentionItem["kind"], { label: string; tone: StatusTone }> = {
-  human_escalation: { label: "Needs a human", tone: "urgent" },
-  awaiting_reply: { label: "Waiting on a reply", tone: "urgent" },
-  abandoned_conversation: { label: "Conversation went quiet", tone: "urgent" },
-  calendar_disconnected: { label: "Calendar disconnected", tone: "urgent" },
-  overdue_appointment: { label: "Appointment overdue", tone: "urgent" },
-  awaiting_confirmation: { label: "Visit not confirmed", tone: "urgent" },
+  human_escalation: { label: DECISION_ATTENTION_LABEL.human_escalation, tone: "urgent" },
+  awaiting_reply: { label: DECISION_ATTENTION_LABEL.awaiting_reply, tone: "urgent" },
+  abandoned_conversation: { label: DECISION_ATTENTION_LABEL.abandoned_conversation, tone: "urgent" },
+  calendar_disconnected: { label: DECISION_ATTENTION_LABEL.calendar_disconnected, tone: "urgent" },
+  overdue_appointment: { label: DECISION_ATTENTION_LABEL.overdue_appointment, tone: "urgent" },
+  awaiting_confirmation: { label: DECISION_ATTENTION_LABEL.awaiting_confirmation, tone: "urgent" },
   no_show: { label: "No-show", tone: "urgent" },
   accepted_estimate_no_job: { label: "They said yes, nothing scheduled", tone: "urgent" },
 

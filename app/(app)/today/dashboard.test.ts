@@ -25,6 +25,8 @@ const read = (relative: string) => fs.readFileSync(path.join(ROOT, relative), "u
 const PAGE = read("app/(app)/today/page.tsx");
 const SECTIONS = read("app/(app)/today/_components/dashboard-sections.tsx");
 const ROW = read("lib/ui/queue-row.tsx");
+const REGISTRY = read("lib/decisions/registry.ts");
+const ASSEMBLE = read("lib/decisions/assemble.ts");
 
 // ---------------------------------------------------------------------------
 // 1. Wording model
@@ -163,9 +165,13 @@ test("every money figure comes from the loaded summary through its existing form
 });
 
 test("actions: every attention row, today figure and pipeline stage is a real link with a specific label", () => {
-  assert.match(PAGE, /secondaryLabel=\{entry\.secondaryLabel\}/);
-  assert.match(PAGE, /secondaryLabel="Review"/);
-  assert.match(PAGE, /secondaryLabel: kind === "awaiting_reply" \? "Open conversation" : "View"/);
+  // Phase 2-2: every Today row - exception, attention, opportunity - renders
+  // through one DecisionRow, its button resolved from the registry
+  // (labels and links pinned in lib/decisions/registry.test.ts).
+  assert.match(PAGE, /secondaryHref=\{item\.nextAction\.href\}\s*secondaryLabel=\{item\.nextAction\.label\}/);
+  assert.equal((PAGE.match(/<QueueRow\b/g) ?? []).length, 1, "one row component for every Today row");
+  assert.match(REGISTRY, /human_escalation: \{ problemLabel: "Needs a human", actionLabel: "Review"/);
+  assert.match(REGISTRY, /customer_awaiting_reply: \{ problemLabel: "Waiting on a reply", actionLabel: "Open conversation"/);
   assert.match(SECTIONS, /<Link\s+key=\{figure\.key\}\s+href=\{figure\.href\}/);
   assert.match(SECTIONS, /href=\{stage\.href\}/);
   assert.match(PAGE, /<SectionLink href="\/money">Open Money<\/SectionLink>/, "the money-owed figure keeps its way into Money");
@@ -174,10 +180,13 @@ test("actions: every attention row, today figure and pipeline stage is a real li
 });
 
 test("attention and opportunity split the existing priority order by tier - nothing re-detected - and one attention count drives the header, Act II and \"You're all caught up\"", () => {
-  assert.match(PAGE, /const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set\(\["recoverable", "growth"\]\);/);
-  assert.match(PAGE, /const queue: QueueEntry\[\] = priorityQueue\.filter\(\(item\) => !OPPORTUNITY_TIERS\.has\(item\.tier\)\)\.map\(priorityItemToQueueEntry\);/);
-  assert.match(PAGE, /const opportunityQueue: QueueEntry\[\] = priorityQueue\.filter\(\(item\) => OPPORTUNITY_TIERS\.has\(item\.tier\)\)\.map\(priorityItemToQueueEntry\);/);
-  assert.match(PAGE, /const totalNeedingAttention = operationalExceptions\.length \+ queue\.length;/);
+  // Phase 2-2: the split and the count now live in the pure assembler
+  // (behavior pinned in lib/decisions/assemble.test.ts); Today reads them.
+  assert.match(ASSEMBLE, /export const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set\(\["recoverable", "growth"\]\);/);
+  assert.match(ASSEMBLE, /buildPriorityQueue\(input\.prioritizedOpportunities, getConversationSignals\(input\.attentionItems\)\)/, "the unchanged queue, same inputs, same order");
+  assert.match(ASSEMBLE, /totalNeedingAttention: exceptions\.length \+ attention\.length/);
+  assert.match(PAGE, /const decisions = assembleDecisions\(\{ attentionItems: data\.attentionItems, prioritizedOpportunities \}\);/);
+  assert.match(PAGE, /const totalNeedingAttention = decisions\.totalNeedingAttention;/);
   assert.match(PAGE, /attentionLine\(totalNeedingAttention\)/);
   assert.match(PAGE, /\{totalNeedingAttention === 0 \? \(\s*<div className="px-5 py-10 text-center">\s*<p className="text-sm font-medium text-ink">You&apos;re all caught up\.<\/p>/);
   assert.equal((PAGE.match(/You&apos;re all caught up/g) ?? []).length, 1, "one caught-up state, in Act II");

@@ -8,117 +8,22 @@ import { getDashboardAiHandled } from "@/lib/dashboard/business-metrics";
 import { getOwnerDailyBriefing, getEndOfDaySummary } from "@/lib/briefing/queries";
 import { scheduleOpportunitySync } from "@/lib/opportunities/background-sync";
 import { getOpenOpportunitiesResult } from "@/lib/opportunities/queries";
-import {
-  getPrioritizedOpportunities,
-  getConversationSignals,
-  getOperationalExceptions,
-  buildPriorityQueue,
-  type PriorityItem,
-  type PriorityTier,
-  type RecommendedAction,
-} from "@/lib/opportunities/intelligence";
-import { OPPORTUNITY_TYPE_LABEL, opportunityActionHref, OPPORTUNITY_ACTION_LABEL } from "../opportunities/_components/opportunity-type";
+import { getPrioritizedOpportunities } from "@/lib/opportunities/intelligence";
+import { assembleDecisions } from "@/lib/decisions/assemble";
+import type { DecisionItem } from "@/lib/decisions/types";
 import { getContacts } from "@/lib/contacts/queries";
 import { calendarDateInTimeZone, formatMoney } from "@/lib/invoices/domain";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
-import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
+import { formatCurrency } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
 import { PageContainer } from "@/lib/ui/page";
 import { QueueRow } from "@/lib/ui/queue-row";
-import { ATTENTION_COPY } from "@/lib/today/copy";
-import type { StatusTone } from "@/lib/ui/status";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
 import { OpportunitiesList } from "../opportunities/_components/opportunities-list";
 import { TodayViewTabs, type TodayView } from "./_components/today-view-tabs";
 import { ScrollToAnchorOnLoad } from "./_components/scroll-to-anchor-on-load";
 import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, hourInTimeZone, pipelineStages, todayFigures } from "./_components/dashboard-model";
 import { DashboardSection, PipelineFlow, SectionLink, ShowAllLink, TodayPanel } from "./_components/dashboard-sections";
-
-type QueueEntry = {
-  key: string;
-  tone: StatusTone;
-  problemLabel: string;
-  age?: string;
-  personName: string;
-  personHref: string;
-  money?: string;
-  sentence: string;
-  phone?: string | null;
-  secondaryHref: string;
-  secondaryLabel: string;
-};
-
-/** Canonical Opportunity Intelligence Layer: the internal tier is never shown as a number or a tier name - it maps to the same three-tone visual language every other status surface in this app already uses (lib/ui/status.ts). */
-const TONE_BY_TIER: Record<PriorityTier, StatusTone> = {
-  needs_reply: "urgent",
-  committed_revenue_at_risk: "urgent",
-  active_pursuit: "soon",
-  at_risk: "soon",
-  recoverable: "good",
-  growth: "good",
-};
-
-/**
- * Short imperative phrase appended to the explanation sentence for actions
- * with no dedicated button on the row. "call"/"text" are deliberately
- * omitted - QueueRow already renders a real "Call" button whenever a valid
- * phone is present, and repeating "Give them a call" in the sentence next to
- * that button would be redundant. "monitor"/"no_action" are also omitted -
- * there is nothing to instruct.
- */
-const ACTION_SENTENCE: Partial<Record<RecommendedAction, string>> = {
-  respond: "Reply to their message.",
-  book: "Get it booked.",
-  rebook: "Reach out to get it rebooked.",
-  send_estimate: "Send an estimate.",
-  follow_up_estimate: "Follow up on the estimate.",
-  create_job: "Create the job.",
-  reactivate: "Reach out to reconnect.",
-  request_review: "Ask for a review.",
-  request_referral: "Ask for a referral.",
-  follow_up: "Follow up.",
-  create_invoice: "Create the invoice.",
-  collect_payment: "Collect the payment.",
-};
-
-function buildSentence(primaryReason: string, supportingSignals: string[], counterSignals: string[], recommendedAction: RecommendedAction): string {
-  const actionPhrase = ACTION_SENTENCE[recommendedAction];
-  return [primaryReason, ...supportingSignals, ...counterSignals, actionPhrase].filter(Boolean).join(" ");
-}
-
-function priorityItemToQueueEntry(item: PriorityItem): QueueEntry {
-  if (item.kind === "opportunity") {
-    const { opportunity, explanation, recommendedAction, contactPhone } = item.data;
-    return {
-      key: item.key,
-      tone: TONE_BY_TIER[item.tier],
-      problemLabel: OPPORTUNITY_TYPE_LABEL[opportunity.type],
-      age: formatRelativeTime(opportunity.createdAt),
-      personName: opportunity.title,
-      personHref: opportunity.contactId ? `/people/${opportunity.contactId}` : "/today?view=by-type#opportunities",
-      money: opportunity.estimatedValue != null ? formatCurrency(opportunity.estimatedValue) : undefined,
-      sentence: buildSentence(explanation.primaryReason, explanation.supportingSignals, explanation.counterSignals, recommendedAction),
-      phone: contactPhone,
-      secondaryHref: opportunityActionHref(opportunity),
-      secondaryLabel: OPPORTUNITY_ACTION_LABEL[opportunity.type],
-    };
-  }
-
-  const { kind, title, href, explanation, recommendedAction } = item.data;
-  return {
-    key: item.key,
-    tone: TONE_BY_TIER[item.tier],
-    problemLabel: ATTENTION_COPY[kind].label,
-    personName: title,
-    personHref: href,
-    sentence: buildSentence(explanation.primaryReason, [], [], recommendedAction),
-    phone: null,
-    secondaryHref: href,
-    // A conversation waiting on the contractor opens that conversation -
-    // labeled for what the page does (it has no compose box).
-    secondaryLabel: kind === "awaiting_reply" ? "Open conversation" : "View",
-  };
-}
 
 function normalizeView(value: string | undefined): TodayView {
   return value === "by-type" ? "by-type" : "priority";
@@ -129,16 +34,6 @@ const ATTENTION_PREVIEW = 6;
 
 /** How many opportunity rows the third act previews before "Show all" opens every open opportunity by type. */
 const OPPORTUNITY_PREVIEW = 6;
-
-/**
- * The two tiers that are worth pursuing but never need the owner to step in
- * (lib/opportunities/intelligence.ts's TIER_ORDER: last and second to last) -
- * reactivating a dormant customer, asking for a review or a referral. They
- * belong to "what opportunity exists", not "what needs attention", so they
- * never keep the owner from being caught up. Every other tier stays in the
- * attention list.
- */
-const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set(["recoverable", "growth"]);
 
 /**
  * Today - the "right now" page, in three acts:
@@ -164,9 +59,12 @@ const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set(["recoverable", "gr
  * (persisted opportunities, tiered and explained, merged with conversation
  * signals); operational exceptions still render first and are never tiered
  * alongside revenue opportunities. The priority order is split by tier, never
- * re-detected. "By type" (TodayViewTabs, /today?view=by-type#opportunities)
- * is the Opportunities nav destination and reuses OpportunitiesList
- * unmodified.
+ * re-detected. Phase 2-2: lib/decisions/assemble.ts turns those reads into
+ * DecisionItems (exceptions, Act II, Act III, and the one attention count),
+ * every label, sentence and link resolved from the single next-action
+ * registry (lib/decisions/registry.ts). "By type" (TodayViewTabs,
+ * /today?view=by-type#opportunities) is the Opportunities nav destination
+ * and reuses OpportunitiesList unmodified.
  */
 export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const params = await searchParams;
@@ -237,15 +135,15 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
 
   // Operational exceptions render first, separately; conversation signals
   // merge with persisted opportunities into one priority order. Zero new
-  // queries - both come from data.attentionItems, already fetched above.
-  const operationalExceptions = getOperationalExceptions(data.attentionItems);
-  const conversationSignals = getConversationSignals(data.attentionItems);
-  const priorityQueue = buildPriorityQueue(prioritizedOpportunities, conversationSignals);
-  const queue: QueueEntry[] = priorityQueue.filter((item) => !OPPORTUNITY_TIERS.has(item.tier)).map(priorityItemToQueueEntry);
-  const opportunityQueue: QueueEntry[] = priorityQueue.filter((item) => OPPORTUNITY_TIERS.has(item.tier)).map(priorityItemToQueueEntry);
+  // queries - assembled from data.attentionItems and the prioritized
+  // opportunities, both already fetched above.
+  const decisions = assembleDecisions({ attentionItems: data.attentionItems, prioritizedOpportunities });
+  const operationalExceptions = decisions.exceptions;
+  const queue = decisions.attention;
+  const opportunityQueue = decisions.opportunities;
   // The one attention state: the header line, the Act II count and
   // "You're all caught up" all read this number.
-  const totalNeedingAttention = operationalExceptions.length + queue.length;
+  const totalNeedingAttention = decisions.totalNeedingAttention;
   const visibleQueue = showAllAttention ? queue : queue.slice(0, Math.max(0, ATTENTION_PREVIEW - operationalExceptions.length));
   const hiddenCount = queue.length - visibleQueue.length;
   const visibleOpportunityQueue = opportunityQueue.slice(0, OPPORTUNITY_PREVIEW);
@@ -323,22 +221,14 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
             </div>
           ) : (
             <ul className="divide-y divide-line">
-              {operationalExceptions.map((exception) => (
-                <li key={exception.incidentId ?? `${exception.kind}-${exception.href}`}>
-                  <QueueRow
-                    tone="urgent"
-                    problemLabel={ATTENTION_COPY[exception.kind].label}
-                    personName={exception.title}
-                    personHref={exception.href}
-                    sentence={exception.detail}
-                    secondaryHref={exception.href}
-                    secondaryLabel="Review"
-                  />
+              {operationalExceptions.map((item) => (
+                <li key={item.key}>
+                  <DecisionRow item={item} />
                 </li>
               ))}
-              {visibleQueue.map((entry) => (
-                <li key={entry.key}>
-                  <QueueEntryRow entry={entry} />
+              {visibleQueue.map((item) => (
+                <li key={item.key}>
+                  <DecisionRow item={item} />
                 </li>
               ))}
             </ul>
@@ -359,9 +249,9 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
               </div>
             ) : (
               <ul className="divide-y divide-line">
-                {visibleOpportunityQueue.map((entry) => (
-                  <li key={entry.key}>
-                    <QueueEntryRow entry={entry} />
+                {visibleOpportunityQueue.map((item) => (
+                  <li key={item.key}>
+                    <DecisionRow item={item} />
                   </li>
                 ))}
               </ul>
@@ -382,20 +272,20 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   );
 }
 
-/** One priority-list row - the same QueueRow in the attention list and the opportunity preview. */
-function QueueEntryRow({ entry }: { entry: QueueEntry }) {
+/** One decision row - the same QueueRow for operational exceptions, the attention list and the opportunity preview. */
+function DecisionRow({ item }: { item: DecisionItem }) {
   return (
     <QueueRow
-      tone={entry.tone}
-      problemLabel={entry.problemLabel}
-      age={entry.age}
-      personName={entry.personName}
-      personHref={entry.personHref}
-      money={entry.money}
-      sentence={entry.sentence}
-      phone={entry.phone}
-      secondaryHref={entry.secondaryHref}
-      secondaryLabel={entry.secondaryLabel}
+      tone={item.tone}
+      problemLabel={item.problemLabel}
+      age={item.age}
+      personName={item.subject.name}
+      personHref={item.subject.href}
+      money={item.money}
+      sentence={item.sentence}
+      phone={item.phone}
+      secondaryHref={item.nextAction.href}
+      secondaryLabel={item.nextAction.label}
     />
   );
 }
