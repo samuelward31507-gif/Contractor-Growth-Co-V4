@@ -446,3 +446,159 @@ test("Phase 2-5 structural: the uncontacted-lead detector reads no organization 
   assert.match(source, /import \{ ONBOARDING_TEST_LEAD_SOURCE \} from "@\/lib\/onboarding\/readiness";/);
   assert.doesNotMatch(source, /readAutomationEnabled|INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID/);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2-6: pending estimates are keyed to the estimate (A1, A13), no lead
+// or contact required; the same-lead dedup reads metadata.lead_id (B8); and
+// an old lead-keyed dismissal carries forward to the estimate-keyed
+// candidates of that lead (B1).
+// ---------------------------------------------------------------------------
+
+const { opportunityActionHref }: typeof import("@/lib/decisions/registry") = require(path.join(process.cwd(), "lib/decisions/registry.ts"));
+
+const SENT_AT = DAYS_AGO(2);
+
+/** One organization with two contacts and nothing else; tests add leads, estimates and opportunities. */
+function estimateFixture(): Record<string, Row[]> {
+  const tables = scaleFixture(0);
+  tables.contacts = [contact(ORG, 1), contact(ORG, 2)];
+  tables.opportunities = [];
+  return tables;
+}
+
+function sentEstimate(id: string, overrides: Row = {}): Row {
+  const person = overrides.contact_id === null ? null : (estimateFixture().contacts.find((c) => c.id === (overrides.contact_id ?? `${ORG}-c1`)) ?? null);
+  return { id, organization_id: ORG, contact_id: `${ORG}-c1`, lead_id: null, title: `Quote ${id}`, amount: 1200, status: "sent", sent_at: SENT_AT, contacts: person, ...overrides };
+}
+
+const pendingOf = async (tables: Record<string, Row[]>) => (await detectAllOpportunityCandidates(makeFake(tables).client, ORG, NOW)).filter((c) => c.type === "pending_estimate");
+const openPendingRows = (tables: Record<string, Row[]>) => tables.opportunities.filter((row) => row.type === "pending_estimate" && row.status === "open");
+
+test("Phase 2-6: a sent estimate with no lead is a pending_estimate candidate keyed to the estimate, with estimate_id, sent_at and a null lead_id in metadata", async () => {
+  const tables = estimateFixture();
+  tables.estimates = [sentEstimate("est-1")];
+  const [candidate, ...rest] = await pendingOf(tables);
+  assert.equal(rest.length, 0);
+  assert.equal(candidate.sourceEntityType, "estimate");
+  assert.equal(candidate.sourceEntityId, "est-1");
+  assert.equal(candidate.contactId, `${ORG}-c1`);
+  assert.deepEqual(candidate.metadata, { estimate_id: "est-1", sent_at: SENT_AT, lead_id: null });
+  assert.equal(candidate.title, "F1 L");
+});
+
+test("Phase 2-6: a sent estimate linked to a lead keeps the lead in metadata.lead_id; an estimate with no contact is still a candidate, titled by the estimate", async () => {
+  const tables = estimateFixture();
+  tables.leads = [{ id: "lead-1", organization_id: ORG, contact_id: `${ORG}-c1`, status: "estimate", service: "Roof", estimated_value: null, temperature: "warm", created_at: DAYS_AGO(5), contacts: tables.contacts[0] }];
+  tables.estimates = [sentEstimate("est-lead", { lead_id: "lead-1" }), sentEstimate("est-nobody", { contact_id: null })];
+  const byId = new Map((await pendingOf(tables)).map((c) => [c.sourceEntityId, c]));
+  assert.deepEqual(byId.get("est-lead")!.metadata, { estimate_id: "est-lead", sent_at: SENT_AT, lead_id: "lead-1" });
+  const nobody = byId.get("est-nobody")!;
+  assert.equal(nobody.contactId, null);
+  assert.equal(nobody.title, "Quote est-nobody");
+  assert.deepEqual(nobody.metadata, { estimate_id: "est-nobody", sent_at: SENT_AT, lead_id: null });
+});
+
+test("Phase 2-6 (A13): two sent estimates on the same lead are two separate candidates - neither replaces the other", async () => {
+  const tables = estimateFixture();
+  tables.leads = [{ id: "lead-1", organization_id: ORG, contact_id: `${ORG}-c1`, status: "estimate", service: "Roof", estimated_value: null, temperature: "warm", created_at: DAYS_AGO(5), contacts: tables.contacts[0] }];
+  tables.estimates = [sentEstimate("est-a", { lead_id: "lead-1" }), sentEstimate("est-b", { lead_id: "lead-1", amount: 3400 })];
+  const candidates = await pendingOf(tables);
+  assert.deepEqual(candidates.map((c) => c.sourceEntityId).sort(), ["est-a", "est-b"]);
+  assert.deepEqual(candidates.map((c) => c.estimatedValue).sort(), [1200, 3400]);
+  const result = await syncOpportunities(makeFake(tables).client, ORG, NOW);
+  assert.equal(result.created >= 2, true);
+  assert.deepEqual(openPendingRows(tables).map((row) => row.source_entity_id).sort(), ["est-a", "est-b"]);
+});
+
+test("Phase 2-6 (B8): the same-lead dedup works through metadata.lead_id - a lead with a more specific type suppresses its pending estimate, and a pending estimate suppresses that lead's active-lead signal", async () => {
+  const tables = estimateFixture();
+  tables.leads = [
+    // Qualified and unbooked: qualified_lead_unbooked wins over its pending estimate.
+    { id: "lead-q", organization_id: ORG, contact_id: `${ORG}-c1`, status: "qualified", service: "Roof", estimated_value: null, temperature: "warm", created_at: DAYS_AGO(5), contacts: tables.contacts[0] },
+    // Hot: its pending estimate wins over active_lead_signal.
+    { id: "lead-h", organization_id: ORG, contact_id: `${ORG}-c2`, status: "contacted", service: "Deck", estimated_value: null, temperature: "hot", created_at: DAYS_AGO(5), contacts: tables.contacts[1] },
+  ];
+  tables.estimates = [sentEstimate("est-q", { lead_id: "lead-q" }), sentEstimate("est-h", { lead_id: "lead-h", contact_id: `${ORG}-c2` })];
+  const candidates = await detectAllOpportunityCandidates(makeFake(tables).client, ORG, NOW);
+  const of = (type: string) => candidates.filter((c) => c.type === type).map((c) => c.sourceEntityId);
+  assert.deepEqual(of("qualified_lead_unbooked"), ["lead-q"]);
+  assert.deepEqual(of("pending_estimate"), ["est-h"], "the qualified lead's estimate is deduped; the hot lead's is kept");
+  assert.deepEqual(of("active_lead_signal"), [], "the hot lead is covered by its pending estimate");
+});
+
+test("Phase 2-6: an estimate with no lead is never deduped against a lead-level type, even for a contact whose lead has one", async () => {
+  const tables = estimateFixture();
+  tables.leads = [
+    { id: "lead-q", organization_id: ORG, contact_id: `${ORG}-c1`, status: "qualified", service: "Roof", estimated_value: null, temperature: "hot", created_at: DAYS_AGO(5), contacts: tables.contacts[0] },
+  ];
+  tables.estimates = [sentEstimate("est-free")];
+  const candidates = await detectAllOpportunityCandidates(makeFake(tables).client, ORG, NOW);
+  assert.ok(candidates.some((c) => c.type === "qualified_lead_unbooked" && c.sourceEntityId === "lead-q"));
+  assert.ok(candidates.some((c) => c.type === "pending_estimate" && c.sourceEntityId === "est-free"), "same contact, but no lead - not deduped");
+});
+
+test("Phase 2-6 (B1): an old lead-keyed pending_estimate dismissal suppresses the estimate-keyed candidates of that lead; other estimates are created", async () => {
+  const tables = estimateFixture();
+  tables.leads = [{ id: "lead-1", organization_id: ORG, contact_id: `${ORG}-c1`, status: "estimate", service: "Roof", estimated_value: null, temperature: "warm", created_at: DAYS_AGO(5), contacts: tables.contacts[0] }];
+  tables.estimates = [sentEstimate("est-a", { lead_id: "lead-1" }), sentEstimate("est-b", { lead_id: "lead-1" }), sentEstimate("est-free")];
+  tables.opportunities = [{ id: "opp-old", organization_id: ORG, type: "pending_estimate", source_entity_type: "lead", source_entity_id: "lead-1", contact_id: `${ORG}-c1`, status: "dismissed", resolved_at: DAYS_AGO(3), resolution_reason: "dismissed", title: "t", description: null, estimated_value: null, value_basis: null, metadata: { estimate_id: "est-a", sent_at: SENT_AT }, created_at: DAYS_AGO(4) }];
+  const result = await syncOpportunities(makeFake(tables).client, ORG, NOW);
+  assert.equal(result.suppressed, 2, JSON.stringify(result));
+  assert.deepEqual(openPendingRows(tables).map((row) => row.source_entity_id), ["est-free"]);
+  assert.equal(tables.opportunities.find((row) => row.id === "opp-old")!.status, "dismissed", "the old dismissal itself is untouched");
+});
+
+test("Phase 2-6: an estimate-keyed dismissal suppresses that estimate; a second sync creates no duplicate", async () => {
+  const tables = estimateFixture();
+  tables.estimates = [sentEstimate("est-1"), sentEstimate("est-2")];
+  const fake = makeFake(tables);
+  const first = await syncOpportunities(fake.client, ORG, NOW);
+  assert.equal(first.created, 2);
+  const second = await syncOpportunities(fake.client, ORG, NOW);
+  assert.equal(second.created, 0);
+  assert.equal(openPendingRows(tables).length, 2, "one row per estimate, never a duplicate");
+
+  Object.assign(tables.opportunities.find((row) => row.source_entity_id === "est-1")!, { status: "dismissed", resolution_reason: "dismissed" });
+  const third = await syncOpportunities(fake.client, ORG, NOW);
+  assert.equal(third.created, 0);
+  assert.equal(third.suppressed, 1);
+  assert.deepEqual(openPendingRows(tables).map((row) => row.source_entity_id), ["est-2"]);
+});
+
+test("Phase 2-6 (approved one-time churn): an open lead-keyed pending_estimate row resolves as condition_no_longer_true and the estimate-keyed row is created", async () => {
+  const tables = estimateFixture();
+  tables.leads = [{ id: "lead-1", organization_id: ORG, contact_id: `${ORG}-c1`, status: "estimate", service: "Roof", estimated_value: null, temperature: "warm", created_at: DAYS_AGO(5), contacts: tables.contacts[0] }];
+  tables.estimates = [sentEstimate("est-a", { lead_id: "lead-1" })];
+  tables.opportunities = [{ id: "opp-old", organization_id: ORG, type: "pending_estimate", source_entity_type: "lead", source_entity_id: "lead-1", contact_id: `${ORG}-c1`, status: "open", resolved_at: null, resolution_reason: null, title: "t", description: null, estimated_value: 1200, value_basis: "estimates.amount", metadata: { estimate_id: "est-a", sent_at: SENT_AT }, created_at: DAYS_AGO(4) }];
+  const result = await syncOpportunities(makeFake(tables).client, ORG, NOW);
+  assert.equal(result.resolved, 1);
+  assert.equal(result.created, 1);
+  const old = tables.opportunities.find((row) => row.id === "opp-old")!;
+  assert.deepEqual([old.status, old.resolution_reason], ["resolved", "condition_no_longer_true"]);
+  const [fresh] = openPendingRows(tables);
+  assert.deepEqual([fresh.source_entity_type, fresh.source_entity_id], ["estimate", "est-a"]);
+});
+
+test("Phase 2-6: the synced estimate-keyed opportunity's link still resolves through metadata.estimate_id to /estimates/<id>", async () => {
+  const tables = estimateFixture();
+  tables.estimates = [sentEstimate("est-1"), sentEstimate("est-2", { contact_id: null })];
+  const fake = makeFake(tables);
+  await syncOpportunities(fake.client, ORG, NOW);
+  const prioritized = await getPrioritizedOpportunities(fake.client, ORG, NOW);
+  const hrefs = prioritized.filter((p) => p.opportunity.type === "pending_estimate").map((p) => [p.opportunity.sourceEntityId, (p.opportunity.metadata as Row).estimate_id, opportunityActionHref(p.opportunity)]);
+  assert.deepEqual(hrefs.sort(), [
+    ["est-1", "est-1", "/estimates/est-1"],
+    ["est-2", "est-2", "/estimates/est-2"],
+  ]);
+});
+
+test("Phase 2-6 structural: the pending-estimate read no longer requires a lead, and the dedup and B1 carry-forward read metadata.lead_id", () => {
+  const source = fs.readFileSync(path.join(process.cwd(), "lib/opportunities/detect.ts"), "utf8");
+  const start = source.indexOf("async function detectPendingEstimates(");
+  const body = source.slice(start, source.indexOf("\n}\n", start));
+  assert.doesNotMatch(body, /\.not\("lead_id"/);
+  assert.doesNotMatch(body, /\.not\("contact_id"/);
+  assert.match(body, /sourceEntityType: "estimate" as const,\s*sourceEntityId: row\.id,/);
+  assert.match(body, /metadata: \{ estimate_id: row\.id, sent_at: row\.sent_at, lead_id: row\.lead_id \}/);
+  assert.match(source, /dismissedKeys\.has\(candidateKey\("pending_estimate", carriedLeadKey\)\)/);
+});

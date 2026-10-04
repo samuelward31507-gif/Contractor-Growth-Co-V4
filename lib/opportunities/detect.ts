@@ -1061,13 +1061,17 @@ async function detectActiveLeadSignals(supabase: SupabaseClient, organizationId:
  * (see lib/opportunities/intelligence.ts), rather than no representation at
  * all until it either gets accepted or expires.
  *
- * sourceEntityId is the LEAD's id, not the estimate's - deliberately, so this
- * type can be excluded (like active_lead_signal above) for a lead already
- * covered by a more specific type, using the same lead-id key space. Phase 4C
- * already documented that a lead can have more than one simultaneously-sent
- * estimate; this collapses to one representative pending_estimate opportunity
- * per lead rather than one per estimate, which is more correct for a
- * per-lead intelligence surface than showing the same lead twice.
+ * Phase 2-6 (A1, A13, B1): keyed to the ESTIMATE - sourceEntityType
+ * 'estimate', sourceEntityId = estimates.id - and no longer limited to
+ * estimates linked to a lead. An estimate's own organization, id and status
+ * are its identity and state; estimates are legitimately created with "No
+ * lead", and the estimate follow-up automation already handles them. A
+ * missing lead or contact never drops the estimate. Two sent estimates on
+ * one lead are two opportunities (A13), never one arbitrary representative.
+ * The lead travels in metadata.lead_id (nullable) so the same-lead
+ * redundancy dedup in detectAllOpportunityCandidates (B8) and the B1
+ * dismissal carry-forward in syncOpportunities still work; metadata.
+ * estimate_id is kept for the estimate link and the decision layer.
  */
 async function detectPendingEstimates(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
   const data = await checkedAll("pending_estimate.estimates", () =>
@@ -1076,23 +1080,28 @@ async function detectPendingEstimates(supabase: SupabaseClient, organizationId: 
       .select("id, lead_id, contact_id, title, amount, sent_at, contacts(id, first_name, last_name, company_name)")
       .eq("organization_id", organizationId)
       .eq("status", "sent")
-      .not("lead_id", "is", null)
       .order("id"),
   );
 
-  const rows = (data ?? []) as { id: string; lead_id: string; contact_id: string | null; title: string; amount: number | null; sent_at: string | null; contacts: ContactRef }[];
+  const rows = (data ?? []) as { id: string; lead_id: string | null; contact_id: string | null; title: string; amount: number | null; sent_at: string | null; contacts: ContactRef }[];
 
   return rows.map((row) => ({
     type: "pending_estimate" as const,
-    sourceEntityType: "lead" as const,
-    sourceEntityId: row.lead_id,
+    sourceEntityType: "estimate" as const,
+    sourceEntityId: row.id,
     contactId: row.contact_id,
     title: displayNameOrFallback(row.contacts, row.title),
     description: `Estimate "${row.title}" sent - awaiting the customer's decision.`,
     estimatedValue: row.amount,
     valueBasis: row.amount != null ? "estimates.amount" : null,
-    metadata: { estimate_id: row.id, sent_at: row.sent_at },
+    metadata: { estimate_id: row.id, sent_at: row.sent_at, lead_id: row.lead_id },
   }));
+}
+
+/** Phase 2-6: the lead a pending_estimate candidate belongs to (metadata.lead_id), or null for an estimate with no lead. */
+function pendingEstimateLeadId(candidate: OpportunityCandidate): string | null {
+  const leadId = candidate.metadata.lead_id;
+  return typeof leadId === "string" ? leadId : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1221,8 +1230,14 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
   // (qualified_lead_unbooked, uncontacted_lead) doesn't need a second,
   // duplicate row for the same underlying lead. See detectActiveLeadSignals'
   // own comment above for the full reasoning.
+  // Phase 2-6: pending estimates are keyed to the estimate, so the lead they
+  // belong to comes from metadata.lead_id; an estimate with no lead is never
+  // deduped against a lead-level type.
   const moreSpecificLeadIds = new Set([...qualifiedLeads, ...uncontactedLeads].map((candidate) => candidate.sourceEntityId));
-  const dedupedPendingEstimates = pendingEstimates.filter((candidate) => !moreSpecificLeadIds.has(candidate.sourceEntityId));
+  const dedupedPendingEstimates = pendingEstimates.filter((candidate) => {
+    const leadId = pendingEstimateLeadId(candidate);
+    return leadId === null || !moreSpecificLeadIds.has(leadId);
+  });
 
   // Live browser verification caught the remaining real duplicate this
   // exclusion alone didn't cover: a lead that is BOTH hot/high-value AND has
@@ -1233,7 +1248,7 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
   // fact (a real sent estimate, not just a temperature/value flag), so it
   // wins; active_lead_signal is suppressed for any lead a pending estimate
   // already covers, same as it is for the other more-specific types above.
-  const pendingEstimateLeadIds = new Set(dedupedPendingEstimates.map((candidate) => candidate.sourceEntityId));
+  const pendingEstimateLeadIds = new Set(dedupedPendingEstimates.map(pendingEstimateLeadId).filter((leadId): leadId is string => leadId !== null));
   const dedupedActiveLeadSignals = activeLeadSignals.filter(
     (candidate) => !moreSpecificLeadIds.has(candidate.sourceEntityId) && !pendingEstimateLeadIds.has(candidate.sourceEntityId),
   );
@@ -1444,7 +1459,15 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
     const key = candidateKey(candidate.type, candidate.sourceEntityId);
     const existing = existingByKey.get(key);
 
-    if (!existing && dismissedKeys.has(key)) {
+    // Phase 2-6 (B1): pending estimates used to be keyed to their lead. A
+    // dismissal of that old lead-keyed row carries forward to every
+    // estimate-keyed candidate of the same lead, exactly as the old key
+    // suppressed every estimate of that lead - so no dismissal is resurrected
+    // by the re-key. The canonical estimate key is checked as for every type.
+    const carriedLeadKey = candidate.type === "pending_estimate" ? pendingEstimateLeadId(candidate) : null;
+    const dismissed = dismissedKeys.has(key) || (carriedLeadKey !== null && dismissedKeys.has(candidateKey("pending_estimate", carriedLeadKey)));
+
+    if (!existing && dismissed) {
       suppressed += 1;
       continue;
     }

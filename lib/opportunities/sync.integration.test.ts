@@ -354,9 +354,11 @@ test("9. a customer with an active open engagement is excluded from dormant dete
       "an active (sent) estimate must exclude this contact from dormant detection, regardless of how old their completed job is",
     );
 
-    const result = await syncOpportunities(service, orgId);
-    assert.equal(result.created, 0, "no dormant_customer opportunity should be created for an excluded customer");
-    assert.equal((await getOpenOpportunities(service, orgId)).length, 0);
+    await syncOpportunities(service, orgId);
+    const open = await getOpenOpportunities(service, orgId);
+    assert.equal(open.filter((o) => o.type === "dormant_customer").length, 0, "no dormant_customer opportunity should be created for an excluded customer");
+    // Phase 2-6: the sent estimate has no lead, so it is now a pending_estimate in its own right (A1) - the only row created.
+    assert.deepEqual(open.map((o) => o.type), ["pending_estimate"]);
   } finally {
     await cleanupOrg(orgId);
   }

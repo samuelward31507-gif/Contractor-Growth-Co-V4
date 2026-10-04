@@ -173,7 +173,8 @@ test("5b. a lead that is BOTH hot/high-value AND has a real pending estimate pro
     await syncOpportunities(service, orgId);
 
     const results = await getPrioritizedOpportunities(service, orgId);
-    const forThisLead = results.filter((result) => result.opportunity.sourceEntityId === leadId);
+    // Phase 2-6: pending estimates are keyed to the estimate - the lead they belong to is metadata.lead_id.
+    const forThisLead = results.filter((result) => result.opportunity.sourceEntityId === leadId || result.opportunity.metadata.lead_id === leadId);
     assert.equal(forThisLead.length, 1, "a hot lead with a pending estimate must never surface as two separate active_pursuit cards");
     assert.equal(forThisLead[0].opportunity.type, "pending_estimate", "the real sent estimate is more specific than a bare temperature/value flag and wins");
   } finally {
