@@ -15,12 +15,14 @@ export const metadata: Metadata = {
     template: "%s | Contractor Growth Co.",
   },
   description: DESCRIPTION,
-  alternates: {
-    canonical: "/",
-  },
+  // Cinder website pass: the Trackpr marketing home moved from / to
+  // /trackpr (Cinder Revenue Company now owns /), so the canonical and the
+  // share card are set per page / pointed at the moved image instead of
+  // claiming the root URL for every marketing page. The share image is
+  // file-based on /trackpr itself (app/(marketing)/trackpr/opengraph-image.tsx).
   openGraph: {
     type: "website",
-    url: SITE_URL,
+    url: `${SITE_URL}/trackpr`,
     siteName: "Contractor Growth Co.",
     title: TITLE,
     description: DESCRIPTION,

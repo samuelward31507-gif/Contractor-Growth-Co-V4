@@ -23,7 +23,7 @@ const SOURCE = fs.readFileSync(path.join(REPO_ROOT, "lib/supabase/middleware.ts"
 test("1. /robots.txt and /sitemap.xml are now reachable while logged out - added to PUBLIC_MARKETING_PATHS alongside the existing marketing/legal paths", () => {
   assert.match(
     SOURCE,
-    /const PUBLIC_MARKETING_PATHS = new Set\(\["\/", "\/how-it-works", "\/services", "\/get-started", "\/privacy", "\/terms", "\/robots\.txt", "\/sitemap\.xml"\]\);/,
+    /const PUBLIC_MARKETING_PATHS = new Set\(\["\/", "\/trackpr", "\/how-it-works", "\/services", "\/get-started", "\/privacy", "\/terms", "\/robots\.txt", "\/sitemap\.xml"\]\);/,
   );
 });
 

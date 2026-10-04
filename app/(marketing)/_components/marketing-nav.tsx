@@ -9,7 +9,7 @@ import { CtaLink } from "./cta-button";
 const NAV_LINKS = [
   { href: "/how-it-works", label: "How It Works" },
   { href: "/services", label: "Services" },
-  { href: "/#trackpr", label: "Trackpr" },
+  { href: "/trackpr#trackpr", label: "Trackpr" },
 ];
 
 export function MarketingNav() {
@@ -37,7 +37,7 @@ export function MarketingNav() {
     <Fragment>
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
         <Container className="flex h-16 items-center justify-between sm:h-[72px]">
-          <Link href="/" className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-slate-900">
+          <Link href="/trackpr" className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-slate-900">
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-900 text-xs font-bold text-white">
               C
             </span>

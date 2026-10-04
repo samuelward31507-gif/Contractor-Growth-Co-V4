@@ -130,6 +130,31 @@
   --info-muted: #e9f0fa;
   --info-border: #c3d6ee;
   --info-text: #224c87;
+
+  /*
+   * Cinder Revenue Company - the parent brand's own tokens, used only by the
+   * Cinder website (app/(cinder)). Hierarchy comes from type, space and
+   * surface contrast; the ember accent is spent sparingly (the mark's spark,
+   * one emphasis per section, focus).
+   */
+  --cinder-ink: #0d1512; /* near-black pine - headings, primary text, dark sections */
+  --cinder-ink-2: #3a433f; /* body copy, 10.4:1 on canvas */
+  --cinder-ink-3: #5f6763; /* meta and labels, 5.4:1 on canvas */
+  --cinder-canvas: #f5f3ee; /* warm off-white page */
+  --cinder-surface: #ffffff;
+  --cinder-well: #efece5; /* inset fills on canvas */
+  --cinder-line: #e3dfd6;
+  --cinder-line-strong: #d0cbc0;
+  --cinder-accent: #b14f2b; /* ember - 4.9:1 on white */
+  --cinder-accent-strong: #933f20;
+  --cinder-accent-soft: #f6e6dc;
+  --cinder-night: #0f1a17; /* the dark section plane */
+  --cinder-on-night: #f2f0ea;
+  --cinder-on-night-2: rgba(242, 240, 234, 0.7);
+  --cinder-on-night-3: rgba(242, 240, 234, 0.5);
+  --cinder-night-line: rgba(242, 240, 234, 0.1);
+  --cinder-night-fill: rgba(242, 240, 234, 0.045);
+  --cinder-accent-on-night: #e58c63;
 }
 
 @theme inline {
@@ -184,6 +209,24 @@
   --color-info-muted: var(--info-muted);
   --color-info-border: var(--info-border);
   --color-info-text: var(--info-text);
+  --color-cinder-ink: var(--cinder-ink);
+  --color-cinder-ink-2: var(--cinder-ink-2);
+  --color-cinder-ink-3: var(--cinder-ink-3);
+  --color-cinder-canvas: var(--cinder-canvas);
+  --color-cinder-surface: var(--cinder-surface);
+  --color-cinder-well: var(--cinder-well);
+  --color-cinder-line: var(--cinder-line);
+  --color-cinder-line-strong: var(--cinder-line-strong);
+  --color-cinder-accent: var(--cinder-accent);
+  --color-cinder-accent-strong: var(--cinder-accent-strong);
+  --color-cinder-accent-soft: var(--cinder-accent-soft);
+  --color-cinder-night: var(--cinder-night);
+  --color-cinder-on-night: var(--cinder-on-night);
+  --color-cinder-on-night-2: var(--cinder-on-night-2);
+  --color-cinder-on-night-3: var(--cinder-on-night-3);
+  --color-cinder-night-line: var(--cinder-night-line);
+  --color-cinder-night-fill: var(--cinder-night-fill);
+  --color-cinder-accent-on-night: var(--cinder-accent-on-night);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-display: var(--font-geist-sans);
@@ -241,5 +284,67 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Cinder website motion. Everything is opt-in under no-preference, so with
+ * reduced motion the page renders in its final, fully visible state.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .cinder-reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .cinder-reveal[data-visible="true"] {
+    opacity: 1;
+    transform: none;
+  }
+  .cinder-rise {
+    animation: cinder-rise 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .cinder-draw {
+    transform-origin: left center;
+    animation: cinder-draw 1.6s cubic-bezier(0.6, 0, 0.2, 1) 0.35s both;
+  }
+  .cinder-spark {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: cinder-spark 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s both;
+  }
+}
+
+@keyframes cinder-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes cinder-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes cinder-spark {
+  0% {
+    opacity: 0;
+    transform: translate(-3px, 3px) scale(0.4);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
   }
 }

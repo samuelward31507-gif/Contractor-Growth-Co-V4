@@ -25,10 +25,10 @@ test("1. /demo is reachable while logged out - added as its own startsWith condi
   );
 });
 
-test("2. PUBLIC_MARKETING_PATHS itself is completely unchanged by this addition - still exactly the same 8 marketing/legal/SEO paths, /demo is never added to this set", () => {
+test("2. PUBLIC_MARKETING_PATHS is unchanged by this addition - the marketing/legal/SEO paths (Cinder website pass: plus /trackpr, where the Trackpr marketing home moved), /demo is never added to this set", () => {
   assert.match(
     SOURCE,
-    /const PUBLIC_MARKETING_PATHS = new Set\(\["\/", "\/how-it-works", "\/services", "\/get-started", "\/privacy", "\/terms", "\/robots\.txt", "\/sitemap\.xml"\]\);/,
+    /const PUBLIC_MARKETING_PATHS = new Set\(\["\/", "\/trackpr", "\/how-it-works", "\/services", "\/get-started", "\/privacy", "\/terms", "\/robots\.txt", "\/sitemap\.xml"\]\);/,
   );
   const setDeclaration = SOURCE.match(/const PUBLIC_MARKETING_PATHS = new Set\(\[[^\]]*\]\);/)?.[0] ?? "";
   assert.ok(!setDeclaration.includes("/demo"), "/demo must never be added to the PUBLIC_MARKETING_PATHS set itself");

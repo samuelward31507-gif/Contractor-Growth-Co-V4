@@ -74,7 +74,7 @@ export function DemoShell() {
             </p>
             <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-4">
               <Link
-                href="/"
+                href="/trackpr"
                 className="inline-flex min-h-11 items-center rounded text-sm font-medium text-ink-3 transition-colors hover:text-ink sm:min-h-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20"
               >
                 Exit demo

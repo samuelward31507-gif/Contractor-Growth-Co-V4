@@ -63,7 +63,8 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // The public marketing site (home + its sub-pages), its SEO-facing
+  // The public marketing site (the Cinder Revenue Company home at /, the
+  // Trackpr marketing home at /trackpr, and its sub-pages), its SEO-facing
   // metadata routes (robots.txt/sitemap.xml - anonymous crawlers never
   // present a Supabase session either, same reasoning as the API-routes
   // exemption below), the email-confirmation callback, and API routes stay
@@ -88,7 +89,15 @@ export async function updateSession(request: NextRequest) {
   // page authorizes itself by resolving the unguessable payment_token (see
   // lib/payments/public-invoice.ts). "/pay/" with the slash, so no other
   // path that merely starts with "pay" becomes public.
-  const PUBLIC_MARKETING_PATHS = new Set(["/", "/how-it-works", "/services", "/get-started", "/privacy", "/terms", "/robots.txt", "/sitemap.xml"]);
+  // The share-card images (/opengraph-image-<hash> for Cinder,
+  // /trackpr/opengraph-image-<hash> for Trackpr - Next suffixes the route) are
+  // fetched by link-preview crawlers with no session; without this every
+  // shared link's preview image redirected to /login.
+  if (pathname.startsWith("/opengraph-image") || pathname.startsWith("/trackpr/opengraph-image")) {
+    return supabaseResponse;
+  }
+
+  const PUBLIC_MARKETING_PATHS = new Set(["/", "/trackpr", "/how-it-works", "/services", "/get-started", "/privacy", "/terms", "/robots.txt", "/sitemap.xml"]);
   if (PUBLIC_MARKETING_PATHS.has(pathname) || pathname.startsWith("/auth") || pathname.startsWith("/api/") || pathname.startsWith("/demo") || pathname.startsWith("/quote") || pathname.startsWith("/pay/")) {
     return supabaseResponse;
   }
