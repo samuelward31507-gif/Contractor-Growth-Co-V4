@@ -223,8 +223,9 @@ async function getLeadsTouchedByAutomation(supabase: SupabaseClient, organizatio
  * cross-referenced against real appointments by `appointments.lead_id` -
  * "did this lead ever get booked", regardless of the appointment's own date
  * or status (a cancelled or no-show appointment still counts as booked).
- * Also returns the subset with status = 'qualified' and no appointment,
- * which buildRevenueOpportunity (Part 3) reads with `qualifiedOnly`.
+ * Phase 2-8: Revenue Opportunity's "Qualified, no appointment" no longer
+ * comes from here - it counts Today's open qualified_lead_unbooked rows
+ * (getQualifiedLeadsWithoutAppointment below).
  *
  * Phase 2G: both reads are paged (readAllPages) - the API caps a response
  * at 1000 rows, and the old all-time appointment read silently lost every
@@ -240,13 +241,11 @@ async function getLeadBookingCrossReference(
   supabase: SupabaseClient,
   organizationId: string,
   range: ResolvedDateRange,
-  options: { qualifiedOnly?: boolean } = {},
 ): Promise<BookingCrossReference> {
   const failed: BookingCrossReference = { leadsInRange: 0, leadsWithAppointment: 0, qualifiedLeadsWithoutAppointment: 0, failed: true };
 
   const leadRead = await readAllPages<{ id: string; status: string }>(() => {
     let query = supabase.from("leads").select("id, status").eq("organization_id", organizationId);
-    if (options.qualifiedOnly) query = query.eq("status", "qualified");
     if (range.from) query = query.gte("created_at", range.from);
     if (range.to) query = query.lt("created_at", range.to);
     return query.order("id");
@@ -261,7 +260,6 @@ async function getLeadBookingCrossReference(
       .select("lead_id, lead:leads!appointments_lead_id_fkey!inner(id)")
       .eq("organization_id", organizationId)
       .eq("lead.organization_id", organizationId);
-    if (options.qualifiedOnly) query = query.eq("lead.status", "qualified");
     if (range.from) query = query.gte("lead.created_at", range.from);
     if (range.to) query = query.lt("lead.created_at", range.to);
     return query.order("id");
@@ -342,38 +340,31 @@ export function computeEstimateAging(sentRows: SentEstimateRow[], now: Date, tim
 }
 
 /**
- * Growth System Completion Pass 2, Part 3: leads with a completed appointment
- * (in `range`) and no estimate at all - a real visit that never turned into
- * a quote. Counts distinct leads: several completed visits for one lead
- * count once, and any estimate (whatever its status or date) excludes the
- * lead. Estimate existence is checked without its own date bound - the
- * question is "does one exist at all," not "was one created in the same
- * window."
- *
- * Phase 2G: both reads are paged (readAllPages), and estimates are read as
- * every estimate with a lead, matched in memory - the old lead-id list
- * failed outright at roughly 400 leads, and its failure counted every
- * visit's lead as missing an estimate. A read error or the row limit
- * returns `failed`, never 0 or an inflated count.
+ * Phase 2-8 (M6, M9): Revenue Opportunity's "Qualified, no appointment" and
+ * "Visits, no estimate" report the same current opportunity state Today
+ * shows: the organization's stored OPEN opportunity rows of that type - the
+ * rows the opportunity sync maintains with the shared lifecycle rules
+ * (lib/opportunities/lifecycle.ts), dismissals and their carry-forward
+ * already applied. Counting those rows, rather than reconstructing the
+ * lifecycle here, keeps the two numbers equal to Today's by construction.
+ * Paged (readAllPages); a read error or the row limit returns `failed`,
+ * never 0 or an inflated count.
  */
-async function getCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient, organizationId: string, range: ResolvedDateRange): Promise<{ count: number; failed: boolean }> {
-  const visitRead = await readAllPages<{ lead_id: string | null }>(() => {
-    let query = supabase.from("appointments").select("lead_id").eq("organization_id", organizationId).eq("status", "completed").not("lead_id", "is", null);
-    if (range.from) query = query.gte("created_at", range.from);
-    if (range.to) query = query.lt("created_at", range.to);
-    return query.order("id");
-  });
-  if (visitRead.failed) return { count: 0, failed: true };
-  const leadIds = new Set(visitRead.rows.map((row) => row.lead_id).filter((id): id is string => id !== null));
-  if (leadIds.size === 0) return { count: 0, failed: false };
-
-  const estimateRead = await readAllPages<{ lead_id: string | null }>(() =>
-    supabase.from("estimates").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).order("id"),
+async function countOpenOpportunities(supabase: SupabaseClient, organizationId: string, type: "qualified_lead_unbooked" | "completed_appointment_no_estimate"): Promise<{ count: number; failed: boolean }> {
+  const read = await readAllPages<{ id: string }>(() =>
+    supabase.from("opportunities").select("id").eq("organization_id", organizationId).eq("type", type).eq("status", "open").order("id"),
   );
-  if (estimateRead.failed) return { count: 0, failed: true };
-  const leadsWithEstimate = new Set(estimateRead.rows.map((row) => row.lead_id));
+  return read.failed ? { count: 0, failed: true } : { count: read.rows.length, failed: false };
+}
 
-  return { count: [...leadIds].filter((id) => !leadsWithEstimate.has(id)).length, failed: false };
+/** Phase 2-8 (M9): Today's open completed_appointment_no_estimate items - one per open lead. */
+async function getCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient, organizationId: string): Promise<{ count: number; failed: boolean }> {
+  return countOpenOpportunities(supabase, organizationId, "completed_appointment_no_estimate");
+}
+
+/** Phase 2-8 (M9): Today's open qualified_lead_unbooked items. */
+async function getQualifiedLeadsWithoutAppointment(supabase: SupabaseClient, organizationId: string): Promise<{ count: number; failed: boolean }> {
+  return countOpenOpportunities(supabase, organizationId, "qualified_lead_unbooked");
 }
 
 /**
@@ -404,10 +395,10 @@ async function buildRevenueOpportunity(
 ): Promise<{ opportunity: BiRevenueOpportunity; estimateAging: BiEstimateAging; unavailable: BiRevenueOpportunityUnavailable }> {
   const unboundedRange = resolveDateRange("allTime");
 
-  const [estimates, visits, bookingCrossReference] = await Promise.all([
+  const [estimates, visits, qualifiedUnbooked] = await Promise.all([
     getEstimateOpportunityValues(supabase, organizationId, unboundedRange),
-    getCompletedAppointmentsWithoutEstimate(supabase, organizationId, unboundedRange),
-    getLeadBookingCrossReference(supabase, organizationId, unboundedRange, { qualifiedOnly: true }),
+    getCompletedAppointmentsWithoutEstimate(supabase, organizationId),
+    getQualifiedLeadsWithoutAppointment(supabase, organizationId),
   ]);
   const { openEstimateValue, expiredEstimateValue, lostEstimateValue, sentRows } = estimates;
 
@@ -417,12 +408,12 @@ async function buildRevenueOpportunity(
       expiredEstimateValue,
       lostEstimateValue,
       recoverableEstimateValue: openEstimateValue + expiredEstimateValue,
-      qualifiedLeadsWithoutAppointment: bookingCrossReference.qualifiedLeadsWithoutAppointment,
+      qualifiedLeadsWithoutAppointment: qualifiedUnbooked.count,
       completedAppointmentsWithoutEstimate: visits.count,
     },
     estimateAging: computeEstimateAging(sentRows, now, timeZone),
     // Phase 2G: which groups above could not be read - their zeroed figures are never shown.
-    unavailable: { qualifiedNoAppointment: bookingCrossReference.failed, visitsNoEstimate: visits.failed, estimates: estimates.failed },
+    unavailable: { qualifiedNoAppointment: qualifiedUnbooked.failed, visitsNoEstimate: visits.failed, estimates: estimates.failed },
   };
 }
 

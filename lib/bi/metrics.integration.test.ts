@@ -36,6 +36,7 @@ if (fs.existsSync(envPath)) {
 
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
 const { getBusinessMetricsSnapshot, getJobLeadLinkage }: typeof import("./metrics") = require(path.join(REPO_ROOT, "lib/bi/metrics.ts"));
+const { syncOpportunities }: typeof import("@/lib/opportunities/detect") = require(path.join(REPO_ROOT, "lib/opportunities/detect.ts"));
 const { emitLeadStageChangedAsService }: typeof import("@/lib/automation/lead-stage-history") = require(path.join(REPO_ROOT, "lib/automation/lead-stage-history.ts"));
 
 const service = createServiceRoleClient();
@@ -218,9 +219,12 @@ test("8. qualifiedLeadsWithoutAppointment counts only qualified leads with no ap
     await makeAppointment(freshOrg!.id, contactId, qualifiedWithAppt);
     void qualifiedNoAppt;
 
+    // Phase 2-8 (M9): these two figures count Today's open opportunity rows, which the sync maintains.
+    await syncOpportunities(service, freshOrg!.id);
     const snapshot = await getBusinessMetricsSnapshot(service, freshOrg!.id, "allTime");
     assert.equal(snapshot.revenueOpportunity.qualifiedLeadsWithoutAppointment, 1);
   } finally {
+    await service.from("opportunities").delete().eq("organization_id", freshOrg!.id);
     await service.from("appointments").delete().eq("organization_id", freshOrg!.id);
     await service.from("leads").delete().eq("organization_id", freshOrg!.id);
     await service.from("contacts").delete().eq("organization_id", freshOrg!.id);
@@ -241,9 +245,12 @@ test("9. completedAppointmentsWithoutEstimate counts only COMPLETED appointments
     const leadScheduled = await makeLead(freshOrg!.id, contactId, "appointment");
     await makeAppointment(freshOrg!.id, contactId, leadScheduled, "scheduled");
 
+    // Phase 2-8 (M9): these two figures count Today's open opportunity rows, which the sync maintains.
+    await syncOpportunities(service, freshOrg!.id);
     const snapshot = await getBusinessMetricsSnapshot(service, freshOrg!.id, "allTime");
     assert.equal(snapshot.revenueOpportunity.completedAppointmentsWithoutEstimate, 1);
   } finally {
+    await service.from("opportunities").delete().eq("organization_id", freshOrg!.id);
     await service.from("estimates").delete().eq("organization_id", freshOrg!.id);
     await service.from("appointments").delete().eq("organization_id", freshOrg!.id);
     await service.from("leads").delete().eq("organization_id", freshOrg!.id);
@@ -278,12 +285,15 @@ test("11. Pass 3 fix: revenueOpportunity reflects true current state, never scop
     await service.from("estimates").insert({ organization_id: freshOrg!.id, contact_id: contactId, title: "Quote", status: "sent", amount: 750, created_at: staleDate });
 
     // Requesting "today" must not hide opportunity data created long ago - per MetricTemporality, revenueOpportunity is current-state, not a date-range metric.
+    // Phase 2-8 (M9): these two figures count Today's open opportunity rows, which the sync maintains.
+    await syncOpportunities(service, freshOrg!.id);
     const snapshot = await getBusinessMetricsSnapshot(service, freshOrg!.id, "today");
     assert.equal(snapshot.revenueOpportunity.qualifiedLeadsWithoutAppointment, 1, "a qualified, still-unbooked lead from outside the requested range must still count");
     assert.equal(snapshot.revenueOpportunity.openEstimateValue, 750, "a still-open estimate from outside the requested range must still count");
     // The requested range itself must still genuinely scope leadMetrics - a "today"-scoped call finds zero leads created today.
     assert.equal(snapshot.leadMetrics.totalLeads, 0);
   } finally {
+    await service.from("opportunities").delete().eq("organization_id", freshOrg!.id);
     await service.from("estimates").delete().eq("organization_id", freshOrg!.id);
     await service.from("leads").delete().eq("organization_id", freshOrg!.id);
     await service.from("contacts").delete().eq("organization_id", freshOrg!.id);

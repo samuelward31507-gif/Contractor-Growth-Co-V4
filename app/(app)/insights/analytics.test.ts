@@ -326,7 +326,8 @@ test("Phase 2G: a leak figure whose read failed shows as unavailable - never 0 o
   assert.doesNotMatch(read("lib/bi/insights.ts"), /revenueOpportunityUnavailable/);
   // The leak reads are paged, with no lead id list and no capped read left in them.
   const metrics = read("lib/bi/metrics.ts");
-  for (const fn of ["getLeadBookingCrossReference", "getEstimateOpportunityValues", "getCompletedAppointmentsWithoutEstimate"]) {
+  // Phase 2-8 (M9): "Qualified, no appointment" and "Visits, no estimate" are read by countOpenOpportunities (Today's open rows).
+  for (const fn of ["getLeadBookingCrossReference", "getEstimateOpportunityValues", "countOpenOpportunities"]) {
     const start = metrics.indexOf(`async function ${fn}(`);
     const body = metrics.slice(start, metrics.indexOf("\n}\n", start));
     assert.match(body, /readAllPages</, fn);

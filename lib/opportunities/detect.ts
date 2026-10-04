@@ -13,6 +13,7 @@ import { calendarDateInTimeZone, formatInvoiceNumber, formatMoney, isOverdue, ty
 import { isLegacyCompletedJob } from "@/lib/invoices/summary";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { ONBOARDING_TEST_LEAD_SOURCE } from "@/lib/onboarding/readiness";
+import { BOOKED_APPOINTMENT_STATUSES, findCompletedVisitsWithoutEstimate, findUnbookedQualifiedLeads } from "./lifecycle";
 import { getOpportunityById, type OpportunityType, type OpportunityStatus, type OpportunityResolutionReason } from "./queries";
 
 /**
@@ -28,10 +29,10 @@ import { getOpportunityById, type OpportunityType, type OpportunityStatus, type 
  *                                        existing, already-computed
  *                                        'expired' terminal state - no new
  *                                        staleness threshold invented)
- *   completed_appointment_no_estimate - the exact same query shape
- *                                        lib/bi/metrics.ts's own
- *                                        buildRevenueOpportunity already
- *                                        computes for
+ *   completed_appointment_no_estimate - Phase 2-8: one item per open
+ *                                        lead, by the shared rule in
+ *                                        lib/opportunities/lifecycle.ts that
+ *                                        lib/bi/metrics.ts also uses for
  *                                        completedAppointmentsWithoutEstimate
  *   dormant_customer                  - reuses isReactivationDue() and the
  *                                        exact active-engagement exclusion
@@ -297,6 +298,12 @@ export type OpportunityCandidate = {
   estimatedValue: number | null;
   valueBasis: string | null;
   metadata: Record<string, unknown>;
+  /**
+   * Phase 2-8: other source ids of the same type whose dismissal also
+   * suppresses this candidate (a lead's other completed visits, M5). Read
+   * by syncOpportunities only - never persisted.
+   */
+  dismissalAliases?: string[];
 };
 
 type ContactRefRow = { id: string; first_name: string | null; last_name: string | null; company_name: string | null };
@@ -332,7 +339,10 @@ function displayNameOrFallback(contact: ContactRef, fallback: string): string {
  * as "booked" and could never resurface here again, even though nothing is
  * actually on the calendar for them.
  */
-const ACTIVE_BOOKING_STATUSES = ["scheduled", "confirmed", "completed"] as const;
+// Phase 2-8: the booked statuses now live with the rest of the shared
+// lifecycle rules (lib/opportunities/lifecycle.ts), so Insights uses the
+// identical list.
+const ACTIVE_BOOKING_STATUSES = BOOKED_APPOINTMENT_STATUSES;
 
 /**
  * Phase 2-7 (A10, L5): an appointment books a qualified lead when it is
@@ -343,42 +353,30 @@ const ACTIVE_BOOKING_STATUSES = ["scheduled", "confirmed", "completed"] as const
  * history, not a booking for this lead. AI bookings carry a lead_id only
  * when the triggering event had one, so lead-less appointments are real.
  * The booked statuses are unchanged (completed still counts as booked).
+ * Phase 2-8: the rule itself is findUnbookedQualifiedLeads in
+ * lib/opportunities/lifecycle.ts, shared with Insights' "Qualified, no
+ * appointment" - unchanged in behavior.
  */
 async function detectQualifiedLeadsUnbooked(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
   const leadRows = await checkedAll("qualified_lead_unbooked.leads", () =>
     supabase
       .from("leads")
-      .select("id, contact_id, service, estimated_value, created_at, contacts(id, first_name, last_name, company_name)")
+      .select("id, contact_id, service, estimated_value, created_at, status, contacts(id, first_name, last_name, company_name)")
       .eq("organization_id", organizationId)
       .eq("status", "qualified")
       .order("id"),
   );
 
-  const leads = (leadRows ?? []) as { id: string; contact_id: string | null; service: string | null; estimated_value: number | null; created_at: string; contacts: ContactRef }[];
+  const leads = (leadRows ?? []) as { id: string; contact_id: string | null; service: string | null; estimated_value: number | null; created_at: string; status: string; contacts: ContactRef }[];
   if (leads.length === 0) return [];
 
   // Phase 2-7: the same one paged read, now including lead-less appointments
   // (with their contact and start) for the A10 contact fallback.
   const appointmentRows = await checkedAll("qualified_lead_unbooked.appointments", () =>
-    supabase.from("appointments").select("lead_id, contact_id, start_at").eq("organization_id", organizationId).in("status", ACTIVE_BOOKING_STATUSES).order("id"),
+    supabase.from("appointments").select("lead_id, contact_id, start_at, status").eq("organization_id", organizationId).in("status", ACTIVE_BOOKING_STATUSES).order("id"),
   );
-  const bookedLeadIds = new Set<string>();
-  // Per contact, the latest start of a booked appointment that has no lead_id.
-  const latestLeadlessStartMsByContact = new Map<string, number>();
-  for (const row of (appointmentRows ?? []) as { lead_id: string | null; contact_id: string | null; start_at: string }[]) {
-    if (row.lead_id !== null) {
-      bookedLeadIds.add(row.lead_id);
-    } else if (row.contact_id !== null) {
-      const startMs = new Date(row.start_at).getTime();
-      if (startMs > (latestLeadlessStartMsByContact.get(row.contact_id) ?? Number.NEGATIVE_INFINITY)) latestLeadlessStartMsByContact.set(row.contact_id, startMs);
-    }
-  }
-  const booked = (lead: { id: string; contact_id: string | null; created_at: string }) =>
-    bookedLeadIds.has(lead.id) ||
-    (lead.contact_id !== null && (latestLeadlessStartMsByContact.get(lead.contact_id) ?? Number.NEGATIVE_INFINITY) >= new Date(lead.created_at).getTime());
 
-  return leads
-    .filter((lead) => !booked(lead))
+  return findUnbookedQualifiedLeads(leads, (appointmentRows ?? []) as { lead_id: string | null; contact_id: string | null; start_at: string; status: string }[])
     .map((lead) => ({
       type: "qualified_lead_unbooked" as const,
       sourceEntityType: "lead" as const,
@@ -423,50 +421,69 @@ async function detectStaleEstimates(supabase: SupabaseClient, organizationId: st
 }
 
 // ---------------------------------------------------------------------------
-// C. completed_appointment_no_estimate - the same shape as
-// lib/bi/metrics.ts's own getCompletedAppointmentsWithoutEstimate, run here
-// independently (that function returns only a count, not enough to build
-// individual opportunity rows) rather than duplicating its query logic
-// inline there - both express the identical business rule.
+// C. completed_appointment_no_estimate - Phase 2-8: the rule is
+// findCompletedVisitsWithoutEstimate in lib/opportunities/lifecycle.ts,
+// shared with Insights' "Visits, no estimate" (lib/bi/metrics.ts), so both
+// count exactly the same items: one per open lead.
 // ---------------------------------------------------------------------------
 
+/**
+ * Phase 2-8 (M1-M5, M8): one item per open lead with a completed visit and
+ * no estimate and no job - see findCompletedVisitsWithoutEstimate for the
+ * association, clearing and anchor rules. The source stays the APPOINTMENT
+ * (the lead's latest completed visit), so existing rows keep their keys; an
+ * older visit's open row resolves once as condition_no_longer_true when a
+ * newer visit becomes the anchor. A dismissal of any of the lead's visits
+ * suppresses the item (dismissalAliases, honored in syncOpportunities).
+ *
+ * Four bounded, org-scoped paged reads regardless of candidate count -
+ * completed visits, estimates, open leads, jobs with a lead - matched in
+ * memory. Never N+1, never an id list.
+ */
 async function detectCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
   const appointmentRows = await checkedAll("completed_appointment_no_estimate.appointments", () =>
     supabase
       .from("appointments")
-      .select("id, contact_id, lead_id, title, start_at, contacts(id, first_name, last_name, company_name)")
+      .select("id, contact_id, lead_id, title, start_at, status, contacts(id, first_name, last_name, company_name)")
       .eq("organization_id", organizationId)
       .eq("status", "completed")
-      .not("lead_id", "is", null)
       .order("id"),
   );
 
-  const appointments = (appointmentRows ?? []) as { id: string; contact_id: string | null; lead_id: string | null; title: string; start_at: string; contacts: ContactRef }[];
+  const appointments = (appointmentRows ?? []) as { id: string; contact_id: string | null; lead_id: string | null; title: string; start_at: string; status: string; contacts: ContactRef }[];
   if (appointments.length === 0) return [];
 
-  // Phase 2H: every estimate with a lead, matched in memory - the old
-  // lead-id list failed outright at roughly 400 leads.
-  const estimateRows = await checkedAll("completed_appointment_no_estimate.estimates", () =>
-    supabase.from("estimates").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).order("id"),
-  );
-  const leadsWithEstimate = new Set(((estimateRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id));
+  // Phase 2H: every estimate and lead matched in memory - the old lead-id
+  // list failed outright at roughly 400 leads. Phase 2-8: every estimate
+  // (lead-less ones too, with contact and created_at), the open leads, and
+  // every job linked to a lead.
+  const [estimateRows, leadRows, jobRows] = await Promise.all([
+    checkedAll<{ lead_id: string | null; contact_id: string | null; created_at: string }>("completed_appointment_no_estimate.estimates", () =>
+      supabase.from("estimates").select("lead_id, contact_id, created_at").eq("organization_id", organizationId).order("id"),
+    ),
+    checkedAll<{ id: string; contact_id: string | null; created_at: string; status: string }>("completed_appointment_no_estimate.open_leads", () =>
+      supabase.from("leads").select("id, contact_id, created_at, status").eq("organization_id", organizationId).in("status", [...OPEN_LEAD_STATUSES]).order("id"),
+    ),
+    checkedAll<{ lead_id: string | null }>("completed_appointment_no_estimate.jobs", () =>
+      supabase.from("jobs").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).order("id"),
+    ),
+  ]);
 
-  return appointments
-    .filter((row) => row.lead_id !== null && !leadsWithEstimate.has(row.lead_id))
-    .map((row) => ({
-      type: "completed_appointment_no_estimate" as const,
-      sourceEntityType: "appointment" as const,
-      sourceEntityId: row.id,
-      contactId: row.contact_id,
-      title: displayNameOrFallback(row.contacts, row.title),
-      description: `Completed appointment "${row.title}" never turned into an estimate.`,
-      // No reliable amount exists at this stage - no estimate has ever been
-      // created for this lead, so there is nothing real to base a figure
-      // on. Never guessed from an average or any other org.
-      estimatedValue: null,
-      valueBasis: null,
-      metadata: { appointment_start_at: row.start_at },
-    }));
+  return findCompletedVisitsWithoutEstimate({ visits: appointments, leads: leadRows, estimates: estimateRows, jobs: jobRows }).map(({ leadId, anchor, visitIds }) => ({
+    type: "completed_appointment_no_estimate" as const,
+    sourceEntityType: "appointment" as const,
+    sourceEntityId: anchor.id,
+    contactId: anchor.contact_id,
+    title: displayNameOrFallback(anchor.contacts, anchor.title),
+    description: `Completed appointment "${anchor.title}" never turned into an estimate.`,
+    // No reliable amount exists at this stage - no estimate has ever been
+    // created for this lead, so there is nothing real to base a figure
+    // on. Never guessed from an average or any other org.
+    estimatedValue: null,
+    valueBasis: null,
+    metadata: { appointment_start_at: anchor.start_at, lead_id: leadId },
+    dismissalAliases: visitIds.filter((id) => id !== anchor.id),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1490,7 +1507,11 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
     // suppressed every estimate of that lead - so no dismissal is resurrected
     // by the re-key. The canonical estimate key is checked as for every type.
     const carriedLeadKey = candidate.type === "pending_estimate" ? pendingEstimateLeadId(candidate) : null;
-    const dismissed = dismissedKeys.has(key) || (carriedLeadKey !== null && dismissedKeys.has(candidateKey("pending_estimate", carriedLeadKey)));
+    // Phase 2-8 (M5): a dismissal of any of the lead's completed visits suppresses its one completed-visit item.
+    const dismissed =
+      dismissedKeys.has(key) ||
+      (carriedLeadKey !== null && dismissedKeys.has(candidateKey("pending_estimate", carriedLeadKey))) ||
+      (candidate.dismissalAliases ?? []).some((alias) => dismissedKeys.has(candidateKey(candidate.type, alias)));
 
     if (!existing && dismissed) {
       suppressed += 1;

@@ -670,20 +670,121 @@ test("Phase 2-7: multiple appointments - one valid post-creation booking is enou
   );
 });
 
-test("Phase 2-7: completed_appointment_no_estimate is unchanged - a completed lead-less appointment is still never one, a linked one without an estimate still is", async () => {
+test("Phase 2-7, revised by Phase 2-8 (M2): a completed lead-less visit after an open lead's creation is now that lead's completed-visit item; a linked one without an estimate still is", async () => {
+  // Phase 2-7 pinned "a lead-less completed appointment is never one" while L6 was deferred. Phase 2-8's M2
+  // now associates it with the contact's open lead created at or before the visit (lead-q here; lead-other is won).
   const leadless = await detectAllOpportunityCandidates(makeFake(bookingFixture([appt("completed", AFTER)])).client, ORG, NOW);
-  assert.ok(!leadless.some((c) => c.type === "completed_appointment_no_estimate"));
+  assert.deepEqual(leadless.filter((c) => c.type === "completed_appointment_no_estimate").map((c) => [c.sourceEntityId, c.metadata.lead_id]), [["appt-0", "lead-q"]]);
+  assert.ok(!leadless.some((c) => c.type === "qualified_lead_unbooked"), "and it still books the lead (Phase 2-7)");
   const linked = await detectAllOpportunityCandidates(makeFake(bookingFixture([appt("completed", AFTER, { lead_id: "lead-q" })])).client, ORG, NOW);
   assert.deepEqual(linked.filter((c) => c.type === "completed_appointment_no_estimate").map((c) => c.sourceEntityId), ["appt-0"]);
 });
 
-test("Phase 2-7 structural: the booking-gap appointment read is one paged read with lead_id, contact_id and start_at, no lead_id filter, and unchanged statuses; completed_appointment_no_estimate still requires a lead", () => {
+test("Phase 2-7 structural (revised by Phase 2-8): the booking-gap appointment read is one paged read with lead_id, contact_id, start_at and status, no lead_id filter, and the unchanged booked statuses - now from the shared lifecycle module", () => {
   const source = fs.readFileSync(path.join(process.cwd(), "lib/opportunities/detect.ts"), "utf8");
   const start = source.indexOf("async function detectQualifiedLeadsUnbooked(");
   const body = source.slice(start, source.indexOf("\n}\n", start));
-  assert.match(body, /checkedAll\("qualified_lead_unbooked\.appointments", \(\) =>\s*supabase\.from\("appointments"\)\.select\("lead_id, contact_id, start_at"\)\.eq\("organization_id", organizationId\)\.in\("status", ACTIVE_BOOKING_STATUSES\)\.order\("id"\)/);
+  // Phase 2-8: status is selected because the shared rule (findUnbookedQualifiedLeads) checks it itself.
+  assert.match(body, /checkedAll\("qualified_lead_unbooked\.appointments", \(\) =>\s*supabase\.from\("appointments"\)\.select\("lead_id, contact_id, start_at, status"\)\.eq\("organization_id", organizationId\)\.in\("status", ACTIVE_BOOKING_STATUSES\)\.order\("id"\)/);
   assert.equal((body.match(/from\("appointments"\)/g) ?? []).length, 1);
-  assert.match(source, /const ACTIVE_BOOKING_STATUSES = \["scheduled", "confirmed", "completed"\] as const;/);
-  const cane = source.slice(source.indexOf("async function detectCompletedAppointmentsWithoutEstimate("), source.indexOf("\n}\n", source.indexOf("async function detectCompletedAppointmentsWithoutEstimate(")));
-  assert.match(cane, /\.eq\("status", "completed"\)\s*\.not\("lead_id", "is", null\)/);
+  assert.match(body, /findUnbookedQualifiedLeads\(leads,/);
+  assert.match(source, /const ACTIVE_BOOKING_STATUSES = BOOKED_APPOINTMENT_STATUSES;/);
+  const lifecycle = fs.readFileSync(path.join(process.cwd(), "lib/opportunities/lifecycle.ts"), "utf8");
+  assert.match(lifecycle, /export const BOOKED_APPOINTMENT_STATUSES = \["scheduled", "confirmed", "completed"\] as const;/);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2-8: completed visit with no estimate - one item per open lead,
+// through the shared lifecycle rule, keyed to the latest visit, with a
+// dismissal of any of the lead's visits carried forward (M1-M5, M8).
+// ---------------------------------------------------------------------------
+
+const VISIT_LEAD_CREATED = "2026-10-01T12:00:00.000Z";
+
+/** Contact c1 with one open lead (lead-v, created VISIT_LEAD_CREATED) plus whatever visits, estimates, jobs and opportunities a test adds. */
+function visitFixture(extra: { appointments?: Row[]; estimates?: Row[]; jobs?: Row[]; leads?: Row[]; opportunities?: Row[] } = {}): Record<string, Row[]> {
+  const tables = scaleFixture(0);
+  const c1 = contact(ORG, 1);
+  tables.contacts = [c1, contact(ORG, 2)];
+  tables.leads = extra.leads ?? [{ id: "lead-v", organization_id: ORG, contact_id: c1.id, status: "estimate", service: "Roof", estimated_value: null, temperature: "warm", created_at: VISIT_LEAD_CREATED, contacts: c1 }];
+  tables.appointments = (extra.appointments ?? []).map((row) => ({ organization_id: ORG, title: `Visit ${row.id}`, status: "completed", lead_id: null, contact_id: c1.id, updated_at: DAYS_AGO(1), contacts: c1, ...row }));
+  tables.estimates = (extra.estimates ?? []).map((row) => ({ organization_id: ORG, status: "draft", title: "Q", amount: 1, ...row }));
+  tables.jobs = (extra.jobs ?? []).map((row) => ({ organization_id: ORG, title: "Job", status: "scheduled", amount: 1, contact_id: null, completed_at: null, created_at: DAYS_AGO(1), estimate_id: null, contacts: null, ...row }));
+  tables.opportunities = extra.opportunities ?? [];
+  return tables;
+}
+
+const visitItems = async (tables: Record<string, Row[]>) =>
+  (await detectAllOpportunityCandidates(makeFake(tables).client, ORG, NOW)).filter((c) => c.type === "completed_appointment_no_estimate").map((c) => [c.sourceEntityId, c.metadata.lead_id]);
+const openVisitRows = (tables: Record<string, Row[]>) => tables.opportunities.filter((row) => row.type === "completed_appointment_no_estimate" && row.status === "open");
+
+test("Phase 2-8: a lead-linked visit and a lead-less visit after an open lead's creation are flagged; won/lost leads, a job, a lead-linked estimate or a later lead-less estimate clear it", async () => {
+  assert.deepEqual(await visitItems(visitFixture({ appointments: [{ id: "a1", lead_id: "lead-v", start_at: "2026-10-05T09:00:00.000Z" }] })), [["a1", "lead-v"]]);
+  assert.deepEqual(await visitItems(visitFixture({ appointments: [{ id: "a1", start_at: "2026-10-05T09:00:00.000Z" }] })), [["a1", "lead-v"]], "lead-less visit, open lead created before it");
+  assert.deepEqual(await visitItems(visitFixture({ appointments: [{ id: "a1", start_at: "2026-09-05T09:00:00.000Z" }] })), [], "lead-less visit before the lead");
+  for (const status of ["won", "lost"]) {
+    const tables = visitFixture({ appointments: [{ id: "a1", lead_id: "lead-v", start_at: "2026-10-05T09:00:00.000Z" }] });
+    tables.leads[0].status = status;
+    assert.deepEqual(await visitItems(tables), [], status);
+  }
+  assert.deepEqual(await visitItems(visitFixture({ appointments: [{ id: "a1", lead_id: "lead-v", start_at: "2026-10-05T09:00:00.000Z" }], jobs: [{ id: "j1", lead_id: "lead-v" }] })), [], "a job for the lead");
+  assert.deepEqual(await visitItems(visitFixture({ appointments: [{ id: "a1", lead_id: "lead-v", start_at: "2026-10-05T09:00:00.000Z" }], estimates: [{ id: "e1", lead_id: "lead-v", contact_id: null, created_at: "2026-01-01T00:00:00.000Z", status: "declined" }] })), [], "a declined lead-linked estimate (M8)");
+  assert.deepEqual(await visitItems(visitFixture({ appointments: [{ id: "a1", start_at: "2026-10-05T09:00:00.000Z" }], estimates: [{ id: "e1", lead_id: null, contact_id: `${ORG}-c1`, created_at: "2026-10-06T00:00:00.000Z" }] })), [], "a lead-less estimate after the visit");
+  assert.deepEqual(await visitItems(visitFixture({ appointments: [{ id: "a1", start_at: "2026-10-05T09:00:00.000Z" }], estimates: [{ id: "e1", lead_id: null, contact_id: `${ORG}-c1`, created_at: "2026-10-04T00:00:00.000Z" }] })), [["a1", "lead-v"]], "a lead-less estimate before the visit");
+  assert.deepEqual(await visitItems(visitFixture({ appointments: [{ id: "a1", start_at: "2026-10-05T09:00:00.000Z" }], estimates: [{ id: "e1", lead_id: null, contact_id: `${ORG}-c2`, created_at: "2026-10-06T00:00:00.000Z" }] })), [["a1", "lead-v"]], "another contact's estimate");
+});
+
+test("Phase 2-8 (M5): several visits for one lead sync to one row on the latest visit; a second sync creates no duplicate; the alias list is never stored", async () => {
+  const tables = visitFixture({ appointments: [{ id: "a-old", lead_id: "lead-v", start_at: "2026-10-03T09:00:00.000Z" }, { id: "a-new", start_at: "2026-10-09T09:00:00.000Z" }, { id: "a-mid", lead_id: "lead-v", start_at: "2026-10-06T09:00:00.000Z" }] });
+  const fake = makeFake(tables);
+  const first = await syncOpportunities(fake.client, ORG, NOW);
+  assert.equal(first.created, 1);
+  const [row] = openVisitRows(tables);
+  assert.equal(row.source_entity_id, "a-new");
+  assert.deepEqual(row.metadata, { appointment_start_at: "2026-10-09T09:00:00.000Z", lead_id: "lead-v" });
+  assert.ok(!("dismissalAliases" in row) && !("dismissal_aliases" in row), "never persisted");
+  const second = await syncOpportunities(fake.client, ORG, NOW);
+  assert.equal(second.created, 0);
+  assert.equal(openVisitRows(tables).length, 1);
+});
+
+test("Phase 2-8 (M5): a dismissed row on any of the lead's visits suppresses its item on the latest visit; the dismissed row is untouched", async () => {
+  const dismissed = { id: "opp-old", organization_id: ORG, type: "completed_appointment_no_estimate", source_entity_type: "appointment", source_entity_id: "a-old", contact_id: `${ORG}-c1`, status: "dismissed", resolved_at: DAYS_AGO(2), resolution_reason: "dismissed", title: "t", description: null, estimated_value: null, value_basis: null, metadata: {}, created_at: DAYS_AGO(3) };
+  const tables = visitFixture({ appointments: [{ id: "a-old", lead_id: "lead-v", start_at: "2026-10-03T09:00:00.000Z" }, { id: "a-new", lead_id: "lead-v", start_at: "2026-10-09T09:00:00.000Z" }], opportunities: [dismissed] });
+  const result = await syncOpportunities(makeFake(tables).client, ORG, NOW);
+  assert.equal(result.suppressed, 1);
+  assert.deepEqual(openVisitRows(tables), []);
+  assert.equal(tables.opportunities.find((row) => row.id === "opp-old")!.status, "dismissed");
+});
+
+test("Phase 2-8 (M5, approved one-time churn): an open row on an older visit resolves as condition_no_longer_true and the latest visit's row is created", async () => {
+  const open = { id: "opp-old", organization_id: ORG, type: "completed_appointment_no_estimate", source_entity_type: "appointment", source_entity_id: "a-old", contact_id: `${ORG}-c1`, status: "open", resolved_at: null, resolution_reason: null, title: "t", description: null, estimated_value: null, value_basis: null, metadata: {}, created_at: DAYS_AGO(3) };
+  const tables = visitFixture({ appointments: [{ id: "a-old", lead_id: "lead-v", start_at: "2026-10-03T09:00:00.000Z" }, { id: "a-new", lead_id: "lead-v", start_at: "2026-10-09T09:00:00.000Z" }], opportunities: [open] });
+  const result = await syncOpportunities(makeFake(tables).client, ORG, NOW);
+  assert.deepEqual([result.resolved, result.created], [1, 1]);
+  const old = tables.opportunities.find((row) => row.id === "opp-old")!;
+  assert.deepEqual([old.status, old.resolution_reason], ["resolved", "condition_no_longer_true"]);
+  assert.deepEqual(openVisitRows(tables).map((row) => row.source_entity_id), ["a-new"]);
+});
+
+test("Phase 2-8 structural: the completed-visit detector makes four paged reads with no lead filter on visits or estimates, and goes through findCompletedVisitsWithoutEstimate", () => {
+  const source = fs.readFileSync(path.join(process.cwd(), "lib/opportunities/detect.ts"), "utf8");
+  const start = source.indexOf("async function detectCompletedAppointmentsWithoutEstimate(");
+  const body = source.slice(start, source.indexOf("\n}\n", start));
+  assert.equal([...body.matchAll(/checkedAll(<[^>]+>)?\(\s*"completed_appointment_no_estimate\./g)].length, 4);
+  for (const label of ["appointments", "estimates", "open_leads", "jobs"]) assert.match(body, new RegExp(`"completed_appointment_no_estimate\\.${label}"`));
+  assert.doesNotMatch(body.slice(0, body.indexOf("const [estimateRows")), /\.not\("lead_id"/, "visits read has no lead filter");
+  assert.match(body, /supabase\.from\("estimates"\)\.select\("lead_id, contact_id, created_at"\)\.eq\("organization_id", organizationId\)\.order\("id"\)/);
+  assert.match(body, /findCompletedVisitsWithoutEstimate\(\{ visits: appointments, leads: leadRows, estimates: estimateRows, jobs: jobRows \}\)/);
+  assert.match(body, /sourceEntityType: "appointment" as const,\s*sourceEntityId: anchor\.id,/);
+});
+
+test("Phase 2-8 parity (structural, M9): Today's detector builds both types with the shared lifecycle functions, and Insights counts exactly those stored open rows", () => {
+  const detect = fs.readFileSync(path.join(process.cwd(), "lib/opportunities/detect.ts"), "utf8");
+  const metrics = fs.readFileSync(path.join(process.cwd(), "lib/bi/metrics.ts"), "utf8");
+  for (const fn of ["findCompletedVisitsWithoutEstimate", "findUnbookedQualifiedLeads"]) assert.match(detect, new RegExp(`\\b${fn}\\(`), `detector uses ${fn}`);
+  assert.match(metrics, /supabase\.from\("opportunities"\)\.select\("id"\)\.eq\("organization_id", organizationId\)\.eq\("type", type\)\.eq\("status", "open"\)\.order\("id"\)/, "Insights reads Today's open rows");
+  assert.match(metrics, /return countOpenOpportunities\(supabase, organizationId, "completed_appointment_no_estimate"\);/);
+  assert.match(metrics, /return countOpenOpportunities\(supabase, organizationId, "qualified_lead_unbooked"\);/);
+  assert.doesNotMatch(metrics, /qualifiedOnly|findCompletedVisitsWithoutEstimate|findUnbookedQualifiedLeads/, "no second, Insights-only reconstruction");
 });

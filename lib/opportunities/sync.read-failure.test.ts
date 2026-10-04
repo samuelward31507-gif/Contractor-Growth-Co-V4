@@ -193,11 +193,11 @@ afterEach(() => {
 });
 const abortLogs = () => logged.filter((args) => args[0] === "[opportunities] sync aborted: read failed");
 
-test("baseline: with every read succeeding, the fixture runs all 32 sync reads and the sync writes normally (resolves the gone lead as lost, keeps the stale estimate, never re-opens the dismissed no-show)", async () => {
+test("baseline: with every read succeeding, the fixture runs all 34 sync reads and the sync writes normally (resolves the gone lead as lost, keeps the stale estimate, never re-opens the dismissed no-show)", async () => {
   const fake = makeFakeSupabase(fixture());
   const result = await syncOpportunities(fake.client, ORG, NOW);
   const selects = fake.calls.filter((call) => call.op === "select");
-  assert.equal(selects.length, 32, `every read ran: ${selects.map((call) => call.table).join(", ")}`);
+  assert.equal(selects.length, 34, `every read ran: ${selects.map((call) => call.table).join(", ")}`);
   assert.equal(result.failed, undefined);
   assert.ok(result.created > 0 && result.resolved === 1, JSON.stringify(result));
   const byId = (id: string) => fake.tables.opportunities.find((row) => row.id === id)!;
@@ -224,7 +224,7 @@ test("every read, failed one at a time: the sync aborts with failed: true, perfo
   const baseline = makeFakeSupabase(fixture());
   await syncOpportunities(baseline.client, ORG, NOW);
   const readCount = baseline.calls.filter((call) => call.op === "select").length;
-  assert.equal(readCount, 32); // Phase 2H: 36 -> 34 - the dormant contacts read joins its jobs read; conversations + messages are one join. Phase 2-5: 34 -> 32 - the uncontacted-lead detector no longer reads the organization or instant-lead-followup's setting
+  assert.equal(readCount, 34); // Phase 2H: 36 -> 34 - the dormant contacts read joins its jobs read; conversations + messages are one join. Phase 2-5: 34 -> 32 - the uncontacted-lead detector no longer reads the organization or instant-lead-followup's setting. Phase 2-8: 32 -> 34 - the completed-visit detector also reads the open leads and the jobs linked to a lead
   const failedReads = new Set<string>();
 
   for (let index = 0; index < readCount; index += 1) {
@@ -246,7 +246,7 @@ test("every read, failed one at a time: the sync aborts with failed: true, perfo
     failedReads.add(context.read);
   }
   // Every read is individually labelled, so a log line always says which read failed.
-  assert.equal(failedReads.size, 32, [...failedReads].join(", "));
+  assert.equal(failedReads.size, 34, [...failedReads].join(", "));
 });
 
 test("the destructive cases specifically: a failed primary read no longer resolves, a failed exclusion read no longer inserts, a failed dismissal read no longer re-opens", async () => {
@@ -259,7 +259,7 @@ test("the destructive cases specifically: a failed primary read no longer resolv
   const baseline = makeFakeSupabase(fixture());
   await syncOpportunities(baseline.client, ORG, NOW);
   const readLabels: string[] = [];
-  for (let index = 0; index < 32; index += 1) readLabels.push((await labelFor(index)).read);
+  for (let index = 0; index < 34; index += 1) readLabels.push((await labelFor(index)).read);
 
   for (const read of ["stale_estimate.estimates", "qualified_lead_unbooked.leads", "completed_job_no_review_request.organizations", "uncontacted_lead.leads"]) {
     const outcome = await labelFor(readLabels.indexOf(read));
