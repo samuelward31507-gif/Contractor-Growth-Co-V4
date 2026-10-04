@@ -8,6 +8,8 @@ import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getLead } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
+import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouch } from "./late-touch";
 
 export const LEAD_LOST_NURTURE_WORKFLOW = "lead_lost_nurture_followup";
 
@@ -42,6 +44,7 @@ export type NurtureOutcome =
   | { leadId: string; outcome: "not_due" }
   | { leadId: string; outcome: "skipped_duplicate" }
   | { leadId: string; outcome: "skipped_disabled" }
+  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" }
   | { leadId: string; outcome: "failed"; error: string };
 
 export type NurtureRunResult = {
@@ -82,30 +85,40 @@ export type NurtureRunResult = {
 export async function processLeadNurture(supabase: SupabaseClient, now: Date = new Date()): Promise<NurtureRunResult> {
   const configByOrg = await getAutomationConfigByOrganization(supabase, "lost-lead-nurture");
 
-  const { data: lostEvents } = await supabase
-    .from("automation_events")
-    .select("id, organization_id, entity_id, created_at")
-    .eq("event_type", "lead.lost")
-    .limit(500);
+  // Phase 3 (W2): every lead.lost event, paged in a stable order - the old single read was capped at 500
+  // unordered rows across every organization. A failed page stops the run with nothing processed.
+  const read = await readAllPages<LostEventRow>(() =>
+    supabase.from("automation_events").select("id, organization_id, entity_id, created_at").eq("event_type", "lead.lost").order("id"),
+  );
+  if (read.failed) {
+    throw new Error("Lost-lead nurture: the candidate read failed or reached the row limit - no lead was processed.");
+  }
 
-  const events = (lostEvents ?? []) as LostEventRow[];
+  const events = read.rows;
   const outcomes: NurtureOutcome[] = [];
+  const isEnabled = enabledPerOrganization((organizationId) => getAutomationEnabled(supabase, organizationId, "lost-lead-nurture"));
 
   for (const event of events) {
     const config = readLostLeadNurtureConfig(configByOrg.get(event.organization_id) ?? null);
-    outcomes.push(await processOneLead(supabase, event, now, config));
+    outcomes.push(await processOneLead(supabase, event, now, config, isEnabled));
   }
 
   return { candidates: events.length, outcomes };
 }
 
-async function processOneLead(supabase: SupabaseClient, lostEvent: LostEventRow, now: Date, config: LostLeadNurtureConfig): Promise<NurtureOutcome> {
+async function processOneLead(
+  supabase: SupabaseClient,
+  lostEvent: LostEventRow,
+  now: Date,
+  config: LostLeadNurtureConfig,
+  isEnabled: (organizationId: string) => Promise<boolean>,
+): Promise<NurtureOutcome> {
   const leadId = lostEvent.entity_id;
   const organizationId = lostEvent.organization_id;
 
   // Phase C: checked first, before the getLead lookup below, so a disabled
   // organization pays no further query cost for this candidate.
-  if (!(await getAutomationEnabled(supabase, organizationId, "lost-lead-nurture"))) {
+  if (!(await isEnabled(organizationId))) {
     return { leadId, outcome: "skipped_disabled" };
   }
 
@@ -125,6 +138,23 @@ async function processOneLead(supabase: SupabaseClient, lostEvent: LostEventRow,
 
   if (!occurrence) {
     return { leadId, outcome: "not_due" };
+  }
+
+  // Phase 3 (W2, K5 rule): more than 48 hours past due - recorded as not sent, never sent late. Checked
+  // before any conversation is looked up or created.
+  const lateHours = hoursPastDue(now.getTime(), lostAt, (occurrence === 2 ? config.touch_2_days : config.touch_1_days) * 24 * 60 * 60 * 1000);
+  if (isTouchOverdue(lateHours)) {
+    const overdue = await recordOverdueTouch(supabase, {
+      organizationId,
+      eventType: "lead.lost_nurture",
+      entityType: "lead",
+      entityId: leadId,
+      payload: { lead_id: leadId, contact_id: lead.contact_id, occurrence },
+      idempotencyKey: `lead.lost_nurture:${leadId}:${occurrence}`,
+      workflowName: LEAD_LOST_NURTURE_WORKFLOW,
+      lateHours,
+    });
+    return { leadId, ...overdue };
   }
 
   // Resolve contact/conversation BEFORE creating the automation_events row:

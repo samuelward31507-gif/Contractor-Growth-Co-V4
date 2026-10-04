@@ -7,6 +7,8 @@ import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getAutomationEnabled, getAutomationConfigByOrganization, readCustomerReactivationConfig, type CustomerReactivationConfig } from "./settings";
 import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
+import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouch } from "./late-touch";
 
 export const CUSTOMER_REACTIVATION_WORKFLOW = "customer_reactivation_followup";
 
@@ -106,20 +108,28 @@ export async function processCustomerReactivation(
 ): Promise<CustomerReactivationRunResult> {
   const configByOrg = await getAutomationConfigByOrganization(supabase, "customer-reactivation");
 
-  const { data: rawCompletedJobs } = await supabase
-    .from("jobs")
-    .select("id, organization_id, contact_id, title, completed_at")
-    .eq("status", "completed")
-    .not("contact_id", "is", null)
-    .not("completed_at", "is", null)
-    .order("completed_at", { ascending: false })
-    .limit(1000);
+  // Phase 3 (W2): every completed job, paged newest-first with an id tie-break - the old single read stopped
+  // at the 1,000 newest jobs across every organization, which dropped exactly the long-dormant customers this
+  // automation exists for. A failed page stops the run with nothing processed.
+  const read = await readAllPages<CandidateJob>(() =>
+    supabase
+      .from("jobs")
+      .select("id, organization_id, contact_id, title, completed_at")
+      .eq("status", "completed")
+      .not("contact_id", "is", null)
+      .not("completed_at", "is", null)
+      .order("completed_at", { ascending: false })
+      .order("id"),
+  );
+  if (read.failed) {
+    throw new Error("Customer reactivation: the candidate read failed or reached the row limit - no customer was processed.");
+  }
 
   // Reduce to the single most recently completed job per contact - jobs
   // were fetched newest-first, so the first one seen for a given contact_id
   // is that contact's latest.
   const latestJobByContact = new Map<string, CandidateJob>();
-  for (const row of (rawCompletedJobs ?? []) as CandidateJob[]) {
+  for (const row of read.rows) {
     if (!latestJobByContact.has(row.contact_id)) {
       latestJobByContact.set(row.contact_id, row);
     }
@@ -131,9 +141,10 @@ export async function processCustomerReactivation(
   });
 
   const outcomes: CustomerReactivationOutcome[] = [];
+  const isEnabled = enabledPerOrganization((organizationId) => getAutomationEnabled(supabase, organizationId, "customer-reactivation"));
   for (const job of candidates) {
     const config = readCustomerReactivationConfig(configByOrg.get(job.organization_id) ?? null);
-    outcomes.push(await processOneCustomer(supabase, job, config, now, sendSmsFn));
+    outcomes.push(await processOneCustomer(supabase, job, config, now, sendSmsFn, isEnabled));
   }
 
   return { candidates: candidates.length, outcomes };
@@ -145,13 +156,14 @@ async function processOneCustomer(
   config: CustomerReactivationConfig,
   now: Date,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+  isEnabled: (organizationId: string) => Promise<boolean> = (organizationId) => getAutomationEnabled(supabase, organizationId, "customer-reactivation"),
 ): Promise<CustomerReactivationOutcome> {
   const contactId = job.contact_id;
   const organizationId = job.organization_id;
 
   // Checked first, before any further query cost - mirrors
   // processOneLead's identical ordering rationale.
-  if (!(await getAutomationEnabled(supabase, organizationId, "customer-reactivation"))) {
+  if (!(await isEnabled(organizationId))) {
     return { contactId, outcome: "skipped_disabled" };
   }
 
@@ -271,6 +283,24 @@ async function processOneCustomer(
 
   if (!contact) {
     return { contactId, outcome: "no_contact" };
+  }
+
+  // Phase 3 (W2, K5 rule): more than 48 hours past the inactivity threshold - recorded as not sent, never sent
+  // late. Checked before any conversation is created or the outbound gate runs, so removing the old 1,000-job
+  // cap can never turn into a message to every long-dormant customer at once.
+  const lateHours = hoursPastDue(now.getTime(), new Date(job.completed_at).getTime(), config.inactivity_days * 24 * 60 * 60 * 1000);
+  if (isTouchOverdue(lateHours)) {
+    const overdue = await recordOverdueTouch(supabase, {
+      organizationId,
+      eventType: "customer.reactivation",
+      entityType: "job",
+      entityId: job.id,
+      payload: { contact_id: contactId, job_id: job.id, job_title: freshJob.title },
+      idempotencyKey,
+      workflowName: CUSTOMER_REACTIVATION_WORKFLOW,
+      lateHours,
+    });
+    return { contactId, ...overdue };
   }
 
   const eventResult = await createAutomationEventAsService(supabase, organizationId, {
