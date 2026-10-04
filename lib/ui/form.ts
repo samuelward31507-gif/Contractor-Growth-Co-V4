@@ -23,7 +23,7 @@ const SIZE_SM = "min-h-11 px-2.5 py-1.5 text-xs sm:min-h-8";
 const BASE = `inline-flex items-center justify-center gap-1.5 rounded-md font-medium ${TRANSITION} ${FOCUS_RING} ${DISABLED}`;
 
 const PRIMARY = `bg-accent text-accent-foreground hover:bg-accent-strong active:bg-accent-strong focus-visible:ring-accent/40`;
-const SECONDARY = `border border-line-strong bg-surface text-ink hover:bg-hover active:bg-selected focus-visible:ring-ink/15`;
+const SECONDARY = `border border-line-strong bg-surface text-ink shadow-control hover:bg-hover active:bg-selected focus-visible:ring-ink/15`;
 const GHOST = `text-ink-2 hover:bg-hover hover:text-ink active:bg-selected focus-visible:ring-ink/15`;
 const DESTRUCTIVE = `bg-danger text-danger-foreground hover:bg-danger-strong active:bg-danger-strong focus-visible:ring-danger/40`;
 const DESTRUCTIVE_GHOST = `text-danger hover:bg-danger-muted active:bg-danger-muted focus-visible:ring-danger/30`;
@@ -32,7 +32,7 @@ const DESTRUCTIVE_GHOST = `text-danger hover:bg-danger-muted active:bg-danger-mu
 // same color every primary action uses, so a user's own cursor is always
 // on-brand. min-h rather than h, so textareas keep growing.
 export const inputClass =
-  "w-full min-h-11 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-4 transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:cursor-not-allowed disabled:bg-inset disabled:text-ink-3 sm:min-h-9";
+  "w-full min-h-11 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink shadow-control placeholder:text-ink-4 transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:cursor-not-allowed disabled:bg-inset disabled:text-ink-3 sm:min-h-9";
 
 export const labelClass = "text-sm font-medium text-ink-2";
 

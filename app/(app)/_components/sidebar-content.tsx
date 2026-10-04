@@ -1,15 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { OrganizationVertical } from "@/lib/auth/organization";
 import { getNavGroupsForVertical, resolveActiveNavItem, type NavGroup, type NavItem } from "./nav-items";
 import { NavLink, RailTooltip } from "./nav-link";
 import { useNavLocation } from "./use-nav-location";
 import { logout } from "../actions";
-import { SIDEBAR_RAIL_STORAGE_KEY, SIDEBAR_GROUPS_STORAGE_KEY, defaultOpenGroups, parseStoredGroups, toggleGroupState } from "./sidebar-prefs";
+import { SIDEBAR_RAIL_COOKIE, SIDEBAR_RAIL_STORAGE_KEY, SIDEBAR_GROUPS_STORAGE_KEY, defaultOpenGroups, isRailToggleKey, parseStoredGroups, toggleGroupState } from "./sidebar-prefs";
 
 const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
+
+/** Saves the rail state where both the next server render (cookie) and the pre-cookie fallback (localStorage) read it. */
+function persistRail(collapsed: boolean) {
+  try {
+    window.localStorage.setItem(SIDEBAR_RAIL_STORAGE_KEY, String(collapsed));
+  } catch {
+    // Preference just won't persist across reloads - not worth surfacing.
+  }
+  document.cookie = `${SIDEBAR_RAIL_COOKIE}=${collapsed}; path=/; max-age=31536000; samesite=lax`;
+}
 
 /**
  * Trackpr 2.0 (step 2C): the light desktop sidebar. A white surface with a
@@ -22,9 +32,11 @@ const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-a
  * labelled group can fold on its own, and the whole sidebar can collapse to
  * a 56px icon rail. The rail is never "mystery icons": every icon has a
  * tooltip and an accessible name, the active item keeps its fill and
- * accent, and a hairline separates the groups. Both preferences default to
- * "everything open, expanded" on the server render and sync from
- * localStorage after mount - the server HTML never depends on them.
+ * accent, and a hairline separates the groups. Group folding defaults to
+ * "everything open" on the server render and syncs from localStorage after
+ * mount. Theme upgrade: the rail state is also kept in a cookie the layout
+ * reads, so the server renders the sidebar at its saved width (no flash),
+ * and "[" toggles it from anywhere outside a text field.
  */
 export function SidebarContent({
   organizationName,
@@ -32,6 +44,7 @@ export function SidebarContent({
   role,
   vertical,
   showAgencyLink,
+  initialCollapsed = null,
 }: {
   organizationName: string;
   userEmail: string;
@@ -39,6 +52,8 @@ export function SidebarContent({
   vertical: OrganizationVertical;
   /** Only ever true for a session-verified agency admin (see layout.tsx) - a hidden link is a UX convenience, never the actual authorization boundary, which /agency and its data reads enforce independently on every request. */
   showAgencyLink: boolean;
+  /** The layout's read of the rail cookie; null = never saved, so the localStorage fallback decides after mount. */
+  initialCollapsed?: boolean | null;
 }) {
   const groups = getNavGroupsForVertical(vertical, showAgencyLink);
   const location = useNavLocation();
@@ -51,7 +66,12 @@ export function SidebarContent({
   const systemGroup = groups.find((group) => group.id === "system");
   const foldableIds = mainGroups.filter((group) => group.label !== null).map((group) => group.id);
 
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(initialCollapsed ?? false);
+  // The keyboard listener is registered once, so it reads the current rail state through this ref.
+  const railRef = useRef(railCollapsed);
+  useEffect(() => {
+    railRef.current = railCollapsed;
+  }, [railCollapsed]);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => defaultOpenGroups(foldableIds));
 
   // Both effects below do a deliberate, one-time bridge from localStorage
@@ -62,12 +82,30 @@ export function SidebarContent({
   // own rule description calls out as legitimate, so it's suppressed on
   // both rather than restructured away.
   useEffect(() => {
+    if (initialCollapsed !== null) return;
     try {
+      const stored = window.localStorage.getItem(SIDEBAR_RAIL_STORAGE_KEY) === "true";
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRailCollapsed(window.localStorage.getItem(SIDEBAR_RAIL_STORAGE_KEY) === "true");
+      setRailCollapsed(stored);
+      // Carry a pre-cookie preference over, so the next load renders it server-side.
+      document.cookie = `${SIDEBAR_RAIL_COOKIE}=${stored}; path=/; max-age=31536000; samesite=lax`;
     } catch {
       // localStorage unavailable (private browsing, etc.) - stay expanded.
     }
+  }, [initialCollapsed]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const editable = !!target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+      if (!isRailToggleKey(event, editable)) return;
+      event.preventDefault();
+      const next = !railRef.current;
+      setRailCollapsed(next);
+      persistRail(next);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
   useEffect(() => {
@@ -85,11 +123,7 @@ export function SidebarContent({
   function toggleRail() {
     const next = !railCollapsed;
     setRailCollapsed(next);
-    try {
-      window.localStorage.setItem(SIDEBAR_RAIL_STORAGE_KEY, String(next));
-    } catch {
-      // Preference just won't persist across reloads - not worth surfacing.
-    }
+    persistRail(next);
   }
 
   function toggleGroup(id: string) {
@@ -112,13 +146,14 @@ export function SidebarContent({
         {/* The expand control takes the brand mark's place in the rail's
             header row - pinned, so it can never scroll out of reach. */}
         <div className="flex h-12 shrink-0 items-center justify-center border-b border-line">
-          <RailTooltip label="Expand sidebar">
+          <RailTooltip label="Expand sidebar ( [ )">
             {(tip) => (
               <button
                 type="button"
                 onClick={toggleRail}
                 aria-label="Expand sidebar"
                 aria-expanded={false}
+                aria-keyshortcuts="["
                 {...tip}
                 className={`flex h-8 w-8 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink ${FOCUS_RING}`}
               >
@@ -190,7 +225,8 @@ export function SidebarContent({
           onClick={toggleRail}
           aria-label="Collapse sidebar"
           aria-expanded
-          title="Collapse sidebar"
+          title="Collapse sidebar ( [ )"
+          aria-keyshortcuts="["
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink ${FOCUS_RING}`}
         >
           <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} aria-hidden />
@@ -220,7 +256,7 @@ export function SidebarContent({
                 type="button"
                 onClick={() => toggleGroup(group.id)}
                 aria-expanded={isOpen}
-                className={`group/heading mb-1 flex h-6 w-full items-center justify-between rounded-md px-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3 transition-colors hover:text-ink-2 ${FOCUS_RING}`}
+                className={`group/heading mb-1 flex h-6 w-full items-center justify-between rounded-md px-2.5 text-xs font-medium text-ink-3 transition-colors hover:text-ink-2 ${FOCUS_RING}`}
               >
                 {group.label}
                 <ChevronDown

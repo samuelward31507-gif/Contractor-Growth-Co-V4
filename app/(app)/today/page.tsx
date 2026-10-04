@@ -25,6 +25,7 @@ import { TodayViewTabs, type TodayView } from "./_components/today-view-tabs";
 import { ScrollToAnchorOnLoad } from "./_components/scroll-to-anchor-on-load";
 import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, handlingLine, hourInTimeZone, pipelineStages, todayFigures } from "./_components/dashboard-model";
 import { DashboardSection, PipelineFlow, SectionLink, ShowAllLink, TodayPanel } from "./_components/dashboard-sections";
+import { cardClass } from "@/lib/ui/surface";
 
 function normalizeView(value: string | undefined): TodayView {
   return value === "by-type" ? "by-type" : "priority";
@@ -242,7 +243,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
 
       {/* Act II - what needs attention. */}
       <DashboardSection id="needs-attention" title={totalNeedingAttention > 0 ? `Needs your attention · ${totalNeedingAttention}` : "Needs your attention"}>
-        <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <div className={`overflow-hidden ${cardClass}`}>
           {totalNeedingAttention === 0 ? (
             <div className="px-5 py-10 text-center">
               <p className="text-sm font-medium text-ink">You&apos;re all caught up.</p>
@@ -270,7 +271,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
       <DashboardSection id="opportunities" title="Opportunities" action={<TodayViewTabs active={view} opportunityCount={openOpportunities.length} />}>
         <ScrollToAnchorOnLoad id="opportunities" />
         {view === "priority" ? (
-          <div className="overflow-hidden rounded-lg border border-line bg-surface">
+          <div className={`overflow-hidden ${cardClass}`}>
             {opportunityQueue.length === 0 ? (
               <div className="px-5 py-8 text-center">
                 <p className="text-sm font-medium text-ink">Nothing else to pursue right now.</p>

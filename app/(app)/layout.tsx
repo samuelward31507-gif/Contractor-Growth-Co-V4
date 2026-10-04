@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
 import { isAgencyAdmin } from "@/lib/agency/queries";
@@ -6,6 +7,7 @@ import { MobileTabBar } from "./_components/mobile-tab-bar";
 import { Sidebar } from "./_components/sidebar";
 import { TopBar } from "./_components/top-bar";
 import { getNavGroupsForVertical } from "./_components/nav-items";
+import { SIDEBAR_RAIL_COOKIE, parseRailCookie } from "./_components/sidebar-prefs";
 import { CommandMenu } from "@/lib/ui/command-menu";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
@@ -41,6 +43,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // unconditionally), and /agency itself independently re-verifies this on
   // every request regardless of what the nav shows.
   const showAgencyLink = await agencyAdminCheck;
+  const railCollapsed = parseRailCookie((await cookies()).get(SIDEBAR_RAIL_COOKIE)?.value);
 
   return (
     // App-shell fix: this used to be `h-dvh` with no overflow containment,
@@ -68,6 +71,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         role={membership.role}
         vertical={membership.vertical}
         showAgencyLink={showAgencyLink}
+        initialCollapsed={railCollapsed}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar supabase={supabase} organizationId={membership.organizationId} organizationName={organizationName} />

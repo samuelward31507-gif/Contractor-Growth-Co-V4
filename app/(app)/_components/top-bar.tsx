@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrganizationHealth } from "@/lib/automation-health/health";
+import { CommandMenuTrigger } from "@/lib/ui/command-menu";
 import { Breadcrumb, MobilePageTitle } from "./breadcrumb";
 import { BrandMark } from "./sidebar-content";
 import { SystemStatus } from "./system-status";
@@ -22,8 +23,10 @@ import { describeSystemStatus } from "./system-status-model";
  * request-cached read the shell already paid for (never a new query path) -
  * and fails silently to no indicator (never a broken page) if it errors.
  * No global search box: no record search index exists, so a search field
- * would be fake functionality; Cmd/Ctrl+K (lib/ui/command-menu.tsx) remains
- * the global command surface.
+ * would be fake functionality. Theme upgrade: the right side carries a
+ * visible trigger for the existing Cmd/Ctrl+K command menu
+ * (lib/ui/command-menu.tsx) - it opens the same palette, never a search
+ * of its own.
  *
  * `actions` is an optional right-side slot for a page's own contextual
  * controls - nothing passes it yet.
@@ -55,8 +58,9 @@ export async function TopBar({
         <Breadcrumb />
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         {actions}
+        <CommandMenuTrigger />
         {status ? <SystemStatus view={status} /> : null}
       </div>
     </header>

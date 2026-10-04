@@ -35,6 +35,7 @@ import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contac
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 // Phase 2-13 (D3): the shared registry labels - every type, never a raw code.
 import { OPPORTUNITY_TYPE_LABEL } from "@/lib/decisions/registry";
+import { cardClass } from "@/lib/ui/surface";
 
 
 const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [item.value, item.label]));
@@ -233,7 +234,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
             established (see app/(app)/leads/[id]/page.tsx's own nextStep),
             so the two detail pages read as the same product. */}
         {openOpportunities.length > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-line bg-surface px-5 py-4">
+          <div className={`flex flex-wrap items-center justify-between gap-4 ${cardClass} px-5 py-4`}>
             <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-muted text-accent-text">
                 <ArrowRight className="h-4 w-4" aria-hidden />

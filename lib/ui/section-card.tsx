@@ -21,6 +21,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { cardClass } from "./surface";
 
 export function SectionCard({
   title,
@@ -38,7 +39,7 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={`rounded-lg border border-line bg-surface p-4 sm:p-5 ${className}`}>
+    <section className={`${cardClass} p-4 sm:p-5 ${className}`}>
       {title ? (
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -61,6 +62,9 @@ export function SectionCard({
 }
 
 /** A bare bordered container with no header - for content that builds its own heading (e.g. a page section that already has an <h2> above it via primarySectionTitleClass). */
-export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-lg border border-line bg-surface p-4 sm:p-5 ${className}`}>{children}</div>;
+export function Panel({ children, className = "", flush = false }: { children: ReactNode; className?: string; flush?: boolean }) {
+  // `flush` drops the inner padding for edge-to-edge row lists. It used to be
+  // requested with className="p-0", which only beat the base padding below
+  // `sm` - sm:p-5 still applied on desktop, insetting every row list.
+  return <div className={`${cardClass} ${flush ? "" : "p-4 sm:p-5"} ${className}`}>{children}</div>;
 }

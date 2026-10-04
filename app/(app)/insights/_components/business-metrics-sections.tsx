@@ -15,6 +15,7 @@ import type { RevenueAttribution } from "@/lib/bi/revenue-attribution";
 import { withCollected, type CashAttribution } from "@/lib/bi/cash-attribution";
 import type { BiAppointmentMetrics } from "@/lib/bi/types";
 import { metaClass } from "@/lib/ui/typography";
+import { cardClass } from "@/lib/ui/surface";
 
 /**
  * Analytics' business-performance panels - each reads
@@ -33,8 +34,8 @@ import { metaClass } from "@/lib/ui/typography";
 const count = (n: number, singular: string, plural: string) => `${n} ${n === 1 ? singular : plural}`;
 
 /** A previous-period comparison as a metric detail, colored by direction - or the fallback when there is no comparison. */
-function compared(comparison: PeriodComparison | UnavailableComparison, fallback?: string | null): Pick<Metric, "detail" | "tone"> {
-  const badge = formatComparisonBadge(comparison);
+function compared(comparison: PeriodComparison | UnavailableComparison, fallback?: string | null, formatChange?: (value: number) => string): Pick<Metric, "detail" | "tone"> {
+  const badge = formatComparisonBadge(comparison, formatChange);
   if (!badge) return { detail: fallback ?? null };
   return { detail: badge, tone: comparison.change != null && comparison.change > 0 ? "positive" : comparison.change != null && comparison.change < 0 ? "negative" : undefined };
 }
@@ -78,8 +79,8 @@ export function RevenuePaymentsPanel({ snapshot }: { snapshot: BusinessMetricsSn
     <Panel id="revenue" title="Revenue & payments" scope={scope}>
       <PrimaryMetrics
         metrics={[
-          { key: "collected", label: "Collected", value: formatMoney(billingMetrics.collectedValue), ...compared(comparisons.collectedValue, `${count(billingMetrics.paymentsReceived, "payment", "payments")} received`) },
-          { key: "invoiced", label: "Invoiced", value: formatMoney(billingMetrics.invoicedValue), ...compared(comparisons.invoicedValue, `${count(billingMetrics.invoicesIssued, "invoice", "invoices")} issued`) },
+          { key: "collected", label: "Collected", value: formatMoney(billingMetrics.collectedValue), ...compared(comparisons.collectedValue, `${count(billingMetrics.paymentsReceived, "payment", "payments")} received`, formatMoney) },
+          { key: "invoiced", label: "Invoiced", value: formatMoney(billingMetrics.invoicedValue), ...compared(comparisons.invoicedValue, `${count(billingMetrics.invoicesIssued, "invoice", "invoices")} issued`, formatMoney) },
           { key: "outstanding", label: "Outstanding", value: formatMoney(billingMetrics.outstandingValue), detail: `${count(billingMetrics.outstandingInvoices, "open invoice", "open invoices")} · as of today` },
           {
             key: "overdue",
@@ -662,7 +663,7 @@ const DEFINITIONS: { term: string; definition: string }[] = [
 export function CalculationsPanel({ snapshot }: { snapshot: BusinessMetricsSnapshot }) {
   const dataNotes = ownerDataNotes(snapshot);
   return (
-    <details className="group rounded-lg border border-line bg-surface">
+    <details className={`group ${cardClass}`}>
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-ink-2 hover:text-ink sm:px-5 [&::-webkit-details-marker]:hidden">
         How these numbers are calculated
         <span className="text-xs text-ink-3 group-open:hidden">Show</span>

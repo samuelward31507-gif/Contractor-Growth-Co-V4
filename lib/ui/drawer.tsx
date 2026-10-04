@@ -89,7 +89,7 @@ export function Drawer({
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className={`relative flex h-full w-full ${widthClassName} flex-col overflow-y-auto border-l border-line bg-surface shadow-popover outline-none transition-transform duration-200 ease-out ${entered ? "translate-x-0" : "translate-x-full"}`}
+        className={`relative flex h-full w-full ${widthClassName} flex-col text-left overflow-y-auto border-l border-line bg-surface shadow-popover outline-none transition-transform duration-200 ease-out ${entered ? "translate-x-0" : "translate-x-full"}`}
       >
         <button
           type="button"

@@ -80,14 +80,15 @@ export function ConversationsWorkspace({
         </div>
       </div>
 
-      <div className={`min-h-0 flex-1 border-t border-line ${activeId ? "" : "mt-6"}`}>
+      {/* Theme upgrade: on desktop the list + thread sit in one white panel, anchored like a mail client, instead of floating on the canvas. */}
+      <div className={`min-h-0 flex-1 border-t border-line lg:overflow-hidden lg:rounded-t-lg lg:border-x lg:bg-surface lg:shadow-card ${activeId ? "" : "mt-6"}`}>
         <div className="flex h-full min-h-0">
           <div
             className={`min-h-0 flex-col overflow-hidden border-r border-line lg:flex lg:w-[340px] lg:shrink-0 ${
               activeId ? "hidden" : "flex w-full"
             }`}
           >
-            <div className="shrink-0 py-4">
+            <div className="shrink-0 py-4 lg:px-4">
               <ConversationsToolbar
                 query={query}
                 onQueryChange={setQuery}

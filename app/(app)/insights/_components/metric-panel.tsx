@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { kpiDescriptionClass, kpiLabelClass, kpiValueClass, metaClass } from "@/lib/ui/typography";
+import { cardClass } from "@/lib/ui/surface";
 
 /**
  * Analytics' one visual system: every category is a bordered panel with a
@@ -37,7 +38,7 @@ function isTextValue(value: string): boolean {
 
 export function Panel({ id, title, scope, children }: { id: string; title: string; scope?: ReactNode; children: ReactNode }) {
   return (
-    <section aria-labelledby={id} className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface">
+    <section aria-labelledby={id} className={`min-w-0 overflow-hidden ${cardClass}`}>
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3.5 sm:px-5">
         <h2 id={id} className="text-[15px] font-semibold text-ink">
           {title}

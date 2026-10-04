@@ -38,6 +38,25 @@ function buildActions(navGroups: NavGroup[]): CommandAction[] {
   ];
 }
 
+/** Theme upgrade: the visible way into the palette - the top bar's trigger dispatches this, so Cmd/Ctrl+K is no longer the only door. */
+const OPEN_EVENT = "trackpr:open-command-menu";
+
+export function CommandMenuTrigger() {
+  return (
+    <button
+      type="button"
+      onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))}
+      aria-label="Search or jump to"
+      aria-keyshortcuts="Meta+K Control+K"
+      className="flex h-11 w-11 items-center justify-center gap-2 rounded-md text-ink-3 transition-colors duration-150 hover:bg-hover hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:h-8 sm:w-64 sm:justify-start sm:border sm:border-line sm:bg-surface sm:px-2.5 sm:shadow-control"
+    >
+      <Search className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+      <span className="hidden flex-1 text-left text-[13px] sm:inline">Search or jump to…</span>
+      <kbd className="hidden shrink-0 rounded-[4px] border border-line bg-canvas px-1.5 py-px font-sans text-[10.5px] font-medium text-ink-3 sm:inline">⌘K</kbd>
+    </button>
+  );
+}
+
 export function CommandMenu({ navGroups }: { navGroups: NavGroup[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -65,8 +84,17 @@ export function CommandMenu({ navGroups }: { navGroups: NavGroup[] }) {
         });
       }
     }
+    function handleOpenRequest() {
+      setQuery("");
+      setActiveIndex(0);
+      setOpen(true);
+    }
     document.addEventListener("keydown", handleGlobalKeyDown);
-    return () => document.removeEventListener("keydown", handleGlobalKeyDown);
+    window.addEventListener(OPEN_EVENT, handleOpenRequest);
+    return () => {
+      document.removeEventListener("keydown", handleGlobalKeyDown);
+      window.removeEventListener(OPEN_EVENT, handleOpenRequest);
+    };
   }, []);
 
   useEffect(() => {
@@ -111,8 +139,8 @@ export function CommandMenu({ navGroups }: { navGroups: NavGroup[] }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
-      <div aria-hidden className="absolute inset-0 bg-ink/30" onClick={() => setOpen(false)} />
+    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[15vh]">
+      <div aria-hidden className="absolute inset-0 bg-ink/25" onClick={() => setOpen(false)} />
       <div
         role="dialog"
         aria-modal="true"
@@ -130,7 +158,7 @@ export function CommandMenu({ navGroups }: { navGroups: NavGroup[] }) {
             aria-label="Command menu search"
             className="w-full bg-transparent text-sm text-ink placeholder:text-ink-4 focus:outline-none"
           />
-          <kbd className="shrink-0 rounded-[4px] border border-line px-1.5 py-0.5 text-[10px] font-medium text-ink-3">Esc</kbd>
+          <kbd className="shrink-0 rounded-[4px] border border-line bg-canvas px-1.5 py-px font-sans text-[10.5px] font-medium text-ink-3">Esc</kbd>
         </div>
         <ul role="listbox" className="max-h-80 overflow-y-auto py-2">
           {filtered.length === 0 ? (
@@ -146,7 +174,7 @@ export function CommandMenu({ navGroups }: { navGroups: NavGroup[] }) {
                     aria-selected={index === activeIndex}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => runAction(action)}
-                    className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors ${
+                    className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors duration-100 ${
                       index === activeIndex ? "bg-selected text-ink" : "text-ink-2"
                     }`}
                   >

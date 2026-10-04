@@ -3,6 +3,7 @@ import { Table, TableHeadCell, TableBody, TableRow, TableCell } from "@/lib/ui/t
 import { surfaceClass } from "@/lib/ui/surface";
 import type { MoneyEntry } from "@/lib/money/snapshot";
 import type { StatusTone } from "@/lib/ui/status";
+import { cardClass } from "@/lib/ui/surface";
 
 /** Nav-restructure pass: re-exported from the shared snapshot type (now also
  * consumed by Dashboard's own compact snapshot) rather than defined here -
@@ -43,7 +44,7 @@ export function MoneyEntriesTable({ entries, emptyMessage }: { entries: MoneyTab
   }
 
   return (
-    <div className="mt-3 overflow-hidden rounded-lg border border-line bg-surface">
+    <div className={`mt-3 overflow-hidden ${cardClass}`}>
       <Table columns={COLUMNS} className="px-3 pt-3">
         <TableHeadCell>Customer</TableHeadCell>
         <TableHeadCell align="right">Amount</TableHeadCell>

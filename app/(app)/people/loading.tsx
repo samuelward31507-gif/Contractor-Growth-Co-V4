@@ -1,4 +1,5 @@
 import { Bone, SkeletonPage, SkeletonPageHeader, SkeletonRows } from "@/lib/ui/skeleton";
+import { cardClass } from "@/lib/ui/surface";
 
 /**
  * Performance Pass A: People's loading state - shown the instant a
@@ -10,7 +11,7 @@ export default function PeopleLoading() {
   return (
     <SkeletonPage width="content">
       <SkeletonPageHeader action />
-      <div className="rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <div className={`${cardClass} p-4 sm:p-5`}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Bone className="h-9 w-full rounded-lg sm:max-w-sm" />
           <Bone className="h-9 w-full rounded-lg sm:w-40" />

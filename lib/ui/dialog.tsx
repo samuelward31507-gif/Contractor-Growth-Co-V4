@@ -124,7 +124,7 @@ export function Dialog({
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className={`relative w-full max-w-sm rounded-lg border border-line bg-surface p-6 shadow-popover outline-none transition-all duration-[120ms] ease-out ${
+        className={`relative w-full max-w-sm rounded-lg border border-line bg-surface p-6 text-left shadow-popover outline-none transition-all duration-[120ms] ease-out ${
           entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
         } ${className}`}
       >

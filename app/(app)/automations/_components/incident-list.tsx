@@ -71,7 +71,7 @@ export function IncidentList({ incidents }: { incidents: AutomationIncident[] })
       {incidents.length === 0 ? (
         <EmptyState icon={CheckCircle2} title="All clear" description="No open issues. Your automations are running normally." />
       ) : (
-        <Panel className="overflow-hidden p-0">
+        <Panel flush className="overflow-hidden">
           <ul className="divide-y divide-line">
             {incidents.map((incident) => {
               const severity = SEVERITY[incident.severity];

@@ -19,6 +19,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { numericDisplayClass } from "./typography";
+import { cardClass } from "./surface";
 
 export type HeroStatTone = "danger" | "warning" | "success" | "info" | "neutral";
 
@@ -73,7 +74,7 @@ export function HeroStatRow({
           one row of N on sm+ - a fixed N-wide single row was clipping longer
           labels ("Completed value", "Total estimates") at 390px. */}
       <div
-        className={`grid grid-cols-2 divide-x divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface sm:divide-y-0 ${SECONDARY_SM_COLS[secondary.length] ?? "sm:grid-cols-4"}`}
+        className={`grid grid-cols-2 divide-x divide-y divide-line overflow-hidden ${cardClass} sm:divide-y-0 ${SECONDARY_SM_COLS[secondary.length] ?? "sm:grid-cols-4"}`}
       >
         {secondary.map((stat) => (
           <div key={stat.label} className="flex min-w-0 flex-col justify-center gap-1 px-4 py-4 sm:px-5">

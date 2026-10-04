@@ -21,13 +21,13 @@ import type { ReactNode } from "react";
 export function Table({ columns, children, className = "" }: { columns: string; children: ReactNode; className?: string }) {
   return (
     <div className={`hidden lg:block ${className}`}>
-      <div className={`grid ${columns} gap-6 border-b border-line px-2 pb-2.5`}>{children}</div>
+      <div className={`grid ${columns} gap-6 border-b border-line pb-2.5 pl-3.5 pr-2`}>{children}</div>
     </div>
   );
 }
 
 export function TableHeadCell({ children, align = "left" }: { children?: ReactNode; align?: "left" | "right" }) {
-  return <span className={`text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3 ${align === "right" ? "text-right" : ""}`}>{children}</span>;
+  return <span className={`text-xs font-medium text-ink-3 ${align === "right" ? "text-right" : ""}`}>{children}</span>;
 }
 
 /** The scrollable/divided row list beneath a Table's header - a separate component (not nested inside Table) so a page can render its own header once and a filtered/empty row list independently. */

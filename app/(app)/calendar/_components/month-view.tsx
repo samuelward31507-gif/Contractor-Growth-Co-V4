@@ -10,6 +10,7 @@ import { APPOINTMENT_STATUS_TONE } from "../../appointments/_components/status";
 import { RAIL_TONE_CLASS } from "@/lib/ui/badge";
 import { buildCalendarHref, formatDateOnly, type DateParts } from "../_lib/date-range";
 import { AppointmentDetailDialog } from "./appointment-detail-dialog";
+import { cardClass } from "@/lib/ui/surface";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -60,10 +61,10 @@ export function MonthView({
   const MAX_CHIPS = 3;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+    <div className={`overflow-hidden ${cardClass}`}>
       <div className="grid grid-cols-7 border-b border-line bg-canvas">
         {WEEKDAY_LABELS.map((label) => (
-          <div key={label} className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-ink-3">
+          <div key={label} className="px-2 py-2 text-center text-xs font-medium text-ink-3">
             {label}
           </div>
         ))}

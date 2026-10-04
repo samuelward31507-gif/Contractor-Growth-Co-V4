@@ -1,4 +1,5 @@
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+import { cardClass } from "@/lib/ui/surface";
 
 /**
  * Reserves the same header + trigger/how-it-works + recent-executions
@@ -18,17 +19,17 @@ export default function AutomationDetailLoading() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="rounded-lg border border-line bg-surface p-4 sm:p-5 lg:col-span-1">
+        <div className={`${cardClass} p-4 sm:p-5 lg:col-span-1`}>
           <div className="h-3 w-16 animate-pulse rounded bg-inset" />
           <div className="mt-3 h-4 w-full animate-pulse rounded bg-inset" />
         </div>
-        <div className="rounded-lg border border-line bg-surface p-4 sm:p-5 lg:col-span-2">
+        <div className={`${cardClass} p-4 sm:p-5 lg:col-span-2`}>
           <div className="h-3 w-24 animate-pulse rounded bg-inset" />
           <div className="mt-3 h-32 animate-pulse rounded bg-inset" />
         </div>
       </div>
 
-      <div className="rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <div className={`${cardClass} p-4 sm:p-5`}>
         <div className="h-3 w-32 animate-pulse rounded bg-inset" />
         <div className="mt-3 h-40 animate-pulse rounded-lg bg-inset" />
       </div>

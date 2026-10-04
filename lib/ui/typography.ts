@@ -38,7 +38,7 @@ export const heroClass = "font-display text-[42px] font-bold tracking-[-0.026em]
 // friendly-marketing next to dense operational data; the product sans at a
 // modest size reads as a calm, confident tool - the Linear/Stripe register.
 // Rubik stays on heroClass for marketing/demo surfaces only.
-export const pageTitleClass = "text-[22px] font-semibold leading-tight tracking-[-0.016em] text-ink";
+export const pageTitleClass = "text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink";
 export const pageDescriptionClass = "text-sm text-ink-3";
 
 /**
@@ -114,7 +114,7 @@ export const kpiLabelClass = "text-[12.5px] font-medium text-ink-3";
  * lines visually collide at this font size, `leading-[1.15]` keeps single
  * numbers just as tight while giving wrapped text room to breathe.
  */
-export const kpiValueClass = "mt-2 text-[26px] leading-[1.15] font-semibold tracking-[-0.02em] tabular-nums text-ink break-words";
+export const kpiValueClass = "mt-2 text-[22px] sm:text-[28px] leading-[1.1] font-semibold tracking-[-0.02em] tabular-nums text-ink break-words";
 export const kpiDescriptionClass = "mt-1.5 text-xs text-ink-3";
 
 /**

@@ -95,7 +95,7 @@ export function ReferralsSection({ rows, failed }: { rows: ReferralRow[]; failed
         ) : rows.length === 0 ? (
           <EmptyState icon={Share2} title="No referral activity yet." description="Referral requests will appear here once Trackpr sends one after a completed job." />
         ) : (
-          <Panel className="overflow-hidden p-0">
+          <Panel flush className="overflow-hidden">
             <ul className="divide-y divide-line">
               {rows.map((row) => (
                 <ReferralRowItem key={row.request.id} row={row} />

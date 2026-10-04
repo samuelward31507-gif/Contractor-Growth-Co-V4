@@ -1,4 +1,5 @@
 import { Bone, SkeletonPage, SkeletonPageHeader } from "@/lib/ui/skeleton";
+import { cardClass } from "@/lib/ui/surface";
 
 /**
  * Performance Pass A: Insights' loading state - shown the instant a
@@ -21,7 +22,7 @@ export default function InsightsLoading() {
       </div>
       <div className="flex flex-col gap-6">
         {Array.from({ length: 3 }).map((_, panel) => (
-          <div key={panel} className="overflow-hidden rounded-lg border border-line bg-surface">
+          <div key={panel} className={`overflow-hidden ${cardClass}`}>
             <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
               <Bone className="h-4 w-36" />
               <Bone className="h-3 w-20" />

@@ -421,7 +421,7 @@ export function DemoAutomationsView() {
 
       <div>
         <p className={sectionLabelClass}>Active automations</p>
-        <Panel className="mt-3 overflow-hidden p-0">
+        <Panel flush className="mt-3 overflow-hidden">
           <ul className="divide-y divide-line">
             {DEMO_AUTOMATIONS.map((automation) => (
               <li key={automation.id} className="flex items-center gap-3.5 px-4 py-4">
