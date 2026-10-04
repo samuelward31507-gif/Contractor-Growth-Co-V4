@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ArrowRight, ChevronRight, Star, Workflow, Wrench } from "lucide-react";
 import type { OwnerDailyBriefing } from "@/lib/briefing/queries";
 import type { PipelineStage, TodayFigure } from "./dashboard-model";
+import { cardClass } from "@/lib/ui/surface";
 
 /**
  * Today's sections. Deliberately few surfaces - the attention list, the
@@ -57,7 +58,7 @@ export function TodayPanel({ figures, briefing, handled, handling }: { figures: 
   ];
 
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+    <div className={`overflow-hidden ${cardClass}`}>
       <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-3">
         {figures.map((figure) => (
           <Link

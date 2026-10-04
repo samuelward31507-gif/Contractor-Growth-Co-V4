@@ -78,7 +78,7 @@ export function AutomationList({ summaries, healthByAutomationId }: { summaries:
             <p className="mb-2 px-1 text-xs font-medium text-ink-3">
               {group.label} <span className="text-ink-4">· {items.length}</span>
             </p>
-            <Panel className="overflow-hidden p-0">
+            <Panel flush className="overflow-hidden">
               <ul className="divide-y divide-line">
                 {items.map((summary) => (
                   <AutomationRow

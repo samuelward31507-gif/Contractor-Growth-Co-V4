@@ -10,6 +10,8 @@ import { announceNavClick, useNavLocation } from "./use-nav-location";
 import { logout } from "../actions";
 
 const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40";
+/** Theme upgrade: a short pine bar on the active tab's top edge, so "where am I" never rests on icon tint alone. */
+const ACTIVE_TAB_INDICATOR = "absolute left-1/2 top-0 h-0.5 w-8 -translate-x-1/2 rounded-b-full bg-accent";
 
 /**
  * A bottom tab: either one nav destination (`href`) or a whole group
@@ -103,10 +105,11 @@ export function MobileTabBar({
               href={tab.href}
               onClick={announceNavClick}
               aria-current={active ? "page" : undefined}
-              className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors ${FOCUS_RING} ${
+              className={`relative flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors ${FOCUS_RING} ${
                 active ? "text-ink" : "text-ink-3"
               }`}
             >
+              {active ? <span aria-hidden className={ACTIVE_TAB_INDICATOR} /> : null}
               <Icon className={`h-5 w-5 shrink-0 ${active ? "text-accent" : ""}`} strokeWidth={1.75} aria-hidden />
               <span>{tab.label}</span>
             </Link>
@@ -120,10 +123,11 @@ export function MobileTabBar({
           aria-haspopup="dialog"
           aria-expanded={menuOpen}
           aria-current={menuActive ? "page" : undefined}
-          className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors ${FOCUS_RING} ${
+          className={`relative flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors ${FOCUS_RING} ${
             menuActive ? "text-ink" : "text-ink-3"
           }`}
         >
+          {menuActive ? <span aria-hidden className={ACTIVE_TAB_INDICATOR} /> : null}
           <Menu className={`h-5 w-5 shrink-0 ${menuActive ? "text-accent" : ""}`} strokeWidth={1.75} aria-hidden />
           <span>More</span>
         </button>
@@ -147,7 +151,8 @@ export function MobileTabBar({
             menuOpen ? "translate-y-0" : "translate-y-full"
           }`}
         >
-          <div className="flex h-14 shrink-0 items-center justify-between border-b border-line pl-4 pr-1.5">
+          <span aria-hidden className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-line-strong" />
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-line pl-4 pr-1.5">
             <p className="text-sm font-semibold text-ink">More</p>
             <button
               ref={closeButtonRef}
@@ -200,7 +205,7 @@ export function MobileTabBar({
 function SheetGroup({ label, items, activeItem, onNavigate }: { label: string | null; items: NavItem[]; activeItem: NavItem | null; onNavigate: () => void }) {
   return (
     <div className="pt-3" role="group" aria-label={label ?? "Home"}>
-      {label ? <p className="mb-1 px-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3">{label}</p> : null}
+      {label ? <p className="mb-1 px-2.5 text-xs font-medium text-ink-3">{label}</p> : null}
       <div className="space-y-px">
         {items.map((item) => (
           <NavLink key={item.href} item={item} active={item === activeItem} touch onNavigate={onNavigate} />

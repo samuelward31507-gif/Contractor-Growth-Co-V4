@@ -2,6 +2,7 @@ import { History } from "lucide-react";
 import { ExecutionRow } from "./execution-row";
 import { EmptyState } from "@/lib/ui/empty-state";
 import type { AutomationExecutionRow } from "@/lib/automation/queries";
+import { cardClass } from "@/lib/ui/surface";
 
 /**
  * Operational execution log - status, trigger source, timing, attempt, and
@@ -28,7 +29,7 @@ export function RecentExecutions({ executions, retrySupported }: { executions: A
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+    <div className={`overflow-hidden ${cardClass}`}>
       <ul className="divide-y divide-line">
         {executions.map((execution) => (
           <ExecutionRow key={execution.id} execution={execution} retrySupported={retrySupported} />

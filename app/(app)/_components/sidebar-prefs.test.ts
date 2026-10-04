@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defaultOpenGroups, parseStoredGroups, toggleGroupState, SIDEBAR_RAIL_STORAGE_KEY, SIDEBAR_GROUPS_STORAGE_KEY } from "./sidebar-prefs";
+import { defaultOpenGroups, isRailToggleKey, parseRailCookie, parseStoredGroups, toggleGroupState, SIDEBAR_RAIL_STORAGE_KEY, SIDEBAR_GROUPS_STORAGE_KEY } from "./sidebar-prefs";
 
 test("1. defaultOpenGroups marks every given label open, matching the sidebar's original non-collapsible behavior", () => {
   const result = defaultOpenGroups(["Work", "Growth", "Intelligence", "System"]);
@@ -58,4 +58,21 @@ test("11. the two storage keys are distinct, non-empty, and namespaced under tra
   assert.notEqual(SIDEBAR_RAIL_STORAGE_KEY, SIDEBAR_GROUPS_STORAGE_KEY);
   assert.match(SIDEBAR_RAIL_STORAGE_KEY, /^trackpr:/);
   assert.match(SIDEBAR_GROUPS_STORAGE_KEY, /^trackpr:/);
+});
+
+test("theme upgrade: the rail cookie parses to true/false, and anything else means 'never saved' (null)", () => {
+  assert.equal(parseRailCookie("true"), true);
+  assert.equal(parseRailCookie("false"), false);
+  assert.equal(parseRailCookie(undefined), null);
+  assert.equal(parseRailCookie("yes"), null);
+});
+
+test("theme upgrade: '[' toggles the rail only outside text fields and without a modifier", () => {
+  const key = (overrides: Partial<{ key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean }> = {}) => ({ key: "[", metaKey: false, ctrlKey: false, altKey: false, ...overrides });
+  assert.equal(isRailToggleKey(key(), false), true);
+  assert.equal(isRailToggleKey(key(), true), false, "typing '[' in a field never collapses the sidebar");
+  assert.equal(isRailToggleKey(key({ metaKey: true }), false), false);
+  assert.equal(isRailToggleKey(key({ ctrlKey: true }), false), false);
+  assert.equal(isRailToggleKey(key({ altKey: true }), false), false);
+  assert.equal(isRailToggleKey(key({ key: "]" }), false), false);
 });

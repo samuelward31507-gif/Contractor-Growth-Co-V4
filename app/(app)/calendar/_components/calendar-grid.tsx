@@ -15,6 +15,7 @@ import { HOUR_HEIGHT_PX, localMinutesSinceMidnight, computeBlockPosition, type G
 import { AppointmentDialog } from "../../appointments/_components/appointment-dialog";
 import { AppointmentDetailDialog } from "./appointment-detail-dialog";
 import { BlockedTimeDialog } from "./blocked-time-dialog";
+import { cardClass } from "@/lib/ui/surface";
 
 function dayKey(iso: string, timeZone?: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(iso));
@@ -94,7 +95,7 @@ export function CalendarGrid({
   }
 
   return (
-    <div className="flex overflow-x-auto rounded-lg border border-line bg-surface">
+    <div className={`flex overflow-x-auto ${cardClass}`}>
       {/* Hour gutter */}
       <div className="sticky left-0 z-10 w-16 shrink-0 border-r border-line bg-surface">
         <div className="h-10 border-b border-line" />
@@ -163,7 +164,7 @@ export function CalendarGrid({
                     type="button"
                     onClick={() => setOpenBlockedTime(block)}
                     style={{ top: position.topPx, height: position.heightPx }}
-                    className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,theme(colors.slate.200),theme(colors.slate.200)_6px,theme(colors.slate.100)_6px,theme(colors.slate.100)_12px)] px-2 py-1 text-left text-xs font-medium text-ink-2 shadow-sm ring-1 ring-inset ring-line-strong hover:ring-ink-4 focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent"
+                    className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,var(--selected),var(--selected)_6px,var(--inset)_6px,var(--inset)_12px)] px-2 py-1 text-left text-xs font-medium text-ink-2 shadow-control ring-1 ring-inset ring-line-strong hover:ring-ink-4 focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     {block.reason || "Blocked"}
                   </button>
@@ -181,7 +182,7 @@ export function CalendarGrid({
                     type="button"
                     onClick={() => setOpenAppointment(appointment)}
                     style={{ top: position.topPx, height: position.heightPx }}
-                    className={`absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-2 bg-surface px-2 py-1 text-left text-xs shadow-sm ring-1 ring-inset ring-line transition-shadow hover:shadow-md focus:outline-none focus-visible:z-30 focus-visible:shadow-md focus-visible:ring-2 focus-visible:ring-accent ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
+                    className={`absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-2 bg-surface px-2 py-1 text-left text-xs shadow-card ring-1 ring-inset ring-line transition-shadow hover:shadow-popover focus:outline-none focus-visible:z-30 focus-visible:shadow-popover focus-visible:ring-2 focus-visible:ring-accent ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
                   >
                     <span className="block truncate font-semibold text-ink">
                       {formatAppointmentTime(appointment.start_at, timeZone)} · {name}

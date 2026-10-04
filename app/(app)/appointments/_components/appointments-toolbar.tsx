@@ -6,6 +6,7 @@ import { hasSearchChanged } from "@/lib/ui/search-sync";
 import { Search } from "lucide-react";
 import { inputClass } from "@/lib/ui/form";
 import { APPOINTMENT_STATUSES, type AppointmentView } from "@/lib/appointments/queries";
+import { segmentedItemClass, segmentedTrackClass } from "@/lib/ui/segmented";
 
 const VIEWS: { value: AppointmentView; label: string }[] = [
   { value: "upcoming", label: "Upcoming" },
@@ -85,18 +86,14 @@ export function AppointmentsToolbar({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="inline-flex gap-0.5 rounded-md bg-inset p-0.5">
+      <div className={segmentedTrackClass}>
         {VIEWS.map((item) => (
           <button
             key={item.value}
             type="button"
             aria-pressed={view === item.value}
             onClick={() => handleViewChange(item.value)}
-            className={`inline-flex min-h-11 flex-1 items-center justify-center rounded-[5px] px-3 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:min-h-7 sm:flex-none ${
-              view === item.value
-                ? "bg-surface text-ink shadow-[0_1px_2px_rgba(23,25,26,0.08)]"
-                : "text-ink-3 hover:text-ink"
-            }`}
+            className={`${segmentedItemClass(view === item.value)} flex-1 justify-center sm:flex-none`}
           >
             <span className="inline-flex items-center gap-1.5">
               {item.label}

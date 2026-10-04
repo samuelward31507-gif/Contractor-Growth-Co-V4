@@ -106,7 +106,7 @@ export default async function AutomationsPage() {
             : "Activity reflects the last 30 days. No automated health check has run yet."}
         </p>
         {healthCheckIsStale ? (
-          <Badge tone="warning">Automated health checks haven&apos;t run recently</Badge>
+          <Badge tone="warning" className="self-start">Automated health checks haven&apos;t run recently</Badge>
         ) : null}
       </div>
 

@@ -246,7 +246,9 @@ test("no AI branding in section headings - the business, not the technology", ()
 });
 
 test("mobile: rows, tabs, section links and today/pipeline cells keep a 44px touch target below sm", () => {
-  assert.match(read("app/(app)/today/_components/today-view-tabs.tsx"), /min-h-11[^"]*sm:min-h-7/);
+  // Theme upgrade: the segmented control's classes live once in lib/ui/segmented.ts.
+  assert.match(read("app/(app)/today/_components/today-view-tabs.tsx"), /segmentedItemClass\(active === item\.value\)/);
+  assert.match(read("lib/ui/segmented.ts"), /min-h-11[^"]*sm:min-h-7/);
   assert.match(SECTIONS, /const LINK_CLASS =\s*"inline-flex min-h-11/);
   assert.match(SECTIONS, /flex min-h-11 items-center justify-between gap-3 bg-surface px-4 py-3/, "today figures");
   assert.match(SECTIONS, /flex min-h-11 items-center justify-between gap-3 px-4 py-3 transition/, "pipeline stages");

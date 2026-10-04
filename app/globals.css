@@ -35,8 +35,13 @@
   --selected: #ebeae6;
   /* Hairline border/divider (cards, dividers, table rows) and the stronger
      control border (inputs, secondary buttons) - two steps, no more. */
-  --line: #e6e4df;
-  --line-strong: #d3d0c9;
+  /* Theme upgrade: hairlines a half-step lighter, so structure reads
+     through spacing and the card lift below rather than through borders. */
+  --line: #e9e8e4;
+  --line-strong: #d5d3cd;
+  /* The desktop sidebar's own plane - a whisper off the white surface, so
+     the navigation reads as chrome and the content as the page. */
+  --sidebar: #fbfbfa;
 
   /* Phase 0 (foundations pass): the new 3-step text scale lib/ui/
      typography.ts's rungs are built on. Distinct from --foreground (which
@@ -54,6 +59,12 @@
   /* Popovers, menus and tooltips are the only surfaces that float, so they
      are the only surfaces with a shadow - soft and short, never a glow. */
   --shadow-popover: 0 1px 2px rgba(23, 25, 26, 0.06), 0 8px 24px -6px rgba(23, 25, 26, 0.14);
+  /* Theme upgrade: the resting lift for cards and panels, and the 1px
+     lift for raised controls (secondary buttons, the selected segment of a
+     segmented control). Both are barely there - a premium "paper on desk"
+     edge, never a floating card. Only popovers float. */
+  --shadow-card: 0 1px 2px rgba(23, 25, 26, 0.04), 0 1px 1px rgba(23, 25, 26, 0.02);
+  --shadow-control: 0 1px 1px rgba(23, 25, 26, 0.05);
 
   /* Trackpr 2.0 redesign: the accent moves from a bright emerald to a
      deeper, more restrained pine green - same role as before (the ~10-15%
@@ -114,7 +125,10 @@
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
   --color-ink-4: var(--ink-4);
+  --color-sidebar: var(--sidebar);
   --shadow-popover: var(--shadow-popover);
+  --shadow-card: var(--shadow-card);
+  --shadow-control: var(--shadow-control);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-foreground: var(--accent-foreground);
@@ -161,6 +175,22 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Theme upgrade: selection in the accent's own muted tint, and quiet,
+   thin scrollbars on the shell's scrolling regions (main, sidebar, sheets)
+   instead of the heavy platform default. */
+::selection {
+  background: var(--accent-muted);
+  color: var(--accent-text);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 /*

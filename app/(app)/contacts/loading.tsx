@@ -1,4 +1,5 @@
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+import { cardClass } from "@/lib/ui/surface";
 
 const ROWS = Array.from({ length: 6 });
 
@@ -14,7 +15,7 @@ export default function ContactsLoading() {
         <div className="h-10 w-36 animate-pulse rounded-lg bg-inset" />
       </div>
 
-      <div className="rounded-lg border border-line bg-surface p-4 sm:p-5">
+      <div className={`${cardClass} p-4 sm:p-5`}>
         <div className="h-10 w-full max-w-sm animate-pulse rounded-lg bg-inset" />
         <div className="mt-5 divide-y divide-line">
           {ROWS.map((_, i) => (

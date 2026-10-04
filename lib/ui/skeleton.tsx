@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "./page";
+import { cardClass } from "./surface";
 
 /**
  * Performance Pass A: the building blocks for route-level loading.tsx
@@ -53,7 +54,7 @@ export function SkeletonPageHeader({ action = false }: { action?: boolean }) {
 /** Mirrors lib/ui/stat-card.tsx: label + icon, value, description. */
 export function SkeletonStatCard() {
   return (
-    <div className="rounded-lg border border-line bg-surface p-5">
+    <div className={`${cardClass} p-5`}>
       <div className="flex items-start justify-between gap-3">
         <Bone className="h-3 w-24" />
         <Bone className="h-7 w-7 rounded-md" />
@@ -67,7 +68,7 @@ export function SkeletonStatCard() {
 /** Rows inside a bordered white card - the shape of every list/table on these pages. */
 export function SkeletonRows({ count = 6, leading = true }: { count?: number; leading?: boolean }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+    <div className={`overflow-hidden ${cardClass}`}>
       <div className="divide-y divide-line">
         {Array.from({ length: count }).map((_, i) => (
           <div key={i} className="flex items-center gap-3 px-4 py-3.5">

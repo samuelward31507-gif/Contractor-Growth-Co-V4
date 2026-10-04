@@ -1,4 +1,5 @@
 import { Bone, SkeletonPage, SkeletonPageHeader } from "@/lib/ui/skeleton";
+import { cardClass } from "@/lib/ui/surface";
 
 /**
  * Performance Pass A: Schedule's loading state - shown the instant a
@@ -24,7 +25,7 @@ export default function ScheduleLoading() {
           <Bone className="h-9 w-36 rounded-lg" />
         </div>
       </div>
-      <div className="overflow-hidden rounded-lg border border-line bg-surface">
+      <div className={`overflow-hidden ${cardClass}`}>
         <div className="grid grid-cols-7 gap-px border-b border-line px-4 py-3">
           {Array.from({ length: 7 }).map((_, i) => (
             <Bone key={i} className="mx-auto h-3 w-12" />

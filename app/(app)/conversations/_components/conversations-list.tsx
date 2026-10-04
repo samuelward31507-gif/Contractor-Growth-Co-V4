@@ -61,7 +61,7 @@ export function ConversationsList({
               aria-current={isActive ? "page" : undefined}
               className={`flex items-start gap-3 px-4 py-3 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ink ${
                 isActive
-                  ? "bg-inset shadow-[inset_2px_0_0_0_#0f172a]"
+                  ? "bg-selected shadow-[inset_2px_0_0_0_var(--accent)]"
                   : awaitingReply
                     ? "bg-info-muted/70 hover:bg-info-muted"
                     : "hover:bg-hover"

@@ -10,6 +10,26 @@
 export const SIDEBAR_RAIL_STORAGE_KEY = "trackpr:sidebar-collapsed";
 export const SIDEBAR_GROUPS_STORAGE_KEY = "trackpr:sidebar-open-groups";
 
+/**
+ * Theme upgrade: the rail preference is mirrored into a cookie so the
+ * server renders the sidebar at the width the visitor left it - no
+ * expanded-then-collapsed flash on every page load. localStorage stays the
+ * fallback for a preference saved before the cookie existed.
+ */
+export const SIDEBAR_RAIL_COOKIE = "trackpr-sidebar-collapsed";
+
+/** The cookie's raw value -> the server's initial rail state; null = never set (fall back to localStorage after mount). */
+export function parseRailCookie(raw: string | undefined): boolean | null {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return null;
+}
+
+/** Keyboard toggle for the rail ("[" - the Linear convention), ignored while typing in a field or with a modifier held. */
+export function isRailToggleKey(event: { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean }, targetIsEditable: boolean): boolean {
+  return event.key === "[" && !event.metaKey && !event.ctrlKey && !event.altKey && !targetIsEditable;
+}
+
 /** All groups default to open - matches the sidebar's original, non-collapsible behavior exactly. */
 export function defaultOpenGroups(groupLabels: string[]): Record<string, boolean> {
   return Object.fromEntries(groupLabels.map((label) => [label, true]));

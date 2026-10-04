@@ -46,7 +46,7 @@ export function DetailHeader({
     // Trackpr 2.0 (step 2G): the header's content sits in the same centered
     // 1280px column as the page body beneath it (the hairline still spans
     // the full width), so the two line up on wide screens.
-    <div className="border-b border-line">
+    <div className="border-b border-line bg-surface">
       <div className={`${PAGE_MAX_WIDTH_CLASS} px-4 py-6 sm:px-6 sm:py-8 lg:px-10`}>
       <Link
         href={backHref}

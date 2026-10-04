@@ -23,7 +23,7 @@ const STATE_BADGE: Record<ScheduledAutomationLivenessState, { label: string; ton
 
 export function ScheduledLivenessList({ liveness }: { liveness: ScheduledAutomationLiveness[] }) {
   return (
-    <Panel className="overflow-hidden p-0">
+    <Panel flush className="overflow-hidden">
       <ul className="divide-y divide-line">
         {liveness.map((item) => {
           const badge = STATE_BADGE[item.state];

@@ -9,16 +9,19 @@
 // here rather than merging the files outright, since the two forms' copy
 // and layout still have nothing else in common.
 
+// Theme upgrade: the same values, now on the design tokens instead of raw
+// slate/red/emerald literals - the ink scale for text and the dark button,
+// the line tokens for borders, the semantic banner families for status.
 export const authInputClass =
-  "w-full rounded-lg border border-slate-300 bg-surface px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm transition-colors focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  "w-full rounded-lg border border-line-strong bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-4 shadow-control transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:cursor-not-allowed disabled:bg-inset disabled:text-ink-3";
 
-export const authLabelClass = "text-sm font-medium text-slate-700";
+export const authLabelClass = "text-sm font-medium text-ink-2";
 
 export const authButtonClass =
-  "inline-flex w-full items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 disabled:cursor-not-allowed disabled:bg-slate-300";
+  "inline-flex w-full items-center justify-center rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-control transition-colors hover:bg-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 disabled:cursor-not-allowed disabled:bg-line-strong";
 
 export const authErrorBannerClass =
-  "flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700";
+  "flex items-start gap-2 rounded-lg border border-danger-border bg-danger-muted px-3.5 py-2.5 text-sm text-danger-text";
 
 export const authSuccessBannerClass =
-  "flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-700";
+  "flex items-start gap-2 rounded-lg border border-accent-border bg-accent-muted px-3.5 py-2.5 text-sm text-accent-text";

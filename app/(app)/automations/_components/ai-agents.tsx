@@ -96,8 +96,8 @@ export function AiAgents({ summaries }: { summaries: AutomationSummary[] }) {
 
   return (
     <div>
-      <p className="mb-2 px-1 text-sm font-semibold text-ink">AI agents</p>
-      <Panel className="overflow-hidden p-0">
+      <p className="mb-2 text-sm font-semibold text-ink">AI agents</p>
+      <Panel flush className="overflow-hidden">
         <ul className="divide-y divide-line">
           {agents.map((agent) => {
             const Icon = agent.icon;

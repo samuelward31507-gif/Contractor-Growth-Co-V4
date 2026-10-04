@@ -11,7 +11,11 @@ import { handleNavClick } from "./use-nav-location";
  * text, an ink-3 icon - with hover as a faint fill. The active row is the
  * one place color appears: a selected fill, full-ink text, and the pine
  * accent on its icon. aria-current marks it for assistive tech.
+ * Theme upgrade: on the desktop sidebar's off-white plane the active row is
+ * a raised white chip (hairline ring + control lift); the touch rows of the
+ * mobile sheet, which sits on white, keep the selected fill.
  */
+const ACTIVE_CHIP = "bg-surface text-ink shadow-control ring-1 ring-line";
 const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
 
 export function NavLink({
@@ -47,7 +51,7 @@ export function NavLink({
             aria-label={item.label}
             {...tipHandlers}
             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-150 ${FOCUS_RING} ${
-              active ? "bg-selected text-accent" : "text-ink-3 hover:bg-hover hover:text-ink"
+              active ? "bg-surface text-accent shadow-control ring-1 ring-line" : "text-ink-3 hover:bg-hover hover:text-ink"
             }`}
           >
             <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
@@ -63,7 +67,7 @@ export function NavLink({
       onClick={handleClick}
       aria-current={active ? "page" : undefined}
       className={`group/nav flex w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors duration-150 ${touch ? "min-h-11 text-sm" : "h-8"} ${FOCUS_RING} ${
-        active ? "bg-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+        active ? (touch ? "bg-selected text-ink" : ACTIVE_CHIP) : "text-ink-2 hover:bg-hover hover:text-ink"
       }`}
     >
       <Icon

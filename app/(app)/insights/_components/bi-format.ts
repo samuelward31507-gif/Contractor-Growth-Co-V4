@@ -36,13 +36,14 @@ export function formatDuration(ms: number | null): string {
   return `${days}d`;
 }
 
-export function formatComparisonBadge(comparison: PeriodComparison | UnavailableComparison): string | null {
+/** `formatChange` presents an absolute change in the metric's own unit (money as money) - theme upgrade; counts stay bare numbers. */
+export function formatComparisonBadge(comparison: PeriodComparison | UnavailableComparison, formatChange: (value: number) => string = String): string | null {
   if (comparison.previous === null) return null;
 
   if (comparison.percentageChange === null) {
     if (comparison.change === null || comparison.change === 0) return null;
-    const sign = comparison.change > 0 ? "+" : "";
-    return `${sign}${comparison.change} vs previous period`;
+    const sign = comparison.change > 0 ? "+" : "-";
+    return `${sign}${formatChange(Math.abs(comparison.change))} vs previous period`;
   }
 
   const rounded = Math.round(comparison.percentageChange);

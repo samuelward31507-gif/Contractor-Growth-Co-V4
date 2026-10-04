@@ -38,7 +38,7 @@ export function AiActivityFeed({ executions }: { executions: AutomationExecution
   }
 
   return (
-    <Panel className="overflow-hidden p-0">
+    <Panel flush className="overflow-hidden">
       <ul className="divide-y divide-line">
         {executions.map((execution) => {
           const definition = getAutomationForWorkflowName(execution.workflowName);

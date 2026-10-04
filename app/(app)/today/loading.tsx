@@ -1,4 +1,5 @@
 import { Bone, SkeletonPage } from "@/lib/ui/skeleton";
+import { cardClass } from "@/lib/ui/surface";
 
 /**
  * Performance Pass A: the Dashboard's loading state, shown the instant a
@@ -23,7 +24,7 @@ export default function TodayLoading() {
           <Bone className="h-4 w-40" />
           <Bone className="h-7 w-36 rounded-md" />
         </div>
-        <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
+        <div className={`divide-y divide-line overflow-hidden ${cardClass}`}>
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="flex items-center gap-6 px-5 py-4">
               <div className="min-w-0 flex-1">
@@ -39,7 +40,7 @@ export default function TodayLoading() {
 
       <div>
         <Bone className="mb-3 h-4 w-16" />
-        <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <div className={`overflow-hidden ${cardClass}`}>
           <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="bg-surface px-5 py-4">
