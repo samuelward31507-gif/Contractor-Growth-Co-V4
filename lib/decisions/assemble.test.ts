@@ -32,6 +32,8 @@ const EXPECTED_EXCEPTIONS: Row[] = [
   ["calendar_disconnected-/settings", "calendar_sync_failed", "attention", "urgent", "Calendar disconnected", "Google Calendar sync failed", "/settings", undefined, undefined, "Token expired", null, "Review", "/settings"],
 ];
 
+// Phase 2-11 (G5): the two uncontacted rows (o5, o4) now read "Missed follow-up · First contact" - every
+// uncontacted lead is a missed first contact by definition. Nothing else in this frozen table changed.
 const EXPECTED_ATTENTION: Row[] = [
   // needs_reply: signals only, all at value -0.5 - equal, so attention-list order holds.
   ["signal:awaiting_reply:0", "customer_awaiting_reply", "attention", "urgent", "Waiting on a reply", "Ann Lee", "/conversations/a", undefined, undefined, "Waiting for a reply 2 hours ago Reply to their message.", null, "Open conversation", "/conversations/a"],
@@ -45,8 +47,8 @@ const EXPECTED_ATTENTION: Row[] = [
   // active_pursuit: known first, then the two unknowns oldest first; "monitor" and "call" add no phrase; an invalid phone still shows (pre-2-2 behavior).
   // Phase 2-4c (K4, the one approved change to this frozen table): a human-owned pending estimate's action is follow_up_estimate, so its sentence gains the existing phrase.
   ["opportunity:o6", "estimate_awaiting_decision", "attention", "soon", "Estimate sent, awaiting reply", "Person o6", "/people/c6", "$5,000", "3 days ago", 'Estimate "Deck" sent - awaiting the customer\'s decision. Follow up on the estimate.', null, "View estimate", "/estimates/est-9"],
-  ["opportunity:o5", "lead_not_contacted", "attention", "soon", "Never contacted", "Person o5", "/people/c5", undefined, "5 days ago", "New lead from the website hasn't been contacted. Value not yet entered Flagged 5 days ago - still unresolved. Follow up.", "555-0105", "View lead", "/people/c5"],
-  ["opportunity:o4", "lead_not_contacted", "attention", "soon", "Never contacted", "Person o4", "/people/c4", undefined, "2 days ago", "New lead from the website hasn't been contacted. Value not yet entered", "+15125550104", "View lead", "/people/c4"],
+  ["opportunity:o5", "lead_not_contacted", "attention", "soon", "Missed follow-up · First contact", "Person o5", "/people/c5", undefined, "5 days ago", "New lead from the website hasn't been contacted. Value not yet entered Flagged 5 days ago - still unresolved. Follow up.", "555-0105", "View lead", "/people/c5"],
+  ["opportunity:o4", "lead_not_contacted", "attention", "soon", "Missed follow-up · First contact", "Person o4", "/people/c4", undefined, "2 days ago", "New lead from the website hasn't been contacted. Value not yet entered", "+15125550104", "View lead", "/people/c4"],
   // at_risk: known value, then the signal (-0.5), then the unknown/not-applicable opportunity (-1).
   ["opportunity:o7", "estimate_expired", "attention", "soon", "Estimate expired", "Person o7", "/people/c7", "$1,000", "3 days ago", 'Estimate "Siding" expired with no customer decision recorded. Follow up on the estimate.', null, "View estimate", "/estimates/est-8"],
   ["signal:abandoned_conversation:2", "conversation_stalled", "attention", "soon", "Conversation went quiet", "Cy Diaz", "/conversations/c", undefined, undefined, "No reply since we last reached out, 3 days ago Follow up.", null, "View", "/conversations/c"],
@@ -288,4 +290,75 @@ test("2-4: only pending estimates change - every other row in the frozen fixture
     if (row[0] === "opportunity:o6") continue;
     assert.deepEqual(row, EXPECTED_ATTENTION[i], row[0]);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2-11 (A7-A9, G1-G5): "Missed follow-up · ..." in the existing label
+// slot. Reason codes, actions, links, actors, order and placement unchanged.
+// ---------------------------------------------------------------------------
+
+const missedOf = (items: import("./types").DecisionItem[]) => Object.fromEntries(items.map((item) => [item.key, [item.problemLabel, item.missedFollowUp ?? null]]));
+
+test("2-11 (G5): every uncontacted lead shows 'Missed follow-up · First contact' - reason code, action and link unchanged", () => {
+  const result = assembleDecisions(buildParityFixture());
+  for (const key of ["opportunity:o4", "opportunity:o5"]) {
+    const item = result.attention.find((i) => i.key === key)!;
+    assert.deepEqual([item.problemLabel, item.missedFollowUp, item.reasonCode, item.nextAction.label, item.nextAction.href], ["Missed follow-up · First contact", "first_contact", "lead_not_contacted", "View lead", `/people/${key === "opportunity:o4" ? "c4" : "c5"}`]);
+  }
+});
+
+test("2-11 (G3): a human waiting reply whose first unanswered message is 4h or more old shows 'Missed follow-up · Reply'; under 4h keeps 'Waiting on a reply'; the Trackpr grace item is untouched", () => {
+  const now = Date.now();
+  const context = { ...eligibleContext(now), waitingConversations: new Map([
+    ["conv-a", { aiEnabled: true, smsOptOut: false, firstUnansweredInboundAt: new Date(now - 5 * MIN).toISOString() }],
+    ["conv-b", { aiEnabled: true, smsOptOut: false, firstUnansweredInboundAt: new Date(now - 4 * HOUR).toISOString() }],
+  ]) };
+  const result = assembleDecisions({ ...trackprCapableFixture(now), context });
+  assert.deepEqual(missedOf(result.attention)["signal:awaiting_reply:1"], ["Missed follow-up · Reply", "reply"], "conv-b, exactly 4h");
+  assert.deepEqual(missedOf(result.trackprHandling)["signal:awaiting_reply:0"], ["Waiting on a reply", null], "conv-a, 5 minutes, Trackpr's");
+  const under = assembleDecisions({ ...trackprCapableFixture(now), context: eligibleContext(now) });
+  assert.deepEqual(missedOf(under.attention)["signal:awaiting_reply:1"], ["Waiting on a reply", null], "conv-b at 40 minutes is a normal waiting reply");
+  const item = result.attention.find((i) => i.key === "signal:awaiting_reply:1")!;
+  assert.deepEqual([item.reasonCode, item.actor, item.nextAction.label, item.nextAction.href], ["customer_awaiting_reply", "human", "Open conversation", "/conversations/b"]);
+});
+
+test("2-11 (G3): at the cap every waiting reply is still human; one waiting 4h or more is labelled, and without a timestamp nothing changes", () => {
+  const now = Date.now();
+  const capped = { ...eligibleContext(now), waitingCapReached: true, waitingConversations: new Map([["conv-a", { aiEnabled: true, smsOptOut: false, firstUnansweredInboundAt: new Date(now - 6 * HOUR).toISOString() }]]) };
+  const result = assembleDecisions({ ...trackprCapableFixture(now), context: capped });
+  const labels = missedOf(result.attention);
+  assert.deepEqual(labels["signal:awaiting_reply:0"], ["Missed follow-up · Reply", "reply"]);
+  assert.deepEqual(labels["signal:awaiting_reply:1"], ["Waiting on a reply", null], "conv-b's timestamp unknown: existing behavior");
+  assert.ok(result.attention.filter((i) => i.reasonCode === "customer_awaiting_reply").every((i) => i.actor === "human"));
+});
+
+test("2-11 (G4): a human-owned estimate sent 72h+ ago with no outbound after sent_at shows 'Missed follow-up · Estimate follow-up'; an outbound after sent_at (a person's or Trackpr's) keeps the existing label; ownership is unchanged", () => {
+  const now = Date.now();
+  const humanContext = (latest: Map<string, number> | null) => ({ ...eligibleContext(now), estimateFollowupEnabled: false, latestOutboundMsByContact: latest });
+  const missed = assembleDecisions({ ...estimateOnly(now, 80 * HOUR), context: humanContext(new Map()) });
+  assert.deepEqual(placement(missed), { attention: ["opportunity:o6"], trackprHandling: [], notYetAttention: [], count: 1 });
+  const item = missed.attention[0];
+  assert.deepEqual([item.problemLabel, item.missedFollowUp, item.reasonCode, item.actor, item.nextAction.code, item.nextAction.href], ["Missed follow-up · Estimate follow-up", "estimate_followup", "estimate_awaiting_decision", "human", "follow_up_estimate", "/estimates/est-9"]);
+  const followedUp = assembleDecisions({ ...estimateOnly(now, 80 * HOUR), context: humanContext(new Map([["c6", now - 10 * HOUR]])) });
+  assert.deepEqual([followedUp.attention[0].problemLabel, followedUp.attention[0].missedFollowUp], ["Estimate sent, awaiting reply", undefined]);
+  const under = assembleDecisions({ ...estimateOnly(now, 71 * HOUR), context: humanContext(new Map()) });
+  assert.equal(under.attention[0].problemLabel, "Estimate sent, awaiting reply", "under 72h");
+  const unknown = assembleDecisions({ ...estimateOnly(now, 80 * HOUR), context: humanContext(null) });
+  assert.equal(unknown.attention[0].problemLabel, "Estimate sent, awaiting reply", "outbound read unavailable: existing label");
+});
+
+test("2-11: Trackpr-owned and too-young estimates are never relabelled, and the 2-4 placement is unchanged", () => {
+  const now = Date.now();
+  const trackpr = assembleDecisions({ ...estimateOnly(now, 30 * HOUR), context: { ...eligibleContext(now), latestOutboundMsByContact: new Map() } });
+  assert.deepEqual(placement(trackpr), { attention: [], trackprHandling: ["opportunity:o6"], notYetAttention: [], count: 0 });
+  assert.equal(trackpr.trackprHandling[0].problemLabel, "Estimate sent, awaiting reply");
+  const young = assembleDecisions({ ...estimateOnly(now, 10 * HOUR), context: { ...eligibleContext(now), estimateFollowupEnabled: false, latestOutboundMsByContact: new Map() } });
+  assert.deepEqual(placement(young), { attention: [], trackprHandling: [], notYetAttention: ["opportunity:o6"], count: 0 });
+});
+
+test("2-11: By type is untouched - the opportunity-type labels it groups by are unchanged", () => {
+  const { OPPORTUNITY_TYPE_LABEL }: typeof import("@/app/(app)/opportunities/_components/opportunity-type") = require(path.join(ROOT, "app/(app)/opportunities/_components/opportunity-type.ts"));
+  assert.equal(OPPORTUNITY_TYPE_LABEL.uncontacted_lead, "Never contacted");
+  assert.equal(OPPORTUNITY_TYPE_LABEL.pending_estimate, "Estimate sent, awaiting reply");
+  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, "app/(app)/opportunities/_components/opportunities-list.tsx"), "utf8"), /Missed follow-up/);
 });

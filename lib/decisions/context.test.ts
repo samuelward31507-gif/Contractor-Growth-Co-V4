@@ -105,11 +105,17 @@ test("waiting conversations: ONE batched conversations read by id, newest 20 mes
   assert.equal(context.aiSettingsEnabled, true);
 });
 
-test("C5: with 5 or more waiting conversations the cap is reached - no AI settings or conversations read, every one human", async () => {
+// Phase 2-11 (G3): at the cap the conversations are now read too (still at most 5, still one batched read) so a
+// reply waiting 4h or more can be shown as a missed follow-up. Actor rules are unchanged: no AI-settings read,
+// and every waiting item stays human.
+test("C5 (revised by Phase 2-11): with 5 waiting conversations the cap is reached - every one human, no AI settings read; their timestamps are read in ONE batched read", async () => {
   const fake = fakeClient();
   const context = await getDecisionContext(fake.client, "org-1", { attentionItems: ["a", "b", "c", "d", "e"].map(waitingItem), timeZone: "UTC", now: NOW });
   assert.equal(context.waitingCapReached, true);
-  assert.deepEqual(fake.tables().sort(), SHARED_READS);
+  assert.deepEqual(fake.tables().sort(), [...SHARED_READS, "conversations"].sort());
+  const [read] = fake.reads.filter((r) => r.table === "conversations");
+  assert.deepEqual(read.inIds, ["a", "b", "c", "d", "e"]);
+  assert.equal(fake.reads.filter((r) => r.table === "ai_settings").length, 0);
 });
 
 test("a failed conversations read leaves no conversation state - every waiting item stays human", async () => {
@@ -227,4 +233,47 @@ test("structure: the open-opportunities read is request-memoized and shared - th
   const context = fs.readFileSync(path.join(ROOT, "lib/decisions/context.ts"), "utf8");
   assert.match(context, /await getOpenOpportunitiesResult\(supabase, organizationId\)/);
   assert.doesNotMatch(context, /\.from\("opportunities"\)/);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2-11 (G4): the latest successful outbound message per contact - read
+// only when a pending estimate is 72h or more old; one paged read, no id list.
+// ---------------------------------------------------------------------------
+
+const HOUR_MS = 60 * MIN;
+const estimateRow = (id: string, contactId: string | null, sentMsAgo: number | null) => ({ ...opportunityRow(id, "pending_estimate", contactId), metadata: sentMsAgo === null ? {} : { sent_at: ago(sentMsAgo) } });
+const isOutboundRead = (read: Read) => read.table === "conversations" && read.filters.some(([op, column, value]) => op === "eq" && column === "messages.direction" && value === "outbound");
+
+test("2-11 (G4): with a pending estimate 72h or older, ONE paged read of conversations holding a successful outbound message, newest embedded - the latest per contact, no id list", async () => {
+  const fake = fakeClient({
+    opportunities: { data: [estimateRow("o1", "c1", 80 * HOUR_MS), estimateRow("o2", "c2", 10 * HOUR_MS)], error: null },
+    conversations: (read) =>
+      isOutboundRead(read)
+        ? { data: [{ contact_id: "c1", messages: [{ created_at: ago(5 * HOUR_MS) }] }, { contact_id: "c1", messages: [{ created_at: ago(2 * HOUR_MS) }] }, { contact_id: "c9", messages: [{ created_at: ago(HOUR_MS) }] }], error: null }
+        : { data: [], error: null },
+  });
+  const context = await getDecisionContext(fake.client, "org-1", { attentionItems: [], timeZone: "UTC", now: NOW });
+  assert.deepEqual([...(context.latestOutboundMsByContact ?? new Map())].sort(), [["c1", NOW - 2 * HOUR_MS], ["c9", NOW - HOUR_MS]]);
+  const reads = fake.reads.filter(isOutboundRead);
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0].select, "contact_id, messages!inner(created_at)");
+  assert.deepEqual(reads[0].filters, [["eq", "organization_id", "org-1"], ["not", "contact_id", ["is", null]], ["eq", "messages.organization_id", "org-1"], ["eq", "messages.direction", "outbound"], ["in", "messages.status", ["sent", "delivered"]]]);
+  assert.deepEqual(reads[0].limit, [1, { referencedTable: "messages" }]);
+  assert.equal(fake.reads.filter((r) => r.table === "opportunities").length, 1, "the shared open-opportunities read, once");
+});
+
+test("2-11 (G4): no pending estimate 72h or older (or none with a sent_at) - the outbound read is skipped", async () => {
+  const fake = fakeClient({ opportunities: { data: [estimateRow("o1", "c1", 71 * HOUR_MS), estimateRow("o2", "c2", null), opportunityRow("o3", "invoice_overdue", "c3")], error: null } });
+  const context = await getDecisionContext(fake.client, "org-1", { attentionItems: [], timeZone: "UTC", now: NOW });
+  assert.equal(fake.reads.filter(isOutboundRead).length, 0);
+  assert.equal(context.latestOutboundMsByContact?.size, 0);
+});
+
+test("2-11 (G4): a failed outbound read is null - unknown, so no estimate is labelled a missed follow-up", async () => {
+  const fake = fakeClient({
+    opportunities: { data: [estimateRow("o1", "c1", 80 * HOUR_MS)], error: null },
+    conversations: (read) => (isOutboundRead(read) ? { data: null, error: { message: "boom" } } : { data: [], error: null }),
+  });
+  const context = await getDecisionContext(fake.client, "org-1", { attentionItems: [], timeZone: "UTC", now: NOW });
+  assert.equal(context.latestOutboundMsByContact, null);
 });

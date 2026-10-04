@@ -66,6 +66,13 @@ export type DecisionContext = {
    * reach them.
    */
   estimateContactAiDisabled: ReadonlySet<string>;
+  /**
+   * Phase 2-11 (G4): per contact, the time (ms) of the latest successful
+   * (sent or delivered) outbound message - read only when a pending estimate
+   * is 72h or more old. Absent or null means unknown: no estimate is then
+   * labelled a missed follow-up.
+   */
+  latestOutboundMsByContact?: ReadonlyMap<string, number> | null;
 };
 
 /** Every item human - the context the assembler uses when none is supplied, and the safe fallback. */

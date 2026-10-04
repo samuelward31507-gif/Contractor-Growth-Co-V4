@@ -28,6 +28,8 @@ export type DecisionItem = {
   tier: PriorityTier | null;
   tone: StatusTone;
   problemLabel: string;
+  /** Phase 2-11: set when the row is shown as "Missed follow-up · ..." - which of the three kinds (the reason code is unchanged). */
+  missedFollowUp?: import("./missed-follow-up").MissedFollowUpKind;
   subject: { name: string; href: string };
   explanation: OpportunityExplanation;
   /** The one-line sentence the row shows. */

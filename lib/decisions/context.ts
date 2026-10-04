@@ -5,9 +5,10 @@ import { getAutomationDefaultEnabled } from "@/lib/automation/catalog";
 import { readInboundCustomerReplyConfig } from "@/lib/automation/settings";
 import { isWithinBusinessHours } from "@/lib/automation/outbound-gate";
 import { getAiSettings, getBusinessHours } from "@/lib/settings/queries";
-import { getOpenOpportunitiesResult } from "@/lib/opportunities/queries";
+import { getOpenOpportunitiesResult, type OpenOpportunitiesResult } from "@/lib/opportunities/queries";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { WAITING_REPLY_CAP, firstUnansweredInboundAt, type DecisionContext, type WaitingConversationState } from "./actor";
+import { ESTIMATE_FOLLOW_UP_WINDOW_MS } from "./missed-follow-up";
 
 /**
  * Phase 2-3: the reads behind "who acts" - a small, fixed number of batched
@@ -57,7 +58,7 @@ type WaitingConversationRow = {
   messages: { created_at: string; direction: "inbound" | "outbound" }[] | null;
 };
 
-/** One batched read for every waiting conversation (at most WAITING_REPLY_CAP - 1 of them): its AI flag, its contact's opt-out, and its newest messages. */
+/** One batched read for every waiting conversation (at most WAITING_REPLY_CAP of them - the dashboard SQL returns no more): its AI flag, its contact's opt-out, and its newest messages. */
 async function readWaitingConversations(supabase: SupabaseClient, organizationId: string, conversationIds: string[]): Promise<Map<string, WaitingConversationState>> {
   const { data, error } = await supabase
     .from("conversations")
@@ -90,8 +91,47 @@ async function readWaitingConversations(supabase: SupabaseClient, organizationId
  * never one read per estimate. A failed read fails closed: every pending
  * estimate's contact is treated as unreachable, so those estimates are human.
  */
-async function readEstimateContactsWithAiDisabled(supabase: SupabaseClient, organizationId: string): Promise<Set<string>> {
-  const opportunities = await getOpenOpportunitiesResult(supabase, organizationId);
+/**
+ * Phase 2-11 (G4): per contact, the latest successful (sent or delivered)
+ * outbound message - only read when an open pending estimate was sent 72h or
+ * more ago, so a missed estimate follow-up can be told apart from one that
+ * was followed up (by a person or by Trackpr's own automated follow-up).
+ * One paged read of the organization's conversations that hold a successful
+ * outbound message, with the newest one embedded - the same shape as the
+ * uncontacted-lead detector's evidence read. Never an id list, never one
+ * read per estimate. A failed read returns null: nothing is labelled missed.
+ */
+async function readLatestOutboundByContact(supabase: SupabaseClient, organizationId: string, opportunities: OpenOpportunitiesResult, now: number): Promise<Map<string, number> | null> {
+  const anyEstimatePastWindow = opportunities.data.some((opportunity) => {
+    if (opportunity.type !== "pending_estimate" || typeof opportunity.metadata.sent_at !== "string") return false;
+    const sentMs = new Date(opportunity.metadata.sent_at).getTime();
+    return !Number.isNaN(sentMs) && now - sentMs >= ESTIMATE_FOLLOW_UP_WINDOW_MS;
+  });
+  if (!anyEstimatePastWindow) return new Map();
+  const read = await readAllPages<{ contact_id: string | null; messages: { created_at: string }[] | null }>(() =>
+    supabase
+      .from("conversations")
+      .select("contact_id, messages!inner(created_at)")
+      .eq("organization_id", organizationId)
+      .not("contact_id", "is", null)
+      .eq("messages.organization_id", organizationId)
+      .eq("messages.direction", "outbound")
+      .in("messages.status", ["sent", "delivered"])
+      .order("created_at", { referencedTable: "messages", ascending: false })
+      .limit(1, { referencedTable: "messages" })
+      .order("id"),
+  );
+  if (read.failed) return null;
+  const latest = new Map<string, number>();
+  for (const row of read.rows) {
+    const createdMs = row.messages?.[0] ? new Date(row.messages[0].created_at).getTime() : Number.NaN;
+    if (!row.contact_id || Number.isNaN(createdMs)) continue;
+    if (createdMs > (latest.get(row.contact_id) ?? Number.NEGATIVE_INFINITY)) latest.set(row.contact_id, createdMs);
+  }
+  return latest;
+}
+
+async function readEstimateContactsWithAiDisabled(supabase: SupabaseClient, organizationId: string, opportunities: OpenOpportunitiesResult): Promise<Set<string>> {
   const estimateContactIds = new Set(opportunities.data.filter((opportunity) => opportunity.type === "pending_estimate" && opportunity.contactId).map((opportunity) => opportunity.contactId as string));
   if (estimateContactIds.size === 0) return new Set();
   const read = await readAllPages<{ contact_id: string }>(() =>
@@ -99,6 +139,12 @@ async function readEstimateContactsWithAiDisabled(supabase: SupabaseClient, orga
   );
   if (read.failed) return estimateContactIds;
   return new Set(read.rows.map((row) => row.contact_id).filter((contactId) => estimateContactIds.has(contactId)));
+}
+
+/** The two estimate reads (Phase 2-4 AI-off contacts, Phase 2-11 latest outbound), both from one request-cached open-opportunities read. */
+async function readEstimateContext(supabase: SupabaseClient, organizationId: string, now: number): Promise<[Set<string>, Map<string, number> | null]> {
+  const opportunities = await getOpenOpportunitiesResult(supabase, organizationId);
+  return Promise.all([readEstimateContactsWithAiDisabled(supabase, organizationId, opportunities), readLatestOutboundByContact(supabase, organizationId, opportunities, now)]);
 }
 
 /**
@@ -118,12 +164,17 @@ export async function getDecisionContext(
   const waitingCapReached = waitingIds.length >= WAITING_REPLY_CAP;
   const graceCandidates = waitingCapReached ? [] : waitingIds;
 
-  const [organizationState, settings, aiSettings, waitingConversations, estimateContactAiDisabled] = await Promise.all([
+  // Phase 2-11 (G3): the waiting conversations are read even when the cap is
+  // reached (still at most the 5 the SQL returns), so a reply waiting 4h or
+  // more can be shown as a missed follow-up. The actor rules are unchanged:
+  // at the cap every waiting item is still human (resolveSignalActor checks
+  // waitingCapReached first), and the AI-settings read stays grace-only.
+  const [organizationState, settings, aiSettings, waitingConversations, [estimateContactAiDisabled, latestOutboundMsByContact]] = await Promise.all([
     getOrganizationAutomationState(supabase, organizationId),
     getOrganizationAutomationSettings(supabase, organizationId),
     graceCandidates.length > 0 ? getAiSettings(supabase, organizationId) : Promise.resolve(null),
-    graceCandidates.length > 0 ? readWaitingConversations(supabase, organizationId, graceCandidates) : Promise.resolve(new Map<string, WaitingConversationState>()),
-    readEstimateContactsWithAiDisabled(supabase, organizationId),
+    waitingIds.length > 0 ? readWaitingConversations(supabase, organizationId, waitingIds) : Promise.resolve(new Map<string, WaitingConversationState>()),
+    readEstimateContext(supabase, organizationId, now),
   ]);
 
   const inboundReplyConfig = readInboundCustomerReplyConfig(settings.configById.get("inbound-customer-reply") ?? null);
@@ -142,5 +193,6 @@ export async function getDecisionContext(
     waitingCapReached,
     waitingConversations,
     estimateContactAiDisabled,
+    latestOutboundMsByContact,
   };
 }

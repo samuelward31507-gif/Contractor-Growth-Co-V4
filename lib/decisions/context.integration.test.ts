@@ -135,3 +135,20 @@ test("Phase 2-4a, real reads: pending-estimate contacts whose open SMS conversat
     await service.from("opportunities").delete().eq("organization_id", organizationId);
   }
 });
+
+test("Phase 2-11 (G4), real reads: with a pending estimate 72h+ old, the latest successful outbound message per contact - outbound only, inbound-only contacts absent", async () => {
+  const { error } = await service.from("opportunities").insert([
+    { organization_id: organizationId, type: "pending_estimate", status: "open", source_entity_type: "estimate", source_entity_id: crypto.randomUUID(), contact_id: contactIds.One, title: "Ctx old estimate", metadata: { sent_at: new Date(Date.now() - 80 * 60 * MIN).toISOString() } },
+  ]);
+  assert.ifError(error);
+  try {
+    const context = await getDecisionContext(service, organizationId, { attentionItems: [], timeZone: "UTC" });
+    const latest = context.latestOutboundMsByContact!;
+    assert.ok(latest, "the read ran");
+    // conv-1 (contact One) has a delivered outbound 30 minutes ago; contact Three only ever sent inbound.
+    assert.ok(Math.abs(latest.get(contactIds.One)! - (Date.now() - 30 * MIN)) < 60 * 1000);
+    assert.equal(latest.has(contactIds.Three), false);
+  } finally {
+    await service.from("opportunities").delete().eq("organization_id", organizationId);
+  }
+});
