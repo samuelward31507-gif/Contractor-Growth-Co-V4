@@ -195,24 +195,27 @@ export const OPPORTUNITY_VALUE_CLASS: Record<OpportunityType, OpportunityValueCl
  * its own revenue.
  *
  * Potential: a lead-level record (uncontacted / qualified / active lead) is
- * the same deal as a valued pending estimate for that same lead - linked
- * explicitly by the estimate's metadata.lead_id - and the estimate, the more
- * advanced record, supplies the value. (The detectors already suppress most
- * of these pairs; this keeps the totals right whatever is stored.) A stale
- * (expired) estimate carries no lead link, so it is never matched to a lead.
+ * the same deal as a pending estimate for that same lead - linked explicitly
+ * by the estimate's metadata.lead_id - and the estimate, the more advanced
+ * record, supplies the value. The link is the deal's identity, so it holds
+ * whether or not the estimate has an amount: with no amount the deal stays
+ * unknown-valued (counted as unknown, never as $0) rather than falling back
+ * to the lead's figure. (The detectors already suppress most of these pairs;
+ * this keeps the totals right whatever is stored.) A stale (expired)
+ * estimate carries no lead link, so it is never matched to a lead.
  */
 const LEAD_LEVEL_TYPES = new Set<OpportunityType>(["uncontacted_lead", "qualified_lead_unbooked", "active_lead_signal"]);
 
 /** Ids of the opportunities whose value is already counted through a more advanced record of the same deal. */
 export function sameDealSupersededIds(opportunities: Opportunity[]): Set<string> {
-  const leadIdsWithValuedEstimate = new Set<string>();
+  const leadIdsWithEstimate = new Set<string>();
   for (const opportunity of opportunities) {
     const leadId = opportunity.metadata.lead_id;
-    if (opportunity.type === "pending_estimate" && opportunity.estimatedValue != null && typeof leadId === "string") leadIdsWithValuedEstimate.add(leadId);
+    if (opportunity.type === "pending_estimate" && typeof leadId === "string") leadIdsWithEstimate.add(leadId);
   }
   const superseded = new Set<string>();
   for (const opportunity of opportunities) {
-    if (LEAD_LEVEL_TYPES.has(opportunity.type) && opportunity.sourceEntityType === "lead" && leadIdsWithValuedEstimate.has(opportunity.sourceEntityId)) superseded.add(opportunity.id);
+    if (LEAD_LEVEL_TYPES.has(opportunity.type) && opportunity.sourceEntityType === "lead" && leadIdsWithEstimate.has(opportunity.sourceEntityId)) superseded.add(opportunity.id);
   }
   return superseded;
 }

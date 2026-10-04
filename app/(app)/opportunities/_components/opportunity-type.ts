@@ -103,8 +103,9 @@ export { OPPORTUNITY_TYPE_LABEL, OPPORTUNITY_ACTION_LABEL, opportunityActionHref
 /**
  * Phase 2-13 (§7): a By type group's header - its class's money total (every
  * type has exactly one class, so a group never mixes committed and
- * potential) and its count. Non-monetary groups, and groups where no item
- * has a value entered yet, show the count only - never a "$0" total.
+ * potential) and its count. Non-monetary groups, and groups that contribute
+ * no value (none entered, or all supplied by the deal's estimate), show the
+ * count only - never a "$0" total.
  * `superseded` is the whole list's same-deal exclusions
  * (sameDealSupersededIds), so the headers of one class always add up to the
  * summary line's total for that class.
@@ -112,8 +113,9 @@ export { OPPORTUNITY_TYPE_LABEL, OPPORTUNITY_ACTION_LABEL, opportunityActionHref
 export function groupTotalLabel(type: OpportunityType, items: Opportunity[], superseded: ReadonlySet<string> = sameDealSupersededIds(items)): string {
   const valueClass = OPPORTUNITY_VALUE_CLASS[type];
   if (valueClass === "non_monetary") return String(items.length);
-  const valued = items.filter((item) => item.estimatedValue != null);
-  if (valued.length === 0) return String(items.length);
-  const total = valued.filter((item) => !superseded.has(item.id)).reduce((sum, item) => sum + (item.estimatedValue as number), 0);
+  // Only the values this group actually contributes; when none (no value entered, or every value is supplied by its deal's estimate), the count alone - never "$0".
+  const contributing = items.filter((item) => item.estimatedValue != null && !superseded.has(item.id));
+  if (contributing.length === 0) return String(items.length);
+  const total = contributing.reduce((sum, item) => sum + (item.estimatedValue as number), 0);
   return `${formatCurrency(total)} ${valueClass} · ${items.length}`;
 }

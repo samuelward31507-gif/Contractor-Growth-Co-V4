@@ -104,3 +104,16 @@ test("8. (Phase 2-13 correction) By type: each class's group headers add up exac
   assert.deepEqual([summary.committed.value, summary.potential.value], [11200, 12500]);
   assert.deepEqual(headerSum, { committed: summary.committed.value, potential: summary.potential.value });
 });
+
+test("8b. (final correction) a lead group whose only value is supplied by its deal's estimate shows its count, never '$0 potential'; headers still add up when that estimate has no amount", () => {
+  const { summarizeOpportunities, sameDealSupersededIds }: typeof import("@/lib/opportunities/queries") = require("../../../lib/opportunities/queries.ts");
+  const records = [
+    makeOpportunity({ id: "l1", type: "qualified_lead_unbooked", sourceEntityType: "lead", sourceEntityId: "l1", estimatedValue: 800 }),
+    makeOpportunity({ id: "e1", type: "pending_estimate", sourceEntityType: "estimate", sourceEntityId: "e1", estimatedValue: null, metadata: { lead_id: "l1" } }),
+    makeOpportunity({ id: "e2", type: "pending_estimate", sourceEntityType: "estimate", sourceEntityId: "e2", estimatedValue: 1200 }),
+  ];
+  const superseded = sameDealSupersededIds(records);
+  assert.equal(groupTotalLabel("qualified_lead_unbooked", [records[0]], superseded), "1");
+  assert.equal(groupTotalLabel("pending_estimate", [records[1], records[2]], superseded), "$1,200 potential · 2");
+  assert.deepEqual(summarizeOpportunities(records).potential, { value: 1200, count: 3, unknownValueCount: 1 });
+});

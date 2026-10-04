@@ -217,9 +217,45 @@ test("3. a lead with its own (valued) pending estimate is one deal - the estimat
   }
 });
 
-test("3b. the same-deal link is explicit only: a pending estimate with no value, or a stale estimate (no lead link), never hides the lead", () => {
-  assert.equal(summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("e1", "c-1", null, "l1")]).potential.value, 800);
-  assert.equal(summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("s1", "c-1", 1500, null, "stale_estimate")]).potential.value, 2300);
+// Phase 2-13 final correction: the explicit metadata.lead_id link is the deal's identity, whatever the estimate's amount.
+test("R1. a $800 lead and its own pending estimate with NO amount are one deal - the lead is not counted separately, and the deal stays unknown-valued (never $0, never the lead's $800)", () => {
+  const records = [lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("e1", "c-1", null, "l1")];
+  assert.deepEqual(summarizeOpportunities(records).potential, { value: 0, count: 2, unknownValueCount: 1 });
+  assert.deepEqual([...sameDealSupersededIds(records)], ["l1"]);
+});
+
+test("R2. a $800 lead and its own $1,500 pending estimate - the estimate supplies the deal's value", () => {
+  assert.deepEqual(summarizeOpportunities([lead("l1", "c-1", "uncontacted_lead", 800), estimate("e1", "c-1", 1500, "l1")]).potential, { value: 1500, count: 2, unknownValueCount: 0 });
+});
+
+test("R3. two separate pending estimates on the same lead are two estimate deals - both count; the lead adds nothing", () => {
+  const summary = summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("e1", "c-1", 1000, "l1"), estimate("e2", "c-1", 1500, "l1")]);
+  assert.deepEqual(summary.potential, { value: 2500, count: 3, unknownValueCount: 0 });
+  const oneUnknown = summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("e1", "c-1", null, "l1"), estimate("e2", "c-1", 1500, "l1")]);
+  assert.deepEqual(oneUnknown.potential, { value: 1500, count: 3, unknownValueCount: 1 });
+});
+
+test("R4. the same customer's unrelated estimate (no link, or linked to another lead) stays a separate deal - even when the lead's own estimate has no amount", () => {
+  const summary = summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("e1", "c-1", null, "l1"), estimate("e2", "c-1", 2000, null), estimate("e3", "c-1", 700, "l2")]);
+  assert.deepEqual(summary.potential, { value: 2700, count: 4, unknownValueCount: 1 });
+});
+
+test("R5. a stale (expired) estimate carries no lead link - it never supersedes the lead and both count", () => {
+  assert.deepEqual(summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("s1", "c-1", 1500, null, "stale_estimate")]).potential, { value: 2300, count: 2, unknownValueCount: 0 });
+  assert.equal(summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("s1", "c-1", null, null, "stale_estimate")]).potential.value, 800);
+  // Only a pending estimate's lead_id is a deal link - even a stale row that happened to carry one stays independent.
+  const staleWithLeadKey = makeOpportunity({ id: "s2", type: "stale_estimate", sourceEntityType: "estimate", sourceEntityId: "s2", contactId: "c-1", estimatedValue: 1500, metadata: { lead_id: "l1" } });
+  assert.equal(summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), staleWithLeadKey]).potential.value, 2300);
+});
+
+test("R6. records with no contact are counted independently - and the explicit lead_id link still applies without a contact", () => {
+  const summary = summarizeOpportunities([
+    makeOpportunity({ id: "l9", type: "uncontacted_lead", sourceEntityType: "lead", sourceEntityId: "l9", contactId: null, estimatedValue: 400 }),
+    makeOpportunity({ id: "l8", type: "uncontacted_lead", sourceEntityType: "lead", sourceEntityId: "l8", contactId: null, estimatedValue: 600 }),
+    makeOpportunity({ id: "e8", type: "pending_estimate", sourceEntityType: "estimate", sourceEntityId: "e8", contactId: null, estimatedValue: null, metadata: { lead_id: "l8" } }),
+    makeOpportunity({ id: "i9", type: "invoice_overdue", sourceEntityType: "job", sourceEntityId: "j9", contactId: null, estimatedValue: 250 }),
+  ]);
+  assert.deepEqual([summary.potential, summary.committed.value], [{ value: 400, count: 3, unknownValueCount: 1 }, 250]);
 });
 
 test("4. a lead whose customer has a completely separate estimate - both count", () => {
