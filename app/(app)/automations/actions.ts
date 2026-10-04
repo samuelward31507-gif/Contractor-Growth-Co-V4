@@ -36,6 +36,7 @@ import { processEstimateFollowups, previewEstimateFollowups, type FollowupPrevie
 import { retryWorkflowExecution, planRetryAudit } from "@/lib/automation/retry";
 import type { RetryRejectionReason } from "@/lib/automation/retry-eligibility";
 import { getExecutionDetail, type ExecutionDetail } from "@/lib/automation/execution-detail";
+import { MANUAL_RUN_AUTOMATION_IDS } from "@/lib/automation/manual-run";
 
 /**
  * Manual run / dry run (Phase D) are only offered for the two
@@ -50,7 +51,7 @@ import { getExecutionDetail, type ExecutionDetail } from "@/lib/automation/execu
  * mapping from an arbitrary client-supplied automationId to a workflow/event
  * name anywhere below; the two branches are a hardcoded if/else.
  */
-const MANUAL_RUN_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followup"]);
+
 
 export type AutomationActionState = {
   error?: string;
@@ -250,10 +251,18 @@ export async function runAutomationNow(automationId: string): Promise<Automation
     return { error: "This automation is disabled." };
   }
 
-  const result =
-    automationId === "appointment-reminders"
-      ? await processAppointmentReminders(supabase, new Date(), undefined, "manual")
-      : await processEstimateFollowups(supabase, new Date(), undefined, "manual");
+  // Phase 3 (W4): the scans stop with an error rather than process a partial candidate list (K5, Phase 3
+  // paging) - report that plainly instead of letting it surface as an error page.
+  let result: { candidates: number };
+  try {
+    result =
+      automationId === "appointment-reminders"
+        ? await processAppointmentReminders(supabase, new Date(), undefined, "manual")
+        : await processEstimateFollowups(supabase, new Date(), undefined, "manual");
+  } catch (error) {
+    console.error("[automation] manual run stopped before processing", { organizationId, automationId, error: error instanceof Error ? error.message : String(error) });
+    return { error: "The run couldn't read every candidate, so nothing was processed. Please try again in a moment." };
+  }
 
   revalidatePath(`/automations/${automationId}`);
 

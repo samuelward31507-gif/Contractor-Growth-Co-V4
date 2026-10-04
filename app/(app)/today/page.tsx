@@ -14,7 +14,7 @@ import { getDecisionContext } from "@/lib/decisions/context";
 import type { DecisionItem } from "@/lib/decisions/types";
 import { getContacts } from "@/lib/contacts/queries";
 import { calendarDateInTimeZone, formatMoney } from "@/lib/invoices/domain";
-import { getOrganizationTimezone } from "@/lib/settings/queries";
+import { getAutomationMode, getOrganizationTimezone } from "@/lib/settings/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
 import { PageContainer } from "@/lib/ui/page";
@@ -90,6 +90,8 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   // bounds object for the briefing and the end-of-day summary, so they share
   // a single dashboard_briefing call (request-scoped - see
   // lib/briefing/queries.ts).
+  // Phase 3 (W5): started alongside the page's reads - whether the workspace is live decides the setup banner.
+  const automationModeRead = getAutomationMode(supabase, membership.organizationId);
   const timeZone = await getOrganizationTimezone(supabase, membership.organizationId);
   const briefingNow = new Date();
   const dayBounds = organizationDayBounds(briefingNow, timeZone ?? "UTC");
@@ -157,6 +159,8 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const visibleOpportunityQueue = opportunityQueue.slice(0, OPPORTUNITY_PREVIEW);
 
   const greeting = greetingForHour(hourInTimeZone(briefingNow, timeZone ?? null));
+  const isLive = (await automationModeRead) === "live";
+  const canFinishSetup = membership.role === "owner" || membership.role === "admin";
 
   const figures = todayFigures({
     leadsReceivedToday: endOfDaySummary.leadsReceived,
@@ -198,6 +202,23 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
               Refresh to try again
             </Link>
             .
+          </p>
+        </div>
+      ) : null}
+
+      {/* Phase 3 (W5): a new workspace says it isn't live yet, instead of only "all caught up". */}
+      {!isLive ? (
+        <div role="status" className="flex items-start gap-2.5 rounded-lg border border-info-border bg-info-muted px-4 py-2.5 text-sm text-info-text">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>
+            Trackpr isn&apos;t live yet - automated texts and follow-ups stay off until setup is finished.{" "}
+            {canFinishSetup ? (
+              <Link href="/onboarding" className="font-medium underline decoration-info-text/40 underline-offset-2 hover:decoration-info-text">
+                Finish setup
+              </Link>
+            ) : (
+              "Your workspace owner can finish it."
+            )}
           </p>
         </div>
       ) : null}

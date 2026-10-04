@@ -81,7 +81,9 @@ const nextConfig: NextConfig = {
       // about where they point has changed, so there is nothing stale for a
       // cached 308 to strand anyone on.
       { source: "/leads", destination: "/people?temperature=hot", permanent: false },
-      { source: "/contacts/:id", destination: "/customers/:id?from=contact", permanent: true },
+      // Phase 3: `duplicates` is excluded - /contacts/duplicates is a real page (People's "Review duplicates"),
+      // and redirects run before the filesystem, so the plain :id rule sent it to /people/duplicates ("Person not found").
+      { source: "/contacts/:id((?!duplicates$)[^/]+)", destination: "/customers/:id?from=contact", permanent: true },
       { source: "/contacts", destination: "/people", permanent: false },
 
       // --- Schedule (Calendar + Appointments merge) ---

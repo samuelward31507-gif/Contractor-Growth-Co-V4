@@ -44,6 +44,7 @@ import { JobLifecycleConfigForm } from "../_components/job-lifecycle-config";
 import { ReviewReferralFollowupConfigForm } from "../_components/review-referral-followup-config";
 import { SAFE_RETRY_AUTOMATION_IDS } from "@/lib/automation/retry-eligibility";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+import { MANUAL_RUN_AUTOMATION_IDS } from "@/lib/automation/manual-run";
 
 const CONFIGURABLE_AUTOMATION_IDS = new Set([
   "appointment-reminders",
@@ -95,12 +96,10 @@ export default async function AutomationDetailPage({ params }: { params: Promise
     redirect("/onboarding");
   }
 
-  // Manual run/dry run (Phase D) are only offered for the two
-  // Trackpr-dispatched automations - see ManualRunControls's own comment.
-  // This is a rendering-only signal; app/(app)/automations/actions.ts holds
-  // its own independent, authoritative allowlist and re-validates it
-  // server-side regardless of what this page renders.
-  const supportsManualRun = definition.dispatch === "trackpr";
+  // Manual run/dry run (Phase D) - Phase 3 (W4): shown for exactly the automations the server actions allow
+  // (one shared list, so estimate follow-up's Trackpr-sent check-ins get the controls too). Rendering-only;
+  // app/(app)/automations/actions.ts re-validates the same list server-side.
+  const supportsManualRun = MANUAL_RUN_AUTOMATION_IDS.has(definition.id);
 
   // Phase G: org admin/owner only for the enable/disable toggle - a
   // rendering-only signal exactly like supportsManualRun above;

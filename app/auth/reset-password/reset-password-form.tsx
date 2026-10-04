@@ -12,8 +12,8 @@ export function ResetPasswordForm() {
   return (
     <form action={formAction} className="space-y-7" noValidate>
       <div className="space-y-1.5">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Set a new password.</h1>
-        <p className="text-sm text-slate-500">Choose a new password for your account.</p>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Set your password.</h1>
+        <p className="text-sm text-slate-500">Choose a password for your account.</p>
       </div>
 
       {state.error ? (
