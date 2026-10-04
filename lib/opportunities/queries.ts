@@ -184,23 +184,41 @@ export const OPPORTUNITY_VALUE_CLASS: Record<OpportunityType, OpportunityValueCl
 };
 
 /**
- * §7 "no double counting": for one customer, the most advanced record
- * supplies the value - invoice over job, job over estimate, estimate over
- * lead. Used only for the class totals; every item keeps its own value.
+ * §7 "no double counting", at the level of the DEAL - never the customer
+ * (Phase 2-13 correction). Same deal: deduplicate. Same customer, different
+ * deal: count separately. Contact identity is never a dedup key.
+ *
+ * Committed needs no rule here: the detectors make one deal's committed
+ * records mutually exclusive (accepted_estimate_no_job only while the
+ * estimate has no job; completed_job_not_invoiced only while the job has no
+ * live invoice; invoice_overdue only with one), so every committed record is
+ * its own revenue.
+ *
+ * Potential: a lead-level record (uncontacted / qualified / active lead) is
+ * the same deal as a valued pending estimate for that same lead - linked
+ * explicitly by the estimate's metadata.lead_id - and the estimate, the more
+ * advanced record, supplies the value. (The detectors already suppress most
+ * of these pairs; this keeps the totals right whatever is stored.) A stale
+ * (expired) estimate carries no lead link, so it is never matched to a lead.
  */
-const VALUE_RECORD_RANK: Partial<Record<OpportunityType, number>> = {
-  invoice_overdue: 4,
-  completed_job_not_invoiced: 3,
-  accepted_estimate_no_job: 2,
-  pending_estimate: 2,
-  stale_estimate: 2,
-  uncontacted_lead: 1,
-  qualified_lead_unbooked: 1,
-  active_lead_signal: 1,
-};
+const LEAD_LEVEL_TYPES = new Set<OpportunityType>(["uncontacted_lead", "qualified_lead_unbooked", "active_lead_signal"]);
+
+/** Ids of the opportunities whose value is already counted through a more advanced record of the same deal. */
+export function sameDealSupersededIds(opportunities: Opportunity[]): Set<string> {
+  const leadIdsWithValuedEstimate = new Set<string>();
+  for (const opportunity of opportunities) {
+    const leadId = opportunity.metadata.lead_id;
+    if (opportunity.type === "pending_estimate" && opportunity.estimatedValue != null && typeof leadId === "string") leadIdsWithValuedEstimate.add(leadId);
+  }
+  const superseded = new Set<string>();
+  for (const opportunity of opportunities) {
+    if (LEAD_LEVEL_TYPES.has(opportunity.type) && opportunity.sourceEntityType === "lead" && leadIdsWithValuedEstimate.has(opportunity.sourceEntityId)) superseded.add(opportunity.id);
+  }
+  return superseded;
+}
 
 export type OpportunityClassTotal = {
-  /** SUM(estimated_value) of the class's opportunities with a value, counting each customer's most advanced record only - real dollars, never a fabricated figure. */
+  /** SUM(estimated_value) of the class's opportunities with a value, each deal counted once (sameDealSupersededIds) - real dollars, never a fabricated figure. */
   value: number;
   /** Open opportunities of this class. */
   count: number;
@@ -242,13 +260,7 @@ export function summarizeOpportunities(opportunities: Opportunity[]): Opportunit
   const potential: OpportunityClassTotal = { value: 0, count: 0, unknownValueCount: 0 };
   let nonMonetaryCount = 0;
 
-  // The most advanced valued record per customer (contact) - §7's no-double-counting rule.
-  const topRankByContact = new Map<string, number>();
-  for (const opportunity of opportunities) {
-    const rank = VALUE_RECORD_RANK[opportunity.type];
-    if (rank === undefined || opportunity.estimatedValue == null || !opportunity.contactId) continue;
-    topRankByContact.set(opportunity.contactId, Math.max(topRankByContact.get(opportunity.contactId) ?? 0, rank));
-  }
+  const superseded = sameDealSupersededIds(opportunities);
 
   for (const opportunity of opportunities) {
     byType[opportunity.type] += 1;
@@ -263,8 +275,7 @@ export function summarizeOpportunities(opportunities: Opportunity[]): Opportunit
       total.unknownValueCount += 1;
       continue;
     }
-    const superseded = opportunity.contactId != null && (VALUE_RECORD_RANK[opportunity.type] ?? 0) < (topRankByContact.get(opportunity.contactId) ?? 0);
-    if (!superseded) total.value += opportunity.estimatedValue;
+    if (!superseded.has(opportunity.id)) total.value += opportunity.estimatedValue;
   }
 
   return { count: opportunities.length, committed, potential, nonMonetaryCount, byType };

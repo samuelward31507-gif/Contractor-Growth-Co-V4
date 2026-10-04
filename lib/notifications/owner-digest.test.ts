@@ -45,7 +45,7 @@ type FakeOptions = {
   scanFails?: boolean;
   settings?: Record<string, Record<string, unknown> | null>;
   existingKeys?: Set<string>;
-  opportunities?: Record<string, { type: string; estimated_value: number | null }[] | "fail">;
+  opportunities?: Record<string, ({ type: string; estimated_value: number | null } & Record<string, unknown>)[] | "fail">;
   /** Open conversations: how many are waiting on the business, plus (optionally) how many are not. */
   escalations?: Record<string, number | "fail">;
   answered?: Record<string, number>;
@@ -204,6 +204,24 @@ test("signals: open opportunities (count, committed and potential value, top typ
   });
   assert.deepEqual(s.health, { failed: false, automationIssues: 2, staleScheduledAutomations: 0 });
   assert.deepEqual(s.escalations, { failed: false, count: 3 }, "Phase 2-13: only conversations whose newest inbound-or-successful-outbound message is inbound - the two answered ones are not waiting");
+});
+
+test("9. (Phase 2-13 correction) signals: the digest uses the deal-level class totals - a customer's separate deals all count, a lead and its own estimate count once", async () => {
+  const row = (id: string, type: string, contact_id: string, estimated_value: number | null, extra: Record<string, unknown> = {}) => ({ id, type, contact_id, estimated_value, source_entity_type: "job", source_entity_id: id, metadata: {}, ...extra });
+  const { supabase } = fakeService({
+    opportunities: {
+      "org-1": [
+        row("casey-inv-4", "invoice_overdue", "casey", 3000), row("casey-inv-3", "invoice_overdue", "casey", 2000), row("blake-inv-1", "invoice_overdue", "blake", 2200),
+        row("avery-accepted", "accepted_estimate_no_job", "avery", 2500), row("avery-job", "completed_job_not_invoiced", "avery", 1500),
+        row("casey-e1", "pending_estimate", "casey", 1100), row("casey-e2", "pending_estimate", "casey", 2200), row("casey-e3", "pending_estimate", "casey", 3300),
+        ...[500, 1000, 1000, 1000, 500, 500, 500].map((v, i) => row(`avery-lead-${i}`, "uncontacted_lead", "avery", v, { source_entity_type: "lead" })),
+        row("dana-lead", "qualified_lead_unbooked", "dana", 400, { source_entity_type: "lead" }), row("dana-est", "pending_estimate", "dana", 900, { metadata: { lead_id: "dana-lead" } }),
+      ],
+    },
+  });
+  const s = await loadOwnerDigestSignals(supabase, "org-1");
+  assert.ok(!s.opportunities.failed);
+  if (!s.opportunities.failed) assert.deepEqual([s.opportunities.committedValue, s.opportunities.potentialValue], [11200, 12500], "never the customer-level $8,700 / $0");
 });
 
 test("signals: each failed read is marked failed - never a zero", async () => {

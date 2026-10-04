@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { summarizeOpportunities, OPPORTUNITY_VALUE_CLASS }: typeof import("./queries") = require("./queries.ts");
+const { summarizeOpportunities, sameDealSupersededIds, OPPORTUNITY_VALUE_CLASS }: typeof import("./queries") = require("./queries.ts");
 
 function makeOpportunity(overrides: Partial<import("./queries").Opportunity> = {}): import("./queries").Opportunity {
   return {
@@ -144,35 +144,101 @@ test("value classes: a non-monetary opportunity is never counted as missing a va
   assert.deepEqual([summary.committed, summary.potential], [{ value: 0, count: 0, unknownValueCount: 0 }, { value: 0, count: 0, unknownValueCount: 0 }]);
 });
 
-test("value classes (§7 no double counting): one customer's most advanced record supplies the value - invoice over job over estimate over lead - while every item still counts", () => {
-  const summary = summarizeOpportunities([
-    makeOpportunity({ id: "1", type: "invoice_overdue", contactId: "c-1", estimatedValue: 500 }),
-    makeOpportunity({ id: "2", type: "completed_job_not_invoiced", contactId: "c-1", estimatedValue: 500 }),
-    makeOpportunity({ id: "3", type: "stale_estimate", contactId: "c-1", estimatedValue: 500 }),
-    makeOpportunity({ id: "4", type: "qualified_lead_unbooked", contactId: "c-1", estimatedValue: 500 }),
-    makeOpportunity({ id: "5", type: "pending_estimate", contactId: "c-2", estimatedValue: 800 }),
-    makeOpportunity({ id: "6", type: "uncontacted_lead", contactId: "c-2", estimatedValue: 300 }),
-  ]);
-  assert.deepEqual(summary.committed, { value: 500, count: 2, unknownValueCount: 0 }, "the invoice supplies c-1's value; the job behind it does not add again");
-  assert.deepEqual(summary.potential, { value: 800, count: 4, unknownValueCount: 0 }, "c-1's estimate and lead are superseded by the invoice; c-2's estimate supersedes their lead");
-  assert.equal(summary.count, 6);
-});
-
-test("value classes: two estimates for one customer are both counted (same stage, different records); a null-value advanced record does not hide a valued earlier one", () => {
-  const summary = summarizeOpportunities([
-    makeOpportunity({ id: "1", type: "pending_estimate", contactId: "c-1", estimatedValue: 1000 }),
-    makeOpportunity({ id: "2", type: "stale_estimate", contactId: "c-1", estimatedValue: 700 }),
-    makeOpportunity({ id: "3", type: "completed_job_not_invoiced", contactId: "c-2", estimatedValue: null }),
-    makeOpportunity({ id: "4", type: "stale_estimate", contactId: "c-2", estimatedValue: 450 }),
-  ]);
-  assert.deepEqual(summary.potential, { value: 2150, count: 3, unknownValueCount: 0 });
-  assert.deepEqual(summary.committed, { value: 0, count: 1, unknownValueCount: 1 });
-});
-
 test("value classes: an opportunity with no contact is always counted - it cannot be matched to another record", () => {
   const summary = summarizeOpportunities([
     makeOpportunity({ id: "1", type: "invoice_overdue", contactId: null, estimatedValue: 250 }),
     makeOpportunity({ id: "2", type: "stale_estimate", contactId: null, estimatedValue: 750 }),
   ]);
   assert.deepEqual([summary.committed.value, summary.potential.value], [250, 750]);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2-13 correction: deal-level attribution, never customer-level.
+// Same deal -> deduplicate. Same customer, different deal -> count separately.
+// ---------------------------------------------------------------------------
+
+const lead = (id: string, contactId: string, type: "uncontacted_lead" | "qualified_lead_unbooked" | "active_lead_signal", value: number | null) =>
+  makeOpportunity({ id, type, sourceEntityType: "lead", sourceEntityId: id, contactId, estimatedValue: value });
+const estimate = (id: string, contactId: string, value: number | null, leadId: string | null = null, type: "pending_estimate" | "stale_estimate" = "pending_estimate") =>
+  makeOpportunity({ id, type, sourceEntityType: "estimate", sourceEntityId: id, contactId, estimatedValue: value, metadata: type === "pending_estimate" ? { estimate_id: id, lead_id: leadId } : {} });
+const committedRecord = (id: string, contactId: string, type: "invoice_overdue" | "completed_job_not_invoiced" | "accepted_estimate_no_job", value: number) =>
+  makeOpportunity({ id, type, sourceEntityType: type === "accepted_estimate_no_job" ? "estimate" : "job", sourceEntityId: `src-${id}`, contactId, estimatedValue: value });
+const job = (id: string, contactId: string, type: "completed_job_no_review_request" | "completed_job_no_referral_request") => makeOpportunity({ id, type, sourceEntityType: "job", sourceEntityId: `job-${id}`, contactId });
+
+/**
+ * The exact shape of the TEST QA organization that exposed the customer-level
+ * bug on the preview: Casey Reed has overdue invoices AND three unrelated sent
+ * estimates; Avery Stone has an accepted estimate, an uninvoiced job AND seven
+ * unrelated uncontacted leads; Blake Morgan has one overdue invoice; plus five
+ * review and five referral asks. Customer-level dedup reported $8,700
+ * committed and $0 potential.
+ */
+function qaOrganization() {
+  return [
+    committedRecord("casey-inv-4", "casey", "invoice_overdue", 3000),
+    committedRecord("casey-inv-3", "casey", "invoice_overdue", 2000),
+    committedRecord("blake-inv-1", "blake", "invoice_overdue", 2200),
+    committedRecord("avery-accepted", "avery", "accepted_estimate_no_job", 2500),
+    committedRecord("avery-job", "avery", "completed_job_not_invoiced", 1500),
+    estimate("casey-est-2d", "casey", 1100, "casey-lead-a"),
+    estimate("casey-est-15d", "casey", 2200, "casey-lead-b"),
+    estimate("casey-est-40d", "casey", 3300, null),
+    ...[500, 1000, 1000, 1000, 500, 500, 500].map((value, i) => lead(`avery-lead-${i}`, "avery", "uncontacted_lead", value)),
+    ...["c1", "c2", "c3", "b1", "a1"].map((id) => job(`review-${id}`, id.startsWith("c") ? "casey" : id.startsWith("b") ? "blake" : "avery", "completed_job_no_review_request")),
+    ...["c1", "c2", "c3", "b1", "a1"].map((id) => job(`referral-${id}`, id.startsWith("c") ? "casey" : id.startsWith("b") ? "blake" : "avery", "completed_job_no_referral_request")),
+  ];
+}
+
+test("regression (preview QA): the QA organization totals $11,200 committed and $11,600 potential across 25 opportunities - never $8,700 / $0", () => {
+  const summary = summarizeOpportunities(qaOrganization());
+  assert.equal(summary.count, 25);
+  assert.deepEqual(summary.committed, { value: 11200, count: 5, unknownValueCount: 0 });
+  assert.deepEqual(summary.potential, { value: 11600, count: 10, unknownValueCount: 0 });
+  assert.equal(summary.nonMonetaryCount, 10);
+});
+
+test("1. one customer with several independent potential deals - every one counts", () => {
+  const summary = summarizeOpportunities([estimate("e1", "c-1", 1000), estimate("e2", "c-1", 2000), lead("l1", "c-1", "qualified_lead_unbooked", 700), lead("l2", "c-1", "uncontacted_lead", 300)]);
+  assert.deepEqual(summary.potential, { value: 4000, count: 4, unknownValueCount: 0 });
+});
+
+test("2. one customer with an independent committed deal and separate potential deals - both classes count in full", () => {
+  const summary = summarizeOpportunities([committedRecord("i1", "c-1", "invoice_overdue", 900), estimate("e1", "c-1", 1200), lead("l1", "c-1", "uncontacted_lead", 400)]);
+  assert.deepEqual([summary.committed.value, summary.potential.value], [900, 1600]);
+});
+
+test("3. a lead with its own (valued) pending estimate is one deal - the estimate supplies the value, the lead does not add again", () => {
+  const records = [lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("e1", "c-1", 1500, "l1")];
+  const summary = summarizeOpportunities(records);
+  assert.deepEqual(summary.potential, { value: 1500, count: 2, unknownValueCount: 0 });
+  assert.deepEqual([...sameDealSupersededIds(records)], ["l1"]);
+  for (const type of ["uncontacted_lead", "active_lead_signal"] as const) {
+    assert.equal(summarizeOpportunities([lead("l1", "c-1", type, 800), estimate("e1", "c-1", 1500, "l1")]).potential.value, 1500, type);
+  }
+});
+
+test("3b. the same-deal link is explicit only: a pending estimate with no value, or a stale estimate (no lead link), never hides the lead", () => {
+  assert.equal(summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("e1", "c-1", null, "l1")]).potential.value, 800);
+  assert.equal(summarizeOpportunities([lead("l1", "c-1", "qualified_lead_unbooked", 800), estimate("s1", "c-1", 1500, null, "stale_estimate")]).potential.value, 2300);
+});
+
+test("4. a lead whose customer has a completely separate estimate - both count", () => {
+  const summary = summarizeOpportunities([lead("l1", "c-1", "uncontacted_lead", 600), estimate("e1", "c-1", 2000, "another-lead"), estimate("e2", "c-1", 900, null)]);
+  assert.equal(summary.potential.value, 3500);
+});
+
+test("5. a customer with an invoice plus an unrelated estimate - both count", () => {
+  const summary = summarizeOpportunities([committedRecord("i1", "c-1", "invoice_overdue", 3000), estimate("e1", "c-1", 1100)]);
+  assert.deepEqual([summary.committed.value, summary.potential.value], [3000, 1100]);
+});
+
+test("6. a customer with a job plus an unrelated estimate - both count", () => {
+  const summary = summarizeOpportunities([committedRecord("j1", "c-1", "completed_job_not_invoiced", 1500), estimate("e1", "c-1", 2200), committedRecord("a1", "c-1", "accepted_estimate_no_job", 2500)]);
+  assert.deepEqual([summary.committed.value, summary.potential.value], [4000, 2200], "separate jobs and accepted estimates are separate revenue");
+});
+
+test("7. contact identity is never a dedup key - the same records with or without contacts total the same", () => {
+  const withContacts = summarizeOpportunities(qaOrganization());
+  const withoutContacts = summarizeOpportunities(qaOrganization().map((o) => ({ ...o, contactId: null })));
+  assert.deepEqual([withContacts.committed, withContacts.potential], [withoutContacts.committed, withoutContacts.potential]);
 });

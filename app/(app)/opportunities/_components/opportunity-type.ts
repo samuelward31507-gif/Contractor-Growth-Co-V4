@@ -16,7 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { BadgeTone } from "@/lib/ui/badge";
-import { OPPORTUNITY_VALUE_CLASS, summarizeOpportunities, type Opportunity, type OpportunityType } from "@/lib/opportunities/queries";
+import { OPPORTUNITY_VALUE_CLASS, sameDealSupersededIds, type Opportunity, type OpportunityType } from "@/lib/opportunities/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 
 /**
@@ -105,11 +105,15 @@ export { OPPORTUNITY_TYPE_LABEL, OPPORTUNITY_ACTION_LABEL, opportunityActionHref
  * type has exactly one class, so a group never mixes committed and
  * potential) and its count. Non-monetary groups, and groups where no item
  * has a value entered yet, show the count only - never a "$0" total.
+ * `superseded` is the whole list's same-deal exclusions
+ * (sameDealSupersededIds), so the headers of one class always add up to the
+ * summary line's total for that class.
  */
-export function groupTotalLabel(type: OpportunityType, items: Opportunity[]): string {
+export function groupTotalLabel(type: OpportunityType, items: Opportunity[], superseded: ReadonlySet<string> = sameDealSupersededIds(items)): string {
   const valueClass = OPPORTUNITY_VALUE_CLASS[type];
   if (valueClass === "non_monetary") return String(items.length);
-  const total = summarizeOpportunities(items)[valueClass];
-  if (total.unknownValueCount === total.count) return String(items.length);
-  return `${formatCurrency(total.value)} ${valueClass} · ${items.length}`;
+  const valued = items.filter((item) => item.estimatedValue != null);
+  if (valued.length === 0) return String(items.length);
+  const total = valued.filter((item) => !superseded.has(item.id)).reduce((sum, item) => sum + (item.estimatedValue as number), 0);
+  return `${formatCurrency(total)} ${valueClass} · ${items.length}`;
 }

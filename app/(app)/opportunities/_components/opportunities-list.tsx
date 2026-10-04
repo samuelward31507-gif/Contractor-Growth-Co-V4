@@ -4,7 +4,7 @@ import { EmptyState } from "@/lib/ui/empty-state";
 import { RAIL_TONE_CLASS, type BadgeTone } from "@/lib/ui/badge";
 import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { formatCurrency } from "@/lib/dashboard/format";
-import { OPPORTUNITY_VALUE_CLASS, summarizeOpportunities, type Opportunity, type OpportunityType } from "@/lib/opportunities/queries";
+import { OPPORTUNITY_VALUE_CLASS, sameDealSupersededIds, summarizeOpportunities, type Opportunity, type OpportunityType } from "@/lib/opportunities/queries";
 import { DismissOpportunityButton } from "../../dashboard/_components/dismiss-opportunity-button";
 import {
   OPPORTUNITY_TYPE_ORDER,
@@ -123,6 +123,7 @@ export function OpportunitiesList({ opportunities, failed }: { opportunities: Op
   // Each row already discloses its own unknown value individually (the
   // "Unknown value" span above). Phase 2-13 (§7): one total per value class.
   const summary = summarizeOpportunities(opportunities);
+  const superseded = sameDealSupersededIds(opportunities);
 
   return (
     <div className="flex flex-col gap-8">
@@ -139,7 +140,7 @@ export function OpportunitiesList({ opportunities, failed }: { opportunities: Op
         <div key={type}>
           <div className="flex items-baseline justify-between">
             <p className={sectionLabelClass}>{OPPORTUNITY_TYPE_LABEL[type]}</p>
-            <span className={metaClass}>{groupTotalLabel(type, items)}</span>
+            <span className={metaClass}>{groupTotalLabel(type, items, superseded)}</span>
           </div>
           <ul className="mt-2 divide-y divide-line">
             {items.map((opportunity) => (
