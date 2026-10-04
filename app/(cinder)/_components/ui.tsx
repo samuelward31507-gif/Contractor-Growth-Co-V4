@@ -55,15 +55,21 @@ export function TextLink({ href, children, tone = "ink" }: { href: string; child
   );
 }
 
-/** The small label above a section heading: an ember tick and sentence-case text. */
+/**
+ * The small label above a heading: compact Geist Mono notation led by a tiny
+ * ember square - the mark's spark, reused as the site's one recurring detail.
+ */
 export function Eyebrow({ children, tone = "ink" }: { children: ReactNode; tone?: "ink" | "light" }) {
   return (
-    <p className={`flex items-center gap-2.5 font-mono text-[12px] font-medium tracking-[0.02em] ${tone === "ink" ? "text-cinder-ink-3" : "text-cinder-on-night-3"}`}>
-      <span aria-hidden className={`h-px w-5 ${tone === "ink" ? "bg-cinder-accent" : "bg-cinder-accent-on-night"}`} />
+    <p className={`flex items-center gap-2.5 font-mono text-[11px] font-medium uppercase tracking-[0.14em] ${tone === "ink" ? "text-cinder-ink-3" : "text-cinder-on-night-3"}`}>
+      <span aria-hidden className={`h-[5px] w-[5px] rotate-45 ${tone === "ink" ? "bg-cinder-accent" : "bg-cinder-accent-on-night"}`} />
       {children}
     </p>
   );
 }
+
+/** The site's section-heading scale - one place, so every h2 carries the same weight. */
+export const H2 = "text-balance text-[36px] font-semibold leading-[1.04] tracking-[-0.035em] sm:text-[48px] lg:text-[60px]";
 
 type SectionTone = "canvas" | "surface" | "night";
 
@@ -95,15 +101,15 @@ export function Section({
 }) {
   const light = tone === "night";
   return (
-    <section id={id} aria-labelledby={id && title ? `${id}-title` : undefined} className={`scroll-mt-20 py-20 sm:py-24 lg:py-32 ${SECTION_TONE[tone]} ${className}`}>
+    <section id={id} aria-labelledby={id && title ? `${id}-title` : undefined} className={`scroll-mt-16 py-20 sm:py-28 lg:py-36 ${SECTION_TONE[tone]} ${className}`}>
       <div className={CONTAINER}>
         {title ? (
           <div className={`max-w-[760px] ${headingAlign === "center" ? "mx-auto text-center [&>p:first-child]:justify-center" : ""}`}>
             {eyebrow ? <Eyebrow tone={light ? "light" : "ink"}>{eyebrow}</Eyebrow> : null}
-            <h2 id={id ? `${id}-title` : undefined} className={`${eyebrow ? "mt-5" : ""} text-balance text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] sm:text-[44px] lg:text-[52px]`}>
+            <h2 id={id ? `${id}-title` : undefined} className={`${eyebrow ? "mt-6" : ""} ${H2}`}>
               {title}
             </h2>
-            {intro ? <p className={`mt-5 text-pretty text-[17px] leading-relaxed sm:text-lg ${light ? "text-cinder-on-night-2" : "text-cinder-ink-2"}`}>{intro}</p> : null}
+            {intro ? <p className={`mt-6 max-w-[620px] text-pretty text-[17px] leading-relaxed sm:text-[19px] ${headingAlign === "center" ? "mx-auto" : ""} ${light ? "text-cinder-on-night-2" : "text-cinder-ink-2"}`}>{intro}</p> : null}
           </div>
         ) : null}
         {children}

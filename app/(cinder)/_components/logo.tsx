@@ -34,8 +34,8 @@ export function CinderLogo({ tone = "ink", variant = "horizontal", className = "
     <svg viewBox={`0 0 ${width} 48`} className={className} role="img" aria-label={title}>
       <path className={f.mark} d={CINDER_MARK_RING} />
       <path className={f.ember} d={CINDER_MARK_EMBER} />
-      <path className={f.word} transform={variant === "full" ? "translate(56 9)" : "translate(56 14)"} d={CINDER_WORDMARK} />
-      {variant === "full" ? <path className={f.descriptor} transform="translate(57 34)" d={CINDER_DESCRIPTOR} /> : null}
+      <path className={f.word} transform={variant === "full" ? "translate(56 6)" : "translate(56 14)"} d={CINDER_WORDMARK} />
+      {variant === "full" ? <path className={f.descriptor} transform="translate(56 34.6)" d={CINDER_DESCRIPTOR} /> : null}
     </svg>
   );
 }

@@ -54,7 +54,8 @@ test("product truth: no fabricated proof, pricing or buzzwords anywhere on the s
   assert.doesNotMatch(COPY, /\d+\s?%|\btestimonial|\bcase stud|\bcustomers? (love|trust)|\btrusted by\b|\$\d+\s?\/\s?mo|per month|pricing/i);
   assert.doesNotMatch(COPY, /revolutioniz|unlock your potential|game-chang|cutting-edge|AI-powered|seamless|leverage|transform your business/i);
   // The only figures on the site are the Trackpr showcase's sample data, and the frame says so.
-  assert.match(read("app/(cinder)/_components/trackpr-showcase.tsx"), /Illustrative · sample data/);
+  // "sample data" is visible at every width; "Illustrative ·" joins it from sm up.
+  assert.match(read("app/(cinder)/_components/trackpr-showcase.tsx"), /<span className="hidden sm:inline">Illustrative · <\/span>sample data/);
 });
 
 test("accessibility: one h1, a skip link, a labelled mobile disclosure, and motion only under no-preference", () => {

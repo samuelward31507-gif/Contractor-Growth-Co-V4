@@ -44,6 +44,20 @@ export const STAGES: Stage[] = [
   { key: "payment", label: "Payment", question: "Did the business actually get paid?", leak: "Invoiced, then forgotten.", state: "Paid", pivotal: true },
 ];
 
+/**
+ * The transitions where follow-through decides the outcome - the hand-offs
+ * between stages, not the stages themselves. `after` is the index of the
+ * stage the transition leaves.
+ */
+export const TRANSITIONS = [
+  { after: 0, label: "First reply" },
+  { after: 4, label: "Follow-up" },
+  { after: 5, label: "Collection" },
+] as const;
+
+/** The illustrative record in the hero instrument: stages before it are done, it is in progress, the rest are next. */
+export const ACTIVE_STAGE = 4;
+
 export const PILLARS = [
   { key: "capture", name: "Capture", line: "Bring opportunities into one system.", stages: ["Lead"] },
   { key: "engage", name: "Engage", line: "Respond and follow up consistently.", stages: ["Response", "Qualification"] },
