@@ -78,7 +78,16 @@ test("deriveValueState: a type with no honest value dimension by design is NOT_A
 test("deriveValueState (Phase 2-10): completed_job_no_review_request has no value dimension - not_applicable, never 'Value not yet entered'", () => {
   assert.equal(deriveValueState(makeOpportunity({ type: "completed_job_no_review_request", estimatedValue: null })), "not_applicable");
   assert.equal(deriveValueState(makeOpportunity({ type: "completed_job_no_review_request", estimatedValue: 9600 })), "not_applicable", "even a stale stored value is never shown");
-  assert.equal(deriveValueState(makeOpportunity({ type: "completed_job_no_referral_request", estimatedValue: null })), "unknown", "referral is unchanged by Phase 2-10");
+});
+
+// Phase 2-13 (§7 value classes): referral is non-monetary - this replaces the Phase 2-10 assertion that it stayed
+// "unknown". N/A is now derived from OPPORTUNITY_VALUE_CLASS, so it can never drift from the summary's classes.
+test("deriveValueState (Phase 2-13): every non-monetary type, referral included, is not_applicable; every committed or potential type with no value is unknown", () => {
+  const { OPPORTUNITY_VALUE_CLASS }: typeof import("./queries") = require("./queries.ts");
+  assert.equal(deriveValueState(makeOpportunity({ type: "completed_job_no_referral_request", estimatedValue: null })), "not_applicable");
+  for (const [type, valueClass] of Object.entries(OPPORTUNITY_VALUE_CLASS) as [OpportunityType, string][]) {
+    assert.equal(deriveValueState(makeOpportunity({ type, estimatedValue: null })), valueClass === "non_monetary" ? "not_applicable" : "unknown", type);
+  }
 });
 
 // ---------------------------------------------------------------------------

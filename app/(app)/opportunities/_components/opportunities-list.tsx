@@ -4,7 +4,7 @@ import { EmptyState } from "@/lib/ui/empty-state";
 import { RAIL_TONE_CLASS, type BadgeTone } from "@/lib/ui/badge";
 import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
 import { formatCurrency } from "@/lib/dashboard/format";
-import { summarizeOpportunities, type Opportunity, type OpportunityType } from "@/lib/opportunities/queries";
+import { OPPORTUNITY_VALUE_CLASS, summarizeOpportunities, type Opportunity, type OpportunityType } from "@/lib/opportunities/queries";
 import { DismissOpportunityButton } from "../../dashboard/_components/dismiss-opportunity-button";
 import {
   OPPORTUNITY_TYPE_ORDER,
@@ -13,6 +13,7 @@ import {
   OPPORTUNITY_TYPE_TONE,
   OPPORTUNITY_ACTION_LABEL,
   opportunityActionHref,
+  groupTotalLabel,
 } from "./opportunity-type";
 
 /** Mirrors lib/ui/badge.tsx's own light-surface TONE_CLASS exactly (not exported there) - the same icon-chip background/text pairing every other tone-driven icon chip in this app already uses. */
@@ -52,7 +53,8 @@ function OpportunityRow({ opportunity }: { opportunity: Opportunity }) {
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
             {opportunity.estimatedValue != null ? (
               <span className="text-sm font-semibold tabular-nums text-ink-2">{formatCurrency(opportunity.estimatedValue)}</span>
-            ) : (
+            ) : OPPORTUNITY_VALUE_CLASS[opportunity.type] === "non_monetary" ? null : (
+              // Phase 2-13 (§7): only committed and potential money can be missing a value; non-monetary types have none to show.
               <span className={metaClass}>Unknown value</span>
             )}
             {opportunity.contactId ? (
@@ -115,30 +117,29 @@ export function OpportunitiesList({ opportunities, failed }: { opportunities: Op
 
   const groups = OPPORTUNITY_TYPE_ORDER.map((type) => ({ type, items: byType.get(type) ?? [] })).filter((group) => group.items.length > 0);
 
-  // Final completion program, Phase 2 (Opportunity + Value Truth):
-  // summarizeOpportunities already computed knownEstimatedValue and
-  // unknownValueCount with the explicit rule "never silently imply the
-  // unknown ones are worth $0" (see its own comment in
-  // lib/opportunities/queries.ts) - this was never actually rendered
-  // anywhere. Each row already discloses its own unknown value individually
-  // (the "Unknown value" span above); this adds the one missing aggregate
-  // view, so the total isn't left looking like $knownEstimatedValue is the
-  // whole pipeline when some of it genuinely isn't counted.
+  // Final completion program, Phase 2 (Opportunity + Value Truth): the
+  // aggregate view, with the rule "never silently imply the unknown ones are
+  // worth $0" (see summarizeOpportunities in lib/opportunities/queries.ts).
+  // Each row already discloses its own unknown value individually (the
+  // "Unknown value" span above). Phase 2-13 (§7): one total per value class.
   const summary = summarizeOpportunities(opportunities);
 
   return (
     <div className="flex flex-col gap-8">
       <p className={metaClass}>
-        {formatCurrency(summary.knownEstimatedValue)} known value across {summary.count} {summary.count === 1 ? "opportunity" : "opportunities"}
-        {summary.unknownValueCount > 0
-          ? ` · ${summary.unknownValueCount} with unknown value (not counted above)`
+        {/* Phase 2-13 (§7): committed and potential money are separate totals, never added together. */}
+        {summary.committed.count > 0 ? `${formatCurrency(summary.committed.value)} committed · ` : ""}
+        {summary.potential.count > 0 ? `${formatCurrency(summary.potential.value)} potential · ` : ""}
+        {summary.count} {summary.count === 1 ? "opportunity" : "opportunities"}
+        {summary.committed.unknownValueCount + summary.potential.unknownValueCount > 0
+          ? ` · ${summary.committed.unknownValueCount + summary.potential.unknownValueCount} with unknown value (not counted above)`
           : ""}
       </p>
       {groups.map(({ type, items }) => (
         <div key={type}>
           <div className="flex items-baseline justify-between">
             <p className={sectionLabelClass}>{OPPORTUNITY_TYPE_LABEL[type]}</p>
-            <span className={metaClass}>{items.length}</span>
+            <span className={metaClass}>{groupTotalLabel(type, items)}</span>
           </div>
           <ul className="mt-2 divide-y divide-line">
             {items.map((opportunity) => (

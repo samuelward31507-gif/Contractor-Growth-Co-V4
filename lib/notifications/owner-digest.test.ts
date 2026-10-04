@@ -46,7 +46,9 @@ type FakeOptions = {
   settings?: Record<string, Record<string, unknown> | null>;
   existingKeys?: Set<string>;
   opportunities?: Record<string, { type: string; estimated_value: number | null }[] | "fail">;
+  /** Open conversations: how many are waiting on the business, plus (optionally) how many are not. */
   escalations?: Record<string, number | "fail">;
+  answered?: Record<string, number>;
   health?: Record<string, Record<string, unknown> | "fail">;
   eventRpcFails?: boolean;
 };
@@ -82,7 +84,7 @@ function fakeService(options: FakeOptions = {}) {
       queriedTables.push(table);
       const filters: Record<string, unknown> = {};
       const builder: Record<string, unknown> = {};
-      for (const name of ["select", "order", "not", "in", "limit"]) builder[name] = () => builder;
+      for (const name of ["select", "order", "not", "in", "limit", "or"]) builder[name] = () => builder;
       builder.eq = (column: string, value: unknown) => ((filters[column] = value), builder);
       builder.range = async (from: number, to: number) => {
         if (table === "organizations") return options.scanFails ? { data: null, error: { message: "boom" } } : { data: (options.orgs ?? []).slice(from, to + 1), error: null };
@@ -90,6 +92,17 @@ function fakeService(options: FakeOptions = {}) {
           const rows = options.opportunities?.[String(filters.organization_id)] ?? [];
           if (rows === "fail") return { data: null, error: { message: "boom" } };
           return { data: rows.map((r, i) => ({ id: `opp-${i}`, organization_id: filters.organization_id, status: "open", ...r })).slice(from, to + 1), error: null };
+        }
+        if (table === "conversations") {
+          // Each row carries its newest inbound-or-successful-outbound message, as the real embedded read does.
+          const waiting = options.escalations?.[String(filters.organization_id)] ?? 0;
+          if (waiting === "fail") return { data: null, error: { message: "boom" } };
+          const answered = options.answered?.[String(filters.organization_id)] ?? 0;
+          const rows = [
+            ...Array.from({ length: waiting }, (_, i) => ({ id: `waiting-${i}`, messages: [{ direction: "inbound", created_at: "2026-10-01T00:00:00Z" }] })),
+            ...Array.from({ length: answered }, (_, i) => ({ id: `answered-${i}`, messages: [{ direction: "outbound", created_at: "2026-10-01T00:00:00Z" }] })),
+          ];
+          return { data: rows.slice(from, to + 1), error: null };
         }
         return { data: [], error: null };
       };
@@ -100,10 +113,6 @@ function fakeService(options: FakeOptions = {}) {
         return { data: null, error: null };
       };
       builder.then = (resolve: (value: unknown) => unknown) => {
-        if (table === "conversations") {
-          const count = options.escalations?.[String(filters.organization_id)] ?? 0;
-          return Promise.resolve(count === "fail" ? { count: null, error: { message: "boom" } } : { count, error: null }).then(resolve);
-        }
         return Promise.resolve({ data: null, error: null }).then(resolve);
       };
       return builder;
@@ -114,12 +123,12 @@ function fakeService(options: FakeOptions = {}) {
 
 const OWNER = { notification_phone: "+15555550100", notification_email: null, notify_on_owner_digest: true };
 const signals = (overrides: Partial<Signals> = {}): Signals => ({
-  opportunities: { failed: false, count: 0, knownValue: 0, topTypes: [], overdueInvoiceCount: 0, overdueInvoiceValue: 0 },
+  opportunities: { failed: false, count: 0, committedValue: 0, potentialValue: 0, topTypes: [], overdueInvoiceCount: 0, overdueInvoiceValue: 0 },
   health: { failed: false, automationIssues: 0, staleScheduledAutomations: 0 },
   escalations: { failed: false, count: 0 },
   ...overrides,
 });
-const BUSY = signals({ opportunities: { failed: false, count: 4, knownValue: 12500, topTypes: [{ type: "stale_estimate", count: 2 }], overdueInvoiceCount: 1, overdueInvoiceValue: 800 } });
+const BUSY = signals({ opportunities: { failed: false, count: 4, committedValue: 0, potentialValue: 12500, topTypes: [{ type: "stale_estimate", count: 2 }], overdueInvoiceCount: 1, overdueInvoiceValue: 800 } });
 
 function recorder(result: FounderResult = { outcome: "delivered", sms: true, email: false }) {
   const calls: FounderInput[] = [];
@@ -160,7 +169,7 @@ test("idempotency key: one per organization per local Monday", () => {
 // Signals and composition
 // ---------------------------------------------------------------------------
 
-test("signals: open opportunities (count, known value, top types without overdue invoices), overdue invoices, incidents and escalations come from the existing reads", async () => {
+test("signals: open opportunities (count, committed and potential value, top types without overdue invoices), overdue invoices, incidents and escalations come from the existing reads", async () => {
   const { supabase } = fakeService({
     opportunities: {
       "org-1": [
@@ -175,12 +184,16 @@ test("signals: open opportunities (count, known value, top types without overdue
     },
     health: { "org-1": { incidents: [{ category: "workflow_stuck", severity: "warning" }, { category: "sms_delivery_failed", severity: "warning" }], organization: { payment_status: "active", automation_paused: false } } },
     escalations: { "org-1": 3 },
+    answered: { "org-1": 2 },
   });
   const s = await loadOwnerDigestSignals(supabase, "org-1");
+  // Phase 2-13 (§7): committed (overdue invoices 450 + 550) and potential (stale estimates 1000 + 2000) stay separate;
+  // the no-show and dormant-customer figures are non-monetary and count toward neither.
   assert.deepEqual(s.opportunities, {
     failed: false,
     count: 7,
-    knownValue: 4400,
+    committedValue: 1000,
+    potentialValue: 3000,
     topTypes: [
       { type: "stale_estimate", count: 2 },
       { type: "dormant_customer", count: 1 },
@@ -190,7 +203,7 @@ test("signals: open opportunities (count, known value, top types without overdue
     overdueInvoiceValue: 1000,
   });
   assert.deepEqual(s.health, { failed: false, automationIssues: 2, staleScheduledAutomations: 0 });
-  assert.deepEqual(s.escalations, { failed: false, count: 3 });
+  assert.deepEqual(s.escalations, { failed: false, count: 3 }, "Phase 2-13: only conversations whose newest inbound-or-successful-outbound message is inbound - the two answered ones are not waiting");
 });
 
 test("signals: each failed read is marked failed - never a zero", async () => {
@@ -202,7 +215,7 @@ test("signals: each failed read is marked failed - never a zero", async () => {
 test("compose: a busy week reads as one short message with each real figure", () => {
   const composed = composeOwnerDigest(
     signals({
-      opportunities: { failed: false, count: 7, knownValue: 4400, topTypes: [{ type: "stale_estimate", count: 2 }, { type: "no_show", count: 1 }], overdueInvoiceCount: 2, overdueInvoiceValue: 1000 },
+      opportunities: { failed: false, count: 7, committedValue: 1000, potentialValue: 3000, topTypes: [{ type: "stale_estimate", count: 2 }, { type: "no_show", count: 1 }], overdueInvoiceCount: 2, overdueInvoiceValue: 1000 },
       health: { failed: false, automationIssues: 1, staleScheduledAutomations: 0 },
       escalations: { failed: false, count: 3 },
     }),
@@ -210,7 +223,7 @@ test("compose: a busy week reads as one short message with each real figure", ()
   assert.deepEqual(composed, {
     kind: "send",
     partial: false,
-    summary: "7 open opportunities worth $4,400. Top: 2 stale estimates, 1 no-show. 2 overdue invoices ($1,000). 1 automation issue open. 3 conversations waiting for your team.",
+    summary: "7 open opportunities ($1,000 committed, $3,000 potential). Top: 2 stale estimates, 1 no-show. 2 overdue invoices ($1,000). 1 automation issue open. 3 conversations waiting for your team.",
   });
   assert.ok(composed.kind === "send" && composed.summary.length < 320, "short enough for SMS");
 });

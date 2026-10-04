@@ -152,3 +152,14 @@ test("Phase 2-11 (G4), real reads: with a pending estimate 72h+ old, the latest 
     await service.from("opportunities").delete().eq("organization_id", organizationId);
   }
 });
+
+test("Phase 2-13 (R-d), real reads: the configured estimate-followup window comes from the organization's automation_settings row", async () => {
+  try {
+    assert.equal((await getDecisionContext(service, organizationId, { attentionItems: [], timeZone: "UTC" })).estimateFollowupWindowMs, 72 * 60 * MIN, "no row: the 72h default");
+    const { error } = await service.from("automation_settings").insert({ organization_id: organizationId, automation_id: "estimate-followup", enabled: true, config: { followup_1_hours: 48, followup_2_hours: 120 } });
+    assert.ifError(error);
+    assert.equal((await getDecisionContext(service, organizationId, { attentionItems: [], timeZone: "UTC" })).estimateFollowupWindowMs, 120 * 60 * MIN);
+  } finally {
+    await service.from("automation_settings").delete().eq("organization_id", organizationId);
+  }
+});

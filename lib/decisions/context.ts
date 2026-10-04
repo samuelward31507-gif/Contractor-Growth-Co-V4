@@ -2,13 +2,12 @@ import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AttentionItem } from "@/lib/dashboard/queries";
 import { getAutomationDefaultEnabled } from "@/lib/automation/catalog";
-import { readInboundCustomerReplyConfig } from "@/lib/automation/settings";
+import { readEstimateFollowupConfig, readInboundCustomerReplyConfig } from "@/lib/automation/settings";
 import { isWithinBusinessHours } from "@/lib/automation/outbound-gate";
 import { getAiSettings, getBusinessHours } from "@/lib/settings/queries";
 import { getOpenOpportunitiesResult, type OpenOpportunitiesResult } from "@/lib/opportunities/queries";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { WAITING_REPLY_CAP, firstUnansweredInboundAt, type DecisionContext, type WaitingConversationState } from "./actor";
-import { ESTIMATE_FOLLOW_UP_WINDOW_MS } from "./missed-follow-up";
 
 /**
  * Phase 2-3: the reads behind "who acts" - a small, fixed number of batched
@@ -93,19 +92,19 @@ async function readWaitingConversations(supabase: SupabaseClient, organizationId
  */
 /**
  * Phase 2-11 (G4): per contact, the latest successful (sent or delivered)
- * outbound message - only read when an open pending estimate was sent 72h or
- * more ago, so a missed estimate follow-up can be told apart from one that
+ * outbound message - only read when an open pending estimate is past its
+ * follow-up window (72h, or the configured one - R-d), so a missed estimate follow-up can be told apart from one that
  * was followed up (by a person or by Trackpr's own automated follow-up).
  * One paged read of the organization's conversations that hold a successful
  * outbound message, with the newest one embedded - the same shape as the
  * uncontacted-lead detector's evidence read. Never an id list, never one
  * read per estimate. A failed read returns null: nothing is labelled missed.
  */
-async function readLatestOutboundByContact(supabase: SupabaseClient, organizationId: string, opportunities: OpenOpportunitiesResult, now: number): Promise<Map<string, number> | null> {
+async function readLatestOutboundByContact(supabase: SupabaseClient, organizationId: string, opportunities: OpenOpportunitiesResult, now: number, windowMs: number): Promise<Map<string, number> | null> {
   const anyEstimatePastWindow = opportunities.data.some((opportunity) => {
     if (opportunity.type !== "pending_estimate" || typeof opportunity.metadata.sent_at !== "string") return false;
     const sentMs = new Date(opportunity.metadata.sent_at).getTime();
-    return !Number.isNaN(sentMs) && now - sentMs >= ESTIMATE_FOLLOW_UP_WINDOW_MS;
+    return !Number.isNaN(sentMs) && now - sentMs >= windowMs;
   });
   if (!anyEstimatePastWindow) return new Map();
   const read = await readAllPages<{ contact_id: string | null; messages: { created_at: string }[] | null }>(() =>
@@ -142,9 +141,22 @@ async function readEstimateContactsWithAiDisabled(supabase: SupabaseClient, orga
 }
 
 /** The two estimate reads (Phase 2-4 AI-off contacts, Phase 2-11 latest outbound), both from one request-cached open-opportunities read. */
-async function readEstimateContext(supabase: SupabaseClient, organizationId: string, now: number): Promise<[Set<string>, Map<string, number> | null]> {
+async function readEstimateContext(supabase: SupabaseClient, organizationId: string, now: number, windowMs: Promise<number>): Promise<[Set<string>, Map<string, number> | null]> {
   const opportunities = await getOpenOpportunitiesResult(supabase, organizationId);
-  return Promise.all([readEstimateContactsWithAiDisabled(supabase, organizationId, opportunities), readLatestOutboundByContact(supabase, organizationId, opportunities, now)]);
+  // The settings read was started alongside this one; it is already in flight.
+  const window = await windowMs;
+  return Promise.all([readEstimateContactsWithAiDisabled(supabase, organizationId, opportunities), readLatestOutboundByContact(supabase, organizationId, opportunities, now, window)]);
+}
+
+/**
+ * Phase 2-13 (R-d): the organization's estimate follow-up window - the
+ * configured followup_2_hours, read with the automation's own lenient reader
+ * (invalid or missing config falls back to the 24h/72h defaults, exactly as
+ * the automation does), so Today and the automation agree on when Trackpr's
+ * last touch is due.
+ */
+export function estimateFollowupWindowMsFromSettings(settings: OrganizationAutomationSettings): number {
+  return readEstimateFollowupConfig(settings.configById.get("estimate-followup") ?? null).followup_2_hours * 60 * 60 * 1000;
 }
 
 /**
@@ -169,12 +181,13 @@ export async function getDecisionContext(
   // more can be shown as a missed follow-up. The actor rules are unchanged:
   // at the cap every waiting item is still human (resolveSignalActor checks
   // waitingCapReached first), and the AI-settings read stays grace-only.
+  const settingsRead = getOrganizationAutomationSettings(supabase, organizationId);
   const [organizationState, settings, aiSettings, waitingConversations, [estimateContactAiDisabled, latestOutboundMsByContact]] = await Promise.all([
     getOrganizationAutomationState(supabase, organizationId),
-    getOrganizationAutomationSettings(supabase, organizationId),
+    settingsRead,
     graceCandidates.length > 0 ? getAiSettings(supabase, organizationId) : Promise.resolve(null),
     waitingIds.length > 0 ? readWaitingConversations(supabase, organizationId, waitingIds) : Promise.resolve(new Map<string, WaitingConversationState>()),
-    readEstimateContext(supabase, organizationId, now),
+    readEstimateContext(supabase, organizationId, now, settingsRead.then(estimateFollowupWindowMsFromSettings)),
   ]);
 
   const inboundReplyConfig = readInboundCustomerReplyConfig(settings.configById.get("inbound-customer-reply") ?? null);
@@ -194,5 +207,6 @@ export async function getDecisionContext(
     waitingConversations,
     estimateContactAiDisabled,
     latestOutboundMsByContact,
+    estimateFollowupWindowMs: estimateFollowupWindowMsFromSettings(settings),
   };
 }

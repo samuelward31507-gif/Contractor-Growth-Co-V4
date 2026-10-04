@@ -154,12 +154,67 @@ export async function getOpenOpportunities(supabase: SupabaseClient, organizatio
   return (await getOpenOpportunitiesResult(supabase, organizationId)).data;
 }
 
+/**
+ * Phase 2-13 (§7, A12): the three value classes - never added together.
+ *   committed     - money owed or contractually agreed: an overdue invoice's
+ *                   balance, a completed job's amount, an accepted estimate.
+ *   potential     - money that could be won: a sent or expired estimate's
+ *                   amount, a lead's estimated value.
+ *   non_monetary  - no honest dollar figure (reviews, referrals, no-shows,
+ *                   cancellations, dormant customers, a visit with no
+ *                   estimate) - never shown or counted as a missing value.
+ */
+export type OpportunityValueClass = "committed" | "potential" | "non_monetary";
+
+export const OPPORTUNITY_VALUE_CLASS: Record<OpportunityType, OpportunityValueClass> = {
+  invoice_overdue: "committed",
+  completed_job_not_invoiced: "committed",
+  accepted_estimate_no_job: "committed",
+  pending_estimate: "potential",
+  stale_estimate: "potential",
+  uncontacted_lead: "potential",
+  qualified_lead_unbooked: "potential",
+  active_lead_signal: "potential",
+  completed_job_no_review_request: "non_monetary",
+  completed_job_no_referral_request: "non_monetary",
+  no_show: "non_monetary",
+  cancelled_appointment_no_rebooking: "non_monetary",
+  dormant_customer: "non_monetary",
+  completed_appointment_no_estimate: "non_monetary",
+};
+
+/**
+ * §7 "no double counting": for one customer, the most advanced record
+ * supplies the value - invoice over job, job over estimate, estimate over
+ * lead. Used only for the class totals; every item keeps its own value.
+ */
+const VALUE_RECORD_RANK: Partial<Record<OpportunityType, number>> = {
+  invoice_overdue: 4,
+  completed_job_not_invoiced: 3,
+  accepted_estimate_no_job: 2,
+  pending_estimate: 2,
+  stale_estimate: 2,
+  uncontacted_lead: 1,
+  qualified_lead_unbooked: 1,
+  active_lead_signal: 1,
+};
+
+export type OpportunityClassTotal = {
+  /** SUM(estimated_value) of the class's opportunities with a value, counting each customer's most advanced record only - real dollars, never a fabricated figure. */
+  value: number;
+  /** Open opportunities of this class. */
+  count: number;
+  /** Of those, how many have no value entered - shown distinctly, never treated as $0. */
+  unknownValueCount: number;
+};
+
 export type OpportunitySummary = {
   count: number;
-  /** SUM(estimated_value) over open opportunities with a non-null value - real dollars only, never a fabricated figure standing in for the unknown-value ones. */
-  knownEstimatedValue: number;
-  /** Count of open opportunities whose estimated_value is NULL - the UI must show this distinctly from knownEstimatedValue, never silently drop it or imply it's worth $0. */
-  unknownValueCount: number;
+  /** Phase 2-13 (§7): one total per class, never one combined figure. */
+  committed: OpportunityClassTotal;
+  potential: OpportunityClassTotal;
+  /** Non-monetary opportunities: no value dimension, never counted as missing a value. */
+  nonMonetaryCount: number;
   byType: Record<OpportunityType, number>;
 };
 
@@ -182,20 +237,37 @@ const EMPTY_BY_TYPE: Record<OpportunityType, number> = {
 
 /** Summarizes an already-fetched open-opportunity list - kept as a pure function (no I/O) so it's directly unit-testable with controlled input, matching this codebase's established pure/impure split. */
 export function summarizeOpportunities(opportunities: Opportunity[]): OpportunitySummary {
-  let knownEstimatedValue = 0;
-  let unknownValueCount = 0;
   const byType: Record<OpportunityType, number> = { ...EMPTY_BY_TYPE };
+  const committed: OpportunityClassTotal = { value: 0, count: 0, unknownValueCount: 0 };
+  const potential: OpportunityClassTotal = { value: 0, count: 0, unknownValueCount: 0 };
+  let nonMonetaryCount = 0;
+
+  // The most advanced valued record per customer (contact) - §7's no-double-counting rule.
+  const topRankByContact = new Map<string, number>();
+  for (const opportunity of opportunities) {
+    const rank = VALUE_RECORD_RANK[opportunity.type];
+    if (rank === undefined || opportunity.estimatedValue == null || !opportunity.contactId) continue;
+    topRankByContact.set(opportunity.contactId, Math.max(topRankByContact.get(opportunity.contactId) ?? 0, rank));
+  }
 
   for (const opportunity of opportunities) {
     byType[opportunity.type] += 1;
-    if (opportunity.estimatedValue != null) {
-      knownEstimatedValue += opportunity.estimatedValue;
-    } else {
-      unknownValueCount += 1;
+    const valueClass = OPPORTUNITY_VALUE_CLASS[opportunity.type];
+    if (valueClass === "non_monetary") {
+      nonMonetaryCount += 1;
+      continue;
     }
+    const total = valueClass === "committed" ? committed : potential;
+    total.count += 1;
+    if (opportunity.estimatedValue == null) {
+      total.unknownValueCount += 1;
+      continue;
+    }
+    const superseded = opportunity.contactId != null && (VALUE_RECORD_RANK[opportunity.type] ?? 0) < (topRankByContact.get(opportunity.contactId) ?? 0);
+    if (!superseded) total.value += opportunity.estimatedValue;
   }
 
-  return { count: opportunities.length, knownEstimatedValue, unknownValueCount, byType };
+  return { count: opportunities.length, committed, potential, nonMonetaryCount, byType };
 }
 
 /** Scoped to the org, matching every other single-row lookup in this codebase - any error (invalid id, wrong org) resolves to null rather than throwing. */

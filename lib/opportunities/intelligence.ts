@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
-import { getOpenOpportunitiesResult, type Opportunity, type OpportunityType } from "./queries";
+import { OPPORTUNITY_VALUE_CLASS, getOpenOpportunitiesResult, type Opportunity, type OpportunityType } from "./queries";
 import { getOrganizationAutomationSettings, getOrganizationAutomationState, organizationEligibleForAutomation } from "@/lib/decisions/context";
 import { getAutomationDefaultEnabled } from "@/lib/automation/catalog";
 import { E164_PATTERN } from "@/lib/automation/sms";
@@ -73,14 +73,8 @@ export const TIER_BY_TYPE: Record<OpportunityType, PriorityTier> = {
  * "this instance's value field is unknown" - the exact KNOWN/UNKNOWN/
  * NOT_APPLICABLE distinction the approved design requires.
  */
-const NOT_APPLICABLE_VALUE_TYPES = new Set<OpportunityType>([
-  // Phase 2-10 (B7, §6): a review ask has no dollar value by design - never "Value not yet entered".
-  "completed_job_no_review_request",
-  "completed_appointment_no_estimate",
-  "dormant_customer",
-  "no_show",
-  "cancelled_appointment_no_rebooking",
-]);
+// Phase 2-13 (§7): derived from the one value-class table - every non-monetary type (referral included).
+const NOT_APPLICABLE_VALUE_TYPES = new Set<OpportunityType>((Object.keys(OPPORTUNITY_VALUE_CLASS) as OpportunityType[]).filter((type) => OPPORTUNITY_VALUE_CLASS[type] === "non_monetary"));
 
 export function deriveValueState(opportunity: Opportunity): ValueState {
   if (NOT_APPLICABLE_VALUE_TYPES.has(opportunity.type)) return "not_applicable";

@@ -18,7 +18,13 @@ export type DecisionActor = "human" | "trackpr";
 /** How long Trackpr's AI gets to answer a waiting customer before the conversation needs a human (A6). */
 export const AI_REPLY_GRACE_MS = 15 * 60 * 1000;
 
-/** Estimate follow-up's second touch is due 72h after sending (global constant, C7 / A16). Until then Trackpr still has a follow-up to send. */
+/**
+ * Estimate follow-up's second touch is due 72h after sending under the
+ * default configuration (C7 / A16). Until then Trackpr still has a follow-up
+ * to send. Phase 2-13 (R-d): the organization's configured followup_2_hours
+ * replaces it when set (DecisionContext.estimateFollowupWindowMs); this is
+ * the fallback.
+ */
 export const ESTIMATE_FOLLOWUP_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 /**
@@ -69,11 +75,22 @@ export type DecisionContext = {
   /**
    * Phase 2-11 (G4): per contact, the time (ms) of the latest successful
    * (sent or delivered) outbound message - read only when a pending estimate
-   * is 72h or more old. Absent or null means unknown: no estimate is then
+   * is past its follow-up window (72h, or the configured one - R-d). Absent or null means unknown: no estimate is then
    * labelled a missed follow-up.
    */
   latestOutboundMsByContact?: ReadonlyMap<string, number> | null;
+  /**
+   * Phase 2-13 (R-d): the organization's estimate follow-up window - its
+   * configured followup_2_hours (the second and last touch), read with the
+   * automation's own lenient reader. Trackpr owns a pending estimate until
+   * then; a person's missed follow-up begins only after it. Absent means
+   * the default 72h.
+   */
+  estimateFollowupWindowMs?: number;
 };
+
+/** Phase 2-13 (R-d): the configured estimate follow-up window, or the 72h default. */
+export const estimateFollowupWindowMs = (context: Pick<DecisionContext, "estimateFollowupWindowMs">): number => context.estimateFollowupWindowMs ?? ESTIMATE_FOLLOWUP_WINDOW_MS;
 
 /** Every item human - the context the assembler uses when none is supplied, and the safe fallback. */
 export const ALL_HUMAN_CONTEXT: DecisionContext = {
@@ -136,7 +153,8 @@ export function resolveSignalActor(item: Pick<AttentionItem, "kind" | "conversat
 
 /**
  * Only a sent estimate still has a pending Trackpr action: estimate
- * follow-up's two touches run until 72h after sending, and only when they
+ * follow-up's two touches run until the second touch is due (72h after
+ * sending by default; the configured followup_2_hours - R-d), and only when they
  * can actually be sent - including (Phase 2-4, K2) the contact having no
  * open SMS conversation with AI turned off. Every other opportunity type's
  * automation is one-shot (or absent), so it is human.
@@ -151,7 +169,7 @@ export function resolveOpportunityActor(prioritized: Pick<PrioritizedOpportunity
   if (typeof sentAt !== "string") return "human";
   const sentMs = new Date(sentAt).getTime();
   if (Number.isNaN(sentMs)) return "human";
-  return context.now - sentMs < ESTIMATE_FOLLOWUP_WINDOW_MS ? "trackpr" : "human";
+  return context.now - sentMs < estimateFollowupWindowMs(context) ? "trackpr" : "human";
 }
 
 /**

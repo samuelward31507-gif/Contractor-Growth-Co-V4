@@ -53,3 +53,11 @@ test("estimate: unknown data never marks it - no outbound read, no or unreadable
   assert.equal(isEstimateFollowUpMissed({ contactId: "c1", metadata: { sent_at: "garbage" } }, new Map(), NOW), false, "unreadable sent_at");
   assert.equal(isEstimateFollowUpMissed(estimate(100 * H, null), new Map(), NOW), true);
 });
+
+test("R-d (Phase 2-13): with a configured window, an estimate follow-up is missed only once that window has elapsed", () => {
+  const none = new Map<string, number>();
+  assert.equal(isEstimateFollowUpMissed(estimate(30 * H), none, NOW, 30 * H), true, "exactly 30h of a 30h window");
+  assert.equal(isEstimateFollowUpMissed(estimate(30 * H - 1), none, NOW, 30 * H), false);
+  assert.equal(isEstimateFollowUpMissed(estimate(100 * H), none, NOW, 120 * H), false, "past 72h but Trackpr's 120h window is still open");
+  assert.equal(isEstimateFollowUpMissed(estimate(120 * H), none, NOW, 120 * H), true);
+});

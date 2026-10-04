@@ -4,6 +4,10 @@
  * opportunities in every tier), with ties, unknown values, a missing
  * contact, an invalid phone and two kinds Today ignores. Dates are relative
  * to the moment it is built, so relative ages render deterministically.
+ *
+ * Phase 2-13 (§7): the referral opportunity (o10) is non-monetary - value
+ * not applicable, never "Value not yet entered" - matching what the real
+ * pipeline (deriveValueState / buildExplanation) now produces.
  */
 import type { AttentionItem } from "@/lib/dashboard/queries";
 import type { PrioritizedOpportunity, PriorityTier, RecommendedAction } from "@/lib/opportunities/intelligence";
@@ -32,14 +36,14 @@ export function buildParityFixture(now: number = Date.now()): { attentionItems: 
     id: string,
     type: OpportunityType,
     tier: PriorityTier,
-    o: { value: number | null; days: number; contactId: string | null; phone: string | null; action: RecommendedAction; primary: string; supporting?: string[]; counter?: string[]; sourceEntityId?: string; metadata?: Record<string, unknown> },
+    o: { value: number | null; days: number; contactId: string | null; phone: string | null; action: RecommendedAction; primary: string; supporting?: string[]; counter?: string[]; sourceEntityId?: string; metadata?: Record<string, unknown>; notApplicable?: true },
   ): PrioritizedOpportunity => {
     const opportunity: Opportunity = {
       id, type, status: "open", sourceEntityType: "lead", sourceEntityId: o.sourceEntityId ?? `src-${id}`, contactId: o.contactId, title: `Person ${id}`, description: o.primary,
       estimatedValue: o.value, valueBasis: null, createdAt: daysAgo(o.days), updatedAt: daysAgo(o.days), resolvedAt: null, resolutionReason: null, metadata: o.metadata ?? {},
     };
     return {
-      opportunity, tier, valueState: o.value != null ? "known" : "unknown",
+      opportunity, tier, valueState: o.notApplicable ? "not_applicable" : o.value != null ? "known" : "unknown",
       explanation: { primaryReason: o.primary, supportingSignals: o.supporting ?? [], counterSignals: o.counter ?? [], confidence: "confirmed" },
       recommendedAction: o.action, automatable: false, contactPhone: o.phone,
     };
@@ -47,7 +51,7 @@ export function buildParityFixture(now: number = Date.now()): { attentionItems: 
 
   // Deliberately NOT in priority order - buildPriorityQueue sorts.
   const prioritizedOpportunities: PrioritizedOpportunity[] = [
-    make("o10", "completed_job_no_referral_request", "growth", { value: null, days: 2, contactId: "c9", phone: null, action: "request_referral", primary: 'Completed job "Roof" has no referral request yet.', supporting: ["Value not yet entered"], sourceEntityId: "job-1" }),
+    make("o10", "completed_job_no_referral_request", "growth", { value: null, days: 2, contactId: "c9", phone: null, action: "request_referral", primary: 'Completed job "Roof" has no referral request yet.', sourceEntityId: "job-1", notApplicable: true }),
     make("o4", "uncontacted_lead", "active_pursuit", { value: null, days: 2, contactId: "c4", phone: "+15125550104", action: "call", primary: "New lead from the website hasn't been contacted.", supporting: ["Value not yet entered"] }),
     make("o3", "completed_job_not_invoiced", "committed_revenue_at_risk", { value: null, days: 5, contactId: null, phone: null, action: "create_invoice", primary: 'Completed job "Gutter" has not been invoiced yet.', supporting: ["Value not yet entered"], sourceEntityId: "job-3" }),
     make("o8", "no_show", "at_risk", { value: null, days: 2, contactId: "c8", phone: null, action: "rebook", primary: "Missed appointment - needs rescheduling." }),

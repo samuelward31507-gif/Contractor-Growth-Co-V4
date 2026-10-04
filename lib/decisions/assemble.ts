@@ -5,7 +5,7 @@ import type { StatusTone } from "@/lib/ui/status";
 import { DECISION_REGISTRY, buildActionSentence, opportunityActionHref, opportunityPersonHref } from "./registry";
 import { REASON_CODE_BY_EXCEPTION_KIND, REASON_CODE_BY_OPPORTUNITY_TYPE, REASON_CODE_BY_SIGNAL_KIND, type ConversationSignalKind, type OperationalExceptionKind } from "./reason-codes";
 import type { AssembledDecisions, DecisionItem } from "./types";
-import { ALL_HUMAN_CONTEXT, isEstimateTooYoungForAttention, resolveOpportunityActor, resolveSignalActor, type DecisionContext } from "./actor";
+import { ALL_HUMAN_CONTEXT, estimateFollowupWindowMs, isEstimateTooYoungForAttention, resolveOpportunityActor, resolveSignalActor, type DecisionContext } from "./actor";
 import { MISSED_FOLLOW_UP_LABEL, isEstimateFollowUpMissed, isReplyFollowUpMissed, type MissedFollowUpKind } from "./missed-follow-up";
 
 /**
@@ -49,7 +49,7 @@ function priorityItemToDecision(item: PriorityItem, context: DecisionContext): D
     // resolved action.
     const recommendedAction = opportunity.type === "pending_estimate" && actor === "human" ? "follow_up_estimate" : item.data.recommendedAction;
     const missedFollowUp: MissedFollowUpKind | null =
-      opportunity.type === "uncontacted_lead" ? "first_contact" : opportunity.type === "pending_estimate" && isEstimateFollowUpMissed(opportunity, context.latestOutboundMsByContact, context.now) ? "estimate_followup" : null;
+      opportunity.type === "uncontacted_lead" ? "first_contact" : opportunity.type === "pending_estimate" && isEstimateFollowUpMissed(opportunity, context.latestOutboundMsByContact, context.now, estimateFollowupWindowMs(context)) ? "estimate_followup" : null;
     return withMissedFollowUp({
       key: item.key,
       reasonCode,

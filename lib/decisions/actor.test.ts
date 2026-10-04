@@ -107,6 +107,17 @@ test("pending estimate (C7): Trackpr while estimate follow-up still has a touch 
   assert.equal(actor.resolveOpportunityActor(pending({ metadata: { sent_at: ago(72 * HOUR) } }), context()), "human", "72:00:00.000");
 });
 
+test("R-d (Phase 2-13): the configured window replaces 72h - Trackpr until the configured second touch is due, human from exactly then", () => {
+  const short = context({ estimateFollowupWindowMs: 30 * HOUR });
+  assert.equal(actor.resolveOpportunityActor(pending({ metadata: { sent_at: ago(30 * HOUR - 1) } }), short), "trackpr", "29:59:59.999 of a 30h window");
+  assert.equal(actor.resolveOpportunityActor(pending({ metadata: { sent_at: ago(30 * HOUR) } }), short), "human", "30h: Trackpr's last touch is due");
+  const long = context({ estimateFollowupWindowMs: 120 * HOUR });
+  assert.equal(actor.resolveOpportunityActor(pending({ metadata: { sent_at: ago(100 * HOUR) } }), long), "trackpr", "past 72h but inside a 120h window");
+  assert.equal(actor.resolveOpportunityActor(pending({ metadata: { sent_at: ago(120 * HOUR) } }), long), "human");
+  assert.equal(actor.estimateFollowupWindowMs(context()), 72 * HOUR, "no configured window: the 72h default");
+  assert.equal(actor.resolveOpportunityActor(pending({ metadata: { sent_at: ago(10 * HOUR) } }), context({ estimateFollowupWindowMs: 30 * HOUR, estimateFollowupEnabled: false })), "human", "the window never overrides eligibility");
+});
+
 test("pending estimate is human whenever Trackpr cannot send the follow-up", () => {
   const cases: [string, Parameters<typeof actor.resolveOpportunityActor>[0], DecisionContext][] = [
     ["organization ineligible", pending(), context({ organizationEligible: false })],

@@ -59,7 +59,7 @@ const EXPECTED_OPPORTUNITIES: Row[] = [
   // recoverable before growth; within growth, known value first.
   ["opportunity:o11", "customer_dormant", "opportunity", "good", "Dormant customer", "Person o11", "/people/c11", undefined, "3 days ago", "No activity since their last completed job. Reach out to reconnect.", null, "View customer", "/people/c11"],
   ["opportunity:o9", "review_request_needed", "opportunity", "good", "Review request needed", "Person o9", "/people/c9", "$3,000", "2 days ago", 'Completed job "Roof" has no review request yet. Ask for a review.', null, "View job", "/jobs/job-1"],
-  ["opportunity:o10", "referral_request_needed", "opportunity", "good", "Referral request needed", "Person o10", "/people/c9", undefined, "2 days ago", 'Completed job "Roof" has no referral request yet. Value not yet entered Ask for a referral.', null, "View job", "/jobs/job-1"],
+  ["opportunity:o10", "referral_request_needed", "opportunity", "good", "Referral request needed", "Person o10", "/people/c9", undefined, "2 days ago", 'Completed job "Roof" has no referral request yet. Ask for a referral.', null, "View job", "/jobs/job-1"],
 ];
 
 test("exceptions: attention-list order, keys from the incident id or kind + href, 'Review' to the item's own link", () => {
@@ -345,6 +345,24 @@ test("2-11 (G4): a human-owned estimate sent 72h+ ago with no outbound after sen
   assert.equal(under.attention[0].problemLabel, "Estimate sent, awaiting reply", "under 72h");
   const unknown = assembleDecisions({ ...estimateOnly(now, 80 * HOUR), context: humanContext(null) });
   assert.equal(unknown.attention[0].problemLabel, "Estimate sent, awaiting reply", "outbound read unavailable: existing label");
+});
+
+test("R-d (Phase 2-13): the organization's configured follow-up window decides when Trackpr is finished and when a person's follow-up is missed; the 24h minimum still holds", () => {
+  const now = Date.now();
+  const withWindow = (hours: number, extra: Partial<import("./actor").DecisionContext> = {}) => ({ ...eligibleContext(now), latestOutboundMsByContact: new Map<string, number>(), estimateFollowupWindowMs: hours * HOUR, ...extra });
+  // 120h window (e.g. followup_1_hours 48, followup_2_hours 120): Trackpr still owns it at 100h; at 120h it is human and, with nothing sent, missed.
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 100 * HOUR), context: withWindow(120) })).trackprHandling, ["opportunity:o6"], "100h of 120h: Trackpr's second touch is still pending");
+  const done = assembleDecisions({ ...estimateOnly(now, 120 * HOUR), context: withWindow(120) });
+  assert.deepEqual([placement(done).attention, done.attention[0].problemLabel], [["opportunity:o6"], "Missed follow-up · Estimate follow-up"]);
+  // 30h window: human and missed from 30h.
+  const short = assembleDecisions({ ...estimateOnly(now, 31 * HOUR), context: withWindow(30) });
+  assert.deepEqual([placement(short).attention, short.attention[0].problemLabel], [["opportunity:o6"], "Missed follow-up · Estimate follow-up"]);
+  // 12h window (followup_1_hours 6, followup_2_hours 12): Trackpr is done at 12h, but a person's estimate is not attention before 24h.
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 13 * HOUR), context: withWindow(12) })), { attention: [], trackprHandling: [], notYetAttention: ["opportunity:o6"], count: 0 }, "the 24h minimum is preserved");
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 24 * HOUR), context: withWindow(12) })).attention, ["opportunity:o6"]);
+  // Follow-up turned off with a 120h window: a person owns it from 24h, but it is only a missed follow-up once the configured window has elapsed.
+  const off = assembleDecisions({ ...estimateOnly(now, 100 * HOUR), context: withWindow(120, { estimateFollowupEnabled: false }) });
+  assert.deepEqual([placement(off).attention, off.attention[0].problemLabel], [["opportunity:o6"], "Estimate sent, awaiting reply"]);
 });
 
 test("2-11: Trackpr-owned and too-young estimates are never relabelled, and the 2-4 placement is unchanged", () => {

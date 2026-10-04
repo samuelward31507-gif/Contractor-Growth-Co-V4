@@ -153,7 +153,7 @@ test("People and Inbox show invoice number, status, balance due and overdue to m
   assert.match(peoplePage, /getInvoices\(supabase, membership\.organizationId\)/);
   assert.match(peoplePage, /invoices: invoicesByContactId\.get\(contact\.id\) \?\? \[\]/);
   assert.match(personPage, /getContactInvoices\(supabase, membership\.organizationId, id\)/);
-  assert.match(personPage, /findPersonNextStep\(\{ leads, appointments, estimates, jobs, conversations, invoices, timeZone \}\)/);
+  assert.match(personPage, /findPersonNextStep\(\{ leads, appointments, estimates, jobs, conversations, waitingConversationIds: waiting\.ids, invoices, timeZone \}\)/);
   assert.match(personPage, /formatInvoiceNumber\(invoice\.number\)/);
   assert.match(personPage, /INVOICE_STATUS_LABELS\[invoice\.status\]/);
   assert.match(personPage, /formatMoney\(invoice\.balance_due\)/);

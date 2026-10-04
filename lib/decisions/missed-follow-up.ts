@@ -11,7 +11,9 @@ import { ESTIMATE_FOLLOWUP_WINDOW_MS, type WaitingConversationState } from "./ac
  *   reply             - a human-owned waiting reply whose first unanswered
  *                       customer message is 4h or more old (A8, G3). When the
  *                       conversation's timestamp is unknown, nothing changes.
- *   estimate_followup - a pending estimate sent 72h or more ago with no
+ *   estimate_followup - a pending estimate sent 72h or more ago (the
+ *                       organization's configured followup_2_hours when
+ *                       set - R-d, Phase 2-13) with no
  *                       successful outbound message to its contact after
  *                       sent_at (A7, G4). Trackpr's own automated follow-ups
  *                       are outbound messages, so they count as follow-up
@@ -29,7 +31,7 @@ export const MISSED_FOLLOW_UP_LABEL: Record<MissedFollowUpKind, string> = {
 /** A8: a reply is a missed follow-up once the customer has waited this long. */
 export const REPLY_FOLLOW_UP_WINDOW_MS = 4 * 60 * 60 * 1000;
 
-/** A7: an estimate follow-up is missed 72h after sending - the same window Trackpr's own estimate follow-up uses (Phase 2-4). */
+/** A7: an estimate follow-up is missed 72h after sending by default - the same window Trackpr's own estimate follow-up uses (Phase 2-4). Phase 2-13 (R-d): callers pass the configured window. */
 export const ESTIMATE_FOLLOW_UP_WINDOW_MS = ESTIMATE_FOLLOWUP_WINDOW_MS;
 
 const ms = (iso: string | null | undefined): number => (typeof iso === "string" ? new Date(iso).getTime() : Number.NaN);
@@ -43,10 +45,11 @@ export function isEstimateFollowUpMissed(
   opportunity: { contactId: string | null; metadata: Record<string, unknown> },
   latestOutboundMsByContact: ReadonlyMap<string, number> | null | undefined,
   now: number,
+  windowMs: number = ESTIMATE_FOLLOW_UP_WINDOW_MS,
 ): boolean {
   if (!latestOutboundMsByContact) return false;
   const sentMs = ms(opportunity.metadata.sent_at as string | undefined);
-  if (Number.isNaN(sentMs) || now - sentMs < ESTIMATE_FOLLOW_UP_WINDOW_MS) return false;
+  if (Number.isNaN(sentMs) || now - sentMs < windowMs) return false;
   // No contact means nothing can have been sent to them.
   const latestOutbound = opportunity.contactId ? (latestOutboundMsByContact.get(opportunity.contactId) ?? Number.NEGATIVE_INFINITY) : Number.NEGATIVE_INFINITY;
   return latestOutbound <= sentMs;

@@ -277,3 +277,31 @@ test("2-11 (G4): a failed outbound read is null - unknown, so no estimate is lab
   const context = await getDecisionContext(fake.client, "org-1", { attentionItems: [], timeZone: "UTC", now: NOW });
   assert.equal(context.latestOutboundMsByContact, null);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2-13 (R-d): the organization's configured estimate follow-up window
+// ---------------------------------------------------------------------------
+
+const followupSettings = (config: unknown) => ({ automation_settings: { data: [{ automation_id: "estimate-followup", enabled: true, config }], error: null } });
+
+test("R-d: the window is the configured followup_2_hours; no row, an invalid config or followup_2 <= followup_1 fall back to the automation's 72h default", async () => {
+  const windowFor = async (results: Parameters<typeof fakeClient>[0]) => (await getDecisionContext(fakeClient(results).client, "org-1", { attentionItems: [], timeZone: "UTC", now: NOW })).estimateFollowupWindowMs;
+  assert.equal(await windowFor({}), 72 * HOUR_MS, "no row");
+  assert.equal(await windowFor(followupSettings({ followup_1_hours: 6, followup_2_hours: 30 })), 30 * HOUR_MS);
+  assert.equal(await windowFor(followupSettings({ followup_1_hours: 48, followup_2_hours: 120 })), 120 * HOUR_MS);
+  assert.equal(await windowFor(followupSettings({ followup_1_hours: 48, followup_2_hours: 24 })), 72 * HOUR_MS, "followup_2 must be after followup_1");
+  assert.equal(await windowFor(followupSettings({ followup_1_hours: 0, followup_2_hours: 900 })), 72 * HOUR_MS, "out of range");
+  assert.equal(await windowFor(followupSettings(null)), 72 * HOUR_MS, "null config");
+});
+
+test("R-d: the outbound read follows the configured window - a 30h window reads at 31h; a 120h window skips at 80h", async () => {
+  const outboundReads = async (config: unknown, sentMsAgo: number) => {
+    const fake = fakeClient({ ...followupSettings(config), opportunities: { data: [estimateRow("o1", "c1", sentMsAgo)], error: null } });
+    await getDecisionContext(fake.client, "org-1", { attentionItems: [], timeZone: "UTC", now: NOW });
+    return fake.reads.filter(isOutboundRead).length;
+  };
+  assert.equal(await outboundReads({ followup_1_hours: 6, followup_2_hours: 30 }, 31 * HOUR_MS), 1);
+  assert.equal(await outboundReads({ followup_1_hours: 6, followup_2_hours: 30 }, 29 * HOUR_MS), 0);
+  assert.equal(await outboundReads({ followup_1_hours: 48, followup_2_hours: 120 }, 80 * HOUR_MS), 0);
+  assert.equal(await outboundReads({ followup_1_hours: 48, followup_2_hours: 120 }, 121 * HOUR_MS), 1);
+});

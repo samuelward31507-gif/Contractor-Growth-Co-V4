@@ -175,7 +175,10 @@ test("resolution at scale: 225 uncontacted leads marked lost resolve as 'lost' t
 
 test("Today's prioritized list: contact details found for every shown opportunity, with no contact id list", async () => {
   const prioritized = await getPrioritizedOpportunities(service, orgA, NOW);
-  assert.equal(prioritized.length, 500, "the 500-newest display limit is unchanged");
+  // Phase 2-13: Phase 3A-4 removed the 500-newest display cap - Today's list now holds every open opportunity.
+  const { count: open } = await service.from("opportunities").select("id", { count: "exact", head: true }).eq("organization_id", orgA).eq("status", "open");
+  assert.ok((open ?? 0) > 500, "the fixture is past the old 500 cap");
+  assert.equal(prioritized.length, open, "every open opportunity, no 500 cap");
   assert.ok(prioritized.filter((p) => p.opportunity.contactId).every((p) => p.contactPhone !== null), "every shown opportunity's contact phone was read");
 });
 

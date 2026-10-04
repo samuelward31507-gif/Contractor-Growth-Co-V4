@@ -16,6 +16,7 @@ import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { getReviewRequestsForJobs } from "@/lib/reviews-referrals/queries";
 import { deriveContactLifecycle } from "@/lib/customers/lifecycle-stage";
 import { findPersonNextStep } from "@/lib/people/next-step";
+import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contacts/open-lead-value";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials } from "@/lib/contacts/format";
@@ -63,7 +64,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     );
   }
 
-  const [messages, contactAppointments, contactLeads, contactEstimates, contactJobs, contactOptOut, timeZone, contactInvoices] = await Promise.all([
+  const [messages, contactAppointments, contactLeads, contactEstimates, contactJobs, contactOptOut, timeZone, contactInvoices, waiting] = await Promise.all([
     getMessages(supabase, membership.organizationId, conversation.id),
     conversation.contact_id
       ? getContactAppointments(supabase, membership.organizationId, conversation.contact_id)
@@ -98,6 +99,8 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     // Phase 1B-4: this contact's invoices, the same scoped-read shape as
     // getContactEstimates above - feeds the Invoice card and the next step.
     conversation.contact_id ? getContactInvoices(supabase, membership.organizationId, conversation.contact_id) : Promise.resolve([]),
+    // Phase 2-13 (§3): whether this contact's conversations are waiting on the business.
+    conversation.contact_id ? getWaitingConversationIds(supabase, membership.organizationId, { contactId: conversation.contact_id }) : Promise.resolve({ ids: new Set<string>(), failed: false }),
   ]);
 
   // review_requests are read after contactJobs resolves (needs its own job
@@ -133,7 +136,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
   // one thread. Every other branch (appointment/estimate/lead) reads this
   // contact's full, real history exactly like the Person page does.
   const nextStep = conversation.contact_id
-    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: [conversation], invoices: contactInvoices, timeZone })
+    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: [conversation], waitingConversationIds: waiting.ids, invoices: contactInvoices, timeZone })
     : null;
 
   // Phase 1B-4: the one invoice worth showing next to the thread - an open

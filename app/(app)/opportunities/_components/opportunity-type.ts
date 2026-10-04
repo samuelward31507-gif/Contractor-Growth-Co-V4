@@ -16,7 +16,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { BadgeTone } from "@/lib/ui/badge";
-import type { OpportunityType } from "@/lib/opportunities/queries";
+import { OPPORTUNITY_VALUE_CLASS, summarizeOpportunities, type Opportunity, type OpportunityType } from "@/lib/opportunities/queries";
+import { formatCurrency } from "@/lib/dashboard/format";
 
 /**
  * Trackpr 2.0, Phase 3F: the presentation-only layer for the 10 opportunity
@@ -98,3 +99,17 @@ export const OPPORTUNITY_TYPE_TONE: Record<OpportunityType, BadgeTone> = {
  * here, unchanged, for the By type list and every existing importer.
  */
 export { OPPORTUNITY_TYPE_LABEL, OPPORTUNITY_ACTION_LABEL, opportunityActionHref } from "@/lib/decisions/registry";
+
+/**
+ * Phase 2-13 (§7): a By type group's header - its class's money total (every
+ * type has exactly one class, so a group never mixes committed and
+ * potential) and its count. Non-monetary groups, and groups where no item
+ * has a value entered yet, show the count only - never a "$0" total.
+ */
+export function groupTotalLabel(type: OpportunityType, items: Opportunity[]): string {
+  const valueClass = OPPORTUNITY_VALUE_CLASS[type];
+  if (valueClass === "non_monetary") return String(items.length);
+  const total = summarizeOpportunities(items)[valueClass];
+  if (total.unknownValueCount === total.count) return String(items.length);
+  return `${formatCurrency(total.value)} ${valueClass} · ${items.length}`;
+}

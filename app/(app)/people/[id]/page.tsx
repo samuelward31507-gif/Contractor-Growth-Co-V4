@@ -39,21 +39,12 @@ import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status"
 import { INVOICE_STATUS_TONE, INVOICE_STATUS_ICON, INVOICE_STATUS_LABELS } from "../../invoices/_components/status";
 import { buildPersonTimeline } from "@/lib/people/timeline";
 import { findPersonNextStep } from "@/lib/people/next-step";
+import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import { CreateEstimateButton } from "./_components/create-estimate-button";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+// Phase 2-13 (D3): the shared registry labels - every type, never a raw code.
+import { OPPORTUNITY_TYPE_LABEL } from "@/lib/decisions/registry";
 
-const OPPORTUNITY_TYPE_LABELS: Record<string, string> = {
-  qualified_lead_unbooked: "Qualified, not booked",
-  stale_estimate: "Estimate expired",
-  completed_appointment_no_estimate: "Visited, no estimate",
-  dormant_customer: "Dormant",
-  no_show: "No-show",
-  completed_job_no_referral_request: "No referral request yet",
-  uncontacted_lead: "Uncontacted lead",
-  accepted_estimate_no_job: "Accepted estimate - job not scheduled",
-  completed_job_not_invoiced: "Completed, not invoiced",
-  invoice_overdue: "Invoice overdue",
-};
 
 const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [item.value, item.label]));
 
@@ -87,7 +78,7 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
     redirect("/onboarding");
   }
 
-  const [contact, contacts, relationshipCounts, allLeads, allAppointments, allEstimates, allConversations, allJobs, lifecycle, allOpenOpportunities, timeZone, invoices] =
+  const [contact, contacts, relationshipCounts, allLeads, allAppointments, allEstimates, allConversations, allJobs, lifecycle, allOpenOpportunities, timeZone, invoices, waiting] =
     await Promise.all([
       getContact(supabase, membership.organizationId, id),
       // Final Major Product Build: full org contact list, needed only for
@@ -108,6 +99,8 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
       // mirroring getContactEstimates) - number, status, balance due and
       // overdue only; notes and internal ids are never rendered here.
       getContactInvoices(supabase, membership.organizationId, id),
+      // Phase 2-13 (§3): this person's conversations waiting on the business.
+      getWaitingConversationIds(supabase, membership.organizationId, { contactId: id }),
     ]);
 
   if (!contact) {
@@ -171,7 +164,7 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
   const messages = conversationMessages.flat();
 
   const timeline = buildPersonTimeline({ leads, stageHistoryByLeadId, appointments, estimates, jobs, messages, reviewRequests, referralRequests, timeZone });
-  const nextStep = findPersonNextStep({ leads, appointments, estimates, jobs, conversations, invoices, timeZone });
+  const nextStep = findPersonNextStep({ leads, appointments, estimates, jobs, conversations, waitingConversationIds: waiting.ids, invoices, timeZone });
   const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
 
   const openLeadCount = leads.filter((lead) => lead.status !== "won" && lead.status !== "lost").length;
@@ -587,7 +580,7 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                     <dd className={`${detailValueClass} space-y-1`}>
                       {openOpportunities.map((opportunity) => (
                         <span key={opportunity.id} className="block text-sm font-normal text-ink-2">
-                          {OPPORTUNITY_TYPE_LABELS[opportunity.type] ?? opportunity.type}
+                          {OPPORTUNITY_TYPE_LABEL[opportunity.type]}
                           {opportunity.estimatedValue != null ? ` · ${formatCurrency(opportunity.estimatedValue)}` : ""}
                         </span>
                       ))}
