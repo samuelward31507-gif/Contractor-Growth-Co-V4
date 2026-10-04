@@ -909,3 +909,47 @@ test("Phase 2-9 structural: exactly the two approved directed rules, checked nex
   assert.match(source, /\(candidate\.dismissalAliases \?\? \[\]\)\.some\(\(alias\) => dismissedKeys\.has\(candidateKey\(candidate\.type, alias\)\)\) \|\|/);
   assert.match(source, /carryForwardStatus\.get\(candidate\.type\)\?\.get\(candidate\.sourceEntityId\) === "dismissed";/);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2-10 (B7): a review request carries no value; every other valued type keeps its value.
+// ---------------------------------------------------------------------------
+
+test("Phase 2-10 (B7): a review request has a null value whatever the job's amount; the same job's not-invoiced item keeps the amount; the review still syncs and reaches Today's queue", async () => {
+  const tables = scaleFixture(0);
+  const c1 = contact(ORG, 1);
+  tables.contacts = [c1];
+  tables.jobs = [{ id: "job-1", organization_id: ORG, contact_id: c1.id, title: "Roof", amount: 8000, status: "completed", completed_at: DAYS_AGO(3), created_at: DAYS_AGO(10), estimate_id: null, contacts: c1 }];
+  tables.review_requests = [];
+  tables.invoices = [];
+  tables.opportunities = [];
+  const candidates = await detectAllOpportunityCandidates(makeFake(tables).client, ORG, NOW);
+  const review = candidates.find((c) => c.type === "completed_job_no_review_request")!;
+  assert.ok(review, "the review request still appears");
+  assert.deepEqual([review.estimatedValue, review.valueBasis, review.sourceEntityType, review.sourceEntityId], [null, null, "job", "job-1"]);
+  assert.deepEqual(review.metadata, { job_completed_at: DAYS_AGO(3) }, "metadata unchanged");
+  const notInvoiced = candidates.find((c) => c.type === "completed_job_not_invoiced")!;
+  assert.deepEqual([notInvoiced.estimatedValue, notInvoiced.valueBasis], [8000, "jobs.amount"], "another valued type keeps its value");
+
+  const fake = makeFake(tables);
+  await syncOpportunities(fake.client, ORG, NOW);
+  const prioritized = await getPrioritizedOpportunities(fake.client, ORG, NOW);
+  const queued = prioritized.find((p) => p.opportunity.type === "completed_job_no_review_request")!;
+  assert.ok(queued, "the decision layer still receives the review opportunity");
+  assert.equal(queued.opportunity.estimatedValue, null);
+  assert.equal(queued.valueState, "not_applicable");
+  assert.ok(prioritized.every((p) => p.tier && typeof p.opportunity.id === "string"), "sorting produces a valid list");
+});
+
+test("Phase 2-10 (B7): an existing open review row with the old job amount is refreshed to null by the next sync (no new row)", async () => {
+  const tables = scaleFixture(0);
+  const c1 = contact(ORG, 1);
+  tables.contacts = [c1];
+  tables.jobs = [{ id: "job-1", organization_id: ORG, contact_id: c1.id, title: "Roof", amount: 8000, status: "completed", completed_at: DAYS_AGO(3), created_at: DAYS_AGO(10), estimate_id: null, contacts: c1 }];
+  tables.invoices = [{ id: "inv-1", organization_id: ORG, job_id: "job-1", status: "paid" }];
+  tables.opportunities = [{ id: "opp-review", organization_id: ORG, type: "completed_job_no_review_request", source_entity_type: "job", source_entity_id: "job-1", contact_id: c1.id, status: "open", title: "F1 L", description: 'Completed job "Roof" has no review request yet.', estimated_value: 8000, value_basis: "jobs.amount", metadata: {}, created_at: DAYS_AGO(2) }];
+  const result = await syncOpportunities(makeFake(tables).client, ORG, NOW);
+  assert.equal(result.refreshed, 1);
+  const row = tables.opportunities.find((r) => r.id === "opp-review")!;
+  assert.deepEqual([row.status, row.estimated_value, row.value_basis], ["open", null, null]);
+  assert.equal(tables.opportunities.filter((r) => r.type === "completed_job_no_review_request").length, 1);
+});

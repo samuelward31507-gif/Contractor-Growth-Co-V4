@@ -900,7 +900,8 @@ test("45. completed_job_no_review_request and completed_job_no_referral_request 
     const reviewItem = data.attentionItems.find((i) => i.kind === "completed_job_no_review_request");
     assert.ok(reviewItem, "expected a completed_job_no_review_request attention item");
     assert.equal(reviewItem!.detail, "Review request still needed.");
-    assert.equal(reviewItem!.value, "$8,000", "unlike the referral kind, this one surfaces the completed job's known value");
+    // Phase 2-10 (B7): a review request no longer carries the completed job's amount - like the referral kind.
+    assert.equal(reviewItem!.value, null, "a review ask never carries a dollar value (B7)");
     assert.equal(reviewItem!.href, `/jobs/${job!.id}`);
 
     const referralItem = data.attentionItems.find((i) => i.kind === "completed_job_no_referral_request");

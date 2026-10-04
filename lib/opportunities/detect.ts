@@ -710,15 +710,13 @@ async function detectCompletedJobsWithoutReviewRequest(supabase: SupabaseClient,
       contactId: job.contact_id,
       title: displayNameOrFallback(job.contacts, job.title),
       description: `Completed job "${job.title}" has no review request yet.`,
-      // Pass 5C, per explicit product decision: unlike the referral
-      // opportunity above (deliberately never a value - a referral ask has
-      // no dollar figure of its own), this one DOES surface the completed
-      // job's own known value when stored, as honest context for the size
-      // of the job a review is being asked about - null/null when unknown,
-      // never coerced to $0. A deliberate divergence from the referral
-      // detector's own choice, not an inconsistency.
-      estimatedValue: job.amount,
-      valueBasis: job.amount != null ? "jobs.amount" : null,
+      // Phase 2-10 (B7): no value, like the referral opportunity above. A
+      // review ask is growth work with no dollar figure of its own; the old
+      // Pass 5C choice to surface the completed job's amount made it sort
+      // and total as if it were money at stake. Existing open rows are
+      // refreshed to null by the next sync (estimated_value is compared).
+      estimatedValue: null,
+      valueBasis: null,
       metadata: { job_completed_at: job.completed_at },
     }));
 }

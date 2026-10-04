@@ -148,7 +148,9 @@ test("R4. a 'failed' review request remains eligible - the one genuinely retriab
   }
 });
 
-test("R5/R8. a known job amount is used as estimatedValue with the correct valueBasis; a NULL amount stays NULL, never coerced to $0", async () => {
+// Phase 2-10 (B7): this used to assert the completed job's amount (750, "jobs.amount") as the review
+// request's value. B7 sets the value to null at detection, whatever the job's amount.
+test("R5/R8 (Phase 2-10): a review request never carries a value - null/null whether the job's amount is known or not, and both jobs still get the item", async () => {
   const orgId = await makeOrg("Review Detector Test Org (R5)", "https://g.page/r/example/review");
   try {
     const contactId = await makeContact(orgId, "+15555580005");
@@ -158,8 +160,9 @@ test("R5/R8. a known job amount is used as estimatedValue with the correct value
     const candidates = await detectAllOpportunityCandidates(service, orgId);
     const known = candidates.find((c) => c.type === "completed_job_no_review_request" && c.sourceEntityId === knownJobId);
     const unknown = candidates.find((c) => c.type === "completed_job_no_review_request" && c.sourceEntityId === unknownJobId);
-    assert.equal(known?.estimatedValue, 750);
-    assert.equal(known?.valueBasis, "jobs.amount");
+    assert.ok(known && unknown, "both completed jobs still get a review-request item");
+    assert.equal(known?.estimatedValue, null);
+    assert.equal(known?.valueBasis, null);
     assert.equal(unknown?.estimatedValue, null);
     assert.equal(unknown?.valueBasis, null);
   } finally {

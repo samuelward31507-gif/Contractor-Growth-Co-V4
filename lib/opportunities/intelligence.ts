@@ -74,6 +74,8 @@ export const TIER_BY_TYPE: Record<OpportunityType, PriorityTier> = {
  * NOT_APPLICABLE distinction the approved design requires.
  */
 const NOT_APPLICABLE_VALUE_TYPES = new Set<OpportunityType>([
+  // Phase 2-10 (B7, §6): a review ask has no dollar value by design - never "Value not yet entered".
+  "completed_job_no_review_request",
   "completed_appointment_no_estimate",
   "dormant_customer",
   "no_show",
