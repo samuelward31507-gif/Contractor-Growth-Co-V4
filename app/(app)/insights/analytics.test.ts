@@ -87,7 +87,7 @@ test("labels: materially different metrics never share a name", () => {
 test("visual system: panel header, four-up primary row, six-up secondary grid, full-width breakdowns", () => {
   // Theme upgrade: the card surface is the shared cardClass (lib/ui/surface.ts).
   assert.match(PANEL, /\$\{cardClass\}/);
-  assert.match(read("lib/ui/surface.ts"), /export const cardClass = "rounded-lg border border-line bg-surface/);
+  assert.match(read("lib/ui/surface.ts"), /export const cardClass = "rounded-xl border border-line bg-surface/);
   assert.match(PANEL, /border-b border-line px-4 py-3\.5 sm:px-5/);
   assert.match(PANEL, /text-\[15px\] font-semibold text-ink/);
   assert.match(PANEL, /grid grid-cols-2 gap-px bg-line/);

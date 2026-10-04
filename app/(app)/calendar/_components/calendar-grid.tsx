@@ -1,5 +1,6 @@
 "use client";
 
+import type { BadgeTone } from "@/lib/ui/badge";
 import { useState } from "react";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
@@ -16,6 +17,15 @@ import { AppointmentDialog } from "../../appointments/_components/appointment-di
 import { AppointmentDetailDialog } from "./appointment-detail-dialog";
 import { BlockedTimeDialog } from "./blocked-time-dialog";
 import { cardClass } from "@/lib/ui/surface";
+
+/** Final redesign: an event's fill carries a whisper of its status tone (the left rail still names it), so a week reads at a glance. */
+const EVENT_FILL: Record<BadgeTone, string> = {
+  neutral: "bg-surface",
+  info: "bg-info-muted/60",
+  success: "bg-accent-muted/70",
+  warning: "bg-warning-muted/80",
+  danger: "bg-danger-muted/80",
+};
 
 function dayKey(iso: string, timeZone?: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(iso));
@@ -137,7 +147,7 @@ export function CalendarGrid({
                   onClick={() => openCreateAt(date, hour)}
                   aria-label={`Add appointment at ${formatHourLabel(hour)}`}
                   style={{ top: index * HOUR_HEIGHT_PX, height: HOUR_HEIGHT_PX }}
-                  className="absolute left-0 right-0 border-b border-line transition-colors hover:bg-hover focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+                  className="absolute left-0 right-0 border-b border-line transition-colors hover:bg-hover focus:outline-none focus-visible:z-30 focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 "
                 />
               ))}
 
@@ -164,7 +174,7 @@ export function CalendarGrid({
                     type="button"
                     onClick={() => setOpenBlockedTime(block)}
                     style={{ top: position.topPx, height: position.heightPx }}
-                    className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,var(--selected),var(--selected)_6px,var(--inset)_6px,var(--inset)_12px)] px-2 py-1 text-left text-xs font-medium text-ink-2 shadow-control ring-1 ring-inset ring-line-strong hover:ring-ink-4 focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent"
+                    className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-[repeating-linear-gradient(135deg,var(--selected),var(--selected)_6px,var(--inset)_6px,var(--inset)_12px)] px-2 py-1 text-left text-xs font-medium text-ink-2 shadow-control inset-ring inset-ring-line-strong hover:inset-ring-ink-4 focus:outline-none focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     {block.reason || "Blocked"}
                   </button>
@@ -182,7 +192,7 @@ export function CalendarGrid({
                     type="button"
                     onClick={() => setOpenAppointment(appointment)}
                     style={{ top: position.topPx, height: position.heightPx }}
-                    className={`absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-2 bg-surface px-2 py-1 text-left text-xs shadow-card ring-1 ring-inset ring-line transition-shadow hover:shadow-popover focus:outline-none focus-visible:z-30 focus-visible:shadow-popover focus-visible:ring-2 focus-visible:ring-accent ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
+                    className={`absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-2 px-2 py-1 text-left text-xs shadow-card inset-ring inset-ring-line transition-shadow ${EVENT_FILL[APPOINTMENT_STATUS_TONE[appointment.status]]} hover:shadow-popover focus:outline-none focus-visible:z-30 focus-visible:shadow-popover focus-visible:ring-2 focus-visible:ring-accent ${RAIL_TONE_CLASS[APPOINTMENT_STATUS_TONE[appointment.status]]}`}
                   >
                     <span className="block truncate font-semibold text-ink">
                       {formatAppointmentTime(appointment.start_at, timeZone)} · {name}

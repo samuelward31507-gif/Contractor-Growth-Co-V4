@@ -87,7 +87,7 @@ export function ProductVisual() {
                 <div
                   key={item.label}
                   className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium ${
-                    item.active ? "bg-emerald-500/[0.14] text-white ring-1 ring-inset ring-emerald-500/25" : "text-slate-400"
+                    item.active ? "bg-emerald-500/[0.14] text-white inset-ring inset-ring-emerald-500/25" : "text-slate-400"
                   }`}
                 >
                   <item.icon className={`h-3.5 w-3.5 shrink-0 ${item.active ? "text-emerald-400" : ""}`} aria-hidden />

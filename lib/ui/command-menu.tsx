@@ -17,7 +17,7 @@
  * (reused as-is from /contacts, per that button's own comment), so this
  * skips the /contacts -> /people redirect hop rather than routing through it.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Search, UserPlus, FileText, Target } from "lucide-react";
 import type { NavGroup } from "@/app/(app)/_components/nav-items";
@@ -41,18 +41,30 @@ function buildActions(navGroups: NavGroup[]): CommandAction[] {
 /** Theme upgrade: the visible way into the palette - the top bar's trigger dispatches this, so Cmd/Ctrl+K is no longer the only door. */
 const OPEN_EVENT = "trackpr:open-command-menu";
 
+const noSubscribe = () => () => {};
+
+/** Final redesign: the shortcut hint names the viewer's own modifier - "⌘K" on Apple platforms, "Ctrl K" elsewhere (server render: "⌘K"). Display only; the listener accepts both either way. */
+function useShortcutLabel(): string {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => (/Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent) ? "⌘K" : "Ctrl K"),
+    () => "⌘K",
+  );
+}
+
 export function CommandMenuTrigger() {
+  const shortcut = useShortcutLabel();
   return (
     <button
       type="button"
       onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))}
       aria-label="Search or jump to"
       aria-keyshortcuts="Meta+K Control+K"
-      className="flex h-11 w-11 items-center justify-center gap-2 rounded-md text-ink-3 transition-colors duration-150 hover:bg-hover hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:h-8 sm:w-64 sm:justify-start sm:border sm:border-line sm:bg-surface sm:px-2.5 sm:shadow-control"
+      className="flex h-11 w-11 items-center justify-center gap-2 rounded-lg text-ink-3 transition-colors duration-150 hover:bg-hover hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:h-9 sm:w-72 sm:justify-start sm:border sm:border-line sm:bg-surface sm:px-3 sm:shadow-control"
     >
       <Search className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
       <span className="hidden flex-1 text-left text-[13px] sm:inline">Search or jump to…</span>
-      <kbd className="hidden shrink-0 rounded-[4px] border border-line bg-canvas px-1.5 py-px font-sans text-[10.5px] font-medium text-ink-3 sm:inline">⌘K</kbd>
+      <kbd className="hidden shrink-0 rounded-[5px] border border-line bg-inset px-1.5 py-px font-mono text-[10.5px] font-medium text-ink-3 sm:inline">{shortcut}</kbd>
     </button>
   );
 }

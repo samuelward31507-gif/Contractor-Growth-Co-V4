@@ -9,7 +9,7 @@ import { NavLink } from "./nav-link";
 import { announceNavClick, useNavLocation } from "./use-nav-location";
 import { logout } from "../actions";
 
-const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40";
+const FOCUS_RING = "focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40";
 /** Theme upgrade: a short pine bar on the active tab's top edge, so "where am I" never rests on icon tint alone. */
 const ACTIVE_TAB_INDICATOR = "absolute left-1/2 top-0 h-0.5 w-8 -translate-x-1/2 rounded-b-full bg-accent";
 

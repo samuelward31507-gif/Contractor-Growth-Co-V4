@@ -144,6 +144,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
           longer needs a second, differently-styled way to reach the same
           destination. */}
       <PageHeader
+        eyebrow="Schedule"
         title="Calendar"
         description="Appointments, availability and blocked time, by day, week or month."
       />

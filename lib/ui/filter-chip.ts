@@ -5,7 +5,7 @@
 // 44px touch floor below `sm`. View switchers (Day/Week/Month/List,
 // Priority/By type) keep the segmented-control pattern instead.
 export function filterChipClass(active: boolean): string {
-  return `inline-flex min-h-11 items-center rounded-md px-3 text-xs font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:min-h-8 ${
-    active ? "bg-selected text-ink ring-1 ring-inset ring-line-strong" : "text-ink-2 hover:bg-hover hover:text-ink"
+  return `inline-flex min-h-11 items-center rounded-full px-3 text-xs font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:min-h-8 ${
+    active ? "bg-surface text-ink shadow-control inset-ring inset-ring-line-strong" : "text-ink-2 hover:bg-ink/[0.045] hover:text-ink"
   }`;
 }

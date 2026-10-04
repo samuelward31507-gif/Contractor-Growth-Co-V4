@@ -72,7 +72,7 @@ export function ContactsTable({
               <Link
                 key={contact.id}
                 href={`/contacts/${contact.id}`}
-                className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset`}
+                className={`group grid ${ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 transition-colors hover:bg-hover focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 `}
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
@@ -114,7 +114,7 @@ export function ContactsTable({
             <li key={contact.id}>
               <Link
                 href={`/contacts/${contact.id}`}
-                className="flex items-center gap-3 px-2 py-3.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+                className="flex items-center gap-3 px-2 py-3.5 transition-colors focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 "
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                   {contactInitials(contact)}

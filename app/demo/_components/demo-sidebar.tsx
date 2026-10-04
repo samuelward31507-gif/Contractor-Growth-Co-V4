@@ -29,14 +29,14 @@ const NAV_ITEMS: { view: DemoView; label: string; icon: LucideIcon }[] = [
   { view: "automations", label: "Automations", icon: Workflow },
 ];
 
-/** Trackpr 2.0 (step 2G): the same small brand row as the real app's sidebar header. */
-function BrandLockup() {
+/** The same brand row as the real app's sidebar header - dark on the desktop sidebar, light in the mobile drawer. */
+function BrandLockup({ dark }: { dark: boolean }) {
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-4">
+    <div className={`flex h-14 shrink-0 items-center gap-3 border-b px-4 ${dark ? "border-dark-line" : "border-line"}`}>
       <BrandMark />
       <div className="min-w-0 leading-tight">
-        <p className="text-[13px] font-semibold text-ink">Trackpr</p>
-        <p className="truncate text-[11.5px] text-ink-3">{DEMO_BUSINESS_NAME}</p>
+        <p className={`text-[15px] font-semibold tracking-[-0.01em] ${dark ? "text-on-dark" : "text-ink"}`}>Trackpr</p>
+        <p className={`mt-0.5 truncate text-[11.5px] ${dark ? "text-on-dark-3" : "text-ink-3"}`}>{DEMO_BUSINESS_NAME}</p>
       </div>
     </div>
   );
@@ -45,18 +45,23 @@ function BrandLockup() {
 const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
 
 /**
- * The demo's navigation. Trackpr 2.0 (step 2G): the real app's light
- * sidebar language (white surface, quiet rows, selected fill + pine icon
- * for the active view) so the demo shows the product as it actually looks.
- * The demo's own views and their behavior are unchanged.
+ * The demo's navigation, in the real app's sidebar language so the demo
+ * shows the product as it actually looks: the dark pine-ink rail on desktop
+ * (light rows, a lighter active chip, the lighter pine on the active icon),
+ * the light sheet treatment in the mobile drawer. The demo's own views and
+ * their behavior are unchanged.
  */
-function DemoContent({ activeView, onNavigate }: { activeView: DemoView; onNavigate: (view: DemoView) => void }) {
+function DemoContent({ activeView, onNavigate, dark = false }: { activeView: DemoView; onNavigate: (view: DemoView) => void; dark?: boolean }) {
   return (
-    <div className="flex h-full w-full flex-col bg-surface">
-      <BrandLockup />
+    <div className={`flex h-full w-full flex-col ${dark ? "bg-sidebar" : "bg-surface"}`}>
+      <BrandLockup dark={dark} />
 
       <div className="px-4 pt-3">
-        <Badge tone="success">Interactive demo</Badge>
+        {dark ? (
+          <span className="inline-flex items-center rounded-full bg-dark-fill-strong px-2 py-0.5 text-[11.5px] font-medium text-accent-on-dark inset-ring inset-ring-dark-line">Interactive demo</span>
+        ) : (
+          <Badge tone="success">Interactive demo</Badge>
+        )}
       </div>
 
       <nav aria-label="Demo" className="flex-1 space-y-px overflow-y-auto px-2 py-3">
@@ -70,19 +75,36 @@ function DemoContent({ activeView, onNavigate }: { activeView: DemoView; onNavig
               onClick={() => onNavigate(item.view)}
               aria-current={active ? "page" : undefined}
               className={`group/nav flex min-h-11 w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors duration-150 lg:min-h-8 ${FOCUS_RING} ${
-                active ? "bg-selected text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+                dark
+                  ? active
+                    ? "bg-dark-fill-strong text-on-dark inset-ring inset-ring-dark-line"
+                    : "text-on-dark-2 hover:bg-dark-fill hover:text-on-dark"
+                  : active
+                    ? "bg-selected text-ink"
+                    : "text-ink-2 hover:bg-hover hover:text-ink"
               }`}
             >
-              <Icon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-ink-3 group-hover/nav:text-ink-2"}`} strokeWidth={1.75} aria-hidden />
+              <Icon
+                className={`h-4 w-4 shrink-0 ${dark ? (active ? "text-accent-on-dark" : "text-on-dark-3 group-hover/nav:text-on-dark-2") : active ? "text-accent" : "text-ink-3 group-hover/nav:text-ink-2"}`}
+                strokeWidth={1.75}
+                aria-hidden
+              />
               <span className="truncate">{item.label}</span>
             </button>
           );
         })}
       </nav>
 
-      <div className="border-t border-line p-4">
-        <StatusLabel tone="healthy">System healthy</StatusLabel>
-        <p className="mt-1 text-xs leading-snug text-ink-3">Automations, messaging, and AI are operating normally.</p>
+      <div className={`border-t p-4 ${dark ? "border-dark-line" : "border-line"}`}>
+        {dark ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-on-dark">
+            <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-on-dark" />
+            System healthy
+          </span>
+        ) : (
+          <StatusLabel tone="healthy">System healthy</StatusLabel>
+        )}
+        <p className={`mt-1 text-xs leading-snug ${dark ? "text-on-dark-3" : "text-ink-3"}`}>Automations, messaging, and AI are operating normally.</p>
       </div>
     </div>
   );
@@ -90,8 +112,8 @@ function DemoContent({ activeView, onNavigate }: { activeView: DemoView; onNavig
 
 export function DemoSidebar({ activeView, onNavigate }: { activeView: DemoView; onNavigate: (view: DemoView) => void }) {
   return (
-    <aside aria-label="Demo navigation" className="hidden w-60 shrink-0 border-r border-line bg-surface lg:flex">
-      <DemoContent activeView={activeView} onNavigate={onNavigate} />
+    <aside aria-label="Demo navigation" className="hidden w-60 shrink-0 bg-sidebar lg:flex">
+      <DemoContent activeView={activeView} onNavigate={onNavigate} dark />
     </aside>
   );
 }

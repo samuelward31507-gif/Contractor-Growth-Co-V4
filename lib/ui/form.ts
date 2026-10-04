@@ -20,9 +20,9 @@ const DISABLED = "disabled:cursor-not-allowed disabled:opacity-50";
 const TRANSITION = "transition-colors duration-150";
 const SIZE_MD = "min-h-11 px-3.5 py-2 text-sm sm:min-h-9";
 const SIZE_SM = "min-h-11 px-2.5 py-1.5 text-xs sm:min-h-8";
-const BASE = `inline-flex items-center justify-center gap-1.5 rounded-md font-medium ${TRANSITION} ${FOCUS_RING} ${DISABLED}`;
+const BASE = `inline-flex items-center justify-center gap-1.5 rounded-lg font-medium ${TRANSITION} ${FOCUS_RING} ${DISABLED}`;
 
-const PRIMARY = `bg-accent text-accent-foreground hover:bg-accent-strong active:bg-accent-strong focus-visible:ring-accent/40`;
+const PRIMARY = `bg-accent text-accent-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_1px_2px_rgba(9,83,63,0.28)] hover:bg-accent-strong active:bg-accent-strong focus-visible:ring-accent/40`;
 const SECONDARY = `border border-line-strong bg-surface text-ink shadow-control hover:bg-hover active:bg-selected focus-visible:ring-ink/15`;
 const GHOST = `text-ink-2 hover:bg-hover hover:text-ink active:bg-selected focus-visible:ring-ink/15`;
 const DESTRUCTIVE = `bg-danger text-danger-foreground hover:bg-danger-strong active:bg-danger-strong focus-visible:ring-danger/40`;
@@ -32,7 +32,7 @@ const DESTRUCTIVE_GHOST = `text-danger hover:bg-danger-muted active:bg-danger-mu
 // same color every primary action uses, so a user's own cursor is always
 // on-brand. min-h rather than h, so textareas keep growing.
 export const inputClass =
-  "w-full min-h-11 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink shadow-control placeholder:text-ink-4 transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:cursor-not-allowed disabled:bg-inset disabled:text-ink-3 sm:min-h-9";
+  "w-full min-h-11 rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink shadow-control placeholder:text-ink-4 transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:cursor-not-allowed disabled:bg-inset disabled:text-ink-3 sm:min-h-9";
 
 export const labelClass = "text-sm font-medium text-ink-2";
 
@@ -41,8 +41,8 @@ export const labelClass = "text-sm font-medium text-ink-2";
 export const primaryButtonClass = `${BASE} ${SIZE_MD} w-full ${PRIMARY}`;
 export const primaryButtonAutoClass = `${BASE} ${SIZE_MD} ${PRIMARY}`;
 
-export const errorBannerClass = "rounded-md border border-danger-border bg-danger-muted px-3.5 py-2.5 text-sm text-danger-text";
-export const successBannerClass = "rounded-md border border-accent-border bg-accent-muted px-3.5 py-2.5 text-sm text-accent-text";
+export const errorBannerClass = "rounded-lg border border-danger-border bg-danger-muted px-3.5 py-2.5 text-sm text-danger-text";
+export const successBannerClass = "rounded-lg border border-accent-border bg-accent-muted px-3.5 py-2.5 text-sm text-accent-text";
 
 // Legacy name kept for existing callers - identical to primaryButtonAutoClass
 // since the accent became the app-wide primary color.

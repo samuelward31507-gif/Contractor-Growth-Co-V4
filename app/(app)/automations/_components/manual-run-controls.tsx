@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { FlaskConical, Play } from "lucide-react";
+import { secondaryButtonSmallClass, ghostButtonClass } from "@/lib/ui/form";
 import { runAutomationNow, dryRunAutomation } from "../actions";
 import type { ReminderPreview } from "@/lib/automation/appointment-reminders";
 import type { FollowupPreview } from "@/lib/automation/estimate-followups";
@@ -71,22 +73,24 @@ export function ManualRunControls({ automationId, enabled }: { automationId: str
           type="button"
           onClick={handleRun}
           disabled={!enabled || isPending}
-          className="rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          className={secondaryButtonSmallClass}
         >
+          <Play className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
           {isPending ? "Working…" : "Run now"}
         </button>
         <button
           type="button"
           onClick={handleDryRun}
           disabled={!enabled || isPending}
-          className="rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          className={`${ghostButtonClass} sm:min-h-8 sm:px-2.5 sm:text-xs`}
         >
+          <FlaskConical className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
           {isPending ? "Working…" : "Test / dry run"}
         </button>
         {!enabled ? <span className="text-xs text-ink-3">Disabled - re-enable this automation to run or test it.</span> : null}
       </div>
-      {message ? <p className="text-xs text-accent-text">{message}</p> : null}
-      {error ? <p className="text-xs text-danger">{error}</p> : null}
+      {message ? <p role="status" className="rounded-lg bg-accent-muted/60 px-3 py-2 text-xs leading-5 text-accent-text inset-ring inset-ring-accent-border/70">{message}</p> : null}
+      {error ? <p role="alert" className="rounded-lg bg-danger-muted px-3 py-2 text-xs leading-5 text-danger-text inset-ring inset-ring-danger-border/70">{error}</p> : null}
     </div>
   );
 }

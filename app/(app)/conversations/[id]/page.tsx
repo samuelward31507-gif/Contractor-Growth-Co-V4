@@ -227,7 +227,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
           </div>
         </details>
 
-        <div className="hidden shrink-0 overflow-y-auto border-l border-line xl:block xl:w-72">
+        <div className="hidden shrink-0 overflow-y-auto border-l border-line bg-hover/60 xl:block xl:w-80">
           <ConversationContext
             conversation={conversation}
             relevantAppointment={relevantAppointment}

@@ -26,7 +26,7 @@ import { formatCurrency } from "@/lib/dashboard/format";
 // laptop widths (1440px) despite Value/Next step sitting mostly empty on
 // the very same rows. The freed width goes to Details' own `fr` share so
 // a full email/phone pair actually fits before it needs to truncate.
-const ROW_GRID = "grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_80px_110px_90px_150px_20px]";
+const ROW_GRID = "grid-cols-[minmax(0,1.5fr)_minmax(0,1.25fr)_76px_104px_96px_minmax(0,1.35fr)_16px]";
 
 function secondaryLine(contact: Contact): string {
   return [contact.phone, contact.email].filter(Boolean).join(" · ") || "No details yet";
@@ -58,12 +58,12 @@ function ContactDetails({ contact }: { contact: Contact }) {
 /** Never renders a bare $0 for "no open value known" - matches contact detail's own formatOpenLeadValueDisplay rule, just without a separate open-lead count param (a table row already shows the Lead temperature column, so "no badge + no value" reads as unambiguous). */
 function ValueCell({ value }: { value?: OpenLeadValueSummary }) {
   if (!value || (value.knownValue === 0 && value.unknownValueCount === 0)) {
-    return <span className="text-sm text-ink-4">—</span>;
+    return <span className="text-right text-sm text-ink-4">—</span>;
   }
   if (value.knownValue === 0 && value.unknownValueCount > 0) {
-    return <span className="text-sm text-ink-3">Unknown</span>;
+    return <span className="text-right text-sm text-ink-3">Unknown</span>;
   }
-  return <span className="text-sm font-medium tabular-nums text-ink">{formatCurrency(value.knownValue)}</span>;
+  return <span className="text-right text-sm font-medium tabular-nums text-ink">{formatCurrency(value.knownValue)}</span>;
 }
 
 function NextStepCell({ nextStep }: { nextStep?: NextStep | null }) {
@@ -125,7 +125,7 @@ export function PeopleTable({
         <TableHeadCell>Details</TableHeadCell>
         <TableHeadCell>Lead</TableHeadCell>
         <TableHeadCell>Status</TableHeadCell>
-        <TableHeadCell>Value</TableHeadCell>
+        <TableHeadCell align="right">Value</TableHeadCell>
         <TableHeadCell>Next step</TableHeadCell>
         <span />
       </Table>
@@ -138,7 +138,7 @@ export function PeopleTable({
           return (
             <TableRow key={contact.id} href={`/people/${contact.id}`} columns={ROW_GRID} tone={nextStep?.attention ? "warning" : "neutral"}>
               <span className="flex min-w-0 items-center gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-semibold text-ink-2 inset-ring inset-ring-line">
                   {contactInitials(contact)}
                 </span>
                 <span className="min-w-0">
@@ -187,9 +187,9 @@ export function PeopleTable({
             <li key={contact.id}>
               <Link
                 href={`/people/${contact.id}`}
-                className="flex items-center gap-3 px-2 py-3.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+                className="flex items-center gap-3 px-2 py-3.5 transition-colors focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 "
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-semibold text-ink-2 inset-ring inset-ring-line">
                   {contactInitials(contact)}
                 </span>
                 <span className="min-w-0 flex-1">

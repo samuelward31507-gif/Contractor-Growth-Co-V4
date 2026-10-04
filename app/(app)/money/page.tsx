@@ -8,7 +8,7 @@ import { filterEstimates, getEstimatesResult, summarizeEstimates, ESTIMATE_STATU
 import { filterJobs, getJobsResult, summarizeJobs, JOB_STATUSES, type JobStatus } from "@/lib/jobs/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { computeMoneySnapshot, type MoneyEntry } from "@/lib/money/snapshot";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
+import { pageEyebrowClass, pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
 import { MoneyEntriesTable } from "./_components/money-entries-table";
 import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { Panel } from "@/lib/ui/section-card";
@@ -43,6 +43,14 @@ function totalsLine(entries: MoneyEntry[]): string {
   const suffix = unknownCount > 0 ? ` (${unknownCount} with no amount set)` : "";
   return `${formatCurrency(total)} across ${countLabel}${suffix}`;
 }
+
+/** Final redesign: the page eyebrow names the view you are on. */
+const MONEY_EYEBROW: Record<MoneyTab, string> = {
+  money: "Money · Overview",
+  invoices: "Money · Invoices",
+  estimates: "Money · Estimates",
+  jobs: "Money · Jobs",
+};
 
 function normalizeBrowse(value: string | undefined): MoneyTab {
   if (value === "estimates") return "estimates";
@@ -133,6 +141,7 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
     <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
+          <p className={`mb-2 ${pageEyebrowClass}`}>{MONEY_EYEBROW[browse]}</p>
           <h1 className={pageTitleClass}>Money</h1>
           <p className={`mt-1.5 ${pageDescriptionClass}`}>
             {browse === "money"
@@ -148,7 +157,7 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
       </div>
 
       {failed ? (
-        <div className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+        <div className="flex items-start gap-2.5 rounded-xl border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>Some information is temporarily unavailable. Please try again.</p>
         </div>

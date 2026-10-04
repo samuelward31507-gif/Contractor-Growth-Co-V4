@@ -59,6 +59,7 @@ export default async function GrowthPage() {
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
+        eyebrow="Growth"
         title="Reviews & Referrals"
         description="Turn completed jobs into reviews, referrals, and repeat business."
         badge={

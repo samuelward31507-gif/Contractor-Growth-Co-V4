@@ -74,8 +74,9 @@ export default async function AutomationsPage() {
   const healthCheckIsStale = isHealthCheckStale(lastHealthCheck?.checkedAt ?? null);
 
   return (
-    <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
+        eyebrow="Operations"
         title="Automations"
         description="What's running, whether it's healthy, and the controls to manage it - all in one place."
         badge={
@@ -97,7 +98,7 @@ export default async function AutomationsPage() {
         not "check this first." No automation behavior, data, or query
         changed - only grouping, order, and one spacing break.
       */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         <p className={sectionLabelClass}>Overview</p>
         <HealthSummaryCards health={orgHealth} activeAutomationCount={activeAutomationCount} />
         <p className={metaClass}>
@@ -112,12 +113,12 @@ export default async function AutomationsPage() {
 
       <AiAgents summaries={summaries} />
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         <p className={sectionLabelClass}>All automations</p>
         <AutomationList summaries={summaries} healthByAutomationId={healthByAutomationId} />
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         <p className={sectionLabelClass}>Scheduled automation liveness</p>
         <ScheduledLivenessList liveness={scheduledLiveness} />
       </div>
@@ -125,7 +126,7 @@ export default async function AutomationsPage() {
       <div className="flex flex-col gap-6 border-t border-line pt-8">
         <IncidentList incidents={incidents} />
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <p className={sectionLabelClass}>Recent AI activity</p>
           <AiActivityFeed executions={recentAiExecutions} />
         </div>
