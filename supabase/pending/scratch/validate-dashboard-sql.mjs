@@ -94,7 +94,7 @@ for (const f of [...migrationFiles.map((f) => path.join(ROOT, "supabase/migratio
 await db.exec(readFileSync(path.join(ROOT, "supabase/pending/dashboard_sql.sql"), "utf8"));
 await db.exec(readFileSync(path.join(ROOT, "supabase/pending/dashboard_attention_sql.sql"), "utf8"));
 // Phase 3 (W1): the pending create-or-replace that classifies on inbound + successful outbound evidence.
-await db.exec(readFileSync(path.join(ROOT, "supabase/pending/dashboard_conversation_attention_successful_reply.sql"), "utf8"));
+await db.exec(readFileSync(path.join(ROOT, "supabase/migrations/20261004110145_dashboard_conversation_attention_successful_reply.sql"), "utf8"));
 debug("schema ready");
 
 // ---------------------------------------------------------------------------
@@ -903,7 +903,7 @@ if (MODE === "capture") {
     await db.exec(readFileSync(path.join(ROOT, "supabase/pending/dashboard_conversation_attention_successful_reply_rollback.sql"), "utf8"));
     const rolledBack = await sql.getDashboardConversationAttention(supabase, wr, NOW_MS);
     check("W1 rollback: the previous rule (any-status last message) is back", { awaiting: label(rolledBack.awaitingReply), abandoned: label(rolledBack.abandonedConversations).sort() }, { awaiting: [], abandoned: ["cv1", "cv5", "cv6"] });
-    await db.exec(readFileSync(path.join(ROOT, "supabase/pending/dashboard_conversation_attention_successful_reply.sql"), "utf8"));
+    await db.exec(readFileSync(path.join(ROOT, "supabase/migrations/20261004110145_dashboard_conversation_attention_successful_reply.sql"), "utf8"));
     const reapplied = await sql.getDashboardConversationAttention(supabase, wr, NOW_MS);
     check("W1 re-apply after rollback: idempotent", { awaiting: label(reapplied.awaitingReply), abandoned: label(reapplied.abandonedConversations) }, EXPECTED);
   }

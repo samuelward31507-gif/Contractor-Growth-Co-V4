@@ -370,7 +370,7 @@ Revert/redeploy the application code first, then run `invoice_reminders_schedule
 
 Written and validated locally (PGlite, 7 scenario checks). SHA-256 `504a7ec95d54fa12d5a900e9a0bc7f6b9e0beb6cd7d866a16d6fd565110d563e`. Not applied to TEST or production.
 
-## dashboard_conversation_attention_successful_reply.sql (PENDING - not applied to production)
+## dashboard_conversation_attention_successful_reply.sql (moved to supabase/migrations/20261004110145_dashboard_conversation_attention_successful_reply.sql)
 
 Phase 3 (W1). A `create or replace` of `public.dashboard_conversation_attention(uuid, timestamptz)` with the same signature and return type, so existing grants are kept. "Waiting on a reply" and "conversation went quiet" are classified on the canonical evidence (`lib/conversations/waiting.ts`): a conversation's newest message that is inbound, or outbound with status `sent` or `delivered`. Failed, undelivered and queued sends and logged notes are never replies. Unchanged: open conversations only, `last_activity_at` from the true last message, ordering, the 48h quiet threshold, the lead-status condition and the cap of 5.
 
@@ -386,3 +386,5 @@ To apply to production (only on explicit authorization):
 4. Record the ledger entry if applied with `apply_migration`, then move the file into `supabase/migrations/` under that version, as for the earlier pending files.
 
 Rollback: `dashboard_conversation_attention_successful_reply_rollback.sql` restores the previous definition exactly (read back `c36968b1a75e06f99fd7ad3a8f3c295e`). The application code works with either definition.
+
+Applied to production on 2026-10-04 via the MCP `apply_migration` mechanism with the name `dashboard_conversation_attention_successful_reply` (the function body, without the file's explicit `begin;`/`commit;`, which the mechanism supplies). Before: md5 `c36968b1a75e06f99fd7ad3a8f3c295e` (the rollback baseline), ledger count 62. After: md5 `549cc031de2d92117d367ad7c3147c2b`, ledger version `20261004110145` (count 63); one function, STABLE, `authenticated` keeps EXECUTE, `anon` none. Read-only consistency check on the live organization: every awaiting item satisfies the canonical rule (newest inbound-or-successful-outbound message is inbound), no "went quiet" item is canonically waiting; Today shows 5 (the cap) of 13 canonically waiting conversations. The file now lives at `supabase/migrations/20261004110145_dashboard_conversation_attention_successful_reply.sql`, unmodified (its header still reads "STATUS: PENDING" because the text is kept byte-identical to what was reviewed); the rollback file stays here.
