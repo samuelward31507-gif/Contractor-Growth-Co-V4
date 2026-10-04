@@ -31,21 +31,31 @@ const ago = (ms: number) => new Date(NOW - ms).toISOString();
 
 const LIVE_ORG = { automation_mode: "live", payment_status: "active", automation_paused: false };
 
-function fakeClient(results: Partial<Record<string, Result>> = {}) {
+// A table's result may depend on the query (e.g. the two different conversations reads).
+type ResultFor = Result | ((read: Read) => Result);
+
+function fakeClient(results: Partial<Record<string, ResultFor>> = {}) {
   const reads: Read[] = [];
   const client = {
     from(table: string) {
       const read: Read = { table, filters: [] };
       reads.push(read);
-      const result = results[table] ?? { data: table === "organizations" ? LIVE_ORG : [], error: null };
+      const resolveResult = (): Result => {
+        const configured = results[table];
+        if (typeof configured === "function") return configured(read);
+        return configured ?? { data: table === "organizations" ? LIVE_ORG : [], error: null };
+      };
       const builder: Record<string, unknown> = {
         select: (columns: string) => ((read.select = columns), builder),
         eq: (column: string, value: unknown) => (read.filters.push(["eq", column, value]), builder),
+        not: (column: string, operator: string, value: unknown) => (read.filters.push(["not", column, [operator, value]]), builder),
         in: (column: string, values: unknown[]) => ((read.inIds = values), read.filters.push(["in", column, values]), builder),
         order: (column: string, options: unknown) => ((read.order = [column, options]), builder),
         limit: (count: number, options: unknown) => ((read.limit = [count, options]), builder),
-        maybeSingle: () => Promise.resolve(result),
-        then: (resolve: (value: Result) => unknown, reject: (reason: unknown) => unknown) => Promise.resolve(result).then(resolve, reject),
+        // readAllPages: one page holding every row (rows < page size ends paging).
+        range: () => Promise.resolve(resolveResult()),
+        maybeSingle: () => Promise.resolve(resolveResult()),
+        then: (resolve: (value: Result) => unknown, reject: (reason: unknown) => unknown) => Promise.resolve(resolveResult()).then(resolve, reject),
       };
       return builder;
     },
@@ -56,10 +66,14 @@ function fakeClient(results: Partial<Record<string, Result>> = {}) {
 const waitingItem = (conversationId: string): AttentionItem => ({ id: `reply-${conversationId}`, kind: "awaiting_reply", title: "Ann", detail: "Waiting", value: null, href: `/conversations/${conversationId}`, conversationId });
 const other: AttentionItem = { id: "apt-1", kind: "overdue_appointment", title: "Bo", detail: "Was scheduled", value: null, href: "/appointments/apt-1" };
 
-test("no waiting conversation: only the two shared org reads - no AI settings, conversations or business-hours read", async () => {
+// The organization, automation_settings and open-opportunities reads are request-memoized and shared with
+// Today's page and getPrioritizedOpportunities - in a real request none of them is an extra read.
+const SHARED_READS = ["automation_settings", "opportunities", "organizations"];
+
+test("no waiting conversation and no pending estimate: only the shared reads - no AI settings, conversations or business-hours read", async () => {
   const fake = fakeClient();
   const context = await getDecisionContext(fake.client, "org-1", { attentionItems: [other], timeZone: "UTC", now: NOW });
-  assert.deepEqual(fake.tables().sort(), ["automation_settings", "organizations"]);
+  assert.deepEqual(fake.tables().sort(), SHARED_READS);
   assert.equal(context.waitingCapReached, false);
   assert.equal(context.waitingConversations.size, 0);
 });
@@ -95,7 +109,7 @@ test("C5: with 5 or more waiting conversations the cap is reached - no AI settin
   const fake = fakeClient();
   const context = await getDecisionContext(fake.client, "org-1", { attentionItems: ["a", "b", "c", "d", "e"].map(waitingItem), timeZone: "UTC", now: NOW });
   assert.equal(context.waitingCapReached, true);
-  assert.deepEqual(fake.tables().sort(), ["automation_settings", "organizations"]);
+  assert.deepEqual(fake.tables().sort(), SHARED_READS);
 });
 
 test("a failed conversations read leaves no conversation state - every waiting item stays human", async () => {
@@ -165,4 +179,52 @@ test("structure: the shared org/settings reads are request-memoized and getPrior
   assert.match(intelligence, /getOrganizationAutomationSettings\(supabase, organizationId\)/);
   assert.match(intelligence, /getOrganizationAutomationState\(supabase, organizationId\)/);
   assert.doesNotMatch(intelligence, /\.from\("organizations"\)|getAutomationEnabledMap\(/, "no second, unshared org or settings read");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2-4a (K2, K6a): pending-estimate contacts whose open SMS conversation has AI off.
+// ---------------------------------------------------------------------------
+
+const opportunityRow = (id: string, type: string, contactId: string | null) => ({
+  id, type, status: "open", source_entity_type: "lead", source_entity_id: `lead-${id}`, contact_id: contactId, title: "T", description: null,
+  estimated_value: null, value_basis: null, created_at: ago(MIN), updated_at: ago(MIN), resolved_at: null, resolution_reason: null, metadata: {},
+});
+const isAiOffRead = (read: Read) => read.table === "conversations" && read.filters.some(([op, column, value]) => op === "eq" && column === "ai_enabled" && value === false);
+
+test("pending estimates: ONE paged read of the org's AI-off open SMS conversations, intersected with the pending-estimate contacts - no id list, no per-estimate read", async () => {
+  const fake = fakeClient({
+    opportunities: { data: [opportunityRow("o1", "pending_estimate", "c1"), opportunityRow("o2", "pending_estimate", "c2"), opportunityRow("o3", "invoice_overdue", "c3"), opportunityRow("o4", "pending_estimate", null)], error: null },
+    conversations: (read) => (isAiOffRead(read) ? { data: [{ contact_id: "c1" }, { contact_id: "c3" }, { contact_id: "c9" }], error: null } : { data: [], error: null }),
+  });
+  const context = await getDecisionContext(fake.client, "org-1", { attentionItems: [], timeZone: "UTC", now: NOW });
+  assert.deepEqual([...context.estimateContactAiDisabled], ["c1"], "only pending-estimate contacts; c3 (not an estimate) and c9 (no opportunity) are ignored");
+  const aiOffReads = fake.reads.filter(isAiOffRead);
+  assert.equal(aiOffReads.length, 1, "one read");
+  assert.deepEqual(aiOffReads[0].filters, [["eq", "organization_id", "org-1"], ["eq", "status", "open"], ["eq", "channel", "sms"], ["eq", "ai_enabled", false], ["not", "contact_id", ["is", null]]]);
+  assert.equal(aiOffReads[0].inIds, undefined, "never an id list");
+  assert.equal(fake.reads.filter((r) => r.table === "opportunities").length, 1, "the shared open-opportunities read, once");
+});
+
+test("no pending estimate: the AI-off conversation read is skipped entirely", async () => {
+  const fake = fakeClient({ opportunities: { data: [opportunityRow("o3", "invoice_overdue", "c3")], error: null } });
+  const context = await getDecisionContext(fake.client, "org-1", { attentionItems: [], timeZone: "UTC", now: NOW });
+  assert.equal(fake.reads.filter((r) => r.table === "conversations").length, 0);
+  assert.equal(context.estimateContactAiDisabled.size, 0);
+});
+
+test("a failed AI-off conversation read fails closed: every pending-estimate contact is treated as unreachable", async () => {
+  const fake = fakeClient({
+    opportunities: { data: [opportunityRow("o1", "pending_estimate", "c1"), opportunityRow("o2", "pending_estimate", "c2")], error: null },
+    conversations: { data: null, error: { message: "boom" } },
+  });
+  const context = await getDecisionContext(fake.client, "org-1", { attentionItems: [], timeZone: "UTC", now: NOW });
+  assert.deepEqual([...context.estimateContactAiDisabled].sort(), ["c1", "c2"]);
+});
+
+test("structure: the open-opportunities read is request-memoized and shared - the context adds no opportunities read of its own", () => {
+  const queries = fs.readFileSync(path.join(ROOT, "lib/opportunities/queries.ts"), "utf8");
+  assert.match(queries, /export const getOpenOpportunitiesResult = cache\(async \(supabase: SupabaseClient, organizationId: string\)/);
+  const context = fs.readFileSync(path.join(ROOT, "lib/decisions/context.ts"), "utf8");
+  assert.match(context, /await getOpenOpportunitiesResult\(supabase, organizationId\)/);
+  assert.doesNotMatch(context, /\.from\("opportunities"\)/);
 });

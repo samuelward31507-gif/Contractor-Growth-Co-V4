@@ -170,8 +170,10 @@ test("a page-1 error, a page-2 error or the row limit is failed with no rows; a 
 
 test("guard: the open-opportunities read is paged newest first with an id tie-break and no capped read", () => {
   const source = fs.readFileSync(path.join(ROOT, "lib/opportunities/queries.ts"), "utf8");
-  const start = source.indexOf("export async function getOpenOpportunitiesResult(");
-  const body = source.slice(start, source.indexOf("\n}\n", start));
+  // Phase 2-4: the read is wrapped in React.cache, so its body ends at "\n});\n".
+  const start = source.indexOf("export const getOpenOpportunitiesResult = cache(async (");
+  assert.ok(start !== -1, "getOpenOpportunitiesResult declaration not found");
+  const body = source.slice(start, source.indexOf("\n});\n", start));
   assert.match(body, /readAllPages<OpportunityRow>/);
   assert.match(body, /\.order\("created_at", \{ ascending: false \}\)\.order\("id"\)/);
   assert.doesNotMatch(body, /\.limit\(/);

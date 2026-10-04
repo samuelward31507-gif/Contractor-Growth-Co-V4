@@ -41,11 +41,14 @@ const MIN = 60 * 1000;
 let organizationId: string;
 const conversationIds: Record<string, string> = {};
 
+const contactIds: Record<string, string> = {};
+
 async function contactAndConversation(label: string, phone: string, smsOptOut: boolean, aiEnabled: boolean): Promise<string> {
   const { data: contact, error: contactError } = await service.from("contacts").insert({ organization_id: organizationId, first_name: `Ctx ${label}`, phone, sms_opt_out: smsOptOut }).select("id").single();
   assert.ifError(contactError);
   const { data: conversation, error } = await service.from("conversations").insert({ organization_id: organizationId, contact_id: contact!.id, channel: "sms", status: "open", ai_enabled: aiEnabled }).select("id").single();
   assert.ifError(error);
+  contactIds[label] = contact!.id;
   return conversation!.id;
 }
 
@@ -79,6 +82,7 @@ before(async () => {
 });
 
 after(async () => {
+  await service.from("opportunities").delete().eq("organization_id", organizationId);
   await service.from("messages").delete().eq("organization_id", organizationId);
   await service.from("conversations").delete().eq("organization_id", organizationId);
   await service.from("contacts").delete().eq("organization_id", organizationId);
@@ -116,5 +120,18 @@ test("real reads: a paused organization and an explicitly disabled inbound-custo
   } finally {
     await service.from("organizations").update({ automation_paused: false }).eq("id", organizationId);
     await service.from("automation_settings").delete().eq("organization_id", organizationId);
+  }
+});
+
+test("Phase 2-4a, real reads: pending-estimate contacts whose open SMS conversation has AI off - from the shared open-opportunities read plus one AI-off conversation read", async () => {
+  // Pending estimates for contact One (open SMS conversation, AI on) and contact Three (open SMS conversation, AI off).
+  const opp = (contactId: string, type: string, key: string) => ({ organization_id: organizationId, type, status: "open", source_entity_type: "lead", source_entity_id: crypto.randomUUID(), contact_id: contactId, title: `Ctx ${key}`, metadata: {} });
+  const { error } = await service.from("opportunities").insert([opp(contactIds.One, "pending_estimate", "est-one"), opp(contactIds.Three, "pending_estimate", "est-three")]);
+  assert.ifError(error);
+  try {
+    const context = await getDecisionContext(service, organizationId, { attentionItems: [], timeZone: "UTC" });
+    assert.deepEqual([...context.estimateContactAiDisabled], [contactIds.Three]);
+  } finally {
+    await service.from("opportunities").delete().eq("organization_id", organizationId);
   }
 });

@@ -5,6 +5,8 @@ import { getAutomationDefaultEnabled } from "@/lib/automation/catalog";
 import { readInboundCustomerReplyConfig } from "@/lib/automation/settings";
 import { isWithinBusinessHours } from "@/lib/automation/outbound-gate";
 import { getAiSettings, getBusinessHours } from "@/lib/settings/queries";
+import { getOpenOpportunitiesResult } from "@/lib/opportunities/queries";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { WAITING_REPLY_CAP, firstUnansweredInboundAt, type DecisionContext, type WaitingConversationState } from "./actor";
 
 /**
@@ -79,6 +81,27 @@ async function readWaitingConversations(supabase: SupabaseClient, organizationId
 }
 
 /**
+ * Phase 2-4 (K2, K6a): the pending-estimate contacts whose open SMS
+ * conversation has AI turned off. The contacts come from the request-cached
+ * open-opportunities read Today already makes - no extra opportunities
+ * read - and the conversation read is skipped entirely when there are no
+ * pending estimates. One paged read of the organization's AI-off open SMS
+ * conversations (typically few), intersected in memory - never an id list,
+ * never one read per estimate. A failed read fails closed: every pending
+ * estimate's contact is treated as unreachable, so those estimates are human.
+ */
+async function readEstimateContactsWithAiDisabled(supabase: SupabaseClient, organizationId: string): Promise<Set<string>> {
+  const opportunities = await getOpenOpportunitiesResult(supabase, organizationId);
+  const estimateContactIds = new Set(opportunities.data.filter((opportunity) => opportunity.type === "pending_estimate" && opportunity.contactId).map((opportunity) => opportunity.contactId as string));
+  if (estimateContactIds.size === 0) return new Set();
+  const read = await readAllPages<{ contact_id: string }>(() =>
+    supabase.from("conversations").select("contact_id").eq("organization_id", organizationId).eq("status", "open").eq("channel", "sms").eq("ai_enabled", false).not("contact_id", "is", null).order("id"),
+  );
+  if (read.failed) return estimateContactIds;
+  return new Set(read.rows.map((row) => row.contact_id).filter((contactId) => estimateContactIds.has(contactId)));
+}
+
+/**
  * Resolves the DecisionContext for one Today render. Pass the attention
  * items getDashboardSqlData already loaded: the waiting conversations come
  * from them, never from a second detection pass. The AI settings, business
@@ -95,11 +118,12 @@ export async function getDecisionContext(
   const waitingCapReached = waitingIds.length >= WAITING_REPLY_CAP;
   const graceCandidates = waitingCapReached ? [] : waitingIds;
 
-  const [organizationState, settings, aiSettings, waitingConversations] = await Promise.all([
+  const [organizationState, settings, aiSettings, waitingConversations, estimateContactAiDisabled] = await Promise.all([
     getOrganizationAutomationState(supabase, organizationId),
     getOrganizationAutomationSettings(supabase, organizationId),
     graceCandidates.length > 0 ? getAiSettings(supabase, organizationId) : Promise.resolve(null),
     graceCandidates.length > 0 ? readWaitingConversations(supabase, organizationId, graceCandidates) : Promise.resolve(new Map<string, WaitingConversationState>()),
+    readEstimateContactsWithAiDisabled(supabase, organizationId),
   ]);
 
   const inboundReplyConfig = readInboundCustomerReplyConfig(settings.configById.get("inbound-customer-reply") ?? null);
@@ -117,5 +141,6 @@ export async function getDecisionContext(
     inboundReplyWithinHours,
     waitingCapReached,
     waitingConversations,
+    estimateContactAiDisabled,
   };
 }

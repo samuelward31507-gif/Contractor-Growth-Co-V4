@@ -59,6 +59,8 @@ export type AssembledDecisions = {
   opportunities: DecisionItem[];
   /** Phase 2-3b: Act II items Trackpr is still handling (actor "trackpr"), in priority order - never counted, never shown in Act II. */
   trackprHandling: DecisionItem[];
+  /** Phase 2-4b: human-owned pending estimates under 24h old - not attention yet (A3): not shown in Act II, not counted, not in trackprHandling. Still listed in By type. */
+  notYetAttention: DecisionItem[];
   /** The one attention count - operational exceptions plus human Act II items: the header line, the Act II count and "You're all caught up" all read it. */
   totalNeedingAttention: number;
 };

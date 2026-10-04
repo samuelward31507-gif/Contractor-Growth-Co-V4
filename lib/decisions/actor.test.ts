@@ -34,6 +34,7 @@ const context = (overrides: Partial<DecisionContext> = {}, conv = conversation()
   inboundReplyWithinHours: true,
   waitingCapReached: false,
   waitingConversations: new Map([["conv-1", conv]]),
+  estimateContactAiDisabled: new Set(),
   ...overrides,
 });
 const waiting = { kind: "awaiting_reply" as const, conversationId: "conv-1" };
@@ -133,4 +134,19 @@ test("every other opportunity type is human (C1, C6) - their automations are one
 test("the all-human default context makes everything human", () => {
   assert.equal(actor.resolveSignalActor(waiting, actor.ALL_HUMAN_CONTEXT), "human");
   assert.equal(actor.resolveOpportunityActor(pending(), actor.ALL_HUMAN_CONTEXT), "human");
+});
+
+test("2-4a (K2): a pending estimate is human when its contact's open SMS conversation has AI off - on or absent keeps it Trackpr's", () => {
+  assert.equal(actor.resolveOpportunityActor(pending(), context({ estimateContactAiDisabled: new Set(["c1"]) })), "human", "AI off");
+  assert.equal(actor.resolveOpportunityActor(pending(), context({ estimateContactAiDisabled: new Set(["someone-else"]) })), "trackpr", "another contact's AI off does not matter");
+  assert.equal(actor.resolveOpportunityActor(pending(), context()), "trackpr", "no AI-off conversation (on or absent)");
+});
+
+test("2-4b: the 24h human-attention helper - exact boundary, pending estimates only, unknown sent_at is never 'too young'", () => {
+  assert.equal(actor.ESTIMATE_HUMAN_ATTENTION_DELAY_MS, 24 * HOUR);
+  assert.equal(actor.isEstimateTooYoungForAttention(opp("pending_estimate", { sent_at: ago(24 * HOUR - 1) }), NOW), true, "23:59:59.999");
+  assert.equal(actor.isEstimateTooYoungForAttention(opp("pending_estimate", { sent_at: ago(24 * HOUR) }), NOW), false, "24:00:00.000");
+  assert.equal(actor.isEstimateTooYoungForAttention(opp("pending_estimate", {}), NOW), false, "no sent_at");
+  assert.equal(actor.isEstimateTooYoungForAttention(opp("pending_estimate", { sent_at: "garbage" }), NOW), false, "unreadable sent_at");
+  assert.equal(actor.isEstimateTooYoungForAttention(opp("stale_estimate", { sent_at: ago(MIN) }), NOW), false, "other types are never held back");
 });

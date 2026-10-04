@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
 
@@ -128,8 +129,13 @@ export type OpenOpportunitiesResult = { data: Opportunity[]; failed: boolean };
  * the exact same query, just with its error observed instead of discarded.
  * Every other, lower-stakes caller (Dashboard, Contact Detail) keeps using
  * getOpenOpportunities below unchanged.
+ *
+ * Phase 2-4: request-memoized (React.cache, keyed on the request's Supabase
+ * client) so Today's page, getPrioritizedOpportunities and the decision
+ * context share one read instead of each paging through it. Outside a
+ * server request it is a plain pass-through.
  */
-export async function getOpenOpportunitiesResult(supabase: SupabaseClient, organizationId: string): Promise<OpenOpportunitiesResult> {
+export const getOpenOpportunitiesResult = cache(async (supabase: SupabaseClient, organizationId: string): Promise<OpenOpportunitiesResult> => {
   // Phase 3A-4: every open opportunity, paged (readAllPages) - the old single
   // read capped at 500 rows silently dropped the oldest open opportunities from the
   // summary totals and per-contact lists. Newest first with id as the
@@ -141,7 +147,7 @@ export async function getOpenOpportunitiesResult(supabase: SupabaseClient, organ
   );
 
   return { data: read.failed ? [] : read.rows.map(normalizeOpportunity), failed: read.failed };
-}
+});
 
 /** Every currently-open opportunity for the org, newest first - the primary read for both the dashboard summary and the Attention Engine. */
 export async function getOpenOpportunities(supabase: SupabaseClient, organizationId: string): Promise<Opportunity[]> {

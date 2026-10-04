@@ -5,7 +5,7 @@ import type { StatusTone } from "@/lib/ui/status";
 import { DECISION_REGISTRY, buildActionSentence, opportunityActionHref, opportunityPersonHref } from "./registry";
 import { REASON_CODE_BY_EXCEPTION_KIND, REASON_CODE_BY_OPPORTUNITY_TYPE, REASON_CODE_BY_SIGNAL_KIND, type ConversationSignalKind, type OperationalExceptionKind } from "./reason-codes";
 import type { AssembledDecisions, DecisionItem } from "./types";
-import { ALL_HUMAN_CONTEXT, resolveOpportunityActor, resolveSignalActor, type DecisionContext } from "./actor";
+import { ALL_HUMAN_CONTEXT, isEstimateTooYoungForAttention, resolveOpportunityActor, resolveSignalActor, type DecisionContext } from "./actor";
 
 /** Canonical Opportunity Intelligence Layer: the internal tier is never shown as a number or a tier name - it maps to the same three-tone visual language every other status surface in this app already uses (lib/ui/status.ts). */
 const TONE_BY_TIER: Record<PriorityTier, StatusTone> = {
@@ -29,15 +29,21 @@ export const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set(["recoverabl
 
 function priorityItemToDecision(item: PriorityItem, context: DecisionContext): DecisionItem {
   if (item.kind === "opportunity") {
-    const { opportunity, explanation, recommendedAction, automatable, contactPhone } = item.data;
+    const { opportunity, explanation, automatable, contactPhone } = item.data;
     const reasonCode = REASON_CODE_BY_OPPORTUNITY_TYPE[opportunity.type];
     const entry = DECISION_REGISTRY[reasonCode];
+    const actor = resolveOpportunityActor(item.data, context);
+    // Phase 2-4c (K4): a pending estimate a human owns needs a follow-up,
+    // not "monitor" - the existing "Follow up on the estimate." phrase. The
+    // registry default (monitor) is unchanged; every other type keeps its
+    // resolved action.
+    const recommendedAction = opportunity.type === "pending_estimate" && actor === "human" ? "follow_up_estimate" : item.data.recommendedAction;
     return {
       key: item.key,
       reasonCode,
       act: OPPORTUNITY_TIERS.has(item.tier) ? "opportunity" : "attention",
       operational: false,
-      actor: resolveOpportunityActor(item.data, context),
+      actor,
       tier: item.tier,
       tone: TONE_BY_TIER[item.tier],
       problemLabel: entry.problemLabel,
@@ -82,8 +88,9 @@ function priorityItemToDecision(item: PriorityItem, context: DecisionContext): D
  * queue then splits by tier into Act II and Act III.
  */
 export function assembleDecisions(input: { attentionItems: AttentionItem[]; prioritizedOpportunities: PrioritizedOpportunity[]; context?: DecisionContext }): AssembledDecisions {
-  // Without a resolved context every item is human - the safe default.
-  const context = input.context ?? ALL_HUMAN_CONTEXT;
+  // Without a resolved context every item is human - the safe default,
+  // timed against the real clock.
+  const context = input.context ?? { ...ALL_HUMAN_CONTEXT, now: Date.now() };
   const exceptions: DecisionItem[] = getOperationalExceptions(input.attentionItems).map((exception) => {
     const reasonCode = REASON_CODE_BY_EXCEPTION_KIND[exception.kind as OperationalExceptionKind];
     const entry = DECISION_REGISTRY[reasonCode];
@@ -109,10 +116,16 @@ export function assembleDecisions(input: { attentionItems: AttentionItem[]; prio
   // Phase 2-3b (C8): Act II shows only work a human has to do, in the same
   // relative priority order; items Trackpr is still handling are set aside
   // (summarized in Act I) and never counted. Act III is unchanged.
+  // Phase 2-4b (A3, K3): a human-owned pending estimate under 24h old is not
+  // attention yet - out of Act II, the count and the handling row (it stays
+  // in By type).
+  const opportunityById = new Map(input.prioritizedOpportunities.map((p) => [p.opportunity.id, p.opportunity]));
+  const tooYoung = (item: DecisionItem) => item.source.kind === "opportunity" && item.actor === "human" && isEstimateTooYoungForAttention(opportunityById.get(item.source.opportunityId)!, context.now);
   const attentionQueue = queue.filter((item) => item.act === "attention");
-  const attention = attentionQueue.filter((item) => item.actor === "human");
+  const notYetAttention = attentionQueue.filter(tooYoung);
+  const attention = attentionQueue.filter((item) => item.actor === "human" && !tooYoung(item));
   const trackprHandling = attentionQueue.filter((item) => item.actor === "trackpr");
   const opportunities = queue.filter((item) => item.act === "opportunity");
 
-  return { exceptions, attention, opportunities, trackprHandling, totalNeedingAttention: exceptions.length + attention.length };
+  return { exceptions, attention, opportunities, trackprHandling, notYetAttention, totalNeedingAttention: exceptions.length + attention.length };
 }

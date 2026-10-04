@@ -22,6 +22,12 @@ export const AI_REPLY_GRACE_MS = 15 * 60 * 1000;
 export const ESTIMATE_FOLLOWUP_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 /**
+ * Phase 2-4 (A3): a pending estimate a human owns only becomes attention 24h
+ * after it was sent; younger ones are left out of Act II and the count.
+ */
+export const ESTIMATE_HUMAN_ATTENTION_DELAY_MS = 24 * 60 * 60 * 1000;
+
+/**
  * dashboard_conversation_attention returns at most this many awaiting_reply
  * conversations (rn <= 5 - the same cap Today's CONVERSATION_ATTENTION_CAP
  * discloses). When it is reached, older waits may exist beyond it, so the
@@ -53,6 +59,13 @@ export type DecisionContext = {
   waitingCapReached: boolean;
   /** Keyed by conversation id; a conversation missing here is human. */
   waitingConversations: ReadonlyMap<string, WaitingConversationState>;
+  /**
+   * Phase 2-4: contacts of open pending estimates that have an open SMS
+   * conversation with AI turned off - the outbound gate blocks every
+   * automated send into such a conversation, so estimate follow-up cannot
+   * reach them.
+   */
+  estimateContactAiDisabled: ReadonlySet<string>;
 };
 
 /** Every item human - the context the assembler uses when none is supplied, and the safe fallback. */
@@ -65,6 +78,7 @@ export const ALL_HUMAN_CONTEXT: DecisionContext = {
   inboundReplyWithinHours: false,
   waitingCapReached: true,
   waitingConversations: new Map(),
+  estimateContactAiDisabled: new Set(),
 };
 
 /**
@@ -115,17 +129,35 @@ export function resolveSignalActor(item: Pick<AttentionItem, "kind" | "conversat
 
 /**
  * Only a sent estimate still has a pending Trackpr action: estimate
- * follow-up's two touches run until 72h after sending. Every other
- * opportunity type's automation is one-shot (or absent), so it is human.
+ * follow-up's two touches run until 72h after sending, and only when they
+ * can actually be sent - including (Phase 2-4, K2) the contact having no
+ * open SMS conversation with AI turned off. Every other opportunity type's
+ * automation is one-shot (or absent), so it is human.
  */
 export function resolveOpportunityActor(prioritized: Pick<PrioritizedOpportunity, "opportunity" | "contactPhone" | "contactSmsOptOut">, context: DecisionContext): DecisionActor {
   const { opportunity } = prioritized;
   if (opportunity.type !== "pending_estimate") return "human";
   if (!context.organizationEligible || !context.estimateFollowupEnabled) return "human";
   if (!prioritized.contactPhone || !E164_PATTERN.test(prioritized.contactPhone.trim()) || prioritized.contactSmsOptOut !== false) return "human";
+  if (opportunity.contactId && context.estimateContactAiDisabled.has(opportunity.contactId)) return "human";
   const sentAt = opportunity.metadata.sent_at;
   if (typeof sentAt !== "string") return "human";
   const sentMs = new Date(sentAt).getTime();
   if (Number.isNaN(sentMs)) return "human";
   return context.now - sentMs < ESTIMATE_FOLLOWUP_WINDOW_MS ? "trackpr" : "human";
+}
+
+/**
+ * Phase 2-4 (A3, K3): a human-owned pending estimate younger than 24h is not
+ * attention yet - it is left out of Act II, the count and the handling row,
+ * and stays reachable in By type. An unknown or unreadable sent_at is
+ * treated as old enough, so missing data never hides human work.
+ */
+export function isEstimateTooYoungForAttention(opportunity: Pick<PrioritizedOpportunity["opportunity"], "type" | "metadata">, now: number): boolean {
+  if (opportunity.type !== "pending_estimate") return false;
+  const sentAt = opportunity.metadata.sent_at;
+  if (typeof sentAt !== "string") return false;
+  const sentMs = new Date(sentAt).getTime();
+  if (Number.isNaN(sentMs)) return false;
+  return now - sentMs < ESTIMATE_HUMAN_ATTENTION_DELAY_MS;
 }

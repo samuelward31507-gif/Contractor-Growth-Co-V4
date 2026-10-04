@@ -43,7 +43,8 @@ const EXPECTED_ATTENTION: Row[] = [
   ["opportunity:o2", "estimate_accepted_no_job", "attention", "urgent", "Accepted, no job yet", "Person o2", "/people/c2", "$2,500", "3 days ago", 'Estimate "Roof" was accepted, but no job has been created yet. Create the job.', null, "View estimate", "/estimates/est-7"],
   ["opportunity:o3", "job_completed_not_invoiced", "attention", "urgent", "Completed, not invoiced", "Person o3", "/today?view=by-type#opportunities", undefined, "5 days ago", 'Completed job "Gutter" has not been invoiced yet. Value not yet entered Create the invoice.', null, "Create invoice", "/jobs/job-3"],
   // active_pursuit: known first, then the two unknowns oldest first; "monitor" and "call" add no phrase; an invalid phone still shows (pre-2-2 behavior).
-  ["opportunity:o6", "estimate_awaiting_decision", "attention", "soon", "Estimate sent, awaiting reply", "Person o6", "/people/c6", "$5,000", "3 days ago", 'Estimate "Deck" sent - awaiting the customer\'s decision.', null, "View estimate", "/estimates/est-9"],
+  // Phase 2-4c (K4, the one approved change to this frozen table): a human-owned pending estimate's action is follow_up_estimate, so its sentence gains the existing phrase.
+  ["opportunity:o6", "estimate_awaiting_decision", "attention", "soon", "Estimate sent, awaiting reply", "Person o6", "/people/c6", "$5,000", "3 days ago", 'Estimate "Deck" sent - awaiting the customer\'s decision. Follow up on the estimate.', null, "View estimate", "/estimates/est-9"],
   ["opportunity:o5", "lead_not_contacted", "attention", "soon", "Never contacted", "Person o5", "/people/c5", undefined, "5 days ago", "New lead from the website hasn't been contacted. Value not yet entered Flagged 5 days ago - still unresolved. Follow up.", "555-0105", "View lead", "/people/c5"],
   ["opportunity:o4", "lead_not_contacted", "attention", "soon", "Never contacted", "Person o4", "/people/c4", undefined, "2 days ago", "New lead from the website hasn't been contacted. Value not yet entered", "+15125550104", "View lead", "/people/c4"],
   // at_risk: known value, then the signal (-0.5), then the unknown/not-applicable opportunity (-1).
@@ -136,6 +137,7 @@ function eligibleContext(now: number): import("./actor").DecisionContext {
       ["conv-a", { aiEnabled: true, smsOptOut: false, firstUnansweredInboundAt: new Date(now - 5 * MIN).toISOString() }],
       ["conv-b", { aiEnabled: true, smsOptOut: false, firstUnansweredInboundAt: new Date(now - 40 * MIN).toISOString() }],
     ]),
+    estimateContactAiDisabled: new Set(),
   };
 }
 
@@ -217,4 +219,73 @@ test("2-3b: the Act I waiting figure counts exactly Act II's human waiting-for-r
   const result = assembleDecisions({ ...trackprCapableFixture(now), context: eligibleContext(now) });
   assert.deepEqual(conversationsWaitingCount(result.attention), { count: 1, capped: false }, "conv-b only - conv-a is inside Trackpr's grace period");
   assert.deepEqual(conversationsWaitingCount(assembleDecisions(trackprCapableFixture(now)).attention), { count: 2, capped: false }, "all-human context: both waiting replies");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2-4: the estimate lifecycle in the decision layer.
+// ---------------------------------------------------------------------------
+
+/** Just the pending estimate o6 (no other items), sent `sentMsAgo` ago to contact c6. */
+function estimateOnly(now: number, sentMsAgo: number | null, overrides: Partial<import("@/lib/opportunities/intelligence").PrioritizedOpportunity> = {}) {
+  const base = buildParityFixture(now).prioritizedOpportunities.find((p) => p.opportunity.id === "o6")!;
+  const metadata = sentMsAgo === null ? { estimate_id: "est-9" } : { estimate_id: "est-9", sent_at: new Date(now - sentMsAgo).toISOString() };
+  return { attentionItems: [], prioritizedOpportunities: [{ ...base, contactPhone: "+15125550106", contactSmsOptOut: false, ...overrides, opportunity: { ...base.opportunity, metadata } }] };
+}
+const placement = (result: ReturnType<typeof assembleDecisions>) => ({
+  attention: result.attention.map((i) => i.key),
+  trackprHandling: result.trackprHandling.map((i) => i.key),
+  notYetAttention: result.notYetAttention.map((i) => i.key),
+  count: result.totalNeedingAttention,
+});
+
+test("2-4a: an eligible pending estimate under 72h stays Trackpr's when the contact's conversation AI is on or absent", () => {
+  const now = Date.now();
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 30 * HOUR), context: eligibleContext(now) })), { attention: [], trackprHandling: ["opportunity:o6"], notYetAttention: [], count: 0 });
+});
+
+test("2-4a (K2): when the contact's open SMS conversation has AI off, the estimate is human - in Act II, counted, with the follow-up action", () => {
+  const now = Date.now();
+  const result = assembleDecisions({ ...estimateOnly(now, 30 * HOUR), context: { ...eligibleContext(now), estimateContactAiDisabled: new Set(["c6"]) } });
+  assert.deepEqual(placement(result), { attention: ["opportunity:o6"], trackprHandling: [], notYetAttention: [], count: 1 });
+  assert.equal(result.attention[0].actor, "human");
+  assert.equal(result.attention[0].nextAction.code, "follow_up_estimate");
+  assert.equal(result.attention[0].sentence, 'Estimate "Deck" sent - awaiting the customer\'s decision. Follow up on the estimate.', "the exact existing phrase");
+  assert.deepEqual([result.attention[0].nextAction.label, result.attention[0].nextAction.href, result.attention[0].problemLabel], ["View estimate", "/estimates/est-9", "Estimate sent, awaiting reply"], "label, link and problem label unchanged");
+});
+
+test("2-4b (K3): a human-owned pending estimate is not attention until exactly 24h - 23:59:59.999 is excluded, 24:00:00.000 is counted", () => {
+  const now = Date.now();
+  const followupOff = { ...eligibleContext(now), estimateFollowupEnabled: false };
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 24 * HOUR - 1), context: followupOff })), { attention: [], trackprHandling: [], notYetAttention: ["opportunity:o6"], count: 0 }, "23:59:59.999 - not in Act II, not counted, not Trackpr's");
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 24 * HOUR), context: followupOff })), { attention: ["opportunity:o6"], trackprHandling: [], notYetAttention: [], count: 1 }, "24:00:00.000 - human attention");
+});
+
+test("2-4: follow-up on vs off - on: Trackpr's under 72h (even under 24h); off: human, hidden under 24h, attention after", () => {
+  const now = Date.now();
+  const on = eligibleContext(now);
+  const off = { ...on, estimateFollowupEnabled: false };
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 2 * HOUR), context: on })).trackprHandling, ["opportunity:o6"], "on, 2h: Trackpr's first follow-up is pending");
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 72 * HOUR), context: on })).attention, ["opportunity:o6"], "on, 72h: both follow-ups done - human");
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 2 * HOUR), context: off })).notYetAttention, ["opportunity:o6"], "off, 2h: not attention yet");
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 30 * HOUR), context: off })).attention, ["opportunity:o6"], "off, 30h: human attention");
+});
+
+test("2-4: reachable vs opted-out contact - an opted-out contact makes the estimate human (and subject to the 24h rule)", () => {
+  const now = Date.now();
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 30 * HOUR, { contactSmsOptOut: true }), context: eligibleContext(now) })).attention, ["opportunity:o6"]);
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 2 * HOUR, { contactSmsOptOut: true }), context: eligibleContext(now) })).notYetAttention, ["opportunity:o6"]);
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, 30 * HOUR), context: eligibleContext(now) })).trackprHandling, ["opportunity:o6"], "reachable and opted in: Trackpr's");
+});
+
+test("2-4: an unknown sent_at never hides human work - the estimate stays in Act II", () => {
+  const now = Date.now();
+  assert.deepEqual(placement(assembleDecisions({ ...estimateOnly(now, null), context: { ...eligibleContext(now), estimateFollowupEnabled: false } })), { attention: ["opportunity:o6"], trackprHandling: [], notYetAttention: [], count: 1 });
+});
+
+test("2-4: only pending estimates change - every other row in the frozen fixture is byte-identical to the 2-2 table", () => {
+  const rows = assembleDecisions(buildParityFixture()).attention.map(rowOf);
+  for (const [i, row] of rows.entries()) {
+    if (row[0] === "opportunity:o6") continue;
+    assert.deepEqual(row, EXPECTED_ATTENTION[i], row[0]);
+  }
 });
