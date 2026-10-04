@@ -362,3 +362,59 @@ test("2-11: By type is untouched - the opportunity-type labels it groups by are 
   assert.equal(OPPORTUNITY_TYPE_LABEL.pending_estimate, "Estimate sent, awaiting reply");
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, "app/(app)/opportunities/_components/opportunities-list.tsx"), "utf8"), /Missed follow-up/);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2-12 (§3): a conversation with a human escalation appears once - as
+// the escalation. Matched only on the explicit conversation id both items
+// carry; never by contact, link or title.
+// ---------------------------------------------------------------------------
+
+/** The parity fixture with conversation ids set on chosen items: { itemId: conversationId }. */
+function withConversations(ids: Record<string, string>, now = Date.now()) {
+  const fixture = trackprCapableFixture(now);
+  fixture.attentionItems = fixture.attentionItems.map((item) => (item.id in ids ? { ...item, conversationId: ids[item.id] } : { ...item, conversationId: undefined }));
+  return fixture;
+}
+const signalTitles = (items: import("./types").DecisionItem[]) => items.filter((i) => i.reasonCode === "customer_awaiting_reply").map((i) => i.subject.name);
+const everyItem = (r: ReturnType<typeof assembleDecisions>) => [...r.exceptions, ...r.attention, ...r.trackprHandling, ...r.opportunities, ...r.notYetAttention];
+
+test("2-12: the same conversation waiting for a reply and escalated - only the escalation remains (in every bucket)", () => {
+  const result = assembleDecisions(withConversations({ "escalation-inc-1": "conv-a", "reply-a": "conv-a", "reply-b": "conv-b" }));
+  assert.deepEqual(signalTitles(everyItem(result)), ["Bo Chen"], "Ann Lee's waiting reply is gone");
+  assert.ok(result.exceptions.some((i) => i.source.kind === "exception" && i.source.incidentId === "inc-1"), "the escalation stays");
+});
+
+test("2-12: the same contact in a different conversation is never merged; an escalation alone or a waiting reply alone is unchanged", () => {
+  const different = assembleDecisions(withConversations({ "escalation-inc-1": "conv-x", "reply-a": "conv-a", "reply-b": "conv-b" }));
+  assert.deepEqual(signalTitles(everyItem(different)), ["Ann Lee", "Bo Chen"]);
+  const escalationOnly = assembleDecisions({ ...withConversations({ "escalation-inc-1": "conv-a" }), attentionItems: withConversations({ "escalation-inc-1": "conv-a" }).attentionItems.filter((i) => i.kind !== "awaiting_reply") });
+  assert.equal(escalationOnly.exceptions.filter((i) => i.reasonCode === "human_escalation").length, 2);
+  const replyOnly = assembleDecisions({ ...withConversations({ "reply-a": "conv-a" }), attentionItems: withConversations({ "reply-a": "conv-a" }).attentionItems.filter((i) => i.kind !== "human_escalation") });
+  assert.deepEqual(signalTitles(everyItem(replyOnly)), ["Ann Lee", "Bo Chen"]);
+});
+
+test("2-12: a missing conversation id never causes a merge - not on the escalation (even with a matching link), not on the reply", () => {
+  // escalation-inc-1's link is /conversations/c-esc; reply-a gets conversation id "c-esc" but the escalation has no id.
+  const noEscalationId = assembleDecisions(withConversations({ "reply-a": "c-esc" }));
+  assert.deepEqual(signalTitles(everyItem(noEscalationId)), ["Ann Lee", "Bo Chen"], "links are never parsed");
+  const noReplyId = assembleDecisions(withConversations({ "escalation-inc-1": "conv-a" }));
+  assert.deepEqual(signalTitles(everyItem(noReplyId)), ["Ann Lee", "Bo Chen"]);
+});
+
+test("2-12: several conversations, one escalated - only that conversation's waiting reply is dropped", () => {
+  const result = assembleDecisions(withConversations({ "escalation-x": "conv-b", "reply-a": "conv-a", "reply-b": "conv-b" }));
+  assert.deepEqual(signalTitles(everyItem(result)), ["Ann Lee"]);
+});
+
+test("2-12: every other item keeps its row, order and actor - only the duplicate disappears (signal keys are positional, so they are compared without the key)", () => {
+  const now = Date.now();
+  const ids = { "escalation-inc-1": "conv-a", "reply-a": "conv-a", "reply-b": "conv-b" };
+  const context = { ...eligibleContext(now), waitingConversations: new Map([["conv-b", { aiEnabled: true, smsOptOut: false, firstUnansweredInboundAt: new Date(now - 40 * MIN).toISOString() }]]) };
+  const baseline = assembleDecisions({ ...withConversations({ "reply-a": "conv-a", "reply-b": "conv-b" }, now), context });
+  const deduped = assembleDecisions({ ...withConversations(ids, now), context });
+  const rowWithoutKey = (item: import("./types").DecisionItem) => [...rowOf(item).slice(1), item.actor];
+  const expected = baseline.attention.filter((item) => item.subject.name !== "Ann Lee").map(rowWithoutKey);
+  assert.deepEqual(deduped.attention.map(rowWithoutKey), expected);
+  assert.deepEqual(deduped.exceptions.map(rowOf), baseline.exceptions.map(rowOf), "exceptions unchanged");
+  assert.equal(deduped.totalNeedingAttention, baseline.totalNeedingAttention - 1);
+});

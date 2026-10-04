@@ -179,7 +179,10 @@ export type AttentionItem = {
   incidentStatus?: IncidentStatus;
   /** Pass 3: only present for the three opportunity-backed kinds above - lets the dashboard render the existing dismiss action inline without a second lookup. */
   opportunityId?: string;
-  /** Phase 2-3: the conversation an awaiting_reply item belongs to, so the decision layer can read its AI state without parsing the id or link. */
+  /**
+   * Phase 2-3: the conversation an awaiting_reply item belongs to, so the decision layer can read its AI state without parsing the id or link.
+   * Phase 2-12: also set on a human_escalation item when its incident names a conversation, so the decision layer can drop that conversation's waiting-reply duplicate.
+   */
   conversationId?: string;
 };
 
@@ -580,6 +583,7 @@ export async function getDashboardData(
       href: metadata.conversationId ? `/conversations/${metadata.conversationId}` : "/conversations",
       incidentId: incident.id,
       incidentStatus: incident.status as IncidentStatus,
+      ...(metadata.conversationId ? { conversationId: metadata.conversationId } : {}),
     };
   });
 

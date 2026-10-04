@@ -120,3 +120,18 @@ test("no list-wide slice remains on the assembled attention list", () => {
   assert.match(assembled, /\.\.\.completedJobNoReferralRequestOpportunities,/, "the window covers the assembled list");
   assert.doesNotMatch(assembled, /\]\.slice\(/);
 });
+
+test("Phase 2-12: a human_escalation item carries its incident's conversation id; without one it carries none", async () => {
+  const data = await getDashboardData(busyDayClient(), "org-1", { conversationAttention: "sql", recordAttention: "sql" });
+  const escalations = data.attentionItems.filter((item) => item.kind === "human_escalation");
+  assert.deepEqual(escalations.map((item) => item.conversationId), range(5).map((i) => `conv-esc-${i}`));
+  assert.ok(escalations.every((item) => item.href === `/conversations/${item.conversationId}`), "the link is unchanged");
+  ESCALATIONS[0].metadata = {} as { conversationId: string };
+  try {
+    const without = await getDashboardData(busyDayClient(), "org-1", { conversationAttention: "sql", recordAttention: "sql" });
+    const first = without.attentionItems.find((item) => item.id === "escalation-inc-1")!;
+    assert.deepEqual([first.conversationId, first.href], [undefined, "/conversations"]);
+  } finally {
+    ESCALATIONS[0].metadata = { conversationId: "conv-esc-1" };
+  }
+});

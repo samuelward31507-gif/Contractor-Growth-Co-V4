@@ -198,7 +198,10 @@ test("attention and opportunity split the existing priority order by tier - noth
   // Phase 2-2: the split and the count now live in the pure assembler
   // (behavior pinned in lib/decisions/assemble.test.ts); Today reads them.
   assert.match(ASSEMBLE, /export const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set\(\["recoverable", "growth"\]\);/);
-  assert.match(ASSEMBLE, /buildPriorityQueue\(input\.prioritizedOpportunities, getConversationSignals\(input\.attentionItems\)\)/, "the unchanged queue, same inputs, same order");
+  // Phase 2-12: the signal input is the attention list minus waiting-reply items whose conversation has a human escalation -
+  // exactly input.attentionItems when no escalation names a conversation. The queue itself is unchanged.
+  assert.match(ASSEMBLE, /buildPriorityQueue\(input\.prioritizedOpportunities, getConversationSignals\(signalSource\)\)/, "the unchanged queue, same inputs, same order");
+  assert.match(ASSEMBLE, /const signalSource = escalatedConversationIds\.size === 0 \? input\.attentionItems : input\.attentionItems\.filter\(/);
   assert.match(ASSEMBLE, /totalNeedingAttention: exceptions\.length \+ attention\.length/);
   assert.match(PAGE, /const decisions = assembleDecisions\(\{ attentionItems: data\.attentionItems, prioritizedOpportunities, context: decisionContext \}\);/);
   assert.match(PAGE, /const totalNeedingAttention = decisions\.totalNeedingAttention;/);

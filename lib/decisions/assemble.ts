@@ -125,7 +125,15 @@ export function assembleDecisions(input: { attentionItems: AttentionItem[]; prio
     };
   });
 
-  const queue = buildPriorityQueue(input.prioritizedOpportunities, getConversationSignals(input.attentionItems)).map((item) => priorityItemToDecision(item, context));
+  // Phase 2-12 (§3): a conversation with an open human-escalation incident
+  // appears once - as the escalation. Its waiting-for-reply signal is
+  // dropped before the queue is built, so the escalation wins and every
+  // other item keeps its order. Matched only on an explicit conversation id
+  // carried by both items - never by contact, link or title - so items with
+  // no conversation id are never merged.
+  const escalatedConversationIds = new Set(input.attentionItems.filter((item) => item.kind === "human_escalation" && item.conversationId).map((item) => item.conversationId as string));
+  const signalSource = escalatedConversationIds.size === 0 ? input.attentionItems : input.attentionItems.filter((item) => !(item.kind === "awaiting_reply" && item.conversationId && escalatedConversationIds.has(item.conversationId)));
+  const queue = buildPriorityQueue(input.prioritizedOpportunities, getConversationSignals(signalSource)).map((item) => priorityItemToDecision(item, context));
   // Phase 2-3b (C8): Act II shows only work a human has to do, in the same
   // relative priority order; items Trackpr is still handling are set aside
   // (summarized in Act I) and never counted. Act III is unchanged.

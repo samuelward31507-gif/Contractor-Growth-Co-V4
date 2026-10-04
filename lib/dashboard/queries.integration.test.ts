@@ -119,6 +119,7 @@ test("5. HANDOFF-01: an open human escalation incident appears as a human_escala
     assert.ok(item, "an open human_escalation_requested incident must appear in attentionItems");
     assert.equal(item!.detail, "The customer asked for a human.");
     assert.equal(item!.href, `/conversations/${conversationId}`);
+    assert.equal(item!.conversationId, conversationId, "Phase 2-12: the incident's conversation travels on the item");
     assert.equal(item!.incidentId, (incident as { id: string }).id);
     assert.equal(item!.incidentStatus, "open");
   } finally {
