@@ -12,6 +12,7 @@ import { HIGH_VALUE_THRESHOLD } from "@/lib/dashboard/queries";
 import { calendarDateInTimeZone, formatInvoiceNumber, formatMoney, isOverdue, type InvoiceStatus } from "@/lib/invoices/domain";
 import { isLegacyCompletedJob } from "@/lib/invoices/summary";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
+import { ONBOARDING_TEST_LEAD_SOURCE } from "@/lib/onboarding/readiness";
 import { getOpportunityById, type OpportunityType, type OpportunityStatus, type OpportunityResolutionReason } from "./queries";
 
 /**
@@ -95,11 +96,11 @@ import { getOpportunityById, type OpportunityType, type OpportunityStatus, type 
  *                                        successfully sent outbound message
  *                                        (no inbound reply, no outbound
  *                                        message with status 'sent' or
- *                                        'delivered') for its contact, while
- *                                        the organization currently has
- *                                        working, eligible automation (live,
- *                                        paid, unpaused, instant-lead-
- *                                        followup enabled). Explicitly "no
+ *                                        'delivered') for its contact since
+ *                                        the lead was created. Phase 2-5:
+ *                                        independent of automation state and
+ *                                        of SMS opt-out (see
+ *                                        detectUncontactedLeads). Explicitly "no
  *                                        recorded outbound contact" per
  *                                        Trackpr's own evidence - never a
  *                                        claim that the customer was never
@@ -264,12 +265,11 @@ async function checkedAll<T>(read: string, build: Parameters<typeof readAllPages
   return result.rows;
 }
 
-// Error-observing copies of three shared helpers (lib/automation/settings.ts,
+// Error-observing copies of two shared helpers (lib/automation/settings.ts,
 // lib/settings/queries.ts). Same queries and the same results and defaults on
 // success; the only difference is that a failed read throws instead of
-// silently becoming the default - getAutomationEnabled's `?? true` would
-// otherwise turn a failed read into "enabled". The shared helpers themselves
-// are untouched: they have many other callers.
+// silently becoming the default. The shared helpers themselves are
+// untouched: they have many other callers.
 
 async function readAutomationConfigByOrganization(supabase: SupabaseClient, organizationId: string, automationId: string): Promise<Map<string, unknown>> {
   const map = new Map<string, unknown>();
@@ -280,14 +280,6 @@ async function readAutomationConfigByOrganization(supabase: SupabaseClient, orga
     map.set(row.organization_id, row.config);
   }
   return map;
-}
-
-async function readAutomationEnabled(supabase: SupabaseClient, organizationId: string, automationId: string): Promise<boolean> {
-  const data = checked(
-    `automation_settings.enabled (${automationId})`,
-    await supabase.from("automation_settings").select("enabled").eq("organization_id", organizationId).eq("automation_id", automationId).maybeSingle(),
-  );
-  return (data?.enabled as boolean | undefined) ?? true;
 }
 
 async function readOrganizationTimezone(supabase: SupabaseClient, organizationId: string): Promise<string | undefined> {
@@ -795,14 +787,11 @@ const UNCONTACTED_LEAD_AGE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 /** messages.status values that actually prove the customer's carrier accepted or delivered the message - 'queued' (Twilio hasn't responded yet) and 'failed'/'undelivered' (attempted, never reached) are deliberately excluded, matching the Pass 5C Batch 2 audit's evidence hierarchy exactly: an attempt is not contact. */
 const SUCCESSFUL_OUTBOUND_STATUSES = new Set(["sent", "delivered"]);
 
-const INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID = "instant-lead-followup";
-
-type UncontactedLeadContactRow = { id: string; first_name: string | null; last_name: string | null; company_name: string | null; sms_opt_out: boolean };
-type UncontactedLeadContactRef = UncontactedLeadContactRow | UncontactedLeadContactRow[] | null;
-
-function oneUncontactedLeadContact(value: UncontactedLeadContactRef): UncontactedLeadContactRow | null {
-  return Array.isArray(value) ? (value[0] ?? null) : value;
-}
+type ContactEvidenceRow = {
+  contact_id: string | null;
+  status: string;
+  messages: { created_at: string; direction: "inbound" | "outbound" }[] | null;
+};
 
 /**
  * Deliberately NOT "the lead was ignored" or "the customer was never
@@ -827,40 +816,34 @@ function oneUncontactedLeadContact(value: UncontactedLeadContactRef): Uncontacte
  *     demonstrably engaged, regardless of what Trackpr did or didn't send
  *     first.
  *
- * Organization/automation eligibility (payment/pause/live/enabled) is
- * re-derived fresh from the database on every call, exactly like
- * evaluateOutboundGate's own live checks - never inferred from the
- * presence/absence of workflow_executions rows, since a disabled or paused
- * organization leaves zero such rows and would otherwise look identical to
- * "eligible but not yet acted on."
+ * Phase 2-5 (Phase 2 definition, L1, L2):
+ *   - Independent of automation. An uncontacted lead is human work whether
+ *     the organization is live, in test mode, paused or unpaid, and whether
+ *     instant-lead-followup is enabled - automation state only decides who
+ *     acts (lib/decisions/actor.ts), never whether the item exists. The old
+ *     live/paid/unpaused/enabled gate hid every lead exactly when only a
+ *     human could contact it.
+ *   - Opted-out contacts are kept: opt-out blocks texting, not calling, and
+ *     this type's action is already "call".
+ *   - L1: only evidence at or after the lead's own created_at counts - an
+ *     earlier conversation with a returning customer says nothing about
+ *     this lead. One exception, from B3: an open conversation whose newest
+ *     evidence is the customer's inbound message is waiting for a reply,
+ *     and waiting-for-reply wins over uncontacted whenever it happened.
+ *   - L2: the onboarding test lead (source ONBOARDING_TEST_LEAD_SOURCE) is
+ *     never a candidate - it is the owner's own test, not a customer.
  *
- * Three bounded, org-scoped queries (leads, conversations, messages)
- * regardless of candidate count, aggregated in-memory via Maps/Sets - the
- * same shape detectCancelledAppointmentsWithoutRebooking above already
- * uses. Never N+1 per lead.
+ * Two bounded, org-scoped reads (leads, then conversations with their
+ * newest evidence message embedded) regardless of candidate count,
+ * aggregated in memory. Never N+1 per lead.
  */
 async function detectUncontactedLeads(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
-  const [organizationResult, automationEnabled] = await Promise.all([
-    supabase.from("organizations").select("automation_mode, payment_status, automation_paused").eq("id", organizationId).maybeSingle(),
-    readAutomationEnabled(supabase, organizationId, INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID),
-  ]);
-  const organizationRow = checked("uncontacted_lead.organizations", organizationResult);
-
-  // Mirrors evaluateOutboundGate's own organization_not_live/
-  // organization_payment_inactive/organization_automation_paused checks -
-  // an organization that isn't currently eligible for real automated
-  // outbound produces zero candidates, full stop, regardless of how many
-  // 'new' leads it has.
-  if (!organizationRow || organizationRow.automation_mode !== "live" || organizationRow.payment_status !== "active" || organizationRow.automation_paused || !automationEnabled) {
-    return [];
-  }
-
   const thresholdIso = new Date(now.getTime() - UNCONTACTED_LEAD_AGE_THRESHOLD_MS).toISOString();
 
   const leadRows = await checkedAll("uncontacted_lead.leads", () =>
     supabase
       .from("leads")
-      .select("id, contact_id, service, estimated_value, created_at, contacts(id, first_name, last_name, company_name, sms_opt_out)")
+      .select("id, contact_id, service, source, estimated_value, created_at, contacts(id, first_name, last_name, company_name)")
       .eq("organization_id", organizationId)
       .eq("status", "new")
       .not("contact_id", "is", null)
@@ -868,36 +851,49 @@ async function detectUncontactedLeads(supabase: SupabaseClient, organizationId: 
       .order("id"),
   );
 
-  const leads = (leadRows ?? []) as { id: string; contact_id: string; service: string | null; estimated_value: number | null; created_at: string; contacts: UncontactedLeadContactRef }[];
+  const leads = ((leadRows ?? []) as { id: string; contact_id: string; service: string | null; source: string | null; estimated_value: number | null; created_at: string; contacts: ContactRef }[]).filter(
+    (lead) => lead.source !== ONBOARDING_TEST_LEAD_SOURCE,
+  );
   if (leads.length === 0) return [];
-
-  // A contact who has opted out can never receive a remedial SMS - Trackpr
-  // itself cannot act on this, so surfacing it as an actionable "should
-  // contact" opportunity would be misleading.
-  const eligibleLeads = leads.filter((lead) => !(oneUncontactedLeadContact(lead.contacts)?.sms_opt_out ?? false));
-  if (eligibleLeads.length === 0) return [];
 
   // Phase 2H: the organization's conversations that hold at least one
   // inbound message or one successful outbound message - one paged read
-  // with the message condition applied inside an inner join (one matching
-  // message embedded per conversation, just as evidence). It replaces the
+  // with the message condition applied inside an inner join. It replaces the
   // contact-id and conversation-id lists, which failed at ~400 ids, and the
   // capped message read, which dropped messages past the first 1000.
-  const contactedConversations = await checkedAll<{ contact_id: string | null }>("uncontacted_lead.contacted_conversations", () =>
+  // Phase 2-5: the one embedded message is now each conversation's NEWEST
+  // piece of evidence, so its time and direction can be compared with each
+  // lead's created_at (L1, B3) - still one read.
+  const evidenceRows = await checkedAll<ContactEvidenceRow>("uncontacted_lead.contacted_conversations", () =>
     supabase
       .from("conversations")
-      .select("contact_id, messages!inner(id)")
+      .select("contact_id, status, messages!inner(created_at, direction)")
       .eq("organization_id", organizationId)
       .not("contact_id", "is", null)
       .eq("messages.organization_id", organizationId)
       .or(`direction.eq.inbound,and(direction.eq.outbound,status.in.(${[...SUCCESSFUL_OUTBOUND_STATUSES].join(",")}))`, { referencedTable: "messages" })
+      .order("created_at", { referencedTable: "messages", ascending: false })
       .limit(1, { referencedTable: "messages" })
       .order("id"),
   );
-  const contactedContactIds = new Set(contactedConversations.map((row) => row.contact_id));
 
-  return eligibleLeads
-    .filter((lead) => !contactedContactIds.has(lead.contact_id))
+  // Per contact: the newest evidence across all of its conversations, and
+  // whether any open conversation is waiting on the customer's reply.
+  const newestEvidenceMsByContact = new Map<string, number>();
+  const waitingContactIds = new Set<string>();
+  for (const row of evidenceRows) {
+    const newest = row.messages?.[0];
+    if (!row.contact_id || !newest) continue;
+    const newestMs = new Date(newest.created_at).getTime();
+    if (newestMs > (newestEvidenceMsByContact.get(row.contact_id) ?? Number.NEGATIVE_INFINITY)) newestEvidenceMsByContact.set(row.contact_id, newestMs);
+    if (row.status === "open" && newest.direction === "inbound") waitingContactIds.add(row.contact_id);
+  }
+
+  const contactedSinceCreated = (lead: { contact_id: string; created_at: string }) =>
+    waitingContactIds.has(lead.contact_id) || (newestEvidenceMsByContact.get(lead.contact_id) ?? Number.NEGATIVE_INFINITY) >= new Date(lead.created_at).getTime();
+
+  return leads
+    .filter((lead) => !contactedSinceCreated(lead))
     .map((lead) => ({
       type: "uncontacted_lead" as const,
       sourceEntityType: "lead" as const,

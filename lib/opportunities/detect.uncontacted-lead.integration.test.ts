@@ -64,13 +64,13 @@ function hoursAgoIso(hours: number): string {
 }
 
 /** created_at, when given, is safe to set at insert time - leads carries no BEFORE UPDATE trigger touching it, and this is never followed by an UPDATE in these fixtures. */
-async function makeLead(orgId: string, contactId: string, opts: { status?: string; createdAt?: string; estimatedValue?: number | null } = {}) {
+async function makeLead(orgId: string, contactId: string, opts: { status?: string; createdAt?: string; estimatedValue?: number | null; source?: string } = {}) {
   const payload: Record<string, unknown> = {
     organization_id: orgId,
     contact_id: contactId,
     status: opts.status ?? "new",
     temperature: "warm",
-    source: "website",
+    source: opts.source ?? "website",
     estimated_value: opts.estimatedValue ?? null,
   };
   if (opts.createdAt) payload.created_at = opts.createdAt;
@@ -83,8 +83,9 @@ async function makeConversation(orgId: string, contactId: string, status = "open
   return data!.id as string;
 }
 
-async function makeMessage(orgId: string, conversationId: string, direction: "inbound" | "outbound", status: string) {
-  await service.from("messages").insert({ organization_id: orgId, conversation_id: conversationId, direction, sender_type: direction === "outbound" ? "ai" : "customer", body: "test", status });
+async function makeMessage(orgId: string, conversationId: string, direction: "inbound" | "outbound", status: string, createdAt?: string) {
+  const { error } = await service.from("messages").insert({ organization_id: orgId, conversation_id: conversationId, direction, sender_type: direction === "outbound" ? "ai" : "customer", body: "test", status, ...(createdAt ? { created_at: createdAt } : {}) });
+  assert.ifError(error);
 }
 
 /** Fixture for tests 8/9 - a real automation_events + workflow_executions row (inserted directly, bypassing the auth-required RPC, matching how the existing opportunities RLS test file inserts rows directly for fixture purposes) with no message ever created - proves workflow/AI evidence alone is never treated as contact. */
@@ -259,67 +260,57 @@ test("10. a lead whose status has moved away from 'new' is never a candidate", a
   }
 });
 
-test("11. an opted-out contact's lead is never a candidate - Trackpr cannot act on it regardless", async () => {
+// Phase 2-5: tests 11-15 used to pin the old automation/opt-out gate. Under
+// the Phase 2 definition an uncontacted lead is human work regardless of
+// automation state or SMS opt-out, so each is now a candidate.
+async function assertCandidateIn(orgId: string, phone: string, opts: { smsOptOut?: boolean; disableInstantFollowup?: boolean } = {}) {
+  const contactId = await makeContact(orgId, phone, opts.smsOptOut ?? false);
+  const leadId = await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30) });
+  if (opts.disableInstantFollowup) await setAutomationEnabled(orgId, "instant-lead-followup", false);
+  const candidates = await detectAllOpportunityCandidates(service, orgId);
+  assert.ok(candidates.some((c) => c.type === "uncontacted_lead" && c.sourceEntityId === leadId));
+}
+
+test("11. (Phase 2-5) an opted-out contact's lead is a candidate - opt-out blocks texting, not calling", async () => {
   const orgId = await makeOrg("Uncontacted Lead Test Org (11)");
   try {
-    const contactId = await makeContact(orgId, "+15555610011", true);
-    await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30) });
-
-    const candidates = await detectAllOpportunityCandidates(service, orgId);
-    assert.ok(!candidates.some((c) => c.type === "uncontacted_lead"));
+    await assertCandidateIn(orgId, "+15555610011", { smsOptOut: true });
   } finally {
     await cleanupOrg(orgId);
   }
 });
 
-test("12. an organization with payment_status not 'active' produces zero candidates, even with an otherwise-qualifying lead", async () => {
+test("12. (Phase 2-5) an organization with payment_status not 'active' still has the candidate - automation state never hides human work", async () => {
   const orgId = await makeOrg("Uncontacted Lead Test Org (12)", { paymentStatus: "payment_required" });
   try {
-    const contactId = await makeContact(orgId, "+15555610012");
-    await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30) });
-
-    const candidates = await detectAllOpportunityCandidates(service, orgId);
-    assert.ok(!candidates.some((c) => c.type === "uncontacted_lead"));
+    await assertCandidateIn(orgId, "+15555610012");
   } finally {
     await cleanupOrg(orgId);
   }
 });
 
-test("13. an organization with automation_paused=true produces zero candidates", async () => {
+test("13. (Phase 2-5) an organization with automation_paused=true still has the candidate", async () => {
   const orgId = await makeOrg("Uncontacted Lead Test Org (13)", { automationPaused: true });
   try {
-    const contactId = await makeContact(orgId, "+15555610013");
-    await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30) });
-
-    const candidates = await detectAllOpportunityCandidates(service, orgId);
-    assert.ok(!candidates.some((c) => c.type === "uncontacted_lead"));
+    await assertCandidateIn(orgId, "+15555610013");
   } finally {
     await cleanupOrg(orgId);
   }
 });
 
-test("14. an organization not in automation_mode='live' produces zero candidates", async () => {
+test("14. (Phase 2-5) an organization in automation_mode='test' still has the candidate", async () => {
   const orgId = await makeOrg("Uncontacted Lead Test Org (14)", { automationMode: "test" });
   try {
-    const contactId = await makeContact(orgId, "+15555610014");
-    await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30) });
-
-    const candidates = await detectAllOpportunityCandidates(service, orgId);
-    assert.ok(!candidates.some((c) => c.type === "uncontacted_lead"));
+    await assertCandidateIn(orgId, "+15555610014");
   } finally {
     await cleanupOrg(orgId);
   }
 });
 
-test("15. instant-lead-followup explicitly disabled for the org produces zero candidates - never a false opportunity for an intentionally-off automation", async () => {
+test("15. (Phase 2-5) instant-lead-followup explicitly disabled still leaves the candidate - automation state decides who acts, not whether the item exists", async () => {
   const orgId = await makeOrg("Uncontacted Lead Test Org (15)");
   try {
-    const contactId = await makeContact(orgId, "+15555610015");
-    await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30) });
-    await setAutomationEnabled(orgId, "instant-lead-followup", false);
-
-    const candidates = await detectAllOpportunityCandidates(service, orgId);
-    assert.ok(!candidates.some((c) => c.type === "uncontacted_lead"));
+    await assertCandidateIn(orgId, "+15555610015", { disableInstantFollowup: true });
   } finally {
     await cleanupOrg(orgId);
   }
@@ -486,6 +477,66 @@ test("24. a failed outbound send does NOT resolve an existing open opportunity",
 
     const { data: stillOpenOpp } = await service.from("opportunities").select("status").eq("id", openOpp!.id).single();
     assert.equal(stillOpenOpp?.status, "open");
+  } finally {
+    await cleanupOrg(orgId);
+  }
+});
+
+test("25. (Phase 2-5, L1) a delivered message from before the lead was created does not count - the lead is a candidate", async () => {
+  const orgId = await makeOrg("Uncontacted Lead Test Org (25)");
+  try {
+    const contactId = await makeContact(orgId, "+15555610025");
+    const leadId = await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30) });
+    const conversationId = await makeConversation(orgId, contactId, "closed");
+    await makeMessage(orgId, conversationId, "outbound", "delivered", hoursAgoIso(200));
+
+    const candidates = await detectAllOpportunityCandidates(service, orgId);
+    assert.ok(candidates.some((c) => c.type === "uncontacted_lead" && c.sourceEntityId === leadId));
+  } finally {
+    await cleanupOrg(orgId);
+  }
+});
+
+test("26. (Phase 2-5, L1) the embedded evidence is each conversation's NEWEST message: an old inbound answered before the lead existed does not hide the lead", async () => {
+  const orgId = await makeOrg("Uncontacted Lead Test Org (26)");
+  try {
+    const contactId = await makeContact(orgId, "+15555610026");
+    const leadId = await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30) });
+    const conversationId = await makeConversation(orgId, contactId, "open");
+    await makeMessage(orgId, conversationId, "inbound", "received", hoursAgoIso(50));
+    await makeMessage(orgId, conversationId, "outbound", "delivered", hoursAgoIso(40));
+
+    const candidates = await detectAllOpportunityCandidates(service, orgId);
+    assert.ok(candidates.some((c) => c.type === "uncontacted_lead" && c.sourceEntityId === leadId), "the newest evidence is our old reply, not the customer's message");
+  } finally {
+    await cleanupOrg(orgId);
+  }
+});
+
+test("27. (Phase 2-5, L1 with B3) an open conversation still waiting on the customer's message from before the lead was created - waiting for reply wins, never uncontacted too", async () => {
+  const orgId = await makeOrg("Uncontacted Lead Test Org (27)");
+  try {
+    const contactId = await makeContact(orgId, "+15555610027");
+    await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30) });
+    const conversationId = await makeConversation(orgId, contactId, "open");
+    await makeMessage(orgId, conversationId, "outbound", "delivered", hoursAgoIso(60));
+    await makeMessage(orgId, conversationId, "inbound", "received", hoursAgoIso(50));
+
+    const candidates = await detectAllOpportunityCandidates(service, orgId);
+    assert.ok(!candidates.some((c) => c.type === "uncontacted_lead"));
+  } finally {
+    await cleanupOrg(orgId);
+  }
+});
+
+test("28. (Phase 2-5, L2) the onboarding test lead is never a candidate", async () => {
+  const orgId = await makeOrg("Uncontacted Lead Test Org (28)", { automationMode: "test" });
+  try {
+    const contactId = await makeContact(orgId, "+15555610028");
+    await makeLead(orgId, contactId, { createdAt: hoursAgoIso(30), source: "onboarding_test" });
+
+    const candidates = await detectAllOpportunityCandidates(service, orgId);
+    assert.ok(!candidates.some((c) => c.type === "uncontacted_lead"));
   } finally {
     await cleanupOrg(orgId);
   }

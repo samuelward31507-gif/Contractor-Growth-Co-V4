@@ -64,7 +64,9 @@ function makeFake(tables: Record<string, Row[]>, fail: (call: Call) => boolean =
         result = rows.filter(matches);
         if (table === "conversations" && columns.includes("messages!inner")) {
           const qualifying = (m: Row, c: Row) => m.conversation_id === c.id && m.organization_id === c.organization_id && (m.direction === "inbound" || (m.direction === "outbound" && ["sent", "delivered"].includes(String(m.status))));
-          result = result.filter((c) => (tables.messages ?? []).some((m) => qualifying(m, c))).map((c) => ({ ...c, messages: [{ id: "m" }] }));
+          // Phase 2-5: like the real read (ordered newest first, limit 1 per conversation), the one embedded message is the conversation's newest evidence.
+          const newest = (c: Row) => (tables.messages ?? []).filter((m) => qualifying(m, c)).sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)))[0];
+          result = result.filter((c) => newest(c) !== undefined).map((c) => ({ ...c, messages: [{ created_at: newest(c)!.created_at, direction: newest(c)!.direction }] }));
         }
         if (table === "opportunities" && columns.includes("contact:contacts")) {
           result = result.map((o) => ({ contact: (tables.contacts ?? []).find((c) => c.id === o.contact_id) ?? null }));
@@ -152,8 +154,8 @@ function scaleFixture(n: number, org = ORG): Record<string, Row[]> {
     conversations: range(n).map((i) => ({ id: `${org}-conv${i}`, organization_id: org, contact_id: c(i).id })),
     messages: [
       // Contacts 0..n/2 contacted (inbound, or outbound delivered); the rest only have failed sends.
-      ...range(n / 2).map((i) => ({ id: `${org}-m${i}`, organization_id: org, conversation_id: `${org}-conv${i}`, direction: i % 2 ? "inbound" : "outbound", status: i % 2 ? "received" : "delivered" })),
-      ...range(n / 2).map((i) => ({ id: `${org}-mf${i}`, organization_id: org, conversation_id: `${org}-conv${n / 2 + i}`, direction: "outbound", status: "failed" })),
+      ...range(n / 2).map((i) => ({ id: `${org}-m${i}`, organization_id: org, conversation_id: `${org}-conv${i}`, direction: i % 2 ? "inbound" : "outbound", status: i % 2 ? "received" : "delivered", created_at: DAYS_AGO(2) })),
+      ...range(n / 2).map((i) => ({ id: `${org}-mf${i}`, organization_id: org, conversation_id: `${org}-conv${n / 2 + i}`, direction: "outbound", status: "failed", created_at: DAYS_AGO(2) })),
     ],
     referral_requests: range(n / 2).map((i) => ({ id: `${org}-rr${i}`, organization_id: org, job_id: `${org}-j${i}`, status: "sent" })),
     review_requests: range(n / 2).map((i) => ({ id: `${org}-rv${i}`, organization_id: org, job_id: `${org}-j${i}`, status: "sent" })),
@@ -327,4 +329,120 @@ test("structural: detect.ts has no capped read and no id-list read left; every p
   assert.deepEqual(idLists, ["id"], "only the chunked resolve update names ids");
   assert.match(source, /for \(let i = 0; i < rows\.length; i \+= RESOLVE_CHUNK\)/);
   assert.equal([...source.matchAll(/checkedAll(<[^>]+>)?\(\s*"/g)].length >= 24, true);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2-5: uncontacted leads are human work - independent of automation
+// state and SMS opt-out (Phase 2 definition), evidence only counts from the
+// lead's creation on (L1, with B3's waiting-for-reply exception), and the
+// onboarding test lead is never a candidate (L2).
+// ---------------------------------------------------------------------------
+
+const LEAD_CREATED = DAYS_AGO(3);
+
+/** One organization, one contact, one 'new' lead created three days ago, plus whatever conversations and messages a test adds. */
+function uncontactedFixture(organization: Row = {}, contactOverrides: Row = {}, leadOverrides: Row = {}): Record<string, Row[]> {
+  const tables = scaleFixture(0);
+  tables.organizations = [{ ...tables.organizations[0], ...organization }];
+  const person = { ...contact(ORG, 1), ...contactOverrides };
+  tables.contacts = [person];
+  tables.leads = [{ id: "lead-1", organization_id: ORG, contact_id: person.id, status: "new", service: "Roof", source: "website", estimated_value: null, temperature: "warm", created_at: LEAD_CREATED, contacts: person, ...leadOverrides }];
+  return tables;
+}
+
+function addMessage(tables: Record<string, Row[]>, conversation: { id: string; status?: string }, message: { direction: "inbound" | "outbound"; status: string; created_at: string }) {
+  if (!tables.conversations.some((row) => row.id === conversation.id)) tables.conversations.push({ id: conversation.id, organization_id: ORG, contact_id: `${ORG}-c1`, status: conversation.status ?? "open" });
+  tables.messages.push({ id: `msg-${tables.messages.length}`, organization_id: ORG, conversation_id: conversation.id, ...message });
+}
+
+async function uncontactedIds(tables: Record<string, Row[]>) {
+  const fake = makeFake(tables);
+  const candidates = await detectAllOpportunityCandidates(fake.client, ORG, NOW);
+  return { ids: candidates.filter((c) => c.type === "uncontacted_lead").map((c) => c.sourceEntityId), calls: fake.calls };
+}
+
+test("Phase 2-5: an uncontacted lead is a candidate whatever the automation state - test mode, paused, unpaid, or instant-lead-followup disabled", async () => {
+  const variants: [string, Record<string, Row[]>][] = [
+    ["live and eligible", uncontactedFixture()],
+    ["test mode", uncontactedFixture({ automation_mode: "test" })],
+    ["paused", uncontactedFixture({ automation_paused: true })],
+    ["payment not active", uncontactedFixture({ payment_status: "payment_required" })],
+    ["no organization row", { ...uncontactedFixture(), organizations: [] }],
+  ];
+  const disabled = uncontactedFixture();
+  disabled.automation_settings = [{ id: "s1", organization_id: ORG, automation_id: "instant-lead-followup", enabled: false, config: {} }];
+  variants.push(["instant-lead-followup disabled", disabled]);
+  for (const [label, tables] of variants) {
+    const { ids, calls } = await uncontactedIds(tables);
+    assert.deepEqual(ids, ["lead-1"], label);
+    assert.ok(!calls.some((call) => call.table === "automation_settings" && call.filters.some((f) => f.value === "instant-lead-followup")), `${label}: instant-lead-followup's setting is never read`);
+  }
+});
+
+test("Phase 2-5: an opted-out contact's lead is kept - opt-out blocks texting, not calling", async () => {
+  assert.deepEqual((await uncontactedIds(uncontactedFixture({}, { sms_opt_out: true }))).ids, ["lead-1"]);
+});
+
+test("Phase 2-5 (L1): only evidence from the lead's creation on counts", async () => {
+  const before = DAYS_AGO(10);
+  const after = DAYS_AGO(2);
+
+  const oldOutbound = uncontactedFixture();
+  addMessage(oldOutbound, { id: "conv-1" }, { direction: "outbound", status: "delivered", created_at: before });
+  assert.deepEqual((await uncontactedIds(oldOutbound)).ids, ["lead-1"], "a delivered message from before the lead was created");
+
+  const newOutbound = uncontactedFixture();
+  addMessage(newOutbound, { id: "conv-1" }, { direction: "outbound", status: "delivered", created_at: before });
+  addMessage(newOutbound, { id: "conv-1" }, { direction: "outbound", status: "sent", created_at: after });
+  assert.deepEqual((await uncontactedIds(newOutbound)).ids, [], "a sent message after the lead was created");
+
+  const atCreation = uncontactedFixture();
+  addMessage(atCreation, { id: "conv-1" }, { direction: "outbound", status: "delivered", created_at: LEAD_CREATED });
+  assert.deepEqual((await uncontactedIds(atCreation)).ids, [], "evidence at exactly the lead's created_at counts");
+
+  const newInbound = uncontactedFixture();
+  addMessage(newInbound, { id: "conv-1", status: "closed" }, { direction: "inbound", status: "received", created_at: after });
+  assert.deepEqual((await uncontactedIds(newInbound)).ids, [], "an inbound message after the lead was created");
+
+  const failedAfter = uncontactedFixture();
+  addMessage(failedAfter, { id: "conv-1" }, { direction: "outbound", status: "delivered", created_at: before });
+  addMessage(failedAfter, { id: "conv-1" }, { direction: "outbound", status: "failed", created_at: after });
+  assert.deepEqual((await uncontactedIds(failedAfter)).ids, ["lead-1"], "a failed send after creation is still not contact");
+
+  const otherConversation = uncontactedFixture();
+  addMessage(otherConversation, { id: "conv-old", status: "closed" }, { direction: "outbound", status: "delivered", created_at: before });
+  addMessage(otherConversation, { id: "conv-new", status: "closed" }, { direction: "outbound", status: "delivered", created_at: after });
+  assert.deepEqual((await uncontactedIds(otherConversation)).ids, [], "the newest evidence across all of the contact's conversations");
+});
+
+test("Phase 2-5 (L1 with B3): an open conversation still waiting on the customer's earlier message wins over uncontacted; once answered before the lead existed, it no longer does", async () => {
+  const waiting = uncontactedFixture();
+  addMessage(waiting, { id: "conv-1", status: "open" }, { direction: "inbound", status: "received", created_at: DAYS_AGO(10) });
+  assert.deepEqual((await uncontactedIds(waiting)).ids, [], "unanswered inbound in an open conversation - waiting for reply wins");
+
+  const closedWaiting = uncontactedFixture();
+  addMessage(closedWaiting, { id: "conv-1", status: "closed" }, { direction: "inbound", status: "received", created_at: DAYS_AGO(10) });
+  assert.deepEqual((await uncontactedIds(closedWaiting)).ids, ["lead-1"], "a closed conversation is not waiting - old evidence does not count");
+
+  const answered = uncontactedFixture();
+  addMessage(answered, { id: "conv-1", status: "open" }, { direction: "inbound", status: "received", created_at: DAYS_AGO(10) });
+  addMessage(answered, { id: "conv-1", status: "open" }, { direction: "outbound", status: "delivered", created_at: DAYS_AGO(9) });
+  assert.deepEqual((await uncontactedIds(answered)).ids, ["lead-1"], "answered before the lead was created - uncontacted again");
+});
+
+test("Phase 2-5 (L2): the onboarding test lead is never a candidate; a real lead for the same contact still is", async () => {
+  const tables = uncontactedFixture({}, {}, { source: "onboarding_test" });
+  assert.deepEqual((await uncontactedIds(tables)).ids, []);
+  tables.leads.push({ ...tables.leads[0], id: "lead-2", source: null });
+  assert.deepEqual((await uncontactedIds(tables)).ids, ["lead-2"], "a null source is a real lead");
+});
+
+test("Phase 2-5 structural: the uncontacted-lead detector reads no organization or automation state and imports the onboarding source constant", () => {
+  const source = fs.readFileSync(path.join(process.cwd(), "lib/opportunities/detect.ts"), "utf8");
+  const start = source.indexOf("async function detectUncontactedLeads(");
+  const body = source.slice(start, source.indexOf("\n}\n", start));
+  assert.doesNotMatch(body, /from\("organizations"\)|automation_settings|automation_mode|payment_status|automation_paused|sms_opt_out/);
+  assert.match(body, /lead\.source !== ONBOARDING_TEST_LEAD_SOURCE/);
+  assert.match(source, /import \{ ONBOARDING_TEST_LEAD_SOURCE \} from "@\/lib\/onboarding\/readiness";/);
+  assert.doesNotMatch(source, /readAutomationEnabled|INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID/);
 });
