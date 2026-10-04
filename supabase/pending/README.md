@@ -369,3 +369,20 @@ Revert/redeploy the application code first, then run `invoice_reminders_schedule
 ### Status
 
 Written and validated locally (PGlite, 7 scenario checks). SHA-256 `504a7ec95d54fa12d5a900e9a0bc7f6b9e0beb6cd7d866a16d6fd565110d563e`. Not applied to TEST or production.
+
+## dashboard_conversation_attention_successful_reply.sql (PENDING - not applied to production)
+
+Phase 3 (W1). A `create or replace` of `public.dashboard_conversation_attention(uuid, timestamptz)` with the same signature and return type, so existing grants are kept. "Waiting on a reply" and "conversation went quiet" are classified on the canonical evidence (`lib/conversations/waiting.ts`): a conversation's newest message that is inbound, or outbound with status `sent` or `delivered`. Failed, undelivered and queued sends and logged notes are never replies. Unchanged: open conversations only, `last_activity_at` from the true last message, ordering, the 48h quiet threshold, the lead-status condition and the cap of 5.
+
+- Validated by `scratch/validate-dashboard-sql.mjs verify` (TZ=UTC and America/Los_Angeles): the W1 checks (each failed / logged / queued / undelivered shape, answered-then-failed, failed-only), the rollback round-trip and the idempotent re-apply all pass. The harness's six frozen-baseline failures for E, A and B predate this change (they fail identically on `main`), and `BIG: pre-2D page loaders unchanged` now differs only because Phase 3 W2 removed the old 1,000-row caps.
+- Applied to the TEST project on 2026-10-04 by executing the function body (no ledger entry). Definition md5 on TEST: `549cc031de2d92117d367ad7c3147c2b` (previously `c36968b1a75e06f99fd7ad3a8f3c295e`). `authenticated` keeps EXECUTE; `anon` has none.
+- Real-PostgREST parity on TEST: `lib/dashboard/queries.waiting-rule.integration.test.ts` (SQL path == legacy app path).
+
+To apply to production (only on explicit authorization):
+
+1. Read back the current definition: `select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'dashboard_conversation_attention'` - expect `c36968b1a75e06f99fd7ad3a8f3c295e`.
+2. Apply `dashboard_conversation_attention_successful_reply.sql` as one transaction.
+3. Read back the md5 - expect `549cc031de2d92117d367ad7c3147c2b` - and confirm `authenticated` still has EXECUTE.
+4. Record the ledger entry if applied with `apply_migration`, then move the file into `supabase/migrations/` under that version, as for the earlier pending files.
+
+Rollback: `dashboard_conversation_attention_successful_reply_rollback.sql` restores the previous definition exactly (read back `c36968b1a75e06f99fd7ad3a8f3c295e`). The application code works with either definition.
