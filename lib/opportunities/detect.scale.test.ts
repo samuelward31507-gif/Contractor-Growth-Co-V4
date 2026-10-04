@@ -788,3 +788,124 @@ test("Phase 2-8 parity (structural, M9): Today's detector builds both types with
   assert.match(metrics, /return countOpenOpportunities\(supabase, organizationId, "qualified_lead_unbooked"\);/);
   assert.doesNotMatch(metrics, /qualifiedOnly|findCompletedVisitsWithoutEstimate|findUnbookedQualifiedLeads/, "no second, Insights-only reconstruction");
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2-9 (A15/B6, rulings Q1-Q5): directed cross-type dismissal
+// carry-forward for the same source. The fake ignores order(), so fixtures
+// list opportunity rows newest first - the order the real read returns.
+// ---------------------------------------------------------------------------
+
+const dismissedRow = (id: string, type: string, sourceType: string, sourceId: string, extra: Row = {}): Row => ({ id, organization_id: ORG, type, source_entity_type: sourceType, source_entity_id: sourceId, contact_id: `${ORG}-c1`, status: "dismissed", resolved_at: DAYS_AGO(2), resolution_reason: "dismissed", title: "t", description: null, estimated_value: null, value_basis: null, metadata: {}, created_at: DAYS_AGO(3), ...extra });
+const openRow = (id: string, type: string, sourceType: string, sourceId: string, extra: Row = {}): Row => dismissedRow(id, type, sourceType, sourceId, { status: "open", resolved_at: null, resolution_reason: null, ...extra });
+
+function familyFixture(extra: { estimates?: Row[]; leads?: Row[]; jobs?: Row[]; invoices?: Row[]; opportunities?: Row[] }): Record<string, Row[]> {
+  const tables = scaleFixture(0);
+  const c1 = contact(ORG, 1);
+  tables.contacts = [c1];
+  tables.estimates = (extra.estimates ?? []).map((row) => ({ organization_id: ORG, contact_id: c1.id, lead_id: null, title: `Quote ${row.id}`, amount: 800, sent_at: DAYS_AGO(40), expires_at: DAYS_AGO(5), contacts: c1, ...row }));
+  tables.leads = (extra.leads ?? []).map((row) => ({ organization_id: ORG, contact_id: c1.id, service: "Roof", estimated_value: null, created_at: DAYS_AGO(5), contacts: c1, ...row }));
+  tables.jobs = (extra.jobs ?? []).map((row) => ({ organization_id: ORG, contact_id: c1.id, title: `Job ${row.id}`, amount: 1000, status: "completed", completed_at: DAYS_AGO(5), created_at: DAYS_AGO(10), estimate_id: null, contacts: c1, ...row }));
+  tables.invoices = (extra.invoices ?? []).map((row) => ({ organization_id: ORG, contact_id: c1.id, number: 7, title: "Invoice", status: "sent", balance_due: 1000, due_date: "2026-09-01", contacts: c1, ...row }));
+  tables.opportunities = extra.opportunities ?? [];
+  return tables;
+}
+
+async function syncFamily(tables: Record<string, Row[]>) {
+  const result = await syncOpportunities(makeFake(tables).client, ORG, NOW);
+  const open = (type: string) => tables.opportunities.filter((row) => row.type === type && row.status === "open").map((row) => row.source_entity_id).sort();
+  return { result, open };
+}
+
+test("Phase 2-9 (Q1): a dismissed pending estimate suppresses the later expired (stale) estimate for the same estimate id - other estimates, including another on the same lead, still appear", async () => {
+  const tables = familyFixture({
+    estimates: [
+      { id: "e-dismissed", status: "expired", lead_id: "lead-1" },
+      { id: "e-same-lead", status: "expired", lead_id: "lead-1" },
+      { id: "e-clean", status: "expired" },
+    ],
+    opportunities: [dismissedRow("d1", "pending_estimate", "estimate", "e-dismissed")],
+  });
+  const { result, open } = await syncFamily(tables);
+  assert.deepEqual(open("stale_estimate"), ["e-clean", "e-same-lead"]);
+  assert.equal(result.suppressed, 1);
+  assert.equal(tables.opportunities.find((row) => row.id === "d1")!.status, "dismissed", "the dismissal itself is untouched");
+});
+
+test("Phase 2-9 (Q1b): a legacy lead-keyed pending-estimate dismissal does not reach the expired estimate", async () => {
+  const tables = familyFixture({
+    estimates: [{ id: "e1", status: "expired", lead_id: "lead-1" }],
+    opportunities: [dismissedRow("d1", "pending_estimate", "lead", "lead-1")],
+  });
+  assert.deepEqual((await syncFamily(tables)).open("stale_estimate"), ["e1"]);
+});
+
+test("Phase 2-9 (Q2b): a dismissed uncontacted or qualified-unbooked lead suppresses only the later active_lead_signal for the same lead", async () => {
+  const hot = (id: string) => ({ id, status: "contacted", temperature: "hot" });
+  const tables = familyFixture({
+    leads: [hot("lead-u"), hot("lead-q"), hot("lead-clean")],
+    opportunities: [dismissedRow("du", "uncontacted_lead", "lead", "lead-u"), dismissedRow("dq", "qualified_lead_unbooked", "lead", "lead-q")],
+  });
+  const { result, open } = await syncFamily(tables);
+  assert.deepEqual(open("active_lead_signal"), ["lead-clean"]);
+  assert.equal(result.suppressed, 2);
+});
+
+test("Phase 2-9 (Q2b): never the other way - a dismissed uncontacted lead does not suppress a later qualified-unbooked item, a dismissed qualified lead does not suppress uncontacted, and a dismissed active signal suppresses neither", async () => {
+  const tables = familyFixture({
+    leads: [
+      { id: "lead-u-then-q", status: "qualified", temperature: "warm" },
+      { id: "lead-q-then-new", status: "new", temperature: "warm", created_at: DAYS_AGO(3) },
+      { id: "lead-a-then-q", status: "qualified", temperature: "warm" },
+    ],
+    opportunities: [
+      dismissedRow("d1", "uncontacted_lead", "lead", "lead-u-then-q"),
+      dismissedRow("d2", "qualified_lead_unbooked", "lead", "lead-q-then-new"),
+      dismissedRow("d3", "active_lead_signal", "lead", "lead-a-then-q"),
+    ],
+  });
+  const { open } = await syncFamily(tables);
+  assert.deepEqual(open("qualified_lead_unbooked"), ["lead-a-then-q", "lead-u-then-q"]);
+  assert.deepEqual(open("uncontacted_lead"), ["lead-q-then-new"]);
+});
+
+test("Phase 2-9 (Q4): an older dismissal never overrides a newer open sibling - the most recent open-or-dismissed row in the group decides", async () => {
+  const tables = familyFixture({
+    leads: [{ id: "lead-1", status: "contacted", temperature: "hot" }],
+    // Newest first: an open qualified row (the lead was qualified after the dismissal), then the older dismissed uncontacted row.
+    opportunities: [openRow("o1", "qualified_lead_unbooked", "lead", "lead-1", { created_at: DAYS_AGO(1) }), dismissedRow("d1", "uncontacted_lead", "lead", "lead-1")],
+  });
+  assert.deepEqual((await syncFamily(tables)).open("active_lead_signal"), ["lead-1"]);
+});
+
+test("Phase 2-9 (Q5): an existing open sibling row is never closed by a family dismissal", async () => {
+  const tables = familyFixture({
+    leads: [{ id: "lead-1", status: "contacted", temperature: "hot" }],
+    opportunities: [dismissedRow("d1", "qualified_lead_unbooked", "lead", "lead-1", { created_at: DAYS_AGO(1) }), openRow("o1", "active_lead_signal", "lead", "lead-1", { created_at: DAYS_AGO(5) })],
+  });
+  const { result, open } = await syncFamily(tables);
+  assert.deepEqual(open("active_lead_signal"), ["lead-1"]);
+  assert.equal(tables.opportunities.find((row) => row.id === "o1")!.status, "open");
+  assert.equal(result.suppressed, 0);
+});
+
+test("Phase 2-9 (Q3): the job/invoice family is not carried - a dismissed not-invoiced job still gets its overdue invoice", async () => {
+  const tables = familyFixture({
+    jobs: [{ id: "job-1" }],
+    invoices: [{ id: "inv-1", job_id: "job-1" }],
+    opportunities: [dismissedRow("d1", "completed_job_not_invoiced", "job", "job-1")],
+  });
+  assert.deepEqual((await syncFamily(tables)).open("invoice_overdue"), ["job-1"]);
+});
+
+test("Phase 2-9 structural: exactly the two approved directed rules, checked next to the unchanged B1 and M5 clauses", () => {
+  const source = fs.readFileSync(path.join(process.cwd(), "lib/opportunities/detect.ts"), "utf8");
+  const start = source.indexOf("const DISMISSAL_CARRY_FORWARD");
+  const block = source.slice(start, source.indexOf("];", start) + 2);
+  assert.equal(
+    block.replace(/\s+/g, " "),
+    'const DISMISSAL_CARRY_FORWARD: { to: OpportunityType; from: OpportunityType[] }[] = [ { to: "stale_estimate", from: ["pending_estimate"] }, { to: "active_lead_signal", from: ["uncontacted_lead", "qualified_lead_unbooked"] }, ];',
+  );
+  assert.match(source, /\(carriedLeadKey !== null && dismissedKeys\.has\(candidateKey\("pending_estimate", carriedLeadKey\)\)\) \|\|/);
+  assert.match(source, /\(candidate\.dismissalAliases \?\? \[\]\)\.some\(\(alias\) => dismissedKeys\.has\(candidateKey\(candidate\.type, alias\)\)\) \|\|/);
+  assert.match(source, /carryForwardStatus\.get\(candidate\.type\)\?\.get\(candidate\.sourceEntityId\) === "dismissed";/);
+});

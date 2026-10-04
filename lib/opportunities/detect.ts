@@ -1358,6 +1358,28 @@ type ExistingOpenRow = {
 type RecentRow = { type: OpportunityType; source_entity_id: string; status: OpportunityStatus; created_at: string };
 
 /**
+ * Phase 2-9 (A15/B6, rulings Q1-Q5): directed dismissal carry-forward across
+ * types for the SAME source - the same underlying condition reappearing
+ * under another code stays dismissed. Each rule suppresses creating a new
+ * `to` row when, among that source's open-or-dismissed rows of `to` and the
+ * `from` types, the most recent is dismissed (Q4) - so an older dismissal
+ * never overrides a newer open sibling, and existing open rows are never
+ * closed (Q5). Deliberately directed and narrow:
+ *   - estimate (Q1): a dismissed pending estimate suppresses the later
+ *     expired (stale) estimate for the same estimate id. Legacy lead-keyed
+ *     pending dismissals do not reach it (Q1b).
+ *   - lead (Q2b): a dismissed uncontacted or qualified-unbooked lead
+ *     suppresses only the less-specific active_lead_signal for the same lead
+ *     - never the other way, and never a booking prompt after the lead moves.
+ * The job/invoice family is intentionally absent (Q3): an overdue invoice is
+ * new money-at-risk work and always appears.
+ */
+const DISMISSAL_CARRY_FORWARD: { to: OpportunityType; from: OpportunityType[] }[] = [
+  { to: "stale_estimate", from: ["pending_estimate"] },
+  { to: "active_lead_signal", from: ["uncontacted_lead", "qualified_lead_unbooked"] },
+];
+
+/**
  * Runs detection and reconciles it against the database. Called from the
  * dashboard page load under the viewing member's own session (see
  * app/(app)/dashboard/page.tsx) - there is no new cron/scheduled route in
@@ -1430,6 +1452,19 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
     if (row.status === "dismissed") dismissedKeys.add(key);
+  }
+
+  // Phase 2-9: per carry-forward rule, the status of each source's most
+  // recent open-or-dismissed row among the rule's types (recentRows is
+  // newest first, so the first row seen per source wins).
+  const carryForwardStatus = new Map<OpportunityType, Map<string, OpportunityStatus>>();
+  for (const rule of DISMISSAL_CARRY_FORWARD) {
+    const group = new Set<OpportunityType>([rule.to, ...rule.from]);
+    const latestBySource = new Map<string, OpportunityStatus>();
+    for (const row of recentRows) {
+      if (group.has(row.type) && !latestBySource.has(row.source_entity_id)) latestBySource.set(row.source_entity_id, row.status);
+    }
+    carryForwardStatus.set(rule.to, latestBySource);
   }
 
   let created = 0;
@@ -1508,10 +1543,12 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
     // by the re-key. The canonical estimate key is checked as for every type.
     const carriedLeadKey = candidate.type === "pending_estimate" ? pendingEstimateLeadId(candidate) : null;
     // Phase 2-8 (M5): a dismissal of any of the lead's completed visits suppresses its one completed-visit item.
+    // Phase 2-9 (A15/B6): a directed cross-type carry-forward for the same source (DISMISSAL_CARRY_FORWARD).
     const dismissed =
       dismissedKeys.has(key) ||
       (carriedLeadKey !== null && dismissedKeys.has(candidateKey("pending_estimate", carriedLeadKey))) ||
-      (candidate.dismissalAliases ?? []).some((alias) => dismissedKeys.has(candidateKey(candidate.type, alias)));
+      (candidate.dismissalAliases ?? []).some((alias) => dismissedKeys.has(candidateKey(candidate.type, alias))) ||
+      carryForwardStatus.get(candidate.type)?.get(candidate.sourceEntityId) === "dismissed";
 
     if (!existing && dismissed) {
       suppressed += 1;
