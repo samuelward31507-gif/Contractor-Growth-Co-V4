@@ -602,3 +602,88 @@ test("Phase 2-6 structural: the pending-estimate read no longer requires a lead,
   assert.match(body, /metadata: \{ estimate_id: row\.id, sent_at: row\.sent_at, lead_id: row\.lead_id \}/);
   assert.match(source, /dismissedKeys\.has\(candidateKey\("pending_estimate", carriedLeadKey\)\)/);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2-7: booking-gap A10 contact fallback. A qualified lead is booked by
+// a scheduled/confirmed/completed appointment linked to it by lead_id, or by
+// a lead-less appointment for its own contact starting at or after the lead
+// was created. Cancelled and no-show never book (L5 keeps completed).
+// ---------------------------------------------------------------------------
+
+const QUALIFIED_CREATED = "2026-10-10T12:00:00.000Z";
+
+/** One qualified lead (lead-q, contact c1, created QUALIFIED_CREATED), a second lead (lead-other) on the same contact, and a second contact c2. */
+function bookingFixture(appointments: Row[]): Record<string, Row[]> {
+  const tables = scaleFixture(0);
+  const [c1, c2] = [contact(ORG, 1), contact(ORG, 2)];
+  tables.contacts = [c1, c2];
+  tables.leads = [
+    { id: "lead-q", organization_id: ORG, contact_id: c1.id, status: "qualified", service: "Roof", estimated_value: null, temperature: "warm", created_at: QUALIFIED_CREATED, contacts: c1 },
+    { id: "lead-other", organization_id: ORG, contact_id: c1.id, status: "won", service: "Gutters", estimated_value: null, temperature: "warm", created_at: "2026-01-01T00:00:00.000Z", contacts: c1 },
+  ];
+  tables.appointments = appointments.map((row, i) => ({ id: `appt-${i}`, organization_id: ORG, title: "Visit", updated_at: DAYS_AGO(1), contacts: c1, ...row }));
+  return tables;
+}
+
+const appt = (status: string, startAt: string, overrides: Row = {}): Row => ({ status, start_at: startAt, lead_id: null, contact_id: `${ORG}-c1`, ...overrides });
+
+async function isBookingGap(appointments: Row[]): Promise<boolean> {
+  const candidates = await detectAllOpportunityCandidates(makeFake(bookingFixture(appointments)).client, ORG, NOW);
+  return candidates.some((c) => c.type === "qualified_lead_unbooked" && c.sourceEntityId === "lead-q");
+}
+
+const AFTER = "2026-10-15T09:00:00.000Z";
+const BEFORE = "2026-09-01T09:00:00.000Z";
+
+test("Phase 2-7: an appointment linked to the lead by lead_id books it when scheduled, confirmed or completed - not when cancelled or a no-show", async () => {
+  for (const status of ["scheduled", "confirmed", "completed"]) assert.equal(await isBookingGap([appt(status, AFTER, { lead_id: "lead-q" })]), false, status);
+  for (const status of ["cancelled", "no_show"]) assert.equal(await isBookingGap([appt(status, AFTER, { lead_id: "lead-q" })]), true, status);
+  assert.equal(await isBookingGap([]), true, "no appointment at all");
+});
+
+test("Phase 2-7 (A10): a lead-less appointment for the same contact books the lead when it starts after, or exactly at, the lead's creation", async () => {
+  assert.equal(await isBookingGap([appt("scheduled", AFTER)]), false, "after creation");
+  assert.equal(await isBookingGap([appt("confirmed", QUALIFIED_CREATED)]), false, "exactly at creation");
+  assert.equal(await isBookingGap([appt("scheduled", "2026-10-10T06:00:00.000-06:00")]), false, "the same instant written with an offset - compared as instants, not strings");
+  assert.equal(await isBookingGap([appt("completed", AFTER)]), false, "completed still counts as booked (L5)");
+});
+
+test("Phase 2-7 (A10): a lead-less appointment does not book the lead when it started before the lead existed, is for a different contact, or is cancelled / a no-show", async () => {
+  assert.equal(await isBookingGap([appt("scheduled", BEFORE)]), true, "before creation - old customer history");
+  assert.equal(await isBookingGap([appt("scheduled", "2026-10-10T11:59:59.999Z")]), true, "one millisecond before creation");
+  assert.equal(await isBookingGap([appt("scheduled", AFTER, { contact_id: `${ORG}-c2` })]), true, "different contact");
+  assert.equal(await isBookingGap([appt("scheduled", AFTER, { contact_id: null })]), true, "no contact");
+  assert.equal(await isBookingGap([appt("cancelled", AFTER)]), true, "cancelled");
+  assert.equal(await isBookingGap([appt("no_show", AFTER)]), true, "no-show");
+});
+
+test("Phase 2-7: an appointment linked to a different lead never books this lead, even for the same contact and after creation", async () => {
+  assert.equal(await isBookingGap([appt("scheduled", AFTER, { lead_id: "lead-other" })]), true);
+});
+
+test("Phase 2-7: multiple appointments - one valid post-creation booking is enough; only invalid ones leave the gap", async () => {
+  assert.equal(await isBookingGap([appt("completed", BEFORE), appt("scheduled", AFTER)]), false, "old visit plus a valid new booking");
+  assert.equal(
+    await isBookingGap([appt("completed", BEFORE), appt("no_show", AFTER), appt("cancelled", AFTER), appt("scheduled", AFTER, { lead_id: "lead-other" }), appt("confirmed", AFTER, { contact_id: `${ORG}-c2` })]),
+    true,
+    "pre-creation, no-show, cancelled, other lead and other contact only",
+  );
+});
+
+test("Phase 2-7: completed_appointment_no_estimate is unchanged - a completed lead-less appointment is still never one, a linked one without an estimate still is", async () => {
+  const leadless = await detectAllOpportunityCandidates(makeFake(bookingFixture([appt("completed", AFTER)])).client, ORG, NOW);
+  assert.ok(!leadless.some((c) => c.type === "completed_appointment_no_estimate"));
+  const linked = await detectAllOpportunityCandidates(makeFake(bookingFixture([appt("completed", AFTER, { lead_id: "lead-q" })])).client, ORG, NOW);
+  assert.deepEqual(linked.filter((c) => c.type === "completed_appointment_no_estimate").map((c) => c.sourceEntityId), ["appt-0"]);
+});
+
+test("Phase 2-7 structural: the booking-gap appointment read is one paged read with lead_id, contact_id and start_at, no lead_id filter, and unchanged statuses; completed_appointment_no_estimate still requires a lead", () => {
+  const source = fs.readFileSync(path.join(process.cwd(), "lib/opportunities/detect.ts"), "utf8");
+  const start = source.indexOf("async function detectQualifiedLeadsUnbooked(");
+  const body = source.slice(start, source.indexOf("\n}\n", start));
+  assert.match(body, /checkedAll\("qualified_lead_unbooked\.appointments", \(\) =>\s*supabase\.from\("appointments"\)\.select\("lead_id, contact_id, start_at"\)\.eq\("organization_id", organizationId\)\.in\("status", ACTIVE_BOOKING_STATUSES\)\.order\("id"\)/);
+  assert.equal((body.match(/from\("appointments"\)/g) ?? []).length, 1);
+  assert.match(source, /const ACTIVE_BOOKING_STATUSES = \["scheduled", "confirmed", "completed"\] as const;/);
+  const cane = source.slice(source.indexOf("async function detectCompletedAppointmentsWithoutEstimate("), source.indexOf("\n}\n", source.indexOf("async function detectCompletedAppointmentsWithoutEstimate(")));
+  assert.match(cane, /\.eq\("status", "completed"\)\s*\.not\("lead_id", "is", null\)/);
+});

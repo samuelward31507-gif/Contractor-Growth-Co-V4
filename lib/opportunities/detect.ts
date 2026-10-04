@@ -334,26 +334,51 @@ function displayNameOrFallback(contact: ContactRef, fallback: string): string {
  */
 const ACTIVE_BOOKING_STATUSES = ["scheduled", "confirmed", "completed"] as const;
 
+/**
+ * Phase 2-7 (A10, L5): an appointment books a qualified lead when it is
+ * linked to that lead by lead_id, or - only when it has no lead_id at all -
+ * when it is for the lead's own contact and starts at or after the lead was
+ * created. An appointment linked to a different lead never books this one,
+ * and a lead-less appointment from before the lead existed is old customer
+ * history, not a booking for this lead. AI bookings carry a lead_id only
+ * when the triggering event had one, so lead-less appointments are real.
+ * The booked statuses are unchanged (completed still counts as booked).
+ */
 async function detectQualifiedLeadsUnbooked(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
   const leadRows = await checkedAll("qualified_lead_unbooked.leads", () =>
     supabase
       .from("leads")
-      .select("id, contact_id, service, estimated_value, contacts(id, first_name, last_name, company_name)")
+      .select("id, contact_id, service, estimated_value, created_at, contacts(id, first_name, last_name, company_name)")
       .eq("organization_id", organizationId)
       .eq("status", "qualified")
       .order("id"),
   );
 
-  const leads = (leadRows ?? []) as { id: string; contact_id: string | null; service: string | null; estimated_value: number | null; contacts: ContactRef }[];
+  const leads = (leadRows ?? []) as { id: string; contact_id: string | null; service: string | null; estimated_value: number | null; created_at: string; contacts: ContactRef }[];
   if (leads.length === 0) return [];
 
+  // Phase 2-7: the same one paged read, now including lead-less appointments
+  // (with their contact and start) for the A10 contact fallback.
   const appointmentRows = await checkedAll("qualified_lead_unbooked.appointments", () =>
-    supabase.from("appointments").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).in("status", ACTIVE_BOOKING_STATUSES).order("id"),
+    supabase.from("appointments").select("lead_id, contact_id, start_at").eq("organization_id", organizationId).in("status", ACTIVE_BOOKING_STATUSES).order("id"),
   );
-  const bookedLeadIds = new Set(((appointmentRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id));
+  const bookedLeadIds = new Set<string>();
+  // Per contact, the latest start of a booked appointment that has no lead_id.
+  const latestLeadlessStartMsByContact = new Map<string, number>();
+  for (const row of (appointmentRows ?? []) as { lead_id: string | null; contact_id: string | null; start_at: string }[]) {
+    if (row.lead_id !== null) {
+      bookedLeadIds.add(row.lead_id);
+    } else if (row.contact_id !== null) {
+      const startMs = new Date(row.start_at).getTime();
+      if (startMs > (latestLeadlessStartMsByContact.get(row.contact_id) ?? Number.NEGATIVE_INFINITY)) latestLeadlessStartMsByContact.set(row.contact_id, startMs);
+    }
+  }
+  const booked = (lead: { id: string; contact_id: string | null; created_at: string }) =>
+    bookedLeadIds.has(lead.id) ||
+    (lead.contact_id !== null && (latestLeadlessStartMsByContact.get(lead.contact_id) ?? Number.NEGATIVE_INFINITY) >= new Date(lead.created_at).getTime());
 
   return leads
-    .filter((lead) => !bookedLeadIds.has(lead.id))
+    .filter((lead) => !booked(lead))
     .map((lead) => ({
       type: "qualified_lead_unbooked" as const,
       sourceEntityType: "lead" as const,
