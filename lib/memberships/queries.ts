@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 export type MembershipStatus = "active" | "paused" | "cancelled" | "expired";
 
@@ -32,14 +33,16 @@ const MEMBERSHIP_COLUMNS = "id, organization_id, contact_id, plan_name, status, 
  * client-supplied id - same convention as lib/contacts/queries.ts.
  */
 export async function getMemberships(supabase: SupabaseClient, organizationId: string): Promise<Membership[]> {
-  const { data } = await supabase
-    .from("memberships")
-    .select(MEMBERSHIP_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(1000);
+  const read = await readAllPages<Membership>(() =>
+    supabase
+      .from("memberships")
+      .select(MEMBERSHIP_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return data ?? [];
+  return read.rows;
 }
 
 /**

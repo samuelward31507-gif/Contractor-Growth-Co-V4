@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import type { Contact } from "@/lib/contacts/queries";
 import type { LeadStatus, LeadTemperature } from "@/lib/leads/queries";
 import { isSameCalendarDay } from "./format";
@@ -78,16 +79,30 @@ function normalizeAppointment(row: RawAppointmentRow): Appointment {
  */
 export type AppointmentsResult = { data: Appointment[]; failed: boolean };
 
+/**
+ * Phase 3 (W2): one contact's appointments, in full (the Person page's timeline
+ * and lists) - a contact-scoped paged read, never the whole organization's
+ * appointments filtered in memory.
+ */
+export async function getAppointmentsForContact(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Appointment[]> {
+  const read = await readAllPages<RawAppointmentRow>(() =>
+    supabase.from("appointments").select(APPOINTMENT_COLUMNS).eq("organization_id", organizationId).eq("contact_id", contactId).order("start_at", { ascending: true }).order("id"),
+  );
+  return read.rows.map(normalizeAppointment);
+}
+
 /** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on a genuine empty org. Wired into the canonical Appointments list page, whose own "no appointments yet" empty state would otherwise be indistinguishable from a failed read. */
 export async function getAppointmentsResult(supabase: SupabaseClient, organizationId: string): Promise<AppointmentsResult> {
-  const { data, error } = await supabase
-    .from("appointments")
-    .select(APPOINTMENT_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("start_at", { ascending: true })
-    .limit(1000);
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("appointments")
+      .select(APPOINTMENT_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("start_at", { ascending: true })
+      .order("id"),
+  );
 
-  return { data: ((data ?? []) as RawAppointmentRow[]).map(normalizeAppointment), failed: error != null };
+  return { data: (read.rows as RawAppointmentRow[]).map(normalizeAppointment), failed: read.failed };
 }
 
 export async function getAppointments(supabase: SupabaseClient, organizationId: string): Promise<Appointment[]> {
@@ -139,16 +154,18 @@ export async function getAppointmentsInRangeResult(
   rangeStart: Date,
   rangeEnd: Date,
 ): Promise<AppointmentsInRangeResult> {
-  const { data, error } = await supabase
-    .from("appointments")
-    .select(APPOINTMENT_COLUMNS)
-    .eq("organization_id", organizationId)
-    .lt("start_at", rangeEnd.toISOString())
-    .gt("end_at", rangeStart.toISOString())
-    .order("start_at", { ascending: true })
-    .limit(1000);
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("appointments")
+      .select(APPOINTMENT_COLUMNS)
+      .eq("organization_id", organizationId)
+      .lt("start_at", rangeEnd.toISOString())
+      .gt("end_at", rangeStart.toISOString())
+      .order("start_at", { ascending: true })
+      .order("id"),
+  );
 
-  return { data: ((data ?? []) as RawAppointmentRow[]).map(normalizeAppointment), failed: error != null };
+  return { data: (read.rows as RawAppointmentRow[]).map(normalizeAppointment), failed: read.failed };
 }
 
 export async function getAppointmentsInRange(

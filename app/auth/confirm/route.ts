@@ -27,7 +27,8 @@ export async function GET(request: NextRequest) {
     });
 
     if (!error && data.user) {
-      return redirectAfterConfirmation(supabase, data.user.id, type === "recovery");
+      // Phase 3 (W3): an accepted team invite has no password yet - it goes to set one, like a recovery.
+      return redirectAfterConfirmation(supabase, data.user.id, type === "recovery" || type === "invite");
     }
   } else if (code) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);

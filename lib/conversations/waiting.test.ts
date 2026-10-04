@@ -13,7 +13,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const require = createRequire(import.meta.url);
-const { isWaitingOnBusiness, getWaitingConversationIds }: typeof import("./waiting") = require(path.join(process.cwd(), "lib/conversations/waiting.ts"));
+const { isWaitingOnBusiness, getWaitingConversationIds, getLatestEvidenceByConversation, countsAsEvidence }: typeof import("./waiting") = require(path.join(process.cwd(), "lib/conversations/waiting.ts"));
 
 const inbound = (at: string) => ({ direction: "inbound" as const, status: "received", created_at: at });
 const outbound = (at: string, status: string) => ({ direction: "outbound" as const, status, created_at: at });
@@ -28,7 +28,7 @@ test("not waiting: a sent or delivered outbound message followed the customer's 
 });
 
 test("still waiting: a failed, queued or blocked outbound after the customer's message is not a reply", () => {
-  for (const status of ["failed", "queued", "blocked", "undelivered"]) {
+  for (const status of ["failed", "queued", "blocked", "undelivered", "logged"]) {
     assert.equal(isWaitingOnBusiness([inbound("2026-10-01T10:00:00Z"), outbound("2026-10-01T11:00:00Z", status)]), true, status);
   }
 });
@@ -94,4 +94,21 @@ test("read: every page is read - waiting conversations past row 1,000 are includ
   const rows: Row[] = Array.from({ length: 2300 }, (_, i) => ({ id: `c-${i}`, messages: [{ direction: i >= 1000 ? "inbound" : "outbound", created_at: "2026-10-01T10:00:00Z" }] }));
   const result = await getWaitingConversationIds(fake(rows).supabase, "org-1");
   assert.equal(result.ids.size, 1300);
+});
+
+test("Phase 3: countsAsEvidence - any inbound, and only sent / delivered outbound", () => {
+  assert.equal(countsAsEvidence({ direction: "inbound", status: "received" }), true);
+  for (const status of ["sent", "delivered"]) assert.equal(countsAsEvidence({ direction: "outbound", status }), true, status);
+  for (const status of ["failed", "undelivered", "queued", "logged", null]) assert.equal(countsAsEvidence({ direction: "outbound", status }), false, String(status));
+});
+
+test("Phase 3: getLatestEvidenceByConversation - each open conversation's newest qualifying message, newest-first with an id tie-break; absent when there is none", async () => {
+  const { supabase, calls } = fake([
+    { id: "a", messages: [{ direction: "inbound", created_at: "2026-10-01T10:00:00Z" }] },
+    { id: "b", messages: [{ direction: "outbound", created_at: "2026-10-01T09:00:00Z" }] },
+    { id: "c", messages: [] },
+  ]);
+  const result = await getLatestEvidenceByConversation(supabase, "org-1");
+  assert.deepEqual([...result.evidence], [["a", { direction: "inbound", createdAt: "2026-10-01T10:00:00Z" }], ["b", { direction: "outbound", createdAt: "2026-10-01T09:00:00Z" }]]);
+  assert.ok(calls.includes("order created_at @messages false") && calls.includes("order id @messages false"), "newest first, then id - the SQL's own tie-break");
 });

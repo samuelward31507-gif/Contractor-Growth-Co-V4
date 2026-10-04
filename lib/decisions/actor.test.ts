@@ -45,12 +45,26 @@ test("the cap the actor rule honours is the same cap Today discloses (SQL rn <= 
   assert.equal(actor.ESTIMATE_FOLLOWUP_WINDOW_MS, 72 * HOUR);
 });
 
-test("firstUnansweredInboundAt: the oldest inbound in the unbroken inbound run at the top (C3); any outbound - AI, staff or a customer-facing system send - ends the run", () => {
+test("firstUnansweredInboundAt: the oldest inbound in the unbroken inbound run at the top (C3); an outbound with no status read - AI, staff or a customer-facing system send - ends the run", () => {
   const msg = (minutesAgo: number, direction: "inbound" | "outbound") => ({ created_at: ago(minutesAgo * MIN), direction });
   assert.equal(actor.firstUnansweredInboundAt([msg(1, "inbound"), msg(3, "inbound"), msg(9, "inbound"), msg(20, "outbound"), msg(30, "inbound")]), ago(9 * MIN), "first unanswered, not the latest");
   assert.equal(actor.firstUnansweredInboundAt([msg(1, "outbound"), msg(3, "inbound")]), null, "already answered");
   assert.equal(actor.firstUnansweredInboundAt([]), null);
   assert.equal(actor.firstUnansweredInboundAt([msg(1, "inbound"), msg(2, "inbound")]), ago(2 * MIN), "all inbound: the oldest read is the best known start");
+});
+
+// Phase 3 (W1, refining C3): only a SUCCESSFUL outbound (sent / delivered) ends the run - a failed, undelivered or queued send, or a logged note, is skipped.
+test("firstUnansweredInboundAt (Phase 3): only a sent or delivered outbound ends the run; failed, undelivered, queued and logged messages are not replies", () => {
+  const msg = (minutesAgo: number, direction: "inbound" | "outbound", status: string) => ({ created_at: ago(minutesAgo * MIN), direction, status });
+  for (const status of ["failed", "undelivered", "queued", "logged"]) {
+    assert.equal(actor.firstUnansweredInboundAt([msg(5, "outbound", status), msg(30, "inbound", "received")]), ago(30 * MIN), `${status} after the customer's message: still waiting since 30 min`);
+    assert.equal(actor.firstUnansweredInboundAt([msg(1, "inbound", "received"), msg(5, "outbound", status), msg(30, "inbound", "received"), msg(60, "outbound", "delivered")]), ago(30 * MIN), `${status} between two customer messages: the clock starts at the first one`);
+  }
+  for (const status of ["sent", "delivered"]) {
+    assert.equal(actor.firstUnansweredInboundAt([msg(1, "inbound", "received"), msg(5, "outbound", status), msg(30, "inbound", "received")]), ago(1 * MIN), `${status} answers - the clock restarts at the next customer message`);
+    assert.equal(actor.firstUnansweredInboundAt([msg(5, "outbound", status), msg(30, "inbound", "received")]), null, `${status} after the customer's message: answered`);
+  }
+  assert.equal(actor.firstUnansweredInboundAt([msg(5, "outbound", "failed")]), null, "only a failed send, no customer message: nothing waiting");
 });
 
 test("waiting for reply: Trackpr inside the 15-minute grace period when the AI can answer; human from exactly 15:00", () => {

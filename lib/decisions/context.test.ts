@@ -50,6 +50,8 @@ function fakeClient(results: Partial<Record<string, ResultFor>> = {}) {
         eq: (column: string, value: unknown) => (read.filters.push(["eq", column, value]), builder),
         not: (column: string, operator: string, value: unknown) => (read.filters.push(["not", column, [operator, value]]), builder),
         in: (column: string, values: unknown[]) => ((read.inIds = values), read.filters.push(["in", column, values]), builder),
+        // Phase 3 (W1): the waiting-conversation read filters its embedded messages to evidence (inbound + successful outbound).
+        or: (filter: string, options: { referencedTable?: string } = {}) => (read.filters.push(["or", options.referencedTable ?? "", filter]), builder),
         order: (column: string, options: unknown) => ((read.order = [column, options]), builder),
         limit: (count: number, options: unknown) => ((read.limit = [count, options]), builder),
         // readAllPages: one page holding every row (rows < page size ends paging).
@@ -95,7 +97,9 @@ test("waiting conversations: ONE batched conversations read by id, newest 20 mes
   assert.equal(conversationReads.length, 1, "one batched read");
   assert.deepEqual(conversationReads[0].inIds, ["conv-1", "conv-2", "conv-3"], "every waiting conversation, de-duplicated");
   assert.deepEqual(conversationReads[0].filters[0], ["eq", "organization_id", "org-1"]);
-  assert.match(conversationReads[0].select!, /ai_enabled, contact:contacts\(sms_opt_out\), messages\(created_at, direction\)/);
+  // Phase 3 (W1): the embedded messages carry status and are filtered to evidence - only a successful outbound ends a wait.
+  assert.match(conversationReads[0].select!, /ai_enabled, contact:contacts\(sms_opt_out\), messages\(created_at, direction, status\)/);
+  assert.ok(conversationReads[0].filters.some(([op, table, filter]) => op === "or" && table === "messages" && filter === "direction.eq.inbound,and(direction.eq.outbound,status.in.(sent,delivered))"));
   assert.deepEqual(conversationReads[0].order, ["created_at", { referencedTable: "messages", ascending: false }]);
   assert.deepEqual(conversationReads[0].limit, [20, { referencedTable: "messages" }]);
   assert.equal(fake.reads.filter((r) => r.table === "ai_settings").length, 1);

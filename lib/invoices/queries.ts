@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import type { Contact } from "@/lib/contacts/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
 import type { JobStatus } from "@/lib/jobs/queries";
@@ -101,14 +102,16 @@ export type InvoicesResult = { data: Invoice[]; failed: boolean };
 
 /** Every invoice for the org (capped, newest first). `failed` is true only on a real Postgrest error, never on a genuine empty org. */
 export async function getInvoicesResult(supabase: SupabaseClient, organizationId: string): Promise<InvoicesResult> {
-  const { data, error } = await supabase
-    .from("invoices")
-    .select(INVOICE_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(1000);
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("invoices")
+      .select(INVOICE_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return { data: ((data ?? []) as RawInvoiceRow[]).map(normalizeInvoice), failed: error != null };
+  return { data: (read.rows as RawInvoiceRow[]).map(normalizeInvoice), failed: read.failed };
 }
 
 export async function getInvoices(supabase: SupabaseClient, organizationId: string): Promise<Invoice[]> {
@@ -148,29 +151,34 @@ export async function getLiveInvoiceForJob(supabase: SupabaseClient, organizatio
 
 /** Contact-scoped invoices for surfaces that only need one person's own (mirrors getContactEstimates). */
 export async function getContactInvoices(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Invoice[]> {
-  const { data } = await supabase
-    .from("invoices")
-    .select(INVOICE_COLUMNS)
-    .eq("organization_id", organizationId)
-    .eq("contact_id", contactId)
-    .order("created_at", { ascending: false })
-    .limit(50);
+  // Phase 3 (W2): every record for this contact - a silent 50-row cap dropped a repeat customer's history.
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("invoices")
+      .select(INVOICE_COLUMNS)
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return ((data ?? []) as RawInvoiceRow[]).map(normalizeInvoice);
+  return (read.rows as RawInvoiceRow[]).map(normalizeInvoice);
 }
 
 /** The full append-only ledger for one invoice, oldest first, reversals included. */
 export async function getInvoicePayments(supabase: SupabaseClient, organizationId: string, invoiceId: string): Promise<CustomerPayment[]> {
-  const { data } = await supabase
-    .from("customer_payments")
-    .select(PAYMENT_COLUMNS)
-    .eq("organization_id", organizationId)
-    .eq("invoice_id", invoiceId)
-    .order("received_at", { ascending: true })
-    .order("created_at", { ascending: true })
-    .limit(500);
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("customer_payments")
+      .select(PAYMENT_COLUMNS)
+      .eq("organization_id", organizationId)
+      .eq("invoice_id", invoiceId)
+      .order("received_at", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id"),
+  );
 
-  return (data ?? []) as CustomerPayment[];
+  return read.rows as CustomerPayment[];
 }
 
 export type CustomerPaymentsResult = { data: CustomerPayment[]; failed: boolean };

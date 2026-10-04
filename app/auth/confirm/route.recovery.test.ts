@@ -81,7 +81,8 @@ test("9. a successful code exchange resolves recovery vs. signup from the SDK's 
   assert.match(ROUTE_SOURCE, /redirectAfterConfirmation\(supabase, data\.user\.id, redirectType === "recovery"\)/);
   // Same call shape (same helper, same signature) as the token_hash path -
   // proving the two paths share one destination implementation, not two.
-  assert.match(ROUTE_SOURCE, /redirectAfterConfirmation\(supabase, data\.user\.id, type === "recovery"\)/);
+  // Phase 3 (W3): the token_hash path also sends an accepted team invite to set its password.
+  assert.match(ROUTE_SOURCE, /redirectAfterConfirmation\(supabase, data\.user\.id, type === "recovery" \|\| type === "invite"\)/);
 });
 
 test("10. a failed code exchange (error, or no data.user) falls through to the same confirmation_failed redirect as a failed verifyOtp - no separate/divergent failure path for the PKCE branch", () => {

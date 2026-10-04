@@ -8,6 +8,7 @@ import {
   getLastMessagesByConversationResult,
   summarizeConversations,
 } from "@/lib/conversations/queries";
+import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import { PageHeader } from "@/lib/ui/page-header";
 import { ConversationsEmptyState } from "./_components/conversations-empty-state";
 import { ConversationsSummary } from "./_components/conversations-summary";
@@ -31,16 +32,18 @@ export default async function ConversationsLayout({ children }: { children: Reac
     redirect("/onboarding");
   }
 
-  const [conversationsResult, lastMessagesResult] = await Promise.all([
+  const [conversationsResult, lastMessagesResult, waiting] = await Promise.all([
     getConversationsResult(supabase, membership.organizationId),
     getLastMessagesByConversationResult(supabase, membership.organizationId),
+    // Phase 3 (W1): "needs a reply" is the canonical waiting rule, not "the last message is inbound".
+    getWaitingConversationIds(supabase, membership.organizationId),
   ]);
   const conversations = conversationsResult.data;
   const lastMessages = lastMessagesResult.data;
   // Trackpr 2.0, Phase 4B (P1 #4): a real Postgrest error on either read
   // must never render as "no conversations" - see getConversationsResult's
   // own comment in lib/conversations/queries.ts.
-  const failed = conversationsResult.failed || lastMessagesResult.failed;
+  const failed = conversationsResult.failed || lastMessagesResult.failed || waiting.failed;
 
   const summary = summarizeConversations(conversations);
   const withActivity = attachLastMessages(conversations, lastMessages);
@@ -64,7 +67,7 @@ export default async function ConversationsLayout({ children }: { children: Reac
           </div>
         </>
       ) : (
-        <ConversationsWorkspace conversations={withActivity} summary={summary}>
+        <ConversationsWorkspace conversations={withActivity} summary={summary} waitingConversationIds={[...waiting.ids]}>
           {children}
         </ConversationsWorkspace>
       )}

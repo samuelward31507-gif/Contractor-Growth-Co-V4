@@ -22,6 +22,7 @@ import { PeopleEmptyState } from "./_components/people-empty-state";
 import { PeopleSearch } from "./_components/people-search";
 import { PeopleTable } from "./_components/people-table";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 
 function groupByContactId<T extends { contact_id: string | null }>(records: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -104,7 +105,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     redirect("/onboarding");
   }
 
-  const [allContacts, leads, estimates, jobs, appointments, reviewRequests, conversations, invoices, waiting] = await Promise.all([
+  const [allContacts, leads, estimates, jobs, appointments, reviewRequests, conversations, invoices, waiting, timeZone] = await Promise.all([
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getEstimates(supabase, membership.organizationId),
@@ -118,6 +119,8 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     getInvoices(supabase, membership.organizationId),
     // Phase 2-13 (§3): one paged org read of the conversations waiting on the business.
     getWaitingConversationIds(supabase, membership.organizationId),
+    // Phase 3 (W1): next-step appointment times in the organization's timezone, as on the Person page.
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
   const lifecycleByContactId = new Map<string, ContactLifecycleStage>(
     allContacts.map((contact) => [contact.id, deriveContactLifecycle(contact.id, { leads, estimates, jobs, appointments, reviewRequests })]),
@@ -159,6 +162,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
         conversations: conversationsByContactId.get(contact.id) ?? [],
         waitingConversationIds: waiting.ids,
         invoices: invoicesByContactId.get(contact.id) ?? [],
+        timeZone,
       }),
     );
   }

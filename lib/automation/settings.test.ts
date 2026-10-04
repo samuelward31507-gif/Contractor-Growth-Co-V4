@@ -224,7 +224,7 @@ test("Config 7: organization isolation - getAutomationConfigByOrganization keys 
   const client = {
     from: (table: string) => {
       assert.equal(table, "automation_settings");
-      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+      return { select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: rows, error: null }) }) }) }) }; // Phase 3 (R-a): the read is paged
     },
   } as unknown as SupabaseClient;
 
@@ -356,7 +356,7 @@ test("V2.1: organization isolation - getAutomationConfigByOrganization keys stri
   const client = {
     from: (table: string) => {
       assert.equal(table, "automation_settings");
-      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+      return { select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: rows, error: null }) }) }) }) }; // Phase 3 (R-a): the read is paged
     },
   } as unknown as SupabaseClient;
 
@@ -445,7 +445,7 @@ test("V2.2: organization isolation - getAutomationConfigByOrganization keys stri
   const client = {
     from: (table: string) => {
       assert.equal(table, "automation_settings");
-      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+      return { select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: rows, error: null }) }) }) }) }; // Phase 3 (R-a): the read is paged
     },
   } as unknown as SupabaseClient;
 
@@ -545,7 +545,7 @@ test("V3: organization isolation - getAutomationConfigByOrganization keys strict
   const client = {
     from: (table: string) => {
       assert.equal(table, "automation_settings");
-      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+      return { select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: rows, error: null }) }) }) }) }; // Phase 3 (R-a): the read is paged
     },
   } as unknown as SupabaseClient;
 
@@ -657,7 +657,7 @@ test("V4: organization isolation - getAutomationConfigByOrganization keys strict
   const client = {
     from: (table: string) => {
       assert.equal(table, "automation_settings");
-      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+      return { select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: rows, error: null }) }) }) }) }; // Phase 3 (R-a): the read is paged
     },
   } as unknown as SupabaseClient;
 
@@ -766,7 +766,7 @@ test("V5 appointment-lifecycle: organization isolation - getAutomationConfigByOr
   const client = {
     from: (table: string) => {
       assert.equal(table, "automation_settings");
-      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+      return { select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: rows, error: null }) }) }) }) }; // Phase 3 (R-a): the read is paged
     },
   } as unknown as SupabaseClient;
 
@@ -852,7 +852,7 @@ test("V5 job-lifecycle: organization isolation - getAutomationConfigByOrganizati
   const client = {
     from: (table: string) => {
       assert.equal(table, "automation_settings");
-      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+      return { select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: rows, error: null }) }) }) }) }; // Phase 3 (R-a): the read is paged
     },
   } as unknown as SupabaseClient;
 
@@ -913,7 +913,7 @@ test("V5 review-referral-followup: organization isolation - getAutomationConfigB
   const client = {
     from: (table: string) => {
       assert.equal(table, "automation_settings");
-      return { select: () => ({ eq: async () => ({ data: rows }) }) };
+      return { select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: rows, error: null }) }) }) }) }; // Phase 3 (R-a): the read is paged
     },
   } as unknown as SupabaseClient;
 

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAutomationDefaultEnabled } from "./catalog";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 /**
  * The sole read path for automation_settings.enabled. No row for a given
@@ -712,9 +713,13 @@ export async function getAutomationConfigMap(supabase: SupabaseClient, organizat
 export async function getAutomationConfigByOrganization(supabase: SupabaseClient, automationId: string): Promise<Map<string, unknown>> {
   const map = new Map<string, unknown>();
 
-  const { data } = await supabase.from("automation_settings").select("organization_id, config").eq("automation_id", automationId);
+  // Phase 3 (W2, R-a): every organization's row, paged - a single unpaged read stops at PostgREST's row limit,
+  // after which later organizations' configured timing would silently fall back to the defaults.
+  const read = await readAllPages<{ organization_id: string; config: unknown }>(() =>
+    supabase.from("automation_settings").select("organization_id, config").eq("automation_id", automationId).order("organization_id"),
+  );
 
-  for (const row of (data ?? []) as { organization_id: string; config: unknown }[]) {
+  for (const row of read.rows) {
     map.set(row.organization_id, row.config);
   }
 

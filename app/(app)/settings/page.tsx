@@ -38,6 +38,8 @@ import { ReputationSection } from "./_components/reputation-section";
 import { ServiceAreasSection } from "./_components/service-areas-section";
 import { ServicesSection } from "./_components/services-section";
 import { SmsSummarySection } from "./_components/sms-summary-section";
+import { TeamSection } from "./_components/team-section";
+import { getTeamMembers } from "@/lib/team/queries";
 import { SettingsJumpNav } from "./_components/settings-jump-nav";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
@@ -92,7 +94,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   // run in the same batch as everything else instead of one after another
   // afterwards. What depends on them (the calendar list, the Stripe
   // backstop) still runs after, unchanged.
-  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings, smsPhoneNumber, automationMode, leadIntakeToken, calendarConnection, storedConnectStatus] =
+  const [profile, hoursRows, services, serviceAreas, aiSettings, bookingSettings, notificationSettings, smsPhoneNumber, automationMode, leadIntakeToken, calendarConnection, storedConnectStatus, team] =
     await Promise.all([
       getBusinessProfile(supabase, organizationId),
       getBusinessHours(supabase, organizationId),
@@ -106,6 +108,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       getLeadIntakeToken(supabase, organizationId),
       getCalendarConnection(supabase, organizationId),
       getOrganizationConnectStatus(supabase, organizationId),
+      // Phase 3 (W3): the team - memberships via the caller's RLS, emails via Supabase Auth.
+      getTeamMembers(supabase, createServiceRoleClient(), organizationId),
     ]);
 
   const appBaseUrl = resolveAppBaseUrl();
@@ -176,6 +180,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           <SettingsGroup label="Business & Organization">
             <BusinessProfileSection profile={profile} canEdit={canEdit} />
             <OnlinePaymentsSection status={connectBackstop.status} paymentStatus={membership.paymentStatus} canEdit={canEdit} refreshFailed={connectBackstop.refreshFailed} />
+            <TeamSection members={team.members} currentUserId={user.id} canEdit={canEdit} failed={team.failed} />
           </SettingsGroup>
 
           <SettingsGroup label="Automations">

@@ -7,6 +7,8 @@ import { getAutomationEnabled, getAutomationConfigByOrganization, readLeadReacti
 import { getLead, type LeadStatus } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
+import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouch } from "./late-touch";
 
 export const LEAD_REACTIVATION_WORKFLOW = "lead_reactivation_followup";
 
@@ -62,6 +64,7 @@ export type ReactivationOutcome =
   | { leadId: string; outcome: "skipped_disabled" }
   | { leadId: string; outcome: "active_engagement" }
   | { leadId: string; outcome: "not_eligible_status" }
+  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" }
   | { leadId: string; outcome: "failed"; error: string };
 
 export type ReactivationRunResult = {
@@ -103,31 +106,41 @@ export type ReactivationRunResult = {
 export async function processLeadReactivation(supabase: SupabaseClient, now: Date = new Date()): Promise<ReactivationRunResult> {
   const configByOrg = await getAutomationConfigByOrganization(supabase, "lead-reactivation");
 
-  const { data: rawCandidates } = await supabase
-    .from("leads")
-    .select("id, organization_id, contact_id, service, source, ai_summary, status")
-    .in("status", ELIGIBLE_LEAD_STATUSES)
-    .limit(500);
+  // Phase 3 (W2): every eligible lead, paged in a stable order - the old single read was capped at 500
+  // unordered rows across every organization. A failed page stops the run with nothing processed.
+  const read = await readAllPages<CandidateLead>(() =>
+    supabase.from("leads").select("id, organization_id, contact_id, service, source, ai_summary, status").in("status", ELIGIBLE_LEAD_STATUSES).order("id"),
+  );
+  if (read.failed) {
+    throw new Error("Lead reactivation: the candidate read failed or reached the row limit - no lead was processed.");
+  }
 
-  const candidates = (rawCandidates ?? []) as CandidateLead[];
+  const candidates = read.rows;
   const outcomes: ReactivationOutcome[] = [];
+  const isEnabled = enabledPerOrganization((organizationId) => getAutomationEnabled(supabase, organizationId, "lead-reactivation"));
 
   for (const lead of candidates) {
     const config = readLeadReactivationConfig(configByOrg.get(lead.organization_id) ?? null);
-    outcomes.push(await processOneLead(supabase, lead, now, config));
+    outcomes.push(await processOneLead(supabase, lead, now, config, isEnabled));
   }
 
   return { candidates: candidates.length, outcomes };
 }
 
-async function processOneLead(supabase: SupabaseClient, lead: CandidateLead, now: Date, config: LeadReactivationConfig): Promise<ReactivationOutcome> {
+async function processOneLead(
+  supabase: SupabaseClient,
+  lead: CandidateLead,
+  now: Date,
+  config: LeadReactivationConfig,
+  isEnabled: (organizationId: string) => Promise<boolean>,
+): Promise<ReactivationOutcome> {
   const leadId = lead.id;
   const organizationId = lead.organization_id;
 
   // Phase C: checked first, before any of the conversation/message/
   // engagement queries below, so a disabled organization pays no further
   // query cost for this candidate.
-  if (!(await getAutomationEnabled(supabase, organizationId, "lead-reactivation"))) {
+  if (!(await isEnabled(organizationId))) {
     return { leadId, outcome: "skipped_disabled" };
   }
 
@@ -259,6 +272,22 @@ async function processOneLead(supabase: SupabaseClient, lead: CandidateLead, now
   const freshLead = await getLead(supabase, organizationId, leadId);
   if (!freshLead || !ELIGIBLE_LEAD_STATUSES.includes(freshLead.status)) {
     return { leadId, outcome: "not_eligible_status" };
+  }
+
+  // Phase 3 (W2, K5 rule): more than 48 hours past due - recorded as not sent, never sent late.
+  const lateHours = hoursPastDue(now.getTime(), new Date(lastInbound.created_at).getTime(), (occurrence === 2 ? config.touch_2_days : config.touch_1_days) * 24 * 60 * 60 * 1000);
+  if (isTouchOverdue(lateHours)) {
+    const overdue = await recordOverdueTouch(supabase, {
+      organizationId,
+      eventType: "lead.reactivation",
+      entityType: "lead",
+      entityId: leadId,
+      payload: { lead_id: leadId, contact_id: lead.contact_id, conversation_id: openConversation.id, occurrence },
+      idempotencyKey,
+      workflowName: LEAD_REACTIVATION_WORKFLOW,
+      lateHours,
+    });
+    return { leadId, ...overdue };
   }
 
   const eventResult = await createAutomationEventAsService(supabase, organizationId, {

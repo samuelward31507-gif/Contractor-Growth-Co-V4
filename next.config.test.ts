@@ -60,10 +60,18 @@ test("2. /leads redirects to /people, filtered to hot leads - permanent:false si
 
 test("3. /contacts/[id] redirects to /customers/[id] with a contact marker, preserving the id segment exactly", async () => {
   const rules = await getRedirects();
-  const rule = findRule(rules, "/contacts/:id");
+  const rule = findRule(rules, "/contacts/:id((?!duplicates$)[^/]+)");
   assert.ok(rule);
   assert.equal(rule!.destination, "/customers/:id?from=contact");
   assert.equal(rule!.permanent, true);
+});
+
+test("3b. (Phase 3) /contacts/duplicates is NOT redirected - it is People's 'Review duplicates' page; every other /contacts/<id> still is", async () => {
+  const { pathToRegexp } = require("next/dist/compiled/path-to-regexp") as { pathToRegexp: (path: string, keys: unknown[]) => RegExp };
+  const rules = await getRedirects();
+  const matching = (pathname: string) => rules.filter((r) => pathToRegexp(r.source, []).test(pathname)).map((r) => r.source);
+  assert.deepEqual(matching("/contacts/duplicates"), [], "the duplicates page renders");
+  assert.deepEqual(matching("/contacts/7a96ed96-2a2d-4c0c-96fb-6c692b027e8e"), ["/contacts/:id((?!duplicates$)[^/]+)"]);
 });
 
 test("4. /contacts redirects to /people - permanent:false for the same reason as /leads above", async () => {
@@ -119,7 +127,7 @@ test("9. /money has no redirect rule - it is un-linked from navigation, not reti
 });
 
 test("10. every redirect rule whose destination is UNCHANGED since it was first introduced is permanent (308); every rule whose destination has since changed is temporary (307) - see this file's own header comment on why a stale cached 308 is unsafe across an IA change", () => {
-  const permanentSources = new Set(["/leads/:id", "/contacts/:id", "/calendar", "/appointments"]);
+  const permanentSources = new Set(["/leads/:id", "/contacts/:id((?!duplicates$)[^/]+)", "/calendar", "/appointments"]);
   const temporarySources = new Set(["/leads", "/contacts"]);
   return getRedirects().then((rules) => {
     for (const rule of rules) {

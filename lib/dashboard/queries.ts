@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatCurrency, formatRelativeTime } from "./format";
 import { getCalendarConnection } from "@/lib/calendar/connection";
 import { getConversations, getLastMessagesByConversation, attachLastMessages } from "@/lib/conversations/queries";
+import { getLatestEvidenceByConversation } from "@/lib/conversations/waiting";
 import type { IncidentStatus } from "@/lib/automation-health/types";
 import { getOpenOpportunities } from "@/lib/opportunities/queries";
 import { cache } from "react";
@@ -338,7 +339,7 @@ export async function getDashboardData(
 ): Promise<DashboardData> {
   const sqlConversationAttention = options.conversationAttention === "sql";
   const sqlRecordAttention = options.recordAttention === "sql";
-  const [leadsResult, appointmentsResult, estimatesResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities, sqlAttention, sqlRecord] = await Promise.all([
+  const [leadsResult, appointmentsResult, estimatesResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities, sqlAttention, sqlRecord, legacyEvidence] = await Promise.all([
     sqlRecordAttention ? SKIPPED_READ : supabase
       .from("leads")
       .select("id, status, temperature, estimated_value, service, created_at, contacts(first_name, last_name)")
@@ -407,6 +408,8 @@ export async function getDashboardData(
     getOpenOpportunities(supabase, organizationId),
     sqlConversationAttention ? getDashboardConversationAttention(supabase, organizationId) : Promise.resolve(null),
     sqlRecordAttention ? getDashboardRecordAttention(supabase, organizationId, HIGH_VALUE_THRESHOLD) : Promise.resolve(null),
+    // Phase 3 (W1): the legacy path classifies on the same evidence as the SQL - each open conversation's newest inbound-or-successful-outbound message.
+    sqlConversationAttention ? Promise.resolve(null) : getLatestEvidenceByConversation(supabase, organizationId),
   ]);
 
   const leads = leadsResult.data ?? [];
@@ -592,10 +595,12 @@ export async function getDashboardData(
   // Conversations page's own needsReply logic), just never aggregated onto
   // the dashboard before now.
   const conversationsWithLastMessage = attachLastMessages(conversations, lastMessages);
+  // Phase 3 (W1): a failed / undelivered / queued send or a logged note is not a reply - classification uses the newest evidence, timestamps stay on the last activity.
+  const evidenceDirection = (conversationId: string) => legacyEvidence?.evidence.get(conversationId)?.direction ?? null;
   const awaitingReply: AttentionItem[] = sqlAttention
     ? sqlAttention.awaitingReply
     : conversationsWithLastMessage
-        .filter((conversation) => conversation.status === "open" && conversation.lastMessage?.direction === "inbound")
+        .filter((conversation) => conversation.status === "open" && evidenceDirection(conversation.id) === "inbound")
         .slice(0, 5)
         .map((conversation) => ({
           id: `reply-${conversation.id}`,
@@ -638,7 +643,7 @@ export async function getDashboardData(
         .filter(
           (conversation) =>
             conversation.status === "open" &&
-            conversation.lastMessage?.direction === "outbound" &&
+            evidenceDirection(conversation.id) === "outbound" &&
             now - new Date(conversation.lastActivityAt).getTime() >= ABANDONED_CONVERSATION_THRESHOLD_MS &&
             (conversation.lead == null || CONVERSATION_STILL_ACTIONABLE_LEAD_STATUSES.has(conversation.lead.status)),
         )

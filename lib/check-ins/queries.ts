@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 export type CheckIn = {
   id: string;
@@ -25,14 +26,16 @@ const CHECK_IN_COLUMNS = "id, organization_id, contact_id, checked_in_at, checke
  * client-supplied id - same convention as lib/contacts/queries.ts.
  */
 export async function getCheckIns(supabase: SupabaseClient, organizationId: string): Promise<CheckIn[]> {
-  const { data } = await supabase
-    .from("check_ins")
-    .select(CHECK_IN_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("checked_in_at", { ascending: false })
-    .limit(1000);
+  const read = await readAllPages<CheckIn>(() =>
+    supabase
+      .from("check_ins")
+      .select(CHECK_IN_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("checked_in_at", { ascending: false })
+      .order("id"),
+  );
 
-  return data ?? [];
+  return read.rows;
 }
 
 /**

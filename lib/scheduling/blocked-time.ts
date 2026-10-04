@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 /**
  * Pass 2 (Native Calendar System): the read layer for blocked_time (see
@@ -24,16 +25,18 @@ export async function getBlockedTimeInRange(
   rangeStart: Date,
   rangeEnd: Date,
 ): Promise<BlockedTime[]> {
-  const { data } = await supabase
-    .from("blocked_time")
-    .select("id, start_at, end_at, reason, created_at, updated_at")
-    .eq("organization_id", organizationId)
-    .lt("start_at", rangeEnd.toISOString())
-    .gt("end_at", rangeStart.toISOString())
-    .order("start_at", { ascending: true })
-    .limit(1000);
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("blocked_time")
+      .select("id, start_at, end_at, reason, created_at, updated_at")
+      .eq("organization_id", organizationId)
+      .lt("start_at", rangeEnd.toISOString())
+      .gt("end_at", rangeStart.toISOString())
+      .order("start_at", { ascending: true })
+      .order("id"),
+  );
 
-  return (data ?? []) as BlockedTime[];
+  return read.rows as BlockedTime[];
 }
 
 /** Scoped to the org, matching every other single-row lookup in this codebase - any error (invalid id, wrong org) resolves to null rather than throwing. */

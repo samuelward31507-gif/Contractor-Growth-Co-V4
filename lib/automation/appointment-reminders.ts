@@ -23,6 +23,7 @@ import { getBusinessProfile } from "@/lib/settings/queries";
 import { formatAppointmentDate, formatAppointmentTimeRange } from "@/lib/appointments/format";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 export const APPOINTMENT_REMINDER_WORKFLOW = "appointment_reminder";
 
@@ -149,15 +150,24 @@ export async function processAppointmentReminders(
   const maxWindowMs = REMINDER_LEAD_TIME_MAX_HOURS * 60 * 60 * 1000;
   const windowEnd = new Date(now.getTime() + maxWindowMs);
 
-  const { data: rawCandidates } = await supabase
-    .from("appointments")
-    .select("id, organization_id, contact_id, lead_id, title, start_at, end_at, status, updated_at")
-    .in("status", ELIGIBLE_STATUSES)
-    .gt("start_at", now.toISOString())
-    .lte("start_at", windowEnd.toISOString())
-    .limit(500);
+  // Phase 3 (W2): every upcoming appointment in the reminder window, paged in a stable order - the old single
+  // read was capped at 500 rows across every organization. Window-based, so there is no backlog to guard. A
+  // failed page stops the run with nothing processed.
+  const read = await readAllPages<CandidateAppointment>(() =>
+    supabase
+      .from("appointments")
+      .select("id, organization_id, contact_id, lead_id, title, start_at, end_at, status, updated_at")
+      .in("status", ELIGIBLE_STATUSES)
+      .gt("start_at", now.toISOString())
+      .lte("start_at", windowEnd.toISOString())
+      .order("start_at")
+      .order("id"),
+  );
+  if (read.failed) {
+    throw new Error("Appointment reminders: the candidate read failed or reached the row limit - no appointment was processed.");
+  }
 
-  const candidates = ((rawCandidates ?? []) as CandidateAppointment[]).filter((appointment) => {
+  const candidates = read.rows.filter((appointment) => {
     const config = readAppointmentReminderConfig(configByOrg.get(appointment.organization_id) ?? null);
     return isReminderDue(appointment, config, now);
   });
@@ -339,6 +349,9 @@ export async function previewAppointmentReminders(
     .in("status", ELIGIBLE_STATUSES)
     .gt("start_at", now.toISOString())
     .lte("start_at", windowEnd.toISOString())
+    // Phase 3 (W2): the preview shows the next due reminder - soonest first, never an arbitrary capped row.
+    .order("start_at")
+    .order("id")
     .limit(500);
 
   const candidates = ((rawCandidates ?? []) as CandidateAppointment[]).filter((appointment) => isReminderDue(appointment, config, now));

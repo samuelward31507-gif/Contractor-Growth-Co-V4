@@ -93,6 +93,8 @@ for (const f of [...migrationFiles.map((f) => path.join(ROOT, "supabase/migratio
 }
 await db.exec(readFileSync(path.join(ROOT, "supabase/pending/dashboard_sql.sql"), "utf8"));
 await db.exec(readFileSync(path.join(ROOT, "supabase/pending/dashboard_attention_sql.sql"), "utf8"));
+// Phase 3 (W1): the pending create-or-replace that classifies on inbound + successful outbound evidence.
+await db.exec(readFileSync(path.join(ROOT, "supabase/migrations/20261004110145_dashboard_conversation_attention_successful_reply.sql"), "utf8"));
 debug("schema ready");
 
 // ---------------------------------------------------------------------------
@@ -595,14 +597,17 @@ async function uncappedReference(org) {
   const money = computeMoneySnapshot(estimates, jobs);
   const lastMessages = new Map();
   for (const m of messages) if (!lastMessages.has(m.conversation_id)) lastMessages.set(m.conversation_id, m);
+  // Phase 3 (W1): the canonical evidence - newest inbound or sent/delivered outbound message per conversation.
+  const lastEvidence = new Map();
+  for (const m of messages) if (!lastEvidence.has(m.conversation_id) && (m.direction === "inbound" || ["sent", "delivered"].includes(m.status))) lastEvidence.set(m.conversation_id, m);
   const withLast = attachLastMessages(conversations, lastMessages);
   const nameOf = (c) => {
     const n = c ? [c.first_name, c.last_name].filter(Boolean).join(" ").trim() : "";
     return n || null;
   };
-  const awaiting = withLast.filter((c) => c.status === "open" && c.lastMessage?.direction === "inbound").slice(0, 5).map((c) => `reply-${c.id}:${nameOf(c.contact) ?? "Customer"}`);
+  const awaiting = withLast.filter((c) => c.status === "open" && lastEvidence.get(c.id)?.direction === "inbound").slice(0, 5).map((c) => `reply-${c.id}:${nameOf(c.contact) ?? "Customer"}`);
   const abandoned = withLast
-    .filter((c) => c.status === "open" && c.lastMessage?.direction === "outbound" && now.getTime() - new Date(c.lastActivityAt).getTime() >= 48 * 3600 * 1000 && (c.lead == null || ["new", "contacted", "qualified"].includes(c.lead.status)))
+    .filter((c) => c.status === "open" && lastEvidence.get(c.id)?.direction === "outbound" && now.getTime() - new Date(c.lastActivityAt).getTime() >= 48 * 3600 * 1000 && (c.lead == null || ["new", "contacted", "qualified"].includes(c.lead.status)))
     .slice(0, 5)
     .map((c) => `abandoned-${c.id}:${nameOf(c.contact) ?? "Customer"}`);
   const isToday = (iso) => {
@@ -851,6 +856,56 @@ if (MODE === "capture") {
       const failing = await dashboardQueries.getDashboardData(createClient("http://127.0.0.1:1", "x", { auth: { persistSession: false } }), orgs.A, phase2e.dashboard);
       check("2E: failed record read -> partialData true, empty record items, count covers leads+appointments+estimates", { partial: failing.partialData, atLeast3: failing.partialDataSourceCount >= 3, overview: failing.overview, recordKinds: failing.attentionItems.filter((i) => ["overdue_appointment", "awaiting_confirmation", "hot_lead", "high_value_lead", "pending_estimate"].includes(i.kind)).length }, { partial: true, atLeast3: true, overview: { newLeads: 0, upcomingAppointments: 0, pendingEstimates: 0, openOpportunities: 0 }, recordKinds: 0 });
     }
+  }
+
+  // ---- Phase 3 (W1): waiting rule - inbound + successful outbound evidence only ----
+  {
+    const WR = "md5('org-WR')::uuid";
+    await db.exec(`
+      set session_replication_role = replica;
+      insert into public.organizations (id, name, timezone, payment_status) values (${WR}, 'Org Waiting rule', 'UTC', 'active');
+      insert into public.conversations (id, organization_id, contact_id, lead_id, channel, status, ai_enabled, created_at, updated_at) values
+        (${id("WR-cv1")}, ${WR}, null, null, 'sms', 'open', true, ${T("2026-10-01T00:00:00Z")}, ${T("2026-10-01T00:00:00Z")}),
+        (${id("WR-cv2")}, ${WR}, null, null, 'sms', 'open', true, ${T("2026-10-01T00:00:00Z")}, ${T("2026-10-01T00:00:00Z")}),
+        (${id("WR-cv3")}, ${WR}, null, null, 'sms', 'open', true, ${T("2026-10-01T00:00:00Z")}, ${T("2026-10-01T00:00:00Z")}),
+        (${id("WR-cv4")}, ${WR}, null, null, 'sms', 'open', true, ${T("2026-10-01T00:00:00Z")}, ${T("2026-10-01T00:00:00Z")}),
+        (${id("WR-cv5")}, ${WR}, null, null, 'sms', 'open', true, ${T("2026-10-01T00:00:00Z")}, ${T("2026-10-01T00:00:00Z")}),
+        (${id("WR-cv6")}, ${WR}, null, null, 'sms', 'open', true, ${T("2026-10-01T00:00:00Z")}, ${T("2026-10-01T00:00:00Z")}),
+        (${id("WR-cv7")}, ${WR}, null, null, 'sms', 'open', true, ${T("2026-10-01T00:00:00Z")}, ${T("2026-10-01T00:00:00Z")});
+      insert into public.messages (id, organization_id, conversation_id, direction, sender_type, body, status, created_at) values
+        (${id("WR-m1a")}, ${WR}, ${id("WR-cv1")}, 'inbound', 'customer', 'x', 'received', ${T("2026-10-12T10:00:00Z")}),
+        (${id("WR-m1b")}, ${WR}, ${id("WR-cv1")}, 'outbound', 'ai', 'x', 'failed', ${T("2026-10-12T11:00:00Z")}),
+        (${id("WR-m2a")}, ${WR}, ${id("WR-cv2")}, 'inbound', 'customer', 'x', 'received', ${T("2026-10-15T10:00:00Z")}),
+        (${id("WR-m2b")}, ${WR}, ${id("WR-cv2")}, 'outbound', 'user', 'note', 'logged', ${T("2026-10-15T11:00:00Z")}),
+        (${id("WR-m3a")}, ${WR}, ${id("WR-cv3")}, 'inbound', 'customer', 'x', 'received', ${T("2026-10-15T09:00:00Z")}),
+        (${id("WR-m3b")}, ${WR}, ${id("WR-cv3")}, 'outbound', 'ai', 'x', 'queued', ${T("2026-10-15T09:05:00Z")}),
+        (${id("WR-m4a")}, ${WR}, ${id("WR-cv4")}, 'inbound', 'customer', 'x', 'received', ${T("2026-10-15T08:00:00Z")}),
+        (${id("WR-m4b")}, ${WR}, ${id("WR-cv4")}, 'outbound', 'ai', 'x', 'undelivered', ${T("2026-10-15T08:05:00Z")}),
+        (${id("WR-m5a")}, ${WR}, ${id("WR-cv5")}, 'inbound', 'customer', 'x', 'received', ${T("2026-10-10T08:00:00Z")}),
+        (${id("WR-m5b")}, ${WR}, ${id("WR-cv5")}, 'outbound', 'ai', 'x', 'delivered', ${T("2026-10-11T08:00:00Z")}),
+        (${id("WR-m5c")}, ${WR}, ${id("WR-cv5")}, 'outbound', 'ai', 'x', 'failed', ${T("2026-10-12T08:00:00Z")}),
+        (${id("WR-m6a")}, ${WR}, ${id("WR-cv6")}, 'outbound', 'ai', 'x', 'failed', ${T("2026-10-10T08:00:00Z")}),
+        (${id("WR-m7a")}, ${WR}, ${id("WR-cv7")}, 'inbound', 'customer', 'x', 'received', ${T("2026-10-15T12:00:00Z")}),
+        (${id("WR-m7b")}, ${WR}, ${id("WR-cv7")}, 'outbound', 'user', 'x', 'delivered', ${T("2026-10-15T13:00:00Z")});
+      set session_replication_role = origin;
+    `);
+    const wr = (await db.query(`select ${WR}::text as v`)).rows[0].v;
+    const names = new Map();
+    for (const n of [1, 2, 3, 4, 5, 6, 7]) names.set((await db.query(`select ${id(`WR-cv${n}`)}::text as v`)).rows[0].v, `cv${n}`);
+    const label = (items) => items.map((i) => names.get(i.id.replace(/^(reply|abandoned)-/, "")) ?? i.id);
+    const EXPECTED = { awaiting: ["cv2", "cv3", "cv4", "cv1"], abandoned: ["cv5"] };
+    const viaSql = await sql.getDashboardConversationAttention(supabase, wr, NOW_MS);
+    check("W1 SQL: failed / logged / queued / undelivered after the customer are waiting; answered-then-failed is went quiet; failed-only and answered are neither", { awaiting: label(viaSql.awaitingReply), abandoned: label(viaSql.abandonedConversations) }, EXPECTED);
+    // The legacy app path reads one-to-many embeds (conversations -> messages) this emulator cannot serve;
+    // its parity with the SQL is checked against real PostgREST on TEST (lib/dashboard/queries.waiting-rule.integration.test.ts).
+
+    // Rollback restores the previous definition exactly (newest message of any status decides), then re-apply.
+    await db.exec(readFileSync(path.join(ROOT, "supabase/pending/dashboard_conversation_attention_successful_reply_rollback.sql"), "utf8"));
+    const rolledBack = await sql.getDashboardConversationAttention(supabase, wr, NOW_MS);
+    check("W1 rollback: the previous rule (any-status last message) is back", { awaiting: label(rolledBack.awaitingReply), abandoned: label(rolledBack.abandonedConversations).sort() }, { awaiting: [], abandoned: ["cv1", "cv5", "cv6"] });
+    await db.exec(readFileSync(path.join(ROOT, "supabase/migrations/20261004110145_dashboard_conversation_attention_successful_reply.sql"), "utf8"));
+    const reapplied = await sql.getDashboardConversationAttention(supabase, wr, NOW_MS);
+    check("W1 re-apply after rollback: idempotent", { awaiting: label(reapplied.awaitingReply), abandoned: label(reapplied.abandonedConversations) }, EXPECTED);
   }
 
   // ---- Organization isolation, grants and RLS (as the real roles) ----

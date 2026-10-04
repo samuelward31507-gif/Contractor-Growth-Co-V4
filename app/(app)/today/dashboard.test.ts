@@ -157,7 +157,10 @@ test("data: the organization timezone first, then one batch of reads sharing the
   assert.ok(batch.includes(decisionContext), "the decision context is chained onto the cached dashboard read");
   assert.equal((batch.match(/\(supabase, membership\.organizationId/g) ?? []).length, calls.length + 2, "nothing else was added: the existing reads plus the chained dashboard (cached) and decision-context calls");
   assert.match(PAGE, /const timeZone = await getOrganizationTimezone\(supabase, membership\.organizationId\);[\s\S]*const dayBounds = organizationDayBounds\(briefingNow, timeZone \?\? "UTC"\);[\s\S]*await Promise\.all\(\[/, "the timezone is read before the batch so every day-scoped read uses the organization's day");
-  assert.equal((PAGE.match(/await /g) ?? []).length, 5, "only searchParams, the request client, the membership, the timezone and the one batch are awaited");
+  // Phase 3 (W5): plus the automation-mode read for the setup banner - started before the timezone read and
+  // awaited after the batch, so it runs concurrently and serializes nothing.
+  assert.equal((PAGE.match(/await /g) ?? []).length, 6, "only searchParams, the request client, the membership, the timezone, the one batch and the (concurrent) automation mode are awaited");
+  assert.match(PAGE, /const automationModeRead = getAutomationMode\(supabase, membership\.organizationId\);\n\s+const timeZone = await getOrganizationTimezone/, "the mode read starts before anything is awaited");
   assert.doesNotMatch(PAGE, /\.from\(|\.rpc\(|getOrganizationHealth|getBusinessMetricsSnapshot/);
 });
 

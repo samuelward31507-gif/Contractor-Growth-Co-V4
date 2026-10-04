@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 export type Contact = {
   id: string;
@@ -21,14 +22,16 @@ const CONTACT_COLUMNS = "id, first_name, last_name, phone, email, company_name, 
  * intent obvious, and never trusts a client-supplied id.
  */
 export async function getContacts(supabase: SupabaseClient, organizationId: string): Promise<Contact[]> {
-  const { data } = await supabase
-    .from("contacts")
-    .select(CONTACT_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(1000);
+  const read = await readAllPages<Contact>(() =>
+    supabase
+      .from("contacts")
+      .select(CONTACT_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return data ?? [];
+  return read.rows;
 }
 
 /**

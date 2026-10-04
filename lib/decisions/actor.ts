@@ -1,6 +1,7 @@
 import type { AttentionItem } from "@/lib/dashboard/queries";
 import type { PrioritizedOpportunity } from "@/lib/opportunities/intelligence";
 import { E164_PATTERN } from "@/lib/automation/sms";
+import { countsAsEvidence } from "@/lib/conversations/waiting";
 
 /**
  * Phase 2-3: who acts on a decision item. "trackpr" only when a Trackpr
@@ -108,14 +109,18 @@ export const ALL_HUMAN_CONTEXT: DecisionContext = {
 /**
  * From a conversation's messages, newest first: the oldest inbound message
  * in the unbroken run of inbound messages at the top - i.e. the first one
- * nobody has answered. Any outbound message (AI, staff or a customer-facing
- * system send - B2) ends the run. Null when the newest message is not
- * inbound. If every message read is inbound, the oldest read is the best
- * known start (the run may be longer).
+ * nobody has answered. Phase 3 (W1, refining C3): only a SUCCESSFUL outbound
+ * message (sent or delivered - AI, staff or a customer-facing system send,
+ * B2) ends the run; a failed, undelivered or queued send, or a logged note,
+ * is not a reply and is skipped. A message with no status is treated as
+ * evidence (callers that cannot read status keep the old behavior). Null when
+ * the newest evidence is not inbound. If every message read is inbound, the
+ * oldest read is the best known start (the run may be longer).
  */
-export function firstUnansweredInboundAt(messagesNewestFirst: { created_at: string; direction: "inbound" | "outbound" }[]): string | null {
+export function firstUnansweredInboundAt(messagesNewestFirst: { created_at: string; direction: "inbound" | "outbound"; status?: string | null }[]): string | null {
   let first: string | null = null;
   for (const message of messagesNewestFirst) {
+    if (message.direction === "outbound" && message.status !== undefined && !countsAsEvidence({ direction: "outbound", status: message.status })) continue;
     if (message.direction !== "inbound") break;
     first = message.created_at;
   }
