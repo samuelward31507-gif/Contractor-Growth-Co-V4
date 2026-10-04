@@ -22,11 +22,13 @@ export const HEALTH_STATUS_BADGE: Record<OrganizationHealthSummary["status"], { 
 };
 
 const STATUS_STYLE: Record<OrganizationHealthSummary["status"], { ring: string; iconBg: string; iconText: string }> = {
-  healthy: { ring: "border-accent-border", iconBg: "bg-accent-muted", iconText: "text-accent" },
-  degraded: { ring: "border-warning-border", iconBg: "bg-warning-muted", iconText: "text-warning" },
-  unhealthy: { ring: "border-danger-border", iconBg: "bg-danger-muted", iconText: "text-danger" },
-  paused: { ring: "border-line", iconBg: "bg-inset", iconText: "text-ink-2" },
-  payment_blocked: { ring: "border-danger-border", iconBg: "bg-danger-muted", iconText: "text-danger" },
+  // Final redesign: a hairline card with a 3px status bar along its top edge
+  // - the state reads at a glance without tinting the whole card.
+  healthy: { ring: "border-line border-t-accent", iconBg: "bg-accent-muted", iconText: "text-accent" },
+  degraded: { ring: "border-line border-t-warning", iconBg: "bg-warning-muted", iconText: "text-warning" },
+  unhealthy: { ring: "border-line border-t-danger", iconBg: "bg-danger-muted", iconText: "text-danger" },
+  paused: { ring: "border-line border-t-line-strong", iconBg: "bg-inset", iconText: "text-ink-2" },
+  payment_blocked: { ring: "border-line border-t-danger", iconBg: "bg-danger-muted", iconText: "text-danger" },
 };
 
 function formatCount(value: number): string {
@@ -72,13 +74,13 @@ export function HealthSummaryCards({ health, activeAutomationCount }: { health: 
   ];
 
   return (
-    <div className={`grid grid-cols-1 gap-4 rounded-lg border bg-surface p-5 sm:p-6 lg:grid-cols-[auto_1fr] lg:items-center lg:gap-8 ${style.ring}`}>
+    <div className={`grid grid-cols-1 gap-4 rounded-xl border border-t-[3px] bg-surface p-5 shadow-card sm:p-6 lg:grid-cols-[auto_1fr] lg:items-center lg:gap-8 ${style.ring}`}>
       <div className="flex items-center gap-4">
         <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${style.iconBg} ${style.iconText}`}>
           <StatusIcon className="h-5 w-5" aria-hidden />
         </span>
         <div>
-          <p className="text-[22px] font-semibold leading-tight tracking-[-0.02em] text-ink">{statusBadge.label}</p>
+          <p className="text-[26px] font-semibold leading-tight tracking-[-0.025em] text-ink">{statusBadge.label}</p>
           <p className="mt-0.5 text-sm text-ink-3">
             Success rate (30d): <span className="font-medium text-ink-2">{formatRate(health.automationSuccessRate)}</span>
           </p>
@@ -89,7 +91,7 @@ export function HealthSummaryCards({ health, activeAutomationCount }: { health: 
         {detail.map((item) => (
           <div key={item.key}>
             <p className="text-xs text-ink-3">{item.label}</p>
-            <p className={`mt-0.5 text-lg font-semibold tabular-nums ${item.alert ? "text-danger" : "text-ink"}`}>{item.value}</p>
+            <p className={`mt-0.5 text-xl font-semibold tabular-nums tracking-[-0.02em] ${item.alert ? "text-danger" : "text-ink"}`}>{item.value}</p>
           </div>
         ))}
         <div>

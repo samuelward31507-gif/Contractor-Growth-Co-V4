@@ -17,11 +17,17 @@ import type { ReactNode } from "react";
  * table valuable on a 1440px screen is exactly what makes it unusable at
  * 390px) - this component doesn't try to solve both, it's the desktop half
  * of that established pattern.
+ *
+ * Final redesign: the header and every row share one horizontal model - a
+ * 2px left rail (transparent on the header) and the same left/right
+ * padding - so header labels sit exactly over their cells by construction.
+ * Consumers pass only their grid columns; padding is never re-applied per
+ * page (the old per-page "px-3" overrides are what offset Money's header).
  */
 export function Table({ columns, children, className = "" }: { columns: string; children: ReactNode; className?: string }) {
   return (
     <div className={`hidden lg:block ${className}`}>
-      <div className={`grid ${columns} gap-6 border-b border-line pb-2.5 pl-3.5 pr-2`}>{children}</div>
+      <div className={`grid ${columns} items-end gap-6 border-b border-l-2 border-line border-l-transparent pb-2.5 pl-3 pr-4`}>{children}</div>
     </div>
   );
 }
@@ -64,7 +70,7 @@ export function TableRow({
   return (
     <Link
       href={href}
-      className={`group grid ${columns} items-center gap-6 border-l-2 py-3 pl-3 pr-2 transition-colors duration-150 hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${ROW_TONE_RAIL[tone]}`}
+      className={`group grid min-h-12 ${columns} items-center gap-6 border-l-2 py-2.5 pl-3 pr-4 transition-colors duration-150 hover:bg-hover focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 ${ROW_TONE_RAIL[tone]}`}
     >
       {children}
     </Link>

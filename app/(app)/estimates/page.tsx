@@ -60,6 +60,7 @@ export default async function EstimatesPage({ searchParams }: PageProps<"/estima
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
+        eyebrow="Money"
         title="Estimates"
         description="Create, send, and track project estimates."
         action={

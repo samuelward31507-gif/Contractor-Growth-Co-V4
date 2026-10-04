@@ -64,7 +64,7 @@ export function ConversationsWorkspace({
           no use for; the thread itself is the dominant surface once one is
           open, matching the workspace's own three-pane intent. */}
       <div className={activeId ? "hidden" : "block"}>
-        <PageHeader title="Inbox" description="Every customer conversation in one place, organized by activity." />
+        <PageHeader eyebrow="Conversations" title="Inbox" description="Every customer conversation in one place, organized by activity." />
         {/* Final visual acceptance pass: measured on a real small-phone
             viewport (390-530px), this summary block alone was over 300px
             tall, leaving the actual list+thread workspace below it only
@@ -81,7 +81,7 @@ export function ConversationsWorkspace({
       </div>
 
       {/* Theme upgrade: on desktop the list + thread sit in one white panel, anchored like a mail client, instead of floating on the canvas. */}
-      <div className={`min-h-0 flex-1 border-t border-line lg:overflow-hidden lg:rounded-t-lg lg:border-x lg:bg-surface lg:shadow-card ${activeId ? "" : "mt-6"}`}>
+      <div className={`min-h-0 flex-1 border-t border-line lg:overflow-hidden lg:rounded-t-xl lg:border-x lg:bg-surface lg:shadow-card ${activeId ? "" : "mt-6"}`}>
         <div className="flex h-full min-h-0">
           <div
             className={`min-h-0 flex-col overflow-hidden border-r border-line lg:flex lg:w-[340px] lg:shrink-0 ${

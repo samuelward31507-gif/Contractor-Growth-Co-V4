@@ -16,16 +16,15 @@ import { getContacts } from "@/lib/contacts/queries";
 import { calendarDateInTimeZone, formatMoney } from "@/lib/invoices/domain";
 import { getAutomationMode, getOrganizationTimezone } from "@/lib/settings/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
-import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
+import { pageEyebrowClass, pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
 import { PageContainer } from "@/lib/ui/page";
 import { QueueRow } from "@/lib/ui/queue-row";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
 import { OpportunitiesList } from "../opportunities/_components/opportunities-list";
 import { TodayViewTabs, type TodayView } from "./_components/today-view-tabs";
 import { ScrollToAnchorOnLoad } from "./_components/scroll-to-anchor-on-load";
-import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, handlingLine, hourInTimeZone, pipelineStages, todayFigures } from "./_components/dashboard-model";
-import { DashboardSection, PipelineFlow, SectionLink, ShowAllLink, TodayPanel } from "./_components/dashboard-sections";
-import { cardClass } from "@/lib/ui/surface";
+import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, handlingLine, hourInTimeZone, pipelineStages, todayEyebrow, todayFigures } from "./_components/dashboard-model";
+import { AttentionPanel, DashboardSection, PipelineFlow, SectionLink, ShowAllLink, TodayActivity, TodayKpis } from "./_components/dashboard-sections";
 
 function normalizeView(value: string | undefined): TodayView {
   return value === "by-type" ? "by-type" : "priority";
@@ -184,10 +183,18 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     { count: invoiceSummary.overdueCount, value: formatMoney(invoiceSummary.overdue) },
   );
 
+  // Final redesign: the KPI row is today's three figures plus, for a
+  // contractor, the one money-owed figure (the existing Unpaid stage -
+  // same value, detail, link and tone); the pipeline tiles keep the work
+  // stages before it, so nothing is shown twice.
+  const unpaidStage = stages.find((stage) => stage.key === "unpaid");
+  const workStages = stages.filter((stage) => stage.key !== "unpaid");
+
   // Estimates, jobs and invoices are contractor workflows - the same
   // vertical rule navigation uses (nav-items.ts) - so the pipeline flow
   // only renders for a contractor organization.
   const showPipeline = membership.vertical === "contractor";
+  const kpis = showPipeline && unpaidStage ? [...figures, unpaidStage] : figures;
 
   return (
     <PageContainer>
@@ -195,7 +202,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
           page: the SQL dashboard data, the summary that carries every money
           figure, today's AI metrics, the briefing and the end-of-day counts. */}
       {data.partialData || summary.failed || aiHandled.failed || dailyBriefing.partialData || endOfDaySummary.partialData || moneyDataFailed ? (
-        <div role="status" className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+        <div role="status" className="flex items-start gap-2.5 rounded-xl border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>
             Some information is temporarily unavailable.{" "}
@@ -209,7 +216,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
 
       {/* Phase 3 (W5): a new workspace says it isn't live yet, instead of only "all caught up". */}
       {!isLive ? (
-        <div role="status" className="flex items-start gap-2.5 rounded-lg border border-info-border bg-info-muted px-4 py-2.5 text-sm text-info-text">
+        <div role="status" className="flex items-start gap-2.5 rounded-xl border border-info-border bg-info-muted px-4 py-2.5 text-sm text-info-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>
             Trackpr isn&apos;t live yet - automated texts and follow-ups stay off until setup is finished.{" "}
@@ -226,8 +233,9 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
 
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
+          <p className={`mb-2 ${pageEyebrowClass}`}>{todayEyebrow(briefingNow, timeZone ?? null)}</p>
           <h1 className={pageTitleClass}>{greeting}</h1>
-          <p className={`mt-1 ${pageDescriptionClass}`}>{attentionLine(totalNeedingAttention)}</p>
+          <p className={`mt-1.5 ${pageDescriptionClass}`}>{attentionLine(totalNeedingAttention)}</p>
         </div>
         {contacts.length > 0 ? (
           <div className="shrink-0">
@@ -236,74 +244,101 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         ) : null}
       </header>
 
-      {/* Act I - what happened. */}
-      <DashboardSection id="today" title="What happened today">
-        <TodayPanel figures={figures} briefing={dailyBriefing} handled={handledLine(aiHandled.aiMetrics)} handling={handlingLine(decisions.trackprHandling.length)} />
+      {/* Act I - what happened: the KPI row (today's figures, plus the one
+          money-owed figure for a contractor). Its follow-ups render as
+          "Today's activity" in the work column below. */}
+      <DashboardSection id="today" title="What happened today" hideTitle>
+        <TodayKpis figures={kpis} />
       </DashboardSection>
 
-      {/* Act II - what needs attention. */}
-      <DashboardSection id="needs-attention" title={totalNeedingAttention > 0 ? `Needs your attention · ${totalNeedingAttention}` : "Needs your attention"}>
-        <div className={`overflow-hidden ${cardClass}`}>
+      {/* Final redesign: one responsive grid. Source order is the approved
+          act order (and the mobile stacking order); at lg+ the work column
+          (where the work stands, opportunities, today's activity) sits
+          left and Act II takes the narrow right column as the page's one
+          dark focal panel. The trailing 1fr row absorbs the panel's extra
+          height, so the left cards stack tightly instead of spreading. */}
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] lg:grid-rows-[auto_auto_auto_1fr] lg:items-start xl:grid-cols-[minmax(0,1fr)_440px]">
+        {/* Act II - what needs attention. */}
+        <AttentionPanel
+          id="needs-attention"
+          count={totalNeedingAttention}
+          className="lg:col-start-2 lg:row-span-4 lg:row-start-1"
+          footer={hiddenCount > 0 ? <ShowAllLink href="/today?all=1" count={totalNeedingAttention} inverse /> : null}
+        >
           {totalNeedingAttention === 0 ? (
-            <div className="px-5 py-10 text-center">
-              <p className="text-sm font-medium text-ink">You&apos;re all caught up.</p>
-              <p className="mt-1 text-[13px] text-ink-3">Anything new that needs you will appear here first.</p>
+            <div className="rounded-lg bg-dark-fill px-5 py-10 text-center inset-ring inset-ring-dark-line">
+              <p className="text-sm font-medium text-on-dark">You&apos;re all caught up.</p>
+              <p className="mt-1 text-[13px] text-on-dark-3">Anything new that needs you will appear here first.</p>
             </div>
           ) : (
-            <ul className="divide-y divide-line">
+            <ul className="space-y-2">
               {operationalExceptions.map((item) => (
                 <li key={item.key}>
-                  <DecisionRow item={item} />
+                  <DecisionRow item={item} inverse />
                 </li>
               ))}
               {visibleQueue.map((item) => (
                 <li key={item.key}>
-                  <DecisionRow item={item} />
+                  <DecisionRow item={item} inverse />
                 </li>
               ))}
             </ul>
           )}
-          {hiddenCount > 0 ? <ShowAllLink href="/today?all=1" count={totalNeedingAttention} /> : null}
-        </div>
-      </DashboardSection>
+        </AttentionPanel>
 
-      {/* Act III - what opportunity exists. */}
-      <DashboardSection id="opportunities" title="Opportunities" action={<TodayViewTabs active={view} opportunityCount={openOpportunities.length} />}>
-        <ScrollToAnchorOnLoad id="opportunities" />
-        {view === "priority" ? (
-          <div className={`overflow-hidden ${cardClass}`}>
-            {opportunityQueue.length === 0 ? (
-              <div className="px-5 py-8 text-center">
-                <p className="text-sm font-medium text-ink">Nothing else to pursue right now.</p>
-                <p className="mt-1 text-[13px] text-ink-3">Customers to win back and reviews or referrals to ask for will appear here.</p>
-              </div>
-            ) : (
-              <ul className="divide-y divide-line">
-                {visibleOpportunityQueue.map((item) => (
-                  <li key={item.key}>
-                    <DecisionRow item={item} />
-                  </li>
-                ))}
-              </ul>
-            )}
-            {opportunityQueue.length > visibleOpportunityQueue.length ? <ShowAllLink href="/today?view=by-type#opportunities" count={openOpportunities.length} /> : null}
-          </div>
-        ) : (
-          <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
-        )}
-      </DashboardSection>
-
-      {showPipeline ? (
-        <DashboardSection id="pipeline" title="Where the work stands" action={<SectionLink href="/money">Open Money</SectionLink>}>
-          <PipelineFlow stages={stages} />
+        {/* Act III - what opportunity exists. */}
+        <DashboardSection
+          id="opportunities"
+          title="Opportunities"
+          variant="card"
+          className={`lg:col-start-1 ${showPipeline ? "lg:row-start-2" : "lg:row-start-1"}`}
+          action={<TodayViewTabs active={view} opportunityCount={openOpportunities.length} />}
+        >
+          <ScrollToAnchorOnLoad id="opportunities" />
+          {view === "priority" ? (
+            <div className="border-t border-line">
+              {opportunityQueue.length === 0 ? (
+                <div className="px-5 py-8 text-center">
+                  <p className="text-sm font-medium text-ink">Nothing else to pursue right now.</p>
+                  <p className="mt-1 text-[13px] text-ink-3">Customers to win back and reviews or referrals to ask for will appear here.</p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {visibleOpportunityQueue.map((item) => (
+                    <li key={item.key}>
+                      <DecisionRow item={item} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {opportunityQueue.length > visibleOpportunityQueue.length ? <ShowAllLink href="/today?view=by-type#opportunities" count={openOpportunities.length} /> : null}
+            </div>
+          ) : (
+            <div className="border-t border-line px-4 py-4 sm:px-5 sm:py-5">
+              <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
+            </div>
+          )}
         </DashboardSection>
-      ) : null}
+
+        {showPipeline ? (
+          <DashboardSection id="pipeline" title="Where the work stands" variant="card" className="lg:col-start-1 lg:row-start-1" action={<SectionLink href="/money">Open Money</SectionLink>}>
+            <PipelineFlow stages={workStages} />
+          </DashboardSection>
+        ) : null}
+
+        <TodayActivity
+          briefing={dailyBriefing}
+          handled={handledLine(aiHandled.aiMetrics)}
+          handling={handlingLine(decisions.trackprHandling.length)}
+          className={`lg:col-start-1 ${showPipeline ? "lg:row-start-3" : "lg:row-start-2"}`}
+        />
+      </div>
     </PageContainer>
   );
 }
 
-/** One decision row - the same QueueRow for operational exceptions, the attention list and the opportunity preview. */
-function DecisionRow({ item }: { item: DecisionItem }) {
+/** One decision row - the same QueueRow for operational exceptions, the attention list and the opportunity preview (`inverse` inside the dark attention panel). */
+function DecisionRow({ item, inverse = false }: { item: DecisionItem; inverse?: boolean }) {
   return (
     <QueueRow
       tone={item.tone}
@@ -316,6 +351,7 @@ function DecisionRow({ item }: { item: DecisionItem }) {
       phone={item.phone}
       secondaryHref={item.nextAction.href}
       secondaryLabel={item.nextAction.label}
+      variant={inverse ? "inverse" : "default"}
     />
   );
 }

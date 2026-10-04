@@ -16,7 +16,7 @@
  * since that padding rhythm is the page shell's concern, not the header's.
  */
 import type { ReactNode } from "react";
-import { pageTitleClass, pageDescriptionClass } from "./typography";
+import { pageEyebrowClass, pageTitleClass, pageDescriptionClass } from "./typography";
 
 export function PageHeader({
   eyebrow,
@@ -34,7 +34,7 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        {eyebrow ? <p className="mb-1 text-xs font-medium text-ink-3">{eyebrow}</p> : null}
+        {eyebrow ? <p className={`mb-2 ${pageEyebrowClass}`}>{eyebrow}</p> : null}
         <div className="flex items-center gap-2.5">
           <h1 className={pageTitleClass}>{title}</h1>
           {badge}

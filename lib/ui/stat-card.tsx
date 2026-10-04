@@ -24,12 +24,14 @@ import type { BadgeTone } from "./badge";
 import { kpiLabelClass, kpiValueClass, kpiDescriptionClass } from "./typography";
 import { cardClass } from "./surface";
 
+// Final redesign: the tone shows as the icon's own color on a quiet tile,
+// never a saturated block - the number is the hero of the card.
 const TONE_ICON_CLASS: Record<BadgeTone, string> = {
-  neutral: "bg-inset text-ink-3",
-  info: "bg-info-muted text-info-text",
-  success: "bg-accent-muted text-accent-text",
-  warning: "bg-warning-muted text-warning-text",
-  danger: "bg-danger-muted text-danger-text",
+  neutral: "text-ink-3",
+  info: "text-info",
+  success: "text-accent",
+  warning: "text-warning",
+  danger: "text-danger",
 };
 
 export function StatGrid({
@@ -49,7 +51,7 @@ export function StatGrid({
     5: "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5",
   };
   // Theme upgrade: two up on a phone (a financial summary reads as a grid, not a scroll of cards).
-  return <div className={`grid grid-cols-2 gap-3 sm:gap-4 ${COLS[columns]} ${className}`}>{children}</div>;
+  return <div className={`grid grid-cols-2 gap-3 sm:gap-4 ${ORPHAN} ${COLS[columns]} ${className}`}>{children}</div>;
 }
 
 // A genuine headline figure ("$63,950", "12", "69%") reads fine at
@@ -59,6 +61,10 @@ export function StatGrid({
 // siblings in the same StatGrid row. Long string values step down one size
 // instead - still clearly the card's own headline, just sized for prose
 // rather than a number.
+// Final redesign: wherever the grid is two across (phones, small tablets),
+// an odd last card spans the row instead of leaving a half-width orphan.
+const ORPHAN = "[&>*:last-child:nth-child(odd)]:col-span-2 lg:[&>*:last-child:nth-child(odd)]:col-span-1";
+
 const LONG_TEXT_VALUE_CLASS = "mt-2 text-base font-semibold leading-snug text-ink-2 sm:text-lg";
 
 export function StatCard({
@@ -85,8 +91,8 @@ export function StatCard({
       <div className="flex items-start justify-between gap-3">
         <p className={kpiLabelClass}>{label}</p>
         {Icon ? (
-          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${TONE_ICON_CLASS[tone]}`}>
-            <Icon className="h-3.5 w-3.5" aria-hidden />
+          <span className={`-mr-1 -mt-0.5 hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-inset sm:flex inset-ring inset-ring-line ${TONE_ICON_CLASS[tone]}`}>
+            <Icon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
           </span>
         ) : null}
       </div>
@@ -99,7 +105,7 @@ export function StatCard({
     return (
       <Link
         href={href}
-        className={`block ${cardClass} p-4 transition-colors duration-150 sm:p-5 hover:border-line-strong hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40`}
+        className={`block ${cardClass} p-4 transition-[border-color,box-shadow] duration-150 sm:p-5 hover:border-line-strong hover:shadow-[0_1px_2px_rgba(20,23,22,0.06),0_6px_16px_-6px_rgba(20,23,22,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40`}
       >
         {content}
       </Link>

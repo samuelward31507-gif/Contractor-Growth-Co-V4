@@ -17,7 +17,7 @@ export function Sidebar({
   initialCollapsed: boolean | null;
 }) {
   return (
-    <aside aria-label="Primary" className="hidden shrink-0 border-r border-line bg-sidebar lg:flex">
+    <aside aria-label="Primary" className="hidden shrink-0 bg-sidebar text-on-dark lg:flex">
       <SidebarContent
         organizationName={organizationName}
         userEmail={userEmail}

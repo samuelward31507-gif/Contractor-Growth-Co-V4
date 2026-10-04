@@ -4,6 +4,7 @@ import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/co
 import { formatInvoiceNumber, formatMoney, isOverdue } from "@/lib/invoices/domain";
 import type { Invoice } from "@/lib/invoices/queries";
 import { Badge, RAIL_TONE_CLASS } from "@/lib/ui/badge";
+import { recordIdClass } from "@/lib/ui/typography";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { INVOICE_STATUS_ICON, INVOICE_STATUS_LABELS, INVOICE_STATUS_TONE } from "./status";
 
@@ -22,12 +23,12 @@ export function InvoicesTable({ invoices, hasActiveFilters, today }: { invoices:
   return (
     <div>
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-line pl-3 pr-2 pb-3`}>
-          <span className="text-xs text-ink-3">Invoice</span>
-          <span className="text-xs text-ink-3">Status</span>
-          <span className="text-right text-xs text-ink-3">Total</span>
-          <span className="text-right text-xs text-ink-3">Balance</span>
-          <span className="text-xs text-ink-3">Due</span>
+        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-line pl-3 pr-4 pb-2.5`}>
+          <span className="text-xs font-medium text-ink-3">Invoice</span>
+          <span className="text-xs font-medium text-ink-3">Status</span>
+          <span className="text-right text-xs font-medium text-ink-3">Total</span>
+          <span className="text-right text-xs font-medium text-ink-3">Balance</span>
+          <span className="text-xs font-medium text-ink-3">Due</span>
           <span />
         </div>
         <div className="divide-y divide-line">
@@ -37,7 +38,7 @@ export function InvoicesTable({ invoices, hasActiveFilters, today }: { invoices:
               <Link
                 key={invoice.id}
                 href={`/invoices/${invoice.id}`}
-                className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${overdue ? RAIL_TONE_CLASS.danger : RAIL_TONE_CLASS[INVOICE_STATUS_TONE[invoice.status]]}`}
+                className={`group grid ${ROW_GRID} min-h-14 items-center gap-6 rounded-r-md border-l-2 py-2.5 pl-3 pr-4 transition-colors hover:bg-hover focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 ${overdue ? RAIL_TONE_CLASS.danger : RAIL_TONE_CLASS[INVOICE_STATUS_TONE[invoice.status]]}`}
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
@@ -45,7 +46,7 @@ export function InvoicesTable({ invoices, hasActiveFilters, today }: { invoices:
                   </span>
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-ink">
-                      <span className="text-ink-3">{formatInvoiceNumber(invoice.number)}</span> · {invoice.title}
+                      <span className={`text-ink-3 ${recordIdClass}`}>{formatInvoiceNumber(invoice.number)}</span> · {invoice.title}
                     </span>
                     <span className="block truncate text-xs text-ink-3">
                       {invoice.contact ? contactDisplayName(invoice.contact) : "No contact"}
@@ -76,7 +77,7 @@ export function InvoicesTable({ invoices, hasActiveFilters, today }: { invoices:
             <li key={invoice.id}>
               <Link
                 href={`/invoices/${invoice.id}`}
-                className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${overdue ? RAIL_TONE_CLASS.danger : RAIL_TONE_CLASS[INVOICE_STATUS_TONE[invoice.status]]}`}
+                className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 transition-colors focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 ${overdue ? RAIL_TONE_CLASS.danger : RAIL_TONE_CLASS[INVOICE_STATUS_TONE[invoice.status]]}`}
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                   {invoice.contact ? contactInitials(invoice.contact) : "?"}
@@ -84,7 +85,7 @@ export function InvoicesTable({ invoices, hasActiveFilters, today }: { invoices:
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-medium text-ink">
-                      {formatInvoiceNumber(invoice.number)} · {invoice.title}
+                      <span className={`text-ink-3 ${recordIdClass}`}>{formatInvoiceNumber(invoice.number)}</span> · {invoice.title}
                     </span>
                     <Badge tone={overdue ? "danger" : INVOICE_STATUS_TONE[invoice.status]} icon={INVOICE_STATUS_ICON[invoice.status]}>
                       {overdue ? "Overdue" : INVOICE_STATUS_LABELS[invoice.status]}

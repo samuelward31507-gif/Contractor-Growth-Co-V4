@@ -29,6 +29,24 @@ export function hourInTimeZone(date: Date, timeZone: string | null): number {
   }
 }
 
+/**
+ * Final redesign: Today's eyebrow - the organization's own calendar day as
+ * "FRI · OCT 2" (the page renders it in Geist Mono). Falls back to UTC for
+ * an unknown or missing zone, like hourInTimeZone.
+ */
+export function todayEyebrow(date: Date, timeZone: string | null): string {
+  const format = (zone: string) => {
+    const parts = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: zone }).formatToParts(date);
+    const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    return `${part("weekday")} · ${part("month")} ${part("day")}`.toUpperCase();
+  };
+  try {
+    return format(timeZone ?? "UTC");
+  } catch {
+    return format("UTC");
+  }
+}
+
 export function attentionLine(count: number): string {
   if (count === 0) return "Nothing needs you right now.";
   return `${plural(count, "thing needs", "things need")} your attention today.`;

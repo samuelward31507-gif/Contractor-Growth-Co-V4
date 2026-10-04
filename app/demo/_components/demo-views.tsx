@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Plus, Search, FileText, Workflow, CheckCircle2, Star, TrendingUp } from "lucide-react";
+import { ArrowRight, Plus, Search, FileText, Workflow, CheckCircle2, Star, TrendingUp } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { PageHeader } from "@/lib/ui/page-header";
 import { Panel } from "@/lib/ui/section-card";
@@ -9,8 +9,12 @@ import { Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { HeroStatRow } from "@/lib/ui/hero-stat-row";
 import { inputClass, primaryButtonAutoClass } from "@/lib/ui/form";
-import { pageTitleClass, pageDescriptionClass, sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
-import { DemoMetricStrip, DemoRow, StageBadge, useDemoAction } from "./demo-shared";
+import { pageEyebrowClass, pageTitleClass, pageDescriptionClass, sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+import { StatCard, StatGrid } from "@/lib/ui/stat-card";
+import { cardClass } from "@/lib/ui/surface";
+import { AttentionPanel } from "@/app/(app)/today/_components/dashboard-sections";
+import { DemoMetricStrip, StageBadge, useDemoAction } from "./demo-shared";
 import {
   DEMO_AUTOMATIONS,
   DEMO_AUTOMATION_METRICS,
@@ -32,7 +36,9 @@ import {
   type DemoAppointment,
 } from "./demo-data";
 
-const PAGE_CLASS = "flex flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10";
+const PAGE_CLASS = `${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`;
+/** "MON · MAR 10" - the demo account's fixed day, as the real Today eyebrow shows it. */
+const DEMO_EYEBROW = DEMO_DATE_LABEL.replace(/^(\w{3})\w*, (\w{3})\w* (\d+)$/, "$1 · $2 $3").toUpperCase();
 const CUSTOMER_ROW_GRID = "grid-cols-[minmax(0,1fr)_140px_130px_110px]";
 
 function initials(name: string): string {
@@ -54,9 +60,9 @@ function appointmentBadgeTone(status: DemoAppointment["status"]): "success" | "w
 function ScheduleRow({ appointment }: { appointment: DemoAppointment }) {
   const isOpen = appointment.status === "Open";
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
+    <div className="flex min-h-12 items-center justify-between gap-4 px-4 py-2.5 sm:px-5">
       <div className="flex min-w-0 items-center gap-4">
-        <span className="w-[76px] shrink-0 text-xs font-medium tabular-nums text-ink-3">{appointment.time}</span>
+        <span className="w-[68px] shrink-0 font-mono text-xs font-medium tabular-nums text-ink-3">{appointment.time}</span>
         <span className="min-w-0 truncate text-sm text-ink-2">
           {isOpen ? (
             <span className="text-ink-3">Open slot</span>
@@ -72,68 +78,103 @@ function ScheduleRow({ appointment }: { appointment: DemoAppointment }) {
   );
 }
 
-/** The one heading on the page that should genuinely lead the eye - mirrors the real /dashboard's own single primarySectionTitleClass use (Needs your attention). */
+/**
+ * The demo's "Needs your attention" - the same dark pine-ink focal panel
+ * the real Today page uses (AttentionPanel), with the demo's static rows as
+ * the same stacked tiles: who and the value, what happened, why it matters,
+ * then the next step. Every action only explains itself (useDemoAction).
+ */
 function AttentionSection() {
+  const announce = useDemoAction();
   return (
-    <div>
-      <h2 className={primarySectionTitleClass}>Needs your attention</h2>
-      <div className="mt-4 divide-y divide-line">
+    <AttentionPanel id="demo-needs-attention" count={DEMO_OPPORTUNITIES.length} className="lg:col-start-2 lg:row-span-3 lg:row-start-1">
+      <ul className="space-y-2">
         {DEMO_OPPORTUNITIES.map((item) => (
-          <div key={item.id} className="flex items-center gap-3 py-3">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-warning-muted text-warning">
-              <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium text-ink">
-                  {item.category} <span className="text-ink-3">— {item.customer}</span>
-                </span>
-                <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">{formatCurrency(item.value)}</span>
-              </span>
-              <span className="block truncate text-xs text-ink-3">{item.reason}</span>
-            </span>
-          </div>
+          <li key={item.id} className="rounded-lg bg-dark-fill px-4 py-3.5 inset-ring inset-ring-dark-line">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="truncate text-sm font-semibold text-on-dark">{item.customer}</span>
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-on-dark">{formatCurrency(item.value)}</span>
+            </div>
+            <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-warning-on-dark">
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-warning" />
+              {item.category}
+            </p>
+            <p className="mt-1.5 text-[13px] leading-5 text-on-dark-2">{item.reason}</p>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => announce(`This is a demo — in your real account this opens the next step for ${item.customer}.`)}
+                className="inline-flex min-h-11 items-center gap-1 rounded text-[13px] font-medium text-accent-on-dark hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-on-dark/50 sm:min-h-0"
+              >
+                Take the next step
+                <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => announce(`This is a demo — in your real account this opens ${item.customer}'s full profile.`)}
+                className="inline-flex min-h-11 items-center rounded-lg border border-white/15 bg-dark-fill px-3 text-xs font-medium text-on-dark transition-colors hover:border-white/25 hover:bg-dark-fill-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-on-dark/50 sm:min-h-8"
+              >
+                Open
+              </button>
+            </div>
+          </li>
         ))}
-      </div>
-    </div>
+      </ul>
+    </AttentionPanel>
   );
 }
 
 export function DemoDashboardView() {
   return (
     <div className={PAGE_CLASS}>
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className={sectionLabelClass}>Dashboard · {DEMO_DATE_LABEL}</p>
-          <h1 className={`mt-1.5 ${pageTitleClass}`}>Good morning, {DEMO_BUSINESS_NAME}.</h1>
-          <p className={`mt-1.5 ${pageDescriptionClass}`}>Here&rsquo;s what needs your attention today.</p>
-        </div>
-        <div className="rounded-lg border border-accent-border bg-accent-muted/60 px-5 py-4 sm:min-w-[240px]">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-accent-text/70">Pipeline value</p>
-          <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-accent-text">{formatCurrency(DEMO_PIPELINE_VALUE)}</p>
-        </div>
+      <div>
+        <p className={`mb-2 ${pageEyebrowClass}`}>{DEMO_EYEBROW}</p>
+        <h1 className={pageTitleClass}>Good morning, {DEMO_BUSINESS_NAME}.</h1>
+        <p className={`mt-1.5 ${pageDescriptionClass}`}>Here&rsquo;s what needs your attention today.</p>
       </div>
 
-      <DemoMetricStrip items={DEMO_TOP_METRICS} />
+      <StatGrid columns={4}>
+        {DEMO_TOP_METRICS.map((metric) => (
+          <StatCard key={metric.label} label={metric.label} value={metric.value} />
+        ))}
+      </StatGrid>
 
-      <AttentionSection />
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] lg:grid-rows-[auto_auto_1fr] lg:items-start xl:grid-cols-[minmax(0,1fr)_440px]">
+        <AttentionSection />
 
-      <div className="border-t border-line pt-8">
-        <p className={sectionLabelClass}>Today&rsquo;s schedule</p>
-        <div className="mt-3 divide-y divide-line">
-          {DEMO_TODAY_APPOINTMENTS.map((appointment) => (
-            <ScheduleRow key={appointment.id} appointment={appointment} />
-          ))}
-        </div>
-      </div>
+        <section aria-labelledby="demo-schedule" className={`min-w-0 overflow-hidden lg:col-start-1 lg:row-start-1 ${cardClass}`}>
+          <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
+            <h2 id="demo-schedule" className={primarySectionTitleClass}>
+              Today&rsquo;s schedule
+            </h2>
+            <span className={metaClass}>{DEMO_TODAY_APPOINTMENTS.length} appointments</span>
+          </div>
+          <div className="divide-y divide-line border-t border-line">
+            {DEMO_TODAY_APPOINTMENTS.map((appointment) => (
+              <ScheduleRow key={appointment.id} appointment={appointment} />
+            ))}
+          </div>
+        </section>
 
-      <div className="border-t border-line pt-8">
-        <p className={sectionLabelClass}>Intelligence</p>
-        <div className="mt-2 divide-y divide-line">
-          {DEMO_SUPPORTING_METRICS.map((metric) => (
-            <DemoRow key={metric.label} label={metric.label} value={metric.value} />
-          ))}
-        </div>
+        <section aria-labelledby="demo-pipeline" className={`min-w-0 overflow-hidden lg:col-start-1 lg:row-start-2 ${cardClass}`}>
+          <div className="px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
+            <h2 id="demo-pipeline" className={primarySectionTitleClass}>
+              At a glance
+            </h2>
+          </div>
+          <div className="grid grid-cols-2 gap-2 px-4 pb-4 sm:grid-cols-4 sm:px-5 sm:pb-5">
+            <div className="col-span-2 rounded-lg bg-accent-muted/60 px-3.5 py-3 inset-ring inset-ring-accent-border/70 sm:col-span-1">
+              <p className="text-xs font-medium text-accent-text">Pipeline value</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums tracking-[-0.02em] text-accent-text">{formatCurrency(DEMO_PIPELINE_VALUE)}</p>
+            </div>
+            {DEMO_SUPPORTING_METRICS.map((metric) => (
+              <div key={metric.label} className="rounded-lg bg-inset px-3.5 py-3 inset-ring inset-ring-line/70">
+                <p className="text-xs font-medium text-ink-3">{metric.label}</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums tracking-[-0.02em] text-ink">{metric.value}</p>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -196,7 +237,7 @@ export function DemoCustomersView() {
                       key={customer.id}
                       type="button"
                       onClick={() => announce(`This is a demo — in your real account this opens ${customer.name}'s full profile.`)}
-                      className={`grid w-full ${CUSTOMER_ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 text-left transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset`}
+                      className={`grid w-full ${CUSTOMER_ROW_GRID} items-center gap-6 rounded-md px-2 py-3.5 text-left transition-colors hover:bg-hover focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 `}
                     >
                       <span className="flex min-w-0 items-center gap-3">
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
@@ -223,7 +264,7 @@ export function DemoCustomersView() {
                     <button
                       type="button"
                       onClick={() => announce(`This is a demo — in your real account this opens ${customer.name}'s full profile.`)}
-                      className="flex w-full items-center gap-3 px-2 py-3.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+                      className="flex w-full items-center gap-3 px-2 py-3.5 text-left transition-colors focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 "
                     >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                         {initials(customer.name)}

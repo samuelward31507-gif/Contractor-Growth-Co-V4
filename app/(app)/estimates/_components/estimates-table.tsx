@@ -35,11 +35,11 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
           LeadsTable, sharing column positions across header and rows via a
           grid template. */}
       <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-line pl-3 pr-2 pb-3`}>
-          <span className="text-xs text-ink-3">Estimate</span>
-          <span className="text-xs text-ink-3">Status</span>
-          <span className="text-right text-xs text-ink-3">Amount</span>
-          <span className="text-xs text-ink-3">Created</span>
+        <div className={`grid ${ROW_GRID} gap-6 border-b border-l-2 border-l-transparent border-line pl-3 pr-4 pb-2.5`}>
+          <span className="text-xs font-medium text-ink-3">Estimate</span>
+          <span className="text-xs font-medium text-ink-3">Status</span>
+          <span className="text-right text-xs font-medium text-ink-3">Amount</span>
+          <span className="text-xs font-medium text-ink-3">Created</span>
           <span />
         </div>
         <div className="divide-y divide-line">
@@ -47,7 +47,7 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
             <Link
               key={estimate.id}
               href={`/estimates/${estimate.id}`}
-              className={`group grid ${ROW_GRID} items-center gap-6 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[ESTIMATE_STATUS_TONE[estimate.status]]}`}
+              className={`group grid ${ROW_GRID} min-h-14 items-center gap-6 rounded-r-md border-l-2 py-2.5 pl-3 pr-4 transition-colors hover:bg-hover focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 ${RAIL_TONE_CLASS[ESTIMATE_STATUS_TONE[estimate.status]]}`}
             >
               <span className="flex min-w-0 items-center gap-3">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
@@ -89,7 +89,7 @@ export function EstimatesTable({ estimates, hasActiveFilters }: { estimates: Est
           <li key={estimate.id}>
             <Link
               href={`/estimates/${estimate.id}`}
-              className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset ${RAIL_TONE_CLASS[ESTIMATE_STATUS_TONE[estimate.status]]}`}
+              className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 transition-colors focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 ${RAIL_TONE_CLASS[ESTIMATE_STATUS_TONE[estimate.status]]}`}
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-medium text-ink-2">
                 {estimate.contact ? contactInitials(estimate.contact) : "?"}

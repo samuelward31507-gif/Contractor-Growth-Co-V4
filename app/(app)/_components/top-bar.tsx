@@ -28,6 +28,11 @@ import { describeSystemStatus } from "./system-status-model";
  * (lib/ui/command-menu.tsx) - it opens the same palette, never a search
  * of its own.
  *
+ * Final redesign: at lg+ the bar takes the workspace's own gray and the
+ * dark sidebar's 56px header height, so the shell reads as dark rail ->
+ * gray workspace, with the page header (not a white strip) carrying the
+ * hierarchy. Below lg it stays the white mobile header.
+ *
  * `actions` is an optional right-side slot for a page's own contextual
  * controls - nothing passes it yet.
  */
@@ -46,7 +51,7 @@ export async function TopBar({
   const status = health ? describeSystemStatus(health) : null;
 
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-line bg-surface pl-4 pr-2 sm:pr-4 lg:px-10">
+    <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-line bg-surface pl-4 pr-2 sm:pr-4 lg:h-14 lg:border-line/80 lg:bg-canvas lg:px-10">
       <div className="flex min-w-0 items-center gap-2.5 lg:hidden">
         <BrandMark />
         <div className="min-w-0 leading-tight">

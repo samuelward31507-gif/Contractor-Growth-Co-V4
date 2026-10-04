@@ -194,7 +194,7 @@ test("actions: every attention row, today figure and pipeline stage is a real li
   assert.match(SECTIONS, /href=\{stage\.href\}/);
   assert.match(PAGE, /<SectionLink href="\/money">Open Money<\/SectionLink>/, "the money-owed figure keeps its way into Money");
   assert.doesNotMatch(PAGE + SECTIONS, /Learn more/);
-  assert.match(PAGE, /<ShowAllLink href="\/today\?all=1" count=\{totalNeedingAttention\} \/>/);
+  assert.match(PAGE, /<ShowAllLink href="\/today\?all=1" count=\{totalNeedingAttention\} inverse \/>/, "the attention panel's Show all, in its dark variant");
 });
 
 test("attention and opportunity split the existing priority order by tier - nothing re-detected - and one attention count drives the header, Act II and \"You're all caught up\"", () => {
@@ -209,14 +209,14 @@ test("attention and opportunity split the existing priority order by tier - noth
   assert.match(PAGE, /const decisions = assembleDecisions\(\{ attentionItems: data\.attentionItems, prioritizedOpportunities, context: decisionContext \}\);/);
   assert.match(PAGE, /const totalNeedingAttention = decisions\.totalNeedingAttention;/);
   assert.match(PAGE, /attentionLine\(totalNeedingAttention\)/);
-  assert.match(PAGE, /\{totalNeedingAttention === 0 \? \(\s*<div className="px-5 py-10 text-center">\s*<p className="text-sm font-medium text-ink">You&apos;re all caught up\.<\/p>/);
+  assert.match(PAGE, /\{totalNeedingAttention === 0 \? \(\s*<div className="[^"]*px-5 py-10 text-center[^"]*">\s*<p className="text-sm font-medium text-on-dark">You&apos;re all caught up\.<\/p>/, "the caught-up state, inside the dark attention panel");
   assert.equal((PAGE.match(/You&apos;re all caught up/g) ?? []).length, 1, "one caught-up state, in Act II");
   const attention = PAGE.slice(PAGE.indexOf('id="needs-attention"'), PAGE.indexOf('id="opportunities"'));
   assert.doesNotMatch(attention, /TodayViewTabs|OpportunitiesList/, "the attention act has no tabs to hunt through");
 });
 
 test("the Opportunities view (/today?view=by-type#opportunities) still renders the full grouped list, inside the third act", () => {
-  assert.match(PAGE, /<DashboardSection id="opportunities" title="Opportunities" action=\{<TodayViewTabs active=\{view\} opportunityCount=\{openOpportunities\.length\} \/>\}>/);
+  assert.match(PAGE, /<DashboardSection\s+id="opportunities"\s+title="Opportunities"[\s\S]*?action=\{<TodayViewTabs active=\{view\} opportunityCount=\{openOpportunities\.length\} \/>\}\s*>/);
   assert.match(read("app/(app)/today/_components/today-view-tabs.tsx"), /href: "\/today#opportunities"[\s\S]*href: "\/today\?view=by-type#opportunities"/);
   assert.match(PAGE, /<ShowAllLink href="\/today\?view=by-type#opportunities" count=\{openOpportunities\.length\} \/>/);
   assert.match(PAGE, /return value === "by-type" \? "by-type" : "priority";/);
@@ -228,7 +228,7 @@ test("a fresh load of #opportunities lands on Act III: the section mounts a clie
   assert.match(SCROLL, /^"use client";/);
   assert.match(SCROLL, /useEffect\(\(\) => \{\s*if \(window\.location\.hash !== `#\$\{id\}`\) return;\s*document\.getElementById\(id\)\?\.scrollIntoView\(\{ block: "start" \}\);\s*\}, \[id\]\);/);
   assert.match(SCROLL, /return null;/, "renders nothing");
-  const act3 = PAGE.slice(PAGE.indexOf('<DashboardSection id="opportunities"'), PAGE.indexOf("</DashboardSection>", PAGE.indexOf('<DashboardSection id="opportunities"')));
+  const act3 = PAGE.slice(PAGE.indexOf('id="opportunities"'), PAGE.indexOf("</DashboardSection>", PAGE.indexOf('id="opportunities"')));
   assert.match(act3, /<ScrollToAnchorOnLoad id="opportunities" \/>/, "inside Act III, so it mounts only once that section has streamed in");
   assert.equal((PAGE.match(/<ScrollToAnchorOnLoad /g) ?? []).length, 1);
   assert.match(read("app/(app)/opportunities/page.tsx"), /redirect\("\/today\?view=by-type#opportunities"\)/, "the redirect target is unchanged");
@@ -250,7 +250,7 @@ test("mobile: rows, tabs, section links and today/pipeline cells keep a 44px tou
   assert.match(read("app/(app)/today/_components/today-view-tabs.tsx"), /segmentedItemClass\(active === item\.value\)/);
   assert.match(read("lib/ui/segmented.ts"), /min-h-11[^"]*sm:min-h-7/);
   assert.match(SECTIONS, /const LINK_CLASS =\s*"inline-flex min-h-11/);
-  assert.match(SECTIONS, /flex min-h-11 items-center justify-between gap-3 bg-surface px-4 py-3/, "today figures");
+  assert.match(SECTIONS, /<Link\s+key=\{figure\.key\}\s+href=\{figure\.href\}\s+className=\{`group flex min-h-11 /, "today figures (the KPI cards)");
   assert.match(SECTIONS, /flex min-h-11 items-center justify-between gap-3 px-4 py-3 transition/, "pipeline stages");
   assert.match(ROW, /secondaryButtonSmallClass/, "the row's action uses the small tier, which is 44px below sm");
   assert.match(ROW, /className="-my-3 truncate py-3 [^"]*sm:my-0 sm:py-0"/, "the name link's tap area is 44px below sm (20px text + py-3)");
@@ -265,4 +265,33 @@ test("the attention row states its tone in words beside a dot, never color alone
 test("Today sits at the shared content width, on the light token system", () => {
   assert.match(PAGE, /<PageContainer>/);
   for (const source of [PAGE, SECTIONS, ROW]) assert.doesNotMatch(source, /slate-|emerald-|bg-gradient|font-mono/);
+});
+
+// ---------------------------------------------------------------------------
+// Final redesign: the KPI row, the eyebrow and the two-column composition
+// ---------------------------------------------------------------------------
+
+test("eyebrow: the organization's own calendar day as WEEKDAY · MON D, falling back to UTC", () => {
+  const date = new Date("2026-10-02T23:30:00Z");
+  assert.equal(model.todayEyebrow(date, "UTC"), "FRI · OCT 2");
+  assert.equal(model.todayEyebrow(date, "Asia/Tokyo"), "SAT · OCT 3", "the organization's day, not the server's");
+  assert.equal(model.todayEyebrow(date, "Not/AZone"), "FRI · OCT 2");
+  assert.equal(model.todayEyebrow(date, null), "FRI · OCT 2");
+});
+
+test("KPI row: today's three figures plus, for a contractor, the existing Unpaid stage - which then leaves the pipeline tiles, so nothing shows twice", () => {
+  assert.match(PAGE, /const unpaidStage = stages\.find\(\(stage\) => stage\.key === "unpaid"\);/);
+  assert.match(PAGE, /const workStages = stages\.filter\(\(stage\) => stage\.key !== "unpaid"\);/);
+  assert.match(PAGE, /const kpis = showPipeline && unpaidStage \? \[\.\.\.figures, unpaidStage\] : figures;/);
+  assert.match(PAGE, /<TodayKpis figures=\{kpis\} \/>/);
+  assert.match(PAGE, /<PipelineFlow stages=\{workStages\} \/>/);
+  assert.match(SECTIONS, /\[&>\*:last-child:nth-child\(odd\)\]:col-span-2/, "an odd last KPI card spans the row on phones, never a half-width orphan");
+});
+
+test("composition: Act II is the one dark panel, in the right column at lg+, with the decision rows in their inverse variant", () => {
+  assert.match(PAGE, /<AttentionPanel\s+id="needs-attention"/);
+  assert.match(PAGE, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(340px,400px\)\]/);
+  assert.equal((PAGE.match(/<DecisionRow item=\{item\} inverse \/>/g) ?? []).length, 2, "exceptions and the attention queue, both inverse");
+  assert.equal((PAGE.match(/bg-panel-dark/g) ?? []).length + (SECTIONS.match(/bg-panel-dark/g) ?? []).length, 1, "exactly one dark surface on Today");
+  assert.match(ROW, /variant === "inverse"/);
 });

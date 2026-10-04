@@ -50,7 +50,7 @@ export function InvoiceSection({ job, invoice, today }: { job: Job; invoice: Inv
       }
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold text-ink">{formatInvoiceNumber(invoice.number)}</span>
+        <span className="font-mono text-[13px] font-semibold tabular-nums text-ink">{formatInvoiceNumber(invoice.number)}</span>
         <Badge tone={INVOICE_STATUS_TONE[invoice.status]} icon={INVOICE_STATUS_ICON[invoice.status]}>
           {INVOICE_STATUS_LABELS[invoice.status]}
         </Badge>

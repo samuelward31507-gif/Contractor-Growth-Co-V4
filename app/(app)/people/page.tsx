@@ -173,6 +173,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
+        eyebrow={temperature === "hot" ? "People · Leads" : "People"}
         // Trackpr 2.0 (step 2G): the title follows the nav entry that lands
         // here - Leads is this list filtered to hot leads, Contacts (Members
         // for a gym) is everyone.

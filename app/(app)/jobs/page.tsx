@@ -68,6 +68,7 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
+        eyebrow="Money"
         title="Jobs"
         description="Track work from an accepted estimate through completion."
         action={

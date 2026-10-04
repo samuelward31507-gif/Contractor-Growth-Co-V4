@@ -18,30 +18,51 @@
      #F6F4F0 to a near-neutral off-white with only a trace of warmth - calm
      and clean rather than tinted, so the few meaningful colors (accent,
      status) carry the emphasis. Still one step off the white surface, so a
-     panel lifts off the canvas by contrast alone, never by shadow. */
-  --canvas: #f7f7f5;
+     panel lifts off the canvas by contrast alone, never by shadow.
+     Final redesign: one clear step darker (warm gray), so white cards
+     genuinely lift off the workspace instead of blending into it. */
+  --canvas: #efefec;
   /* Card/panel surface - equals --background, given an explicit name for
      contexts (the new typography/status/card primitives) that want to talk
      about "the surface a card sits on" rather than "the page background." */
   --surface: #ffffff;
   /* Muted fill for filled (not bordered) low-emphasis regions: empty
      states, inset wells, neutral badges. */
-  --inset: #f1f0ed;
+  --inset: #f4f3f0;
   /* Interaction fills: --hover for pointer hover on rows/nav items,
      --selected for the current item (active nav, selected tab). Kept
      deliberately close to the canvas - state is shown by a quiet fill plus
      text weight, never by a bright color. */
-  --hover: #f2f1ee;
-  --selected: #ebeae6;
+  --hover: #f7f6f3;
+  --selected: #efeeea;
   /* Hairline border/divider (cards, dividers, table rows) and the stronger
      control border (inputs, secondary buttons) - two steps, no more. */
   /* Theme upgrade: hairlines a half-step lighter, so structure reads
      through spacing and the card lift below rather than through borders. */
-  --line: #e9e8e4;
-  --line-strong: #d5d3cd;
-  /* The desktop sidebar's own plane - a whisper off the white surface, so
-     the navigation reads as chrome and the content as the page. */
-  --sidebar: #fbfbfa;
+  --line: #e5e3de;
+  --line-strong: #d2cfc8;
+  /* Final redesign: the shell's dark plane. The sidebar and the one dark
+     focal surface per page (Today's "Needs your attention") share this
+     deep pine-ink, so the workspace reads gray workspace -> white surfaces
+     -> dark focal surface. */
+  --sidebar: #0f1f1c;
+  --panel-dark: #11231f;
+  /* Text and structure on the dark plane - light text at three steps, a
+     faint fill for rows/chips and a faint hairline, never a hard border. */
+  --on-dark: #f3f6f4;
+  --on-dark-2: rgba(243, 246, 244, 0.72);
+  --on-dark-3: rgba(243, 246, 244, 0.5);
+  --dark-fill: rgba(255, 255, 255, 0.045);
+  --dark-fill-strong: rgba(255, 255, 255, 0.09);
+  --dark-line: rgba(255, 255, 255, 0.08);
+  /* The accent as it reads on the dark plane: a lighter pine, used for the
+     active nav icon and links on the dark panel only. */
+  --accent-on-dark: #6fd3b8;
+  /* Semantic status text as it reads on the dark plane - lighter steps of
+     the same warning/danger families, so a status keeps its meaning (and
+     4.5:1 contrast) inside the dark attention panel. */
+  --warning-on-dark: #f0c47e;
+  --danger-on-dark: #f5a491;
 
   /* Phase 0 (foundations pass): the new 3-step text scale lib/ui/
      typography.ts's rungs are built on. Distinct from --foreground (which
@@ -49,7 +70,7 @@
      near-identical near-blacks by design, not a conflict, just two tokens
      serving two different layers (bare body vs. the new typography
      component scale). */
-  --ink: #17191a; /* 16.5:1 on --canvas - headings, primary text */
+  --ink: #141716; /* 16.5:1 on --canvas - headings, primary text */
   --ink-2: #4c5154; /* 7.5:1 - body copy */
   --ink-3: #6b7175; /* 4.6:1 - meta/labels, the contrast floor */
   /* Placeholders and disabled text only - below the body-text contrast
@@ -63,7 +84,7 @@
      lift for raised controls (secondary buttons, the selected segment of a
      segmented control). Both are barely there - a premium "paper on desk"
      edge, never a floating card. Only popovers float. */
-  --shadow-card: 0 1px 2px rgba(23, 25, 26, 0.04), 0 1px 1px rgba(23, 25, 26, 0.02);
+  --shadow-card: 0 1px 2px rgba(20, 23, 22, 0.05), 0 2px 6px -2px rgba(20, 23, 22, 0.04);
   --shadow-control: 0 1px 1px rgba(23, 25, 26, 0.05);
 
   /* Trackpr 2.0 redesign: the accent moves from a bright emerald to a
@@ -75,12 +96,12 @@
      consumer (primaryButtonClass, Badge's "success" tone, PipelineRail's
      populated-stage ring, etc.) inherits this automatically - no per-usage
      change needed. */
-  --accent: #146356;
-  --accent-strong: #0f4a40; /* hover/pressed */
+  --accent: #0d6b58;
+  --accent-strong: #09533f; /* hover/pressed */
   --accent-foreground: #ffffff;
-  --accent-muted: #e7f2ef; /* subtle tinted backgrounds */
-  --accent-border: #bfddd5;
-  --accent-text: #0f4a40; /* text on accent-muted backgrounds */
+  --accent-muted: #e3f1ec; /* subtle tinted backgrounds */
+  --accent-border: #b3d9cc;
+  --accent-text: #0a5444; /* text on accent-muted backgrounds */
 
   /*
    * Trackpr 2.0 redesign: warning/danger/info muted to match the new
@@ -126,6 +147,16 @@
   --color-ink-3: var(--ink-3);
   --color-ink-4: var(--ink-4);
   --color-sidebar: var(--sidebar);
+  --color-panel-dark: var(--panel-dark);
+  --color-on-dark: var(--on-dark);
+  --color-on-dark-2: var(--on-dark-2);
+  --color-on-dark-3: var(--on-dark-3);
+  --color-dark-fill: var(--dark-fill);
+  --color-dark-fill-strong: var(--dark-fill-strong);
+  --color-dark-line: var(--dark-line);
+  --color-accent-on-dark: var(--accent-on-dark);
+  --color-warning-on-dark: var(--warning-on-dark);
+  --color-danger-on-dark: var(--danger-on-dark);
   --shadow-popover: var(--shadow-popover);
   --shadow-card: var(--shadow-card);
   --shadow-control: var(--shadow-control);
@@ -155,7 +186,7 @@
   --color-info-text: var(--info-text);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-rubik), var(--font-geist-sans);
+  --font-display: var(--font-geist-sans);
 }
 
 /*

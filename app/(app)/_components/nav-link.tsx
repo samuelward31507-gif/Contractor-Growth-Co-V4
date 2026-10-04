@@ -11,11 +11,13 @@ import { handleNavClick } from "./use-nav-location";
  * text, an ink-3 icon - with hover as a faint fill. The active row is the
  * one place color appears: a selected fill, full-ink text, and the pine
  * accent on its icon. aria-current marks it for assistive tech.
- * Theme upgrade: on the desktop sidebar's off-white plane the active row is
- * a raised white chip (hairline ring + control lift); the touch rows of the
- * mobile sheet, which sits on white, keep the selected fill.
+ * Final redesign: the desktop sidebar (and its icon rail) sits on the dark
+ * pine-ink plane - rows are light text at two steps, hover is a faint light
+ * fill, and the active row is a restrained lighter chip with a hairline
+ * edge and the lighter pine on its icon. The touch rows of the mobile
+ * sheet, which sits on white, keep the light treatment and selected fill.
  */
-const ACTIVE_CHIP = "bg-surface text-ink shadow-control ring-1 ring-line";
+const ACTIVE_CHIP = "bg-dark-fill-strong text-on-dark inset-ring inset-ring-dark-line";
 const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
 
 export function NavLink({
@@ -51,7 +53,7 @@ export function NavLink({
             aria-label={item.label}
             {...tipHandlers}
             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-150 ${FOCUS_RING} ${
-              active ? "bg-surface text-accent shadow-control ring-1 ring-line" : "text-ink-3 hover:bg-hover hover:text-ink"
+              active ? "bg-dark-fill-strong text-accent-on-dark inset-ring inset-ring-dark-line" : "text-on-dark-3 hover:bg-dark-fill hover:text-on-dark"
             }`}
           >
             <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
@@ -67,11 +69,11 @@ export function NavLink({
       onClick={handleClick}
       aria-current={active ? "page" : undefined}
       className={`group/nav flex w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors duration-150 ${touch ? "min-h-11 text-sm" : "h-8"} ${FOCUS_RING} ${
-        active ? (touch ? "bg-selected text-ink" : ACTIVE_CHIP) : "text-ink-2 hover:bg-hover hover:text-ink"
+        active ? (touch ? "bg-selected text-ink" : ACTIVE_CHIP) : touch ? "text-ink-2 hover:bg-hover hover:text-ink" : "text-on-dark-2 hover:bg-dark-fill hover:text-on-dark"
       }`}
     >
       <Icon
-        className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-ink-3 group-hover/nav:text-ink-2"}`}
+        className={`h-4 w-4 shrink-0 ${active ? (touch ? "text-accent" : "text-accent-on-dark") : touch ? "text-ink-3 group-hover/nav:text-ink-2" : "text-on-dark-3 group-hover/nav:text-on-dark-2"}`}
         strokeWidth={1.75}
         aria-hidden
       />

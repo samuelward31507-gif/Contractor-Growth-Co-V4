@@ -71,7 +71,7 @@ test("skeletons use the real page container so the swap to content doesn't shift
   // container constant (lib/ui/page.tsx), whose value is still the literal
   // the pages below use - so the guarantee is unchanged.
   assert.match(read("lib/ui/skeleton.tsx"), /SKELETON_PAGE_CLASS = PAGE_CONTAINER_CLASS;/);
-  assert.match(read("lib/ui/page.tsx"), /PAGE_CONTAINER_CLASS = "flex flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10"/);
+  assert.match(read("lib/ui/page.tsx"), /PAGE_CONTAINER_CLASS = "flex flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-9"/);
   // Trackpr 2.0 (step 2G): every page is on the shared container constants
   // now, and each page and its skeleton agree on the content width - so the
   // skeleton-to-content swap still never shifts the layout.

@@ -45,7 +45,7 @@ export function MoneyEntriesTable({ entries, emptyMessage }: { entries: MoneyTab
 
   return (
     <div className={`mt-3 overflow-hidden ${cardClass}`}>
-      <Table columns={COLUMNS} className="px-3 pt-3">
+      <Table columns={COLUMNS} className="pt-3.5">
         <TableHeadCell>Customer</TableHeadCell>
         <TableHeadCell align="right">Amount</TableHeadCell>
         <TableHeadCell>Status</TableHeadCell>
@@ -54,8 +54,8 @@ export function MoneyEntriesTable({ entries, emptyMessage }: { entries: MoneyTab
       </Table>
       <TableBody>
         {entries.map((entry) => (
-          <TableRow key={entry.key} href={entry.personHref} columns={`${COLUMNS} px-3`} tone={TONE_ROW[entry.tone]}>
-            <TableCell>{entry.personName}</TableCell>
+          <TableRow key={entry.key} href={entry.personHref} columns={COLUMNS} tone={TONE_ROW[entry.tone]}>
+            <TableCell className="font-medium">{entry.personName}</TableCell>
             <TableCell align="right">{entry.money ?? "—"}</TableCell>
             <TableCell muted>{entry.status}</TableCell>
             <TableCell muted>{entry.age}</TableCell>
@@ -69,7 +69,7 @@ export function MoneyEntriesTable({ entries, emptyMessage }: { entries: MoneyTab
           <li key={entry.key}>
             <Link
               href={entry.personHref}
-              className="flex flex-col gap-1 px-4 py-3.5 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+              className="flex flex-col gap-1 px-4 py-3.5 transition-colors hover:bg-hover focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 "
             >
               <span className="flex items-center justify-between gap-3">
                 <span className="truncate text-sm font-medium text-ink">{entry.personName}</span>

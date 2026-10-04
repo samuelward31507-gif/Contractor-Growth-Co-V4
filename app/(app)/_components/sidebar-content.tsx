@@ -22,8 +22,8 @@ function persistRail(collapsed: boolean) {
 }
 
 /**
- * Trackpr 2.0 (step 2C): the light desktop sidebar. A white surface with a
- * hairline edge, a compact brand row that lines up with the top bar, the
+ * Final redesign: the dark desktop sidebar - the deep pine-ink plane that
+ * anchors the shell (earlier passes: a light, hairline-edged surface). a compact brand row that lines up with the top bar, the
  * grouped IA (see nav-items.ts), a pinned system group, and the account
  * footer. No glow, no gradient, no oversized logo - the active row is the
  * only color on it.
@@ -145,7 +145,7 @@ export function SidebarContent({
       <div className="flex h-full w-14 flex-col">
         {/* The expand control takes the brand mark's place in the rail's
             header row - pinned, so it can never scroll out of reach. */}
-        <div className="flex h-12 shrink-0 items-center justify-center border-b border-line">
+        <div className="flex h-14 shrink-0 items-center justify-center border-b border-dark-line">
           <RailTooltip label="Expand sidebar ( [ )">
             {(tip) => (
               <button
@@ -155,7 +155,7 @@ export function SidebarContent({
                 aria-expanded={false}
                 aria-keyshortcuts="["
                 {...tip}
-                className={`flex h-8 w-8 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink ${FOCUS_RING}`}
+                className={`flex h-8 w-8 items-center justify-center rounded-md text-on-dark-3 transition-colors hover:bg-dark-fill-strong hover:text-on-dark ${FOCUS_RING}`}
               >
                 <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} aria-hidden />
               </button>
@@ -170,14 +170,14 @@ export function SidebarContent({
         </nav>
 
         {systemGroup ? (
-          <div className="flex flex-col items-center gap-0.5 border-t border-line py-1.5">
+          <div className="flex flex-col items-center gap-0.5 border-t border-dark-line py-1.5">
             {systemGroup.items.map((item) => (
               <NavLink key={item.href} item={item} active={item === activeItem} collapsed />
             ))}
           </div>
         ) : null}
 
-        <div className="flex flex-col items-center gap-1 border-t border-line py-1.5">
+        <div className="flex flex-col items-center gap-1 border-t border-dark-line py-1.5">
           <RailTooltip label={userEmail}>
             {(tip) => (
               <span
@@ -185,7 +185,7 @@ export function SidebarContent({
                 role="img"
                 aria-label={`Signed in as ${userEmail} (${role})`}
                 {...tip}
-                className={`flex h-7 w-7 items-center justify-center rounded-full bg-inset text-[11px] font-semibold text-ink-2 ${FOCUS_RING}`}
+                className={`flex h-7 w-7 items-center justify-center rounded-full bg-dark-fill-strong text-[11px] font-semibold text-on-dark-2 inset-ring inset-ring-dark-line ${FOCUS_RING}`}
               >
                 {initial}
               </span>
@@ -198,7 +198,7 @@ export function SidebarContent({
                   type="submit"
                   aria-label="Log out"
                   {...tip}
-                  className={`flex h-8 w-8 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink ${FOCUS_RING}`}
+                  className={`flex h-8 w-8 items-center justify-center rounded-md text-on-dark-3 transition-colors hover:bg-dark-fill-strong hover:text-on-dark ${FOCUS_RING}`}
                 >
                   <LogOut className="h-4 w-4" strokeWidth={1.75} aria-hidden />
                 </button>
@@ -212,11 +212,11 @@ export function SidebarContent({
 
   return (
     <div className="flex h-full w-60 flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line pl-4 pr-2">
+      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-dark-line pl-4 pr-2">
         <BrandMark />
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="text-[13px] font-semibold text-ink">Trackpr</p>
-          <p className="truncate text-[11.5px] text-ink-3" title={organizationName}>
+          <p className="text-[15px] font-semibold tracking-[-0.01em] text-on-dark">Trackpr</p>
+          <p className="mt-0.5 truncate text-[11.5px] text-on-dark-3" title={organizationName}>
             {organizationName}
           </p>
         </div>
@@ -227,7 +227,7 @@ export function SidebarContent({
           aria-expanded
           title="Collapse sidebar ( [ )"
           aria-keyshortcuts="["
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink ${FOCUS_RING}`}
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-on-dark-3 transition-colors hover:bg-dark-fill-strong hover:text-on-dark ${FOCUS_RING}`}
         >
           <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} aria-hidden />
         </button>
@@ -256,7 +256,7 @@ export function SidebarContent({
                 type="button"
                 onClick={() => toggleGroup(group.id)}
                 aria-expanded={isOpen}
-                className={`group/heading mb-1 flex h-6 w-full items-center justify-between rounded-md px-2.5 text-xs font-medium text-ink-3 transition-colors hover:text-ink-2 ${FOCUS_RING}`}
+                className={`group/heading mb-1 flex h-6 w-full items-center justify-between rounded-md px-2.5 text-[11.5px] font-medium text-on-dark-3 transition-colors hover:text-on-dark-2 ${FOCUS_RING}`}
               >
                 {group.label}
                 <ChevronDown
@@ -277,31 +277,31 @@ export function SidebarContent({
       </nav>
 
       {systemGroup ? (
-        <div className="space-y-px border-t border-line px-2 py-2">
+        <div className="space-y-px border-t border-dark-line px-2 py-2">
           {systemGroup.items.map((item) => (
             <NavLink key={item.href} item={item} active={item === activeItem} />
           ))}
         </div>
       ) : null}
 
-      <div className="border-t border-line px-2 py-2">
+      <div className="border-t border-dark-line px-2 py-2">
         <div className="flex items-center gap-2.5 px-2.5 py-1.5">
-          <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-inset text-[11px] font-semibold text-ink-2">
+          <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-dark-fill-strong text-[11px] font-semibold text-on-dark-2 inset-ring inset-ring-dark-line">
             {initial}
           </span>
           <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-[13px] font-medium text-ink" title={userEmail}>
+            <p className="truncate text-[13px] font-medium text-on-dark" title={userEmail}>
               {userEmail}
             </p>
-            <p className="text-[11.5px] capitalize text-ink-3">{role}</p>
+            <p className="text-[11.5px] capitalize text-on-dark-3">{role}</p>
           </div>
         </div>
         <form action={logout}>
           <button
             type="submit"
-            className={`flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${FOCUS_RING}`}
+            className={`flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium text-on-dark-2 transition-colors hover:bg-dark-fill hover:text-on-dark ${FOCUS_RING}`}
           >
-            <LogOut className="h-4 w-4 shrink-0 text-ink-3" strokeWidth={1.75} aria-hidden />
+            <LogOut className="h-4 w-4 shrink-0 text-on-dark-3" strokeWidth={1.75} aria-hidden />
             Log out
           </button>
         </form>
@@ -310,10 +310,18 @@ export function SidebarContent({
   );
 }
 
-/** The small product mark - a quiet pine square, not a logo moment. */
+/**
+ * The Trackpr mark - the existing pine "T" tile, given real presence: 32px,
+ * a crisper bold glyph, a faint top highlight and a hairline edge, so it
+ * reads cleanly on both the dark sidebar and the white mobile header.
+ * Same mark, not a new logo concept.
+ */
 export function BrandMark() {
   return (
-    <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-[12px] font-semibold text-white">
+    <span
+      aria-hidden
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-[15px] font-bold leading-none tracking-[-0.02em] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18)] inset-ring inset-ring-black/10"
+    >
       T
     </span>
   );
@@ -323,7 +331,7 @@ export function BrandMark() {
 function RailGroup({ group, activeItem }: { group: NavGroup; activeItem: NavItem | null }) {
   return (
     <>
-      {group.label !== null ? <span aria-hidden className="my-1 h-px w-6 shrink-0 bg-line" /> : null}
+      {group.label !== null ? <span aria-hidden className="my-1.5 h-px w-6 shrink-0 bg-dark-line" /> : null}
       <div role="group" aria-label={group.label ?? "Home"} className="flex flex-col items-center gap-0.5">
         {group.items.map((item) => (
           <NavLink key={item.href} item={item} active={item === activeItem} collapsed />

@@ -81,6 +81,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
           reads as one consistent control on both presentations of Schedule
           rather than two different affordances for the same idea. */}
       <PageHeader
+        eyebrow="Schedule"
         title="Appointments"
         description="Every appointment in one list - upcoming, today and past."
         action={

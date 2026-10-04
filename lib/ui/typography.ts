@@ -17,7 +17,7 @@
  * surfaces that want a genuine hero moment - never used inside the
  * authenticated app shell, where pageTitleClass is already the ceiling.
  */
-export const heroClass = "font-display text-[42px] font-bold tracking-[-0.026em] text-ink";
+export const heroClass = "text-[42px] font-semibold tracking-[-0.028em] text-ink";
 
 // Trackpr final visual polish pass: page titles brought back down from 34px/
 // font-bold to 24px/font-semibold. The 30px-then-34px escalation across two
@@ -37,8 +37,8 @@ export const heroClass = "font-display text-[42px] font-bold tracking-[-0.026em]
 // Rubik display face onto Geist at 22px. Rubik's rounded forms read as
 // friendly-marketing next to dense operational data; the product sans at a
 // modest size reads as a calm, confident tool - the Linear/Stripe register.
-// Rubik stays on heroClass for marketing/demo surfaces only.
-export const pageTitleClass = "text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink";
+// Final redesign: Geist everywhere - Rubik is no longer loaded.
+export const pageTitleClass = "text-2xl font-semibold leading-[1.15] tracking-[-0.022em] text-ink sm:text-[28px]";
 export const pageDescriptionClass = "text-sm text-ink-3";
 
 /**
@@ -46,7 +46,7 @@ export const pageDescriptionClass = "text-sm text-ink-3";
  * on a page that need more presence than a plain sectionTitleClass heading
  * but sit below the page title itself (e.g. a hero stat card's own title).
  */
-export const cardTitleClass = "text-[19px] font-semibold tracking-[-0.013em] text-ink";
+export const cardTitleClass = "text-[17px] font-semibold tracking-[-0.012em] text-ink";
 
 /**
  * Phase 0 (foundations pass): the rung that was missing between the old
@@ -54,7 +54,7 @@ export const cardTitleClass = "text-[19px] font-semibold tracking-[-0.013em] tex
  * reserved for 22px and above), so there's finally something between a
  * page title and a receding label.
  */
-export const sectionTitleClass = "text-[18px] font-semibold tracking-[-0.011em] text-ink";
+export const sectionTitleClass = "text-[17px] font-semibold tracking-[-0.012em] text-ink";
 
 /**
  * Phase 0 (foundations pass): body copy at 16px, not 14 - this app's
@@ -79,7 +79,7 @@ export const labelClass = "text-xs font-semibold text-ink-3";
  * for every section; that would just recreate uniform-heading syndrome with
  * a different font size.
  */
-export const primarySectionTitleClass = "text-sm font-semibold text-ink";
+export const primarySectionTitleClass = "text-base font-semibold tracking-[-0.01em] text-ink";
 
 /**
  * Every other named section. Trackpr 2.0 (step 2G): the one section-heading
@@ -87,7 +87,7 @@ export const primarySectionTitleClass = "text-sm font-semibold text-ink";
  * section headings (2E) - so every page's sections read at one level.
  * Sentence case, not uppercase - see this file's own header comment.
  */
-export const sectionLabelClass = "text-sm font-semibold text-ink";
+export const sectionLabelClass = "text-base font-semibold tracking-[-0.01em] text-ink";
 
 // Phase 0 (foundations pass): moved onto --ink-3 (4.6:1, the contrast
 // floor) rather than raw slate-500 - same size, token-driven color.
@@ -101,11 +101,11 @@ export const metaClass = "text-xs text-ink-3";
  * comment for why boxed cards replaced the old integrated-row convention.
  */
 export const statLabelClass = "text-xs text-ink-3";
-export const statValueClass = "mt-1 text-2xl font-semibold tracking-tight tabular-nums text-ink";
+export const statValueClass = "mt-1 text-2xl font-semibold tracking-[-0.02em] tabular-nums text-ink";
 
 /** The label/value pair inside a StatCard - kept as named tokens (not
  * inlined in stat-card.tsx) so any bespoke stat layout can match it exactly. */
-export const kpiLabelClass = "text-[12.5px] font-medium text-ink-3";
+export const kpiLabelClass = "text-[13px] font-medium text-ink-3";
 /**
  * `leading-[1.15]` rather than `leading-none`: most values here are short
  * numbers/currency that read fine either way, but a genuine few (e.g. "Not
@@ -114,8 +114,8 @@ export const kpiLabelClass = "text-[12.5px] font-medium text-ink-3";
  * lines visually collide at this font size, `leading-[1.15]` keeps single
  * numbers just as tight while giving wrapped text room to breathe.
  */
-export const kpiValueClass = "mt-2 text-[22px] sm:text-[28px] leading-[1.1] font-semibold tracking-[-0.02em] tabular-nums text-ink break-words";
-export const kpiDescriptionClass = "mt-1.5 text-xs text-ink-3";
+export const kpiValueClass = "mt-2.5 text-[26px] sm:text-[28px] xl:text-[30px] leading-none font-semibold tracking-[-0.03em] tabular-nums text-ink break-words";
+export const kpiDescriptionClass = "mt-2.5 text-xs text-ink-3";
 
 /**
  * The label/value pair used by every detail-page field group (a lead,
@@ -133,7 +133,7 @@ export const detailValueClass = "mt-1 text-sm text-ink";
  * for the one section that should dominate a page, this one for every
  * other named sub-section.
  */
-export const subsectionTitleClass = "text-[15px] font-semibold tracking-[-0.006em] text-ink";
+export const subsectionTitleClass = "text-[15px] font-semibold tracking-[-0.008em] text-ink";
 
 /**
  * Trackpr 2.0 full redesign: large tabular figures (a KPI headline number,
@@ -151,3 +151,17 @@ export const subsectionTitleClass = "text-[15px] font-semibold tracking-[-0.006e
 // reads as a financial product (the Stripe register) while keeping digits
 // aligned.
 export const numericDisplayClass = "tabular-nums tracking-[-0.02em]";
+
+/**
+ * Final redesign: the page eyebrow - a small Geist Mono line above the page
+ * title ("FRI · OCT 2", "Money", "Settings"). Used once per page, so the
+ * uppercase tracking reads as a deliberate instrument label, not as the
+ * all-caps-everywhere admin template the earlier passes moved away from.
+ */
+export const pageEyebrowClass = "font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-ink-3";
+
+/** Final redesign: record identifiers (invoice and estimate numbers) - Geist Mono, tabular, never larger than the row text. */
+export const recordIdClass = "font-mono text-[12.5px] tabular-nums tracking-[-0.01em]";
+
+/** Final redesign: a small count or figure set in Geist Mono (the attention panel's count pill). */
+export const monoCountClass = "font-mono text-[11.5px] font-medium tabular-nums";

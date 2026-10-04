@@ -28,10 +28,10 @@ function AutomationRow({ summary, activeIncidentCount }: { summary: AutomationSu
     <li>
       <Link
         href={`/automations/${definition.id}`}
-        className="group flex items-start gap-3.5 px-4 py-4 transition-colors hover:bg-hover focus:outline-none focus-visible:bg-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/10 sm:items-center"
+        className="group flex items-start gap-3.5 px-4 py-3.5 transition-colors sm:px-5 hover:bg-hover focus:outline-none focus-visible:bg-hover focus-visible:inset-ring-2 focus-visible:inset-ring-ink/10 sm:items-center"
       >
         <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg inset-ring inset-ring-black/[0.04] ${
             status === "active" ? "bg-accent-muted text-accent" : status === "attention" ? "bg-warning-muted text-warning" : "bg-inset text-ink-3"
           }`}
         >

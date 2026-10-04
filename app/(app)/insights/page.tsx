@@ -137,7 +137,7 @@ export default async function InsightsPage({ searchParams }: PageProps<"/insight
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <PageHeader title="Analytics" description="How the business is performing over time." />
+        <PageHeader eyebrow="Insights" title="Analytics" description="How the business is performing over time." />
         <RangeTabs current={range} buildHref={(nextRange) => buildHref({ range: nextRange })} />
       </div>
 

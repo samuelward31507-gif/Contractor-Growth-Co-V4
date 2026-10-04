@@ -22,6 +22,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { onlinePaymentsBanner } from "@/lib/payments/online-payments-view";
 import type { CalendarListItem } from "@/lib/calendar/provider";
 import { sectionLabelClass } from "@/lib/ui/typography";
+import { cardClass } from "@/lib/ui/surface";
 import { PageHeader } from "@/lib/ui/page-header";
 import { successBannerClass, errorBannerClass } from "@/lib/ui/form";
 import { AiSettingsSection } from "./_components/ai-settings-section";
@@ -50,9 +51,11 @@ function settingsGroupId(label: string): string {
 
 function SettingsGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div id={settingsGroupId(label)} className="scroll-mt-6 border-t border-line pt-8 first:border-t-0 first:pt-0">
+    // Final redesign: each group is one white card on the gray workspace,
+    // its sections separated by hairlines - the same form sections, framed.
+    <div id={settingsGroupId(label)} className="scroll-mt-6 pt-10 first:pt-0">
       <p className={sectionLabelClass}>{label}</p>
-      <div className="mt-5 space-y-10">{children}</div>
+      <div className={`mt-3 divide-y divide-line ${cardClass} [&>*]:px-4 [&>*]:py-6 sm:[&>*]:px-6`}>{children}</div>
     </div>
   );
 }
@@ -149,9 +152,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <div>
-        <PageHeader title="Settings" description="Configure the business rules your automations use." />
+        <PageHeader eyebrow="Workspace" title="Settings" description="Configure the business rules your automations use." />
         {!canEdit ? (
-          <p className="mt-3 inline-flex items-center rounded-full border border-line bg-canvas px-3 py-1 text-xs font-medium text-ink-3">
+          <p className="mt-3 inline-flex items-center rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-ink-3">
             You have read-only access. Only owners and admins can change these settings.
           </p>
         ) : null}
@@ -160,7 +163,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         ) : null}
         {paymentsBanner ? (
           <p
-            className={`mt-3 ${paymentsBanner.tone === "success" ? successBannerClass : paymentsBanner.tone === "error" ? errorBannerClass : "rounded-md border border-info-border bg-info-muted px-3.5 py-2.5 text-sm text-info-text"}`}
+            className={`mt-3 ${paymentsBanner.tone === "success" ? successBannerClass : paymentsBanner.tone === "error" ? errorBannerClass : "rounded-lg border border-info-border bg-info-muted px-3.5 py-2.5 text-sm text-info-text"}`}
             role={paymentsBanner.tone === "error" ? "alert" : undefined}
           >
             {paymentsBanner.message}

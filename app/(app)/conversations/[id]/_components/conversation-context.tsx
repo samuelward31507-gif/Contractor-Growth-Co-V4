@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 import { ArrowRight, AlertCircle, Briefcase, CalendarClock, FileSearch, Phone, Receipt, ShieldOff, User, Wallet, Zap } from "lucide-react";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import {
@@ -16,7 +18,6 @@ import { formatInvoiceNumber, formatMoney, isOverdue } from "@/lib/invoices/doma
 import { INVOICE_STATUS_TONE, INVOICE_STATUS_ICON, INVOICE_STATUS_LABELS } from "@/app/(app)/invoices/_components/status";
 import { detailLabelClass, detailValueClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
-import { SectionCard } from "@/lib/ui/section-card";
 import { secondaryButtonAutoClass } from "@/lib/ui/form";
 import type { Conversation, RelevantAppointment } from "@/lib/conversations/queries";
 
@@ -62,7 +63,7 @@ export function ConversationContext({
   const hasContactDetails = Boolean(contact?.company_name || contact?.phone || contact?.email);
 
   return (
-    <div className="space-y-4 p-4 sm:p-6 xl:p-4">
+    <div className="space-y-4 p-4 sm:p-6 xl:p-5">
       {contact ? (
         <div className="flex flex-wrap items-center gap-2">
           {contact.phone ? (
@@ -79,7 +80,7 @@ export function ConversationContext({
       ) : null}
 
       {nextStep ? (
-        <div className={`rounded-lg border px-4 py-3 ${nextStep.attention ? "border-warning-border bg-warning-muted" : "border-line bg-surface"}`}>
+        <div className={`rounded-lg px-3.5 py-3 inset-ring  ${nextStep.attention ? "bg-warning-muted inset-ring-warning-border" : "bg-accent-muted/60 ring-accent-border/70"}`}>
           <div className="flex items-start gap-2.5">
             <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${nextStep.attention ? "bg-warning-muted text-warning-text" : "bg-accent-muted text-accent-text"}`}>
               {nextStep.attention ? <AlertCircle className="h-3.5 w-3.5" aria-hidden /> : <ArrowRight className="h-3.5 w-3.5" aria-hidden />}
@@ -88,7 +89,7 @@ export function ConversationContext({
               <p className="text-xs font-medium text-ink-3">What happens next</p>
               <p className="text-sm font-semibold text-ink">{nextStep.label}</p>
               {nextStep.detail ? <p className="text-xs text-ink-3">{nextStep.detail}</p> : null}
-              <Link href={nextStep.href} className="mt-1 inline-block text-xs font-medium text-ink hover:underline">
+              <Link href={nextStep.href} className="mt-1 inline-block text-xs font-medium text-accent hover:underline">
                 View
               </Link>
             </div>
@@ -97,7 +98,7 @@ export function ConversationContext({
       ) : null}
 
       {contact ? (
-        <SectionCard
+        <ContextSection
           title="Contact"
           icon={User}
           action={
@@ -145,11 +146,11 @@ export function ConversationContext({
           ) : (
             <p className="text-sm text-ink-3">No contact details provided yet.</p>
           )}
-        </SectionCard>
+        </ContextSection>
       ) : null}
 
       {conversation.lead ? (
-        <SectionCard
+        <ContextSection
           title="Lead"
           icon={Briefcase}
           action={
@@ -181,11 +182,11 @@ export function ConversationContext({
               </dd>
             </div>
           </dl>
-        </SectionCard>
+        </ContextSection>
       ) : null}
 
       {relevantAppointment ? (
-        <SectionCard
+        <ContextSection
           title="Appointment"
           icon={CalendarClock}
           action={
@@ -202,11 +203,11 @@ export function ConversationContext({
             {formatAppointmentDate(relevantAppointment.start_at, timeZone)} · {formatAppointmentTime(relevantAppointment.start_at, timeZone)}
           </p>
           <p className="mt-1 text-xs text-ink-3">{APPOINTMENT_STATUS_LABELS[relevantAppointment.status]}</p>
-        </SectionCard>
+        </ContextSection>
       ) : null}
 
       {relevantInvoice ? (
-        <SectionCard
+        <ContextSection
           title="Invoice"
           icon={Receipt}
           action={
@@ -216,7 +217,7 @@ export function ConversationContext({
           }
         >
           <p className="text-sm font-medium text-ink">
-            <span className="text-ink-3">{formatInvoiceNumber(relevantInvoice.number)}</span> · {relevantInvoice.title}
+            <span className="font-mono text-[12.5px] tabular-nums text-ink-3">{formatInvoiceNumber(relevantInvoice.number)}</span> · {relevantInvoice.title}
           </p>
           <p className="mt-0.5 text-sm font-medium tabular-nums text-ink-2">
             {relevantInvoice.status === "paid" ? `${formatMoney(relevantInvoice.total)} paid` : `${formatMoney(relevantInvoice.balance_due)} due`}
@@ -227,11 +228,11 @@ export function ConversationContext({
             </Badge>
             {isOverdue({ status: relevantInvoice.status, dueDate: relevantInvoice.due_date }, today) ? <Badge tone="danger">Overdue</Badge> : null}
           </div>
-        </SectionCard>
+        </ContextSection>
       ) : null}
 
       {relevantEstimate ? (
-        <SectionCard
+        <ContextSection
           title="Estimate"
           icon={FileSearch}
           action={
@@ -243,10 +244,10 @@ export function ConversationContext({
           <p className="text-sm font-medium text-ink">{relevantEstimate.title}</p>
           <p className="mt-0.5 text-sm font-medium tabular-nums text-ink-2">{relevantEstimate.amount != null ? formatCurrency(relevantEstimate.amount) : "—"}</p>
           <p className="mt-1 text-xs text-ink-3">{ESTIMATE_STATUS_LABELS[relevantEstimate.status]}</p>
-        </SectionCard>
+        </ContextSection>
       ) : null}
 
-      <SectionCard title="Automation activity" icon={Zap}>
+      <ContextSection title="Automation activity" icon={Zap}>
         <dl className="space-y-3">
           <div>
             <dt className={detailLabelClass}>AI replies</dt>
@@ -267,7 +268,29 @@ export function ConversationContext({
             </div>
           ) : null}
         </dl>
-      </SectionCard>
+      </ContextSection>
     </div>
+  );
+}
+
+/**
+ * Final redesign: one section of the context rail - a quiet heading row
+ * (icon, title, its "View" link) above its content, separated from the
+ * section before it by a hairline. Same title/icon/action/children as the
+ * SectionCard it replaces here, so the rail reads as one integrated column
+ * beside the conversation instead of a stack of floating cards.
+ */
+function ContextSection({ title, icon: Icon, action, children }: { title: string; icon?: LucideIcon; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="border-t border-line pt-4">
+      <div className="mb-2.5 flex items-center justify-between gap-3">
+        <h3 className="flex items-center gap-1.5 text-xs font-semibold text-ink-2">
+          {Icon ? <Icon className="h-3.5 w-3.5 text-ink-3" strokeWidth={1.75} aria-hidden /> : null}
+          {title}
+        </h3>
+        {action}
+      </div>
+      {children}
+    </section>
   );
 }

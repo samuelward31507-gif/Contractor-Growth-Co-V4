@@ -187,7 +187,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
         backHref="/contacts"
         backLabel="Back to Contacts"
         avatar={
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-inset text-base font-medium text-ink-2 ring-1 ring-inset ring-line">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-inset text-base font-medium text-ink-2 inset-ring inset-ring-line">
             {contactInitials(contact)}
           </span>
         }
