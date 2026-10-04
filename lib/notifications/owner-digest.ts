@@ -7,6 +7,7 @@ import { createAutomationEventAsService } from "@/lib/automation/events";
 import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "@/lib/automation/executions";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { calendarDateInTimeZone } from "@/lib/invoices/domain";
+import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import { notifyFounder, type FounderNotificationInput, type FounderNotificationResult } from "./founder";
 
 /**
@@ -22,7 +23,9 @@ import { notifyFounder, type FounderNotificationInput, type FounderNotificationR
  * Built only from reads that already run in Production and already report
  * their own failure: getOpenOpportunitiesResult (paged, Phase 3A-4; kept
  * current by the scheduled opportunity sync, Phase 3D), getOrganizationHealth
- * (incidentsUnavailable, Phase 3E) and the open-escalation count. It does not
+ * (incidentsUnavailable, Phase 3E) and the conversations waiting on the
+ * business (Phase 2-13: the latest customer message is inbound with no
+ * successful outbound after it - lib/conversations/waiting). It does not
  * use dashboard_briefing. A failed read is never reported as zero: its line
  * is dropped and the message says some figures couldn't be loaded.
  *
@@ -86,7 +89,7 @@ export function ownerDigestIdempotencyKey(organizationId: string, weekOf: string
 export type OwnerDigestSignals = {
   opportunities:
     | { failed: true }
-    | { failed: false; count: number; knownValue: number; topTypes: { type: OpportunityType; count: number }[]; overdueInvoiceCount: number; overdueInvoiceValue: number };
+    | { failed: false; count: number; committedValue: number; potentialValue: number; topTypes: { type: OpportunityType; count: number }[]; overdueInvoiceCount: number; overdueInvoiceValue: number };
   health: { failed: true } | { failed: false; automationIssues: number; staleScheduledAutomations: number };
   escalations: { failed: true } | { failed: false; count: number };
 };
@@ -95,7 +98,7 @@ export async function loadOwnerDigestSignals(service: SupabaseClient, organizati
   const [openOpportunities, health, escalations] = await Promise.all([
     getOpenOpportunitiesResult(service, organizationId),
     getOrganizationHealth(service, organizationId),
-    service.from("conversations").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("status", "open").eq("ai_enabled", false),
+    getWaitingConversationIds(service, organizationId),
   ]);
 
   let opportunities: OwnerDigestSignals["opportunities"] = { failed: true };
@@ -110,7 +113,9 @@ export async function loadOwnerDigestSignals(service: SupabaseClient, organizati
     opportunities = {
       failed: false,
       count: summary.count,
-      knownValue: summary.knownEstimatedValue,
+      // Phase 2-13 (§7): the two money classes, never one combined total.
+      committedValue: summary.committed.value,
+      potentialValue: summary.potential.value,
       topTypes,
       overdueInvoiceCount: overdue.length,
       overdueInvoiceValue: overdue.reduce((sum, opportunity) => sum + (opportunity.estimatedValue ?? 0), 0),
@@ -120,7 +125,7 @@ export async function loadOwnerDigestSignals(service: SupabaseClient, organizati
   return {
     opportunities,
     health: health.incidentsUnavailable ? { failed: true } : { failed: false, automationIssues: health.activeIncidentCount, staleScheduledAutomations: health.staleScheduledAutomationCount },
-    escalations: escalations.error || escalations.count == null ? { failed: true } : { failed: false, count: escalations.count },
+    escalations: escalations.failed ? { failed: true } : { failed: false, count: escalations.ids.size },
   };
 }
 
@@ -143,8 +148,11 @@ export function composeOwnerDigest(signals: OwnerDigestSignals): ComposedOwnerDi
 
   const parts: string[] = [];
   if (!opportunities.failed && opportunities.count > 0) {
-    const worth = opportunities.knownValue > 0 ? ` worth ${formatCurrency(opportunities.knownValue)}` : "";
-    parts.push(`${plural(opportunities.count, "open opportunity", "open opportunities")}${worth}.`);
+    const money = [
+      opportunities.committedValue > 0 ? `${formatCurrency(opportunities.committedValue)} committed` : null,
+      opportunities.potentialValue > 0 ? `${formatCurrency(opportunities.potentialValue)} potential` : null,
+    ].filter(Boolean);
+    parts.push(`${plural(opportunities.count, "open opportunity", "open opportunities")}${money.length > 0 ? ` (${money.join(", ")})` : ""}.`);
     if (opportunities.topTypes.length > 0) {
       parts.push(`Top: ${opportunities.topTypes.map(({ type, count }) => plural(count, ...TYPE_LABEL[type])).join(", ")}.`);
     }

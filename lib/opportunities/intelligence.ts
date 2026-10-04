@@ -1,12 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
-import { getOpenOpportunitiesResult, type Opportunity, type OpportunityType } from "./queries";
-import { getAutomationEnabledMap } from "@/lib/automation/settings";
+import { OPPORTUNITY_VALUE_CLASS, getOpenOpportunitiesResult, type Opportunity, type OpportunityType } from "./queries";
+import { getOrganizationAutomationSettings, getOrganizationAutomationState, organizationEligibleForAutomation } from "@/lib/decisions/context";
 import { getAutomationDefaultEnabled } from "@/lib/automation/catalog";
 import { E164_PATTERN } from "@/lib/automation/sms";
 import { getCustomerLifecycle, type CustomerLifecycle } from "@/lib/customers/lifecycle";
 import { formatCurrency } from "@/lib/dashboard/format";
 import type { AttentionItem } from "@/lib/dashboard/queries";
+import { CONVERSATION_SIGNAL_ACTION, DEFAULT_ACTION_BY_TYPE } from "@/lib/decisions/registry";
+import type { ConversationSignalKind } from "@/lib/decisions/reason-codes";
 
 /**
  * Canonical Opportunity Intelligence Layer.
@@ -71,12 +73,8 @@ export const TIER_BY_TYPE: Record<OpportunityType, PriorityTier> = {
  * "this instance's value field is unknown" - the exact KNOWN/UNKNOWN/
  * NOT_APPLICABLE distinction the approved design requires.
  */
-const NOT_APPLICABLE_VALUE_TYPES = new Set<OpportunityType>([
-  "completed_appointment_no_estimate",
-  "dormant_customer",
-  "no_show",
-  "cancelled_appointment_no_rebooking",
-]);
+// Phase 2-13 (§7): derived from the one value-class table - every non-monetary type (referral included).
+const NOT_APPLICABLE_VALUE_TYPES = new Set<OpportunityType>((Object.keys(OPPORTUNITY_VALUE_CLASS) as OpportunityType[]).filter((type) => OPPORTUNITY_VALUE_CLASS[type] === "non_monetary"));
 
 export function deriveValueState(opportunity: Opportunity): ValueState {
   if (NOT_APPLICABLE_VALUE_TYPES.has(opportunity.type)) return "not_applicable";
@@ -103,23 +101,11 @@ export type RecommendedAction =
   | "create_invoice"
   | "collect_payment";
 
-/** The action this opportunity type points at BEFORE any actionability check (§11 of the design) - "call"/"text" are downgraded to "follow_up" at build time when no valid, reachable phone exists. */
-const DEFAULT_ACTION_BY_TYPE: Record<OpportunityType, RecommendedAction> = {
-  accepted_estimate_no_job: "create_job",
-  completed_job_not_invoiced: "create_invoice",
-  invoice_overdue: "collect_payment",
-  qualified_lead_unbooked: "call",
-  completed_appointment_no_estimate: "send_estimate",
-  uncontacted_lead: "call",
-  active_lead_signal: "call",
-  pending_estimate: "monitor",
-  no_show: "rebook",
-  cancelled_appointment_no_rebooking: "rebook",
-  stale_estimate: "follow_up_estimate",
-  dormant_customer: "reactivate",
-  completed_job_no_review_request: "request_review",
-  completed_job_no_referral_request: "request_referral",
-};
+// DEFAULT_ACTION_BY_TYPE - the action each opportunity type points at
+// BEFORE any actionability check (§11 of the design; "call"/"text" are
+// downgraded to "follow_up" at build time when no valid, reachable phone
+// exists) - lives in the single next-action registry (Phase 2-2,
+// lib/decisions/registry.ts) and is imported above.
 
 /**
  * The real, existing automation catalog id (lib/automation/catalog.ts) that
@@ -157,6 +143,8 @@ export type PrioritizedOpportunity = {
   /** True only when a real, currently-enabled, currently-eligible automation could act on this in the background right now - never implies Trackpr WILL act, only that it CAN (§17/§18 of the approved design: never bypass automation_paused/payment/enabled). */
   automatable: boolean;
   contactPhone: string | null;
+  /** Phase 2-3: contacts.sms_opt_out for this opportunity's contact (already read with the phone); null when there is no contact. Optional so existing hand-built fixtures stay valid - an absent value is "unknown", which the actor rule treats as not reachable. */
+  contactSmsOptOut?: boolean | null;
 };
 
 /**
@@ -318,8 +306,10 @@ export async function getPrioritizedOpportunities(supabase: SupabaseClient, orga
     readAllPages<{ contact: ContactPhoneRow | ContactPhoneRow[] | null }>(() =>
       supabase.from("opportunities").select("contact:contacts!opportunities_contact_id_fkey(id, phone, sms_opt_out)").eq("organization_id", organizationId).eq("status", "open").not("contact_id", "is", null).order("id"),
     ),
-    getAutomationEnabledMap(supabase, organizationId),
-    supabase.from("organizations").select("automation_mode, payment_status, automation_paused").eq("id", organizationId).maybeSingle(),
+    // Phase 2-3: request-memoized and shared with the decision context
+    // (lib/decisions/context.ts), so Today never reads either twice.
+    getOrganizationAutomationSettings(supabase, organizationId).then((settings) => settings.enabledById),
+    getOrganizationAutomationState(supabase, organizationId),
     Promise.all(dormantCustomerContactIds.map(async (contactId) => [contactId, await getCustomerLifecycle(supabase, organizationId, contactId, now)] as const)),
   ]);
 
@@ -330,8 +320,7 @@ export async function getPrioritizedOpportunities(supabase: SupabaseClient, orga
   // Mirrors lib/opportunities/detect.ts's detectUncontactedLeads' own
   // eligibility check exactly - "could a real automation act on this right
   // now" must fail closed the same way evaluateOutboundGate itself does.
-  const organizationRow = organizationRowResult.data;
-  const orgEligibleForAutomation = organizationRow != null && organizationRow.automation_mode === "live" && organizationRow.payment_status === "active" && !organizationRow.automation_paused;
+  const orgEligibleForAutomation = organizationEligibleForAutomation(organizationRowResult);
 
   return opportunities
     .map((opportunity): PrioritizedOpportunity => {
@@ -349,6 +338,7 @@ export async function getPrioritizedOpportunities(supabase: SupabaseClient, orga
         recommendedAction,
         automatable,
         contactPhone: contact?.phone ?? null,
+        contactSmsOptOut: contact ? contact.smsOptOut : null,
       };
     })
     .sort(comparePriority);
@@ -375,6 +365,8 @@ export type PriorityConversationSignal = {
   tier: PriorityTier;
   explanation: OpportunityExplanation;
   recommendedAction: RecommendedAction;
+  /** Phase 2-3: the source item's conversation, when it carries one (awaiting_reply) - present only then. */
+  conversationId?: string;
 };
 
 const CONVERSATION_SIGNAL_TIER: Partial<Record<AttentionItem["kind"], PriorityTier>> = {
@@ -388,12 +380,9 @@ const CONVERSATION_SIGNAL_TIER: Partial<Record<AttentionItem["kind"], PriorityTi
   abandoned_conversation: "at_risk",
 };
 
-const CONVERSATION_SIGNAL_ACTION: Partial<Record<AttentionItem["kind"], RecommendedAction>> = {
-  awaiting_reply: "respond",
-  overdue_appointment: "follow_up",
-  awaiting_confirmation: "follow_up",
-  abandoned_conversation: "follow_up",
-};
+// CONVERSATION_SIGNAL_ACTION (each signal kind's recommended action) lives
+// in the single next-action registry (Phase 2-2, lib/decisions/registry.ts)
+// and is imported above.
 
 /**
  * Extracts only the 4 conversation/appointment-state kinds from an
@@ -413,7 +402,8 @@ export function getConversationSignals(attentionItems: AttentionItem[]): Priorit
       href: item.href,
       tier: CONVERSATION_SIGNAL_TIER[item.kind]!,
       explanation: { primaryReason: item.detail, supportingSignals: [], counterSignals: [], confidence: "confirmed" as const },
-      recommendedAction: CONVERSATION_SIGNAL_ACTION[item.kind]!,
+      recommendedAction: CONVERSATION_SIGNAL_ACTION[item.kind as ConversationSignalKind],
+      ...(item.conversationId ? { conversationId: item.conversationId } : {}),
     }));
 }
 

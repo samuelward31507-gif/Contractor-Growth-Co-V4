@@ -187,6 +187,7 @@ export async function getDashboardConversationAttention(supabase: SupabaseClient
       detail: `Waiting for a reply ${formatRelativeTime(row.last_activity_at)}`,
       value: null,
       href: `/conversations/${row.conversation_id}`,
+      conversationId: row.conversation_id,
     }));
   const abandonedConversations: AttentionItem[] = rows
     .filter((row) => row.kind === "abandoned_conversation")

@@ -179,6 +179,11 @@ export type AttentionItem = {
   incidentStatus?: IncidentStatus;
   /** Pass 3: only present for the three opportunity-backed kinds above - lets the dashboard render the existing dismiss action inline without a second lookup. */
   opportunityId?: string;
+  /**
+   * Phase 2-3: the conversation an awaiting_reply item belongs to, so the decision layer can read its AI state without parsing the id or link.
+   * Phase 2-12: also set on a human_escalation item when its incident names a conversation, so the decision layer can drop that conversation's waiting-reply duplicate.
+   */
+  conversationId?: string;
 };
 
 export type ActivityItem = {
@@ -578,6 +583,7 @@ export async function getDashboardData(
       href: metadata.conversationId ? `/conversations/${metadata.conversationId}` : "/conversations",
       incidentId: incident.id,
       incidentStatus: incident.status as IncidentStatus,
+      ...(metadata.conversationId ? { conversationId: metadata.conversationId } : {}),
     };
   });
 
@@ -598,6 +604,7 @@ export async function getDashboardData(
           detail: `Waiting for a reply ${formatRelativeTime(conversation.lastActivityAt)}`,
           value: null,
           href: `/conversations/${conversation.id}`,
+          conversationId: conversation.id,
         }));
 
   // Pass 5C, Batch 1: the mirror-image case awaitingReply above doesn't
@@ -793,11 +800,14 @@ export async function getDashboardData(
   //
   // Trackpr 2.0, Phase 2A: 5 more kinds joined this list (see each one's own
   // builder above), still a fixed priority list, never a score - explicit
-  // fixed ordering only, per this pass's own instruction. The cap stays at
-  // 10 (no concrete product reason to raise it yet); with 17 candidate
-  // kinds now competing for it, the lowest tier below can be squeezed out on
-  // a busy day - an accepted, documented tradeoff, not an oversight (see the
-  // Phase 2A report's own "Risks/limitations" for this exact point).
+  // fixed ordering only, per this pass's own instruction.
+  //
+  // Phase 2-1: no overall cap. Each kind is already bounded at 5 by its own
+  // builder (or its SQL function); a second, list-wide cut to 10 here
+  // silently dropped whole kinds on a busy day - Today pulls
+  // calendar_disconnected, overdue_appointment and awaiting_confirmation out
+  // of this list, and they sit behind up to 15 escalation/conversation rows.
+  // Every consumer filters by kind and applies its own display cap.
   //
   // Five tiers, most time-sensitive first:
   //   1) someone is waiting on a human reply right now
@@ -834,7 +844,7 @@ export async function getDashboardData(
     ...dormantCustomerOpportunities,
     ...completedJobNoReviewRequestOpportunities,
     ...completedJobNoReferralRequestOpportunities,
-  ].slice(0, 10);
+  ];
 
   const leadActivity: ActivityItem[] = sqlItems ? sqlItems.leadActivity : leads.slice(0, 5).map((lead) => ({
     id: `lead-${lead.id}`,

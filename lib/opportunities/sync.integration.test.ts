@@ -354,9 +354,11 @@ test("9. a customer with an active open engagement is excluded from dormant dete
       "an active (sent) estimate must exclude this contact from dormant detection, regardless of how old their completed job is",
     );
 
-    const result = await syncOpportunities(service, orgId);
-    assert.equal(result.created, 0, "no dormant_customer opportunity should be created for an excluded customer");
-    assert.equal((await getOpenOpportunities(service, orgId)).length, 0);
+    await syncOpportunities(service, orgId);
+    const open = await getOpenOpportunities(service, orgId);
+    assert.equal(open.filter((o) => o.type === "dormant_customer").length, 0, "no dormant_customer opportunity should be created for an excluded customer");
+    // Phase 2-6: the sent estimate has no lead, so it is now a pending_estimate in its own right (A1) - the only row created.
+    assert.deepEqual(open.map((o) => o.type), ["pending_estimate"]);
   } finally {
     await cleanupOrg(orgId);
   }
@@ -384,6 +386,16 @@ test("10. organization isolation: a dormant customer in organization A is never 
 
 // ==================== Pass 4 P1-D: completed_job_no_referral_request ====================
 
+// Phase 2-13: these referral fixtures complete their jobs in 2027, after
+// INVOICING_LIVE_AT, so each job also (correctly) produces a
+// completed_job_not_invoiced opportunity. The sync's created/resolved/
+// unchanged/suppressed totals count every type, so tests 11 and 13-16 assert
+// on the referral rows themselves, plus the one known companion row.
+const REFERRAL = "completed_job_no_referral_request";
+const openReferrals = async (orgId: string) => (await getOpenOpportunities(service, orgId)).filter((o) => o.type === REFERRAL);
+const referralRows = async (orgId: string) => (await service.from("opportunities").select("id, status").eq("organization_id", orgId).eq("type", REFERRAL)).data ?? [];
+const COMPANION = 1; // the job's completed_job_not_invoiced opportunity
+
 test("11. a completed job with no referral_requests row at all produces an open opportunity with no fabricated value", async () => {
   const orgId = await makeOrg("Opportunities Sync Test Org (Referral No Row)");
   try {
@@ -400,10 +412,11 @@ test("11. a completed job with no referral_requests row at all produces an open 
     assert.equal(referral!.valueBasis, null);
 
     const sync = await syncOpportunities(service, orgId);
-    assert.equal(sync.created, 1);
-    const [row] = await getOpenOpportunities(service, orgId);
-    assert.equal(row.type, "completed_job_no_referral_request");
-    assert.equal(row.sourceEntityId, jobId);
+    assert.equal(sync.created, 1 + COMPANION);
+    const referrals = await openReferrals(orgId);
+    assert.equal(referrals.length, 1);
+    assert.equal(referrals[0].sourceEntityId, jobId);
+    assert.equal(referrals[0].estimatedValue, null);
   } finally {
     await cleanupOrg(orgId);
   }
@@ -430,8 +443,8 @@ test("13. a completed job whose referral has already been requested is excluded,
     const jobId = await makeJob(orgId, contactId, "completed", "2027-01-03T00:00:00.000Z");
 
     const first = await syncOpportunities(service, orgId);
-    assert.equal(first.created, 1);
-    assert.equal((await getOpenOpportunities(service, orgId)).length, 1);
+    assert.equal(first.created, 1 + COMPANION);
+    assert.equal((await openReferrals(orgId)).length, 1);
 
     // The referral request actually goes out - the automation's own real
     // write, reused as-is, never a second referral-tracking mechanism.
@@ -442,7 +455,7 @@ test("13. a completed job whose referral has already been requested is excluded,
 
     const second = await syncOpportunities(service, orgId);
     assert.equal(second.resolved, 1, "the opportunity must resolve once the referral has actually been requested");
-    assert.equal((await getOpenOpportunities(service, orgId)).length, 0);
+    assert.equal((await openReferrals(orgId)).length, 0);
 
     const { data: resolvedRow } = await service.from("opportunities").select("status, resolved_at").eq("organization_id", orgId).eq("type", "completed_job_no_referral_request").single();
     assert.equal(resolvedRow!.status, "resolved");
@@ -459,12 +472,13 @@ test("14. syncOpportunities deduplicates: re-running with no data change creates
     await makeJob(orgId, contactId, "completed", "2027-01-04T00:00:00.000Z");
 
     const first = await syncOpportunities(service, orgId);
-    assert.equal(first.created, 1);
+    assert.equal(first.created, 1 + COMPANION);
 
     const second = await syncOpportunities(service, orgId);
     assert.equal(second.created, 0);
-    assert.equal(second.unchanged, 1);
-    assert.equal((await getOpenOpportunities(service, orgId)).length, 1, "still exactly one open opportunity, never duplicated");
+    assert.equal(second.unchanged, 1 + COMPANION);
+    assert.equal((await openReferrals(orgId)).length, 1, "still exactly one open referral opportunity, never duplicated");
+    assert.equal((await referralRows(orgId)).length, 1);
   } finally {
     await cleanupOrg(orgId);
   }
@@ -477,14 +491,15 @@ test("15. a dismissed completed_job_no_referral_request opportunity is never res
     await makeJob(orgId, contactId, "completed", "2027-01-05T00:00:00.000Z");
 
     const first = await syncOpportunities(service, orgId);
-    assert.equal(first.created, 1);
-    const [openRow] = await getOpenOpportunities(service, orgId);
+    assert.equal(first.created, 1 + COMPANION);
+    const [openRow] = await openReferrals(orgId);
     await service.from("opportunities").update({ status: "dismissed", resolved_at: new Date().toISOString() }).eq("id", openRow.id);
 
     const second = await syncOpportunities(service, orgId);
     assert.equal(second.created, 0);
-    assert.equal(second.suppressed, 1);
-    assert.equal((await getOpenOpportunities(service, orgId)).length, 0);
+    assert.equal(second.suppressed, 1, "only the dismissed referral is suppressed");
+    assert.equal((await openReferrals(orgId)).length, 0);
+    assert.deepEqual((await referralRows(orgId)).map((r) => r.status), ["dismissed"]);
   } finally {
     await cleanupOrg(orgId);
   }
@@ -497,7 +512,7 @@ test("16. a resolved completed_job_no_referral_request opportunity can recur - i
     const jobId = await makeJob(orgId, contactId, "completed", "2027-01-06T00:00:00.000Z");
 
     const first = await syncOpportunities(service, orgId);
-    assert.equal(first.created, 1);
+    assert.equal(first.created, 1 + COMPANION);
 
     const { data: referral } = await service.from("referral_requests").insert({ organization_id: orgId, job_id: jobId, contact_id: contactId, status: "requested", requested_at: new Date().toISOString() }).select("id").single();
     const second = await syncOpportunities(service, orgId);
@@ -511,8 +526,8 @@ test("16. a resolved completed_job_no_referral_request opportunity can recur - i
     assert.equal(third.created, 1, "a resolved opportunity's condition recurring must produce a fresh open row");
     assert.equal(third.suppressed, 0);
 
-    const openAfter = await getOpenOpportunities(service, orgId);
-    assert.equal(openAfter.length, 1, "exactly one open opportunity, never a duplicate");
+    const openAfter = await openReferrals(orgId);
+    assert.equal(openAfter.length, 1, "exactly one open referral opportunity, never a duplicate");
     assert.equal(openAfter[0].sourceEntityId, jobId);
 
     const { data: allRows } = await service.from("opportunities").select("status").eq("organization_id", orgId).eq("type", "completed_job_no_referral_request");

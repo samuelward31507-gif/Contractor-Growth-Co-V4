@@ -4,9 +4,11 @@
  *   - Visits, no estimate: 450 leads with a completed visit (past the ~400-id
  *     point where the old estimate lookup failed), some with two visits;
  *     300 with estimates, some with several - exactly 150 without.
- *   - Qualified, no appointment: 1,100 qualified leads, 1,050 of them booked
- *     (some cancelled or no-show - still bookings) - past the API's 1,000-row
- *     cap - so exactly 50 unbooked, never inflated; plus the booking rate.
+ *   - Qualified, no appointment: 1,100 qualified leads, 1,050 of them with an
+ *     appointment - past the API's 1,000-row cap. Phase 2-8 (M6): Today's
+ *     rule, so the 420 cancelled or no-show ones are not bookings - exactly
+ *     470 unbooked, never inflated; the booking rate (any appointment) is
+ *     unchanged.
  *   - Estimate values: 1,500 sent/expired/declined estimates - exact
  *     recoverable and declined value, complete aging and past-expiry.
  *   - Organization isolation.
@@ -29,6 +31,7 @@ if (!(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").includes("lwofqffxagxiqodqvcfr
 
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
 const { getBusinessMetricsSnapshot }: typeof import("./metrics") = require(path.join(REPO_ROOT, "lib/bi/metrics.ts"));
+const { syncOpportunities }: typeof import("@/lib/opportunities/detect") = require(path.join(REPO_ROOT, "lib/opportunities/detect.ts"));
 
 const service = createServiceRoleClient();
 const DAY = 86_400_000;
@@ -103,7 +106,14 @@ before(async () => {
     const [qualified, visited] = (await insertAll("leads", [{ organization_id: orgId, contact_id: contactId, status: "qualified", temperature: "warm" }, { organization_id: orgId, contact_id: contactId, status: "estimate", temperature: "warm" }], "id")).map((l) => l.id as string);
     void qualified;
     await insertAll("appointments", [appointment(orgId, contactId, visited, "completed", 0)]);
-    await insertAll("estimates", [estimate(orgId, contactId, null, "sent", 7777, noonDaysAgo(2), null)]);
+    // Phase 2-8 (L5): created before the visit, so it stays "one visit with no estimate" - a lead-less estimate
+    // for the same contact created after the visit would now satisfy it.
+    await insertAll("estimates", [{ ...estimate(orgId, contactId, null, "sent", 7777, noonDaysAgo(2), null), created_at: noonDaysAgo(3) }]);
+  }
+  // Phase 2-8 (M9): "Qualified, no appointment" and "Visits, no estimate" count Today's open opportunity rows, which the sync maintains.
+  for (const orgId of Object.values(orgs)) {
+    const result = await syncOpportunities(service, orgId);
+    if (result.failed) throw new Error(`fixture sync failed for ${orgId}`);
   }
 });
 
@@ -120,10 +130,13 @@ test("visits, no estimate: 450 leads with a completed visit, 300 with estimates 
   assert.equal(snapshot.revenueOpportunity.completedAppointmentsWithoutEstimate, 150);
 });
 
-test("qualified, no appointment: 1,100 qualified leads with 1,050 bookings (cancelled and no-show included) - exactly 50, never inflated; booking rate exact", async () => {
+// Phase 2-8 (M6): this used to count cancelled and no-show appointments as bookings (exactly 50) - the old
+// Insights rule that disagreed with Today. Insights now uses Today's rule: 50 with no appointment plus the
+// 420 (2 in 5 of 1,050) whose only appointment is cancelled or a no-show.
+test("qualified, no appointment (Phase 2-8): 1,100 qualified leads with 1,050 appointments - cancelled and no-show are not bookings - exactly 470, never inflated; booking rate exact", async () => {
   const snapshot = await getBusinessMetricsSnapshot(service, orgs.qualified, "last30Days");
   assert.equal(snapshot.revenueOpportunityUnavailable.qualifiedNoAppointment, false);
-  assert.equal(snapshot.revenueOpportunity.qualifiedLeadsWithoutAppointment, 50);
+  assert.equal(snapshot.revenueOpportunity.qualifiedLeadsWithoutAppointment, 470);
   assert.equal(snapshot.leadMetrics.leadToBookingRate, (1050 / 1100) * 100);
 });
 

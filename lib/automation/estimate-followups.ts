@@ -20,11 +20,27 @@ import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 export const ESTIMATE_FOLLOWUP_WORKFLOW = "estimate_followup";
 export const ESTIMATE_EXPIRED_WORKFLOW = "estimate_expired_lifecycle";
 
 const ACTIVE_STATUSES: EstimateStatus[] = ["sent"];
+
+/**
+ * K5-3: a follow-up processed more than this many hours after it became due
+ * is not sent - it is recorded as blocked ("followup_overdue") under its own
+ * idempotency key, so no later run can send it either. Exactly 48 hours late
+ * still sends normally. Exists because the paged read (K5-1) can surface
+ * estimates the old 500-row cap starved for days or weeks; their customers
+ * should not get a burst of obsolete check-ins.
+ */
+export const STALE_FOLLOWUP_GRACE_HOURS = 48;
+
+/** K5-4: test seam only - limits a run to one organization. The scheduled route and the admin "Run now" action never pass it. */
+export type FollowupTestScope = { organizationId: string };
+
+const CANDIDATE_COLUMNS = "id, organization_id, contact_id, lead_id, title, status, sent_at, expires_at";
 
 type CandidateEstimate = {
   id: string;
@@ -97,25 +113,49 @@ export async function processEstimateFollowups(
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
   /** Phase D: "manual" when triggered by an org admin's "Run now" action; every real cron tick omits this and keeps the column's own 'event' default. */
   triggerSource: WorkflowExecutionTriggerSource = "event",
+  /** K5-4: test seam only - never passed by the scheduled route or the "Run now" action. */
+  testScope?: FollowupTestScope,
 ): Promise<FollowupRunResult> {
   const configByOrg = await getAutomationConfigByOrganization(supabase, "estimate-followup");
 
-  const { data: rawCandidates } = await supabase
-    .from("estimates")
-    .select("id, organization_id, contact_id, lead_id, title, status, sent_at, expires_at")
-    .in("status", ACTIVE_STATUSES)
-    .not("sent_at", "is", null)
-    .limit(500);
-
-  const candidates = (rawCandidates ?? []) as CandidateEstimate[];
-  const outcomes: FollowupOutcome[] = [];
-
-  for (const estimate of candidates) {
-    const config = readEstimateFollowupConfig(configByOrg.get(estimate.organization_id) ?? null);
-    outcomes.push(await processOneEstimate(supabase, estimate, now, config, sendSmsFn, triggerSource));
+  // K5-1: every sent estimate, paged in a stable order - the old single read
+  // was capped at 500 unordered rows across every organization, so past 500
+  // the same arbitrary rows won each tick and the rest were never followed
+  // up or expired. Everything is read before anything is processed: a failed
+  // page or the row limit stops the run with nothing processed, never a
+  // partial run reported as complete.
+  const read = await readAllPages<CandidateEstimate>(() => {
+    let query = supabase.from("estimates").select(CANDIDATE_COLUMNS).in("status", ACTIVE_STATUSES).not("sent_at", "is", null);
+    if (testScope) query = query.eq("organization_id", testScope.organizationId);
+    return query.order("id");
+  });
+  if (read.failed) {
+    throw new Error("Estimate follow-ups: the candidate read failed or reached the row limit - no estimate was processed.");
   }
 
-  return { candidates: candidates.length, outcomes };
+  // K5-5 (R-b): the automation's enabled state, read once per organization per run.
+  const enabledByOrg = new Map<string, Promise<boolean>>();
+  const isEnabled = (organizationId: string) => {
+    let enabled = enabledByOrg.get(organizationId);
+    if (!enabled) {
+      enabled = getAutomationEnabled(supabase, organizationId, "estimate-followup");
+      enabledByOrg.set(organizationId, enabled);
+    }
+    return enabled;
+  };
+
+  const outcomes: FollowupOutcome[] = [];
+  for (const estimate of read.rows) {
+    const config = readEstimateFollowupConfig(configByOrg.get(estimate.organization_id) ?? null);
+    outcomes.push(await processOneEstimate(supabase, estimate, now, config, isEnabled, sendSmsFn, triggerSource));
+  }
+
+  return { candidates: read.rows.length, outcomes };
+}
+
+/** K5-3: how many hours past its due time the occurrence is. */
+function hoursLate(hoursSinceSent: number, occurrence: 1 | 2, config: EstimateFollowupConfig): number {
+  return hoursSinceSent - (occurrence === 2 ? config.followup_2_hours : config.followup_1_hours);
 }
 
 async function processOneEstimate(
@@ -123,19 +163,21 @@ async function processOneEstimate(
   estimate: CandidateEstimate,
   now: Date,
   config: EstimateFollowupConfig,
+  isEnabled: (organizationId: string) => Promise<boolean>,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
   triggerSource: WorkflowExecutionTriggerSource = "event",
 ): Promise<FollowupOutcome> {
-  // Phase C: covers both branches below (expiration and follow-up) - both
-  // event types (estimate.expired, estimate.followup) belong to the same
-  // "estimate-followup" catalog automation, so one check up front is
-  // correct and avoids duplicating it in both expireEstimate/sendFollowup.
-  if (!(await getAutomationEnabled(supabase, estimate.organization_id, "estimate-followup"))) {
-    return { estimateId: estimate.id, outcome: "skipped_disabled" };
-  }
-
+  // K5-2: expiry is a lifecycle fact, not an outbound action - it runs
+  // whatever the automation's state. It sends nothing; expireEstimate still
+  // records the estimate.expired event only when the existing event rules
+  // allow it (automation enabled, organization not paused).
   if (estimate.expires_at && new Date(estimate.expires_at).getTime() <= now.getTime()) {
     return expireEstimate(supabase, estimate, triggerSource);
+  }
+
+  // Phase C: a follow-up is only sent while the automation is enabled.
+  if (!(await isEnabled(estimate.organization_id))) {
+    return { estimateId: estimate.id, outcome: "skipped_disabled" };
   }
 
   const hoursSinceSent = (now.getTime() - new Date(estimate.sent_at).getTime()) / (60 * 60 * 1000);
@@ -145,7 +187,49 @@ async function processOneEstimate(
     return { estimateId: estimate.id, outcome: "not_due" };
   }
 
+  // K5-3: more than 48 hours past due - recorded as not sent, never sent later.
+  if (hoursLate(hoursSinceSent, occurrence, config) > STALE_FOLLOWUP_GRACE_HOURS) {
+    return skipStaleFollowup(supabase, estimate, occurrence, hoursLate(hoursSinceSent, occurrence, config), triggerSource);
+  }
+
   return sendFollowup(supabase, estimate, occurrence, sendSmsFn, triggerSource);
+}
+
+/**
+ * K5-3: claims the occurrence's idempotency key (the same
+ * estimate.followup:<id>:<occurrence> key sendFollowup uses) and records the
+ * execution as not sent, the way a gate block is recorded - so a later run
+ * finds the duplicate and never sends this stale check-in. No conversation
+ * lookup, no gate, no message.
+ */
+async function skipStaleFollowup(
+  supabase: SupabaseClient,
+  estimate: CandidateEstimate,
+  occurrence: 1 | 2,
+  lateHours: number,
+  triggerSource: WorkflowExecutionTriggerSource = "event",
+): Promise<FollowupOutcome> {
+  const eventResult = await createAutomationEventAsService(supabase, estimate.organization_id, {
+    eventType: "estimate.followup",
+    entityType: "estimate",
+    entityId: estimate.id,
+    payload: { estimate_id: estimate.id, contact_id: estimate.contact_id, lead_id: estimate.lead_id, occurrence },
+    idempotencyKey: `estimate.followup:${estimate.id}:${occurrence}`,
+  });
+  if (!eventResult.ok) return { estimateId: estimate.id, outcome: "failed", error: eventResult.error };
+  if (eventResult.duplicate) return { estimateId: estimate.id, outcome: "skipped_duplicate" };
+  if (eventResult.skipped) return { estimateId: estimate.id, outcome: "skipped_disabled" };
+
+  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, ESTIMATE_FOLLOWUP_WORKFLOW, {}, triggerSource);
+  if (!executionResult.ok) return { estimateId: estimate.id, outcome: "failed", error: executionResult.error };
+  await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, {
+    should_send: false,
+    blocked_reason: "followup_overdue",
+    blocked_detail: `${Math.floor(lateHours)} hours past due`,
+    estimate_id: estimate.id,
+    occurrence,
+  });
+  return { estimateId: estimate.id, outcome: "blocked", reason: "followup_overdue" };
 }
 
 async function expireEstimate(
@@ -181,11 +265,11 @@ async function expireEstimate(
   if (eventResult.duplicate) {
     return { estimateId: estimate.id, outcome: "skipped_duplicate" };
   }
-  // Unreachable in practice - processOneEstimate's own top-of-function check
-  // already returned before calling this - but the type system correctly
-  // requires narrowing event: AutomationEvent | null before using it below.
+  // K5-2: the estimate has expired (the status update above ran); the
+  // event was skipped because the automation is disabled or the
+  // organization is paused, so there is no execution to log.
   if (eventResult.skipped) {
-    return { estimateId: estimate.id, outcome: "skipped_disabled" };
+    return { estimateId: estimate.id, outcome: "expired" };
   }
 
   const executionResult = await startWorkflowExecutionAsService(
@@ -333,15 +417,13 @@ export async function previewEstimateFollowups(
   const rawConfig = await getAutomationConfig(supabase, organizationId, "estimate-followup");
   const config = readEstimateFollowupConfig(rawConfig);
 
-  const { data: rawCandidates } = await supabase
-    .from("estimates")
-    .select("id, organization_id, contact_id, lead_id, title, status, sent_at, expires_at")
-    .eq("organization_id", organizationId)
-    .in("status", ACTIVE_STATUSES)
-    .not("sent_at", "is", null)
-    .limit(500);
-
-  const candidates = (rawCandidates ?? []) as CandidateEstimate[];
+  // K5-5 (R-c): the organization's sent estimates, paged in a stable order -
+  // no arbitrary 500-row cap. A failed read previews as "no candidates", as
+  // the unpaged read always did.
+  const read = await readAllPages<CandidateEstimate>(() =>
+    supabase.from("estimates").select(CANDIDATE_COLUMNS).eq("organization_id", organizationId).in("status", ACTIVE_STATUSES).not("sent_at", "is", null).order("id"),
+  );
+  const candidates = read.failed ? [] : read.rows;
 
   for (const estimate of candidates) {
     if (estimate.expires_at && new Date(estimate.expires_at).getTime() <= now.getTime()) {
@@ -352,6 +434,8 @@ export async function previewEstimateFollowups(
     const occurrence = computeFollowupOccurrence(hoursSinceSent, config);
 
     if (!occurrence) continue;
+    // K5-3: the run would skip a check-in more than 48 hours past due, so the preview does too.
+    if (hoursLate(hoursSinceSent, occurrence, config) > STALE_FOLLOWUP_GRACE_HOURS) continue;
 
     if (!estimate.contact_id) {
       return { outcome: "no_contact", estimateId: estimate.id };

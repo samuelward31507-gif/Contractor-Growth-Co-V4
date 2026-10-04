@@ -12,6 +12,8 @@ import { HIGH_VALUE_THRESHOLD } from "@/lib/dashboard/queries";
 import { calendarDateInTimeZone, formatInvoiceNumber, formatMoney, isOverdue, type InvoiceStatus } from "@/lib/invoices/domain";
 import { isLegacyCompletedJob } from "@/lib/invoices/summary";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
+import { ONBOARDING_TEST_LEAD_SOURCE } from "@/lib/onboarding/readiness";
+import { BOOKED_APPOINTMENT_STATUSES, findCompletedVisitsWithoutEstimate, findUnbookedQualifiedLeads } from "./lifecycle";
 import { getOpportunityById, type OpportunityType, type OpportunityStatus, type OpportunityResolutionReason } from "./queries";
 
 /**
@@ -27,10 +29,10 @@ import { getOpportunityById, type OpportunityType, type OpportunityStatus, type 
  *                                        existing, already-computed
  *                                        'expired' terminal state - no new
  *                                        staleness threshold invented)
- *   completed_appointment_no_estimate - the exact same query shape
- *                                        lib/bi/metrics.ts's own
- *                                        buildRevenueOpportunity already
- *                                        computes for
+ *   completed_appointment_no_estimate - Phase 2-8: one item per open
+ *                                        lead, by the shared rule in
+ *                                        lib/opportunities/lifecycle.ts that
+ *                                        lib/bi/metrics.ts also uses for
  *                                        completedAppointmentsWithoutEstimate
  *   dormant_customer                  - reuses isReactivationDue() and the
  *                                        exact active-engagement exclusion
@@ -95,11 +97,11 @@ import { getOpportunityById, type OpportunityType, type OpportunityStatus, type 
  *                                        successfully sent outbound message
  *                                        (no inbound reply, no outbound
  *                                        message with status 'sent' or
- *                                        'delivered') for its contact, while
- *                                        the organization currently has
- *                                        working, eligible automation (live,
- *                                        paid, unpaused, instant-lead-
- *                                        followup enabled). Explicitly "no
+ *                                        'delivered') for its contact since
+ *                                        the lead was created. Phase 2-5:
+ *                                        independent of automation state and
+ *                                        of SMS opt-out (see
+ *                                        detectUncontactedLeads). Explicitly "no
  *                                        recorded outbound contact" per
  *                                        Trackpr's own evidence - never a
  *                                        claim that the customer was never
@@ -264,12 +266,11 @@ async function checkedAll<T>(read: string, build: Parameters<typeof readAllPages
   return result.rows;
 }
 
-// Error-observing copies of three shared helpers (lib/automation/settings.ts,
+// Error-observing copies of two shared helpers (lib/automation/settings.ts,
 // lib/settings/queries.ts). Same queries and the same results and defaults on
 // success; the only difference is that a failed read throws instead of
-// silently becoming the default - getAutomationEnabled's `?? true` would
-// otherwise turn a failed read into "enabled". The shared helpers themselves
-// are untouched: they have many other callers.
+// silently becoming the default. The shared helpers themselves are
+// untouched: they have many other callers.
 
 async function readAutomationConfigByOrganization(supabase: SupabaseClient, organizationId: string, automationId: string): Promise<Map<string, unknown>> {
   const map = new Map<string, unknown>();
@@ -280,14 +281,6 @@ async function readAutomationConfigByOrganization(supabase: SupabaseClient, orga
     map.set(row.organization_id, row.config);
   }
   return map;
-}
-
-async function readAutomationEnabled(supabase: SupabaseClient, organizationId: string, automationId: string): Promise<boolean> {
-  const data = checked(
-    `automation_settings.enabled (${automationId})`,
-    await supabase.from("automation_settings").select("enabled").eq("organization_id", organizationId).eq("automation_id", automationId).maybeSingle(),
-  );
-  return (data?.enabled as boolean | undefined) ?? true;
 }
 
 async function readOrganizationTimezone(supabase: SupabaseClient, organizationId: string): Promise<string | undefined> {
@@ -305,6 +298,12 @@ export type OpportunityCandidate = {
   estimatedValue: number | null;
   valueBasis: string | null;
   metadata: Record<string, unknown>;
+  /**
+   * Phase 2-8: other source ids of the same type whose dismissal also
+   * suppresses this candidate (a lead's other completed visits, M5). Read
+   * by syncOpportunities only - never persisted.
+   */
+  dismissalAliases?: string[];
 };
 
 type ContactRefRow = { id: string; first_name: string | null; last_name: string | null; company_name: string | null };
@@ -340,28 +339,44 @@ function displayNameOrFallback(contact: ContactRef, fallback: string): string {
  * as "booked" and could never resurface here again, even though nothing is
  * actually on the calendar for them.
  */
-const ACTIVE_BOOKING_STATUSES = ["scheduled", "confirmed", "completed"] as const;
+// Phase 2-8: the booked statuses now live with the rest of the shared
+// lifecycle rules (lib/opportunities/lifecycle.ts), so Insights uses the
+// identical list.
+const ACTIVE_BOOKING_STATUSES = BOOKED_APPOINTMENT_STATUSES;
 
+/**
+ * Phase 2-7 (A10, L5): an appointment books a qualified lead when it is
+ * linked to that lead by lead_id, or - only when it has no lead_id at all -
+ * when it is for the lead's own contact and starts at or after the lead was
+ * created. An appointment linked to a different lead never books this one,
+ * and a lead-less appointment from before the lead existed is old customer
+ * history, not a booking for this lead. AI bookings carry a lead_id only
+ * when the triggering event had one, so lead-less appointments are real.
+ * The booked statuses are unchanged (completed still counts as booked).
+ * Phase 2-8: the rule itself is findUnbookedQualifiedLeads in
+ * lib/opportunities/lifecycle.ts, shared with Insights' "Qualified, no
+ * appointment" - unchanged in behavior.
+ */
 async function detectQualifiedLeadsUnbooked(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
   const leadRows = await checkedAll("qualified_lead_unbooked.leads", () =>
     supabase
       .from("leads")
-      .select("id, contact_id, service, estimated_value, contacts(id, first_name, last_name, company_name)")
+      .select("id, contact_id, service, estimated_value, created_at, status, contacts(id, first_name, last_name, company_name)")
       .eq("organization_id", organizationId)
       .eq("status", "qualified")
       .order("id"),
   );
 
-  const leads = (leadRows ?? []) as { id: string; contact_id: string | null; service: string | null; estimated_value: number | null; contacts: ContactRef }[];
+  const leads = (leadRows ?? []) as { id: string; contact_id: string | null; service: string | null; estimated_value: number | null; created_at: string; status: string; contacts: ContactRef }[];
   if (leads.length === 0) return [];
 
+  // Phase 2-7: the same one paged read, now including lead-less appointments
+  // (with their contact and start) for the A10 contact fallback.
   const appointmentRows = await checkedAll("qualified_lead_unbooked.appointments", () =>
-    supabase.from("appointments").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).in("status", ACTIVE_BOOKING_STATUSES).order("id"),
+    supabase.from("appointments").select("lead_id, contact_id, start_at, status").eq("organization_id", organizationId).in("status", ACTIVE_BOOKING_STATUSES).order("id"),
   );
-  const bookedLeadIds = new Set(((appointmentRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id));
 
-  return leads
-    .filter((lead) => !bookedLeadIds.has(lead.id))
+  return findUnbookedQualifiedLeads(leads, (appointmentRows ?? []) as { lead_id: string | null; contact_id: string | null; start_at: string; status: string }[])
     .map((lead) => ({
       type: "qualified_lead_unbooked" as const,
       sourceEntityType: "lead" as const,
@@ -406,50 +421,69 @@ async function detectStaleEstimates(supabase: SupabaseClient, organizationId: st
 }
 
 // ---------------------------------------------------------------------------
-// C. completed_appointment_no_estimate - the same shape as
-// lib/bi/metrics.ts's own getCompletedAppointmentsWithoutEstimate, run here
-// independently (that function returns only a count, not enough to build
-// individual opportunity rows) rather than duplicating its query logic
-// inline there - both express the identical business rule.
+// C. completed_appointment_no_estimate - Phase 2-8: the rule is
+// findCompletedVisitsWithoutEstimate in lib/opportunities/lifecycle.ts,
+// shared with Insights' "Visits, no estimate" (lib/bi/metrics.ts), so both
+// count exactly the same items: one per open lead.
 // ---------------------------------------------------------------------------
 
+/**
+ * Phase 2-8 (M1-M5, M8): one item per open lead with a completed visit and
+ * no estimate and no job - see findCompletedVisitsWithoutEstimate for the
+ * association, clearing and anchor rules. The source stays the APPOINTMENT
+ * (the lead's latest completed visit), so existing rows keep their keys; an
+ * older visit's open row resolves once as condition_no_longer_true when a
+ * newer visit becomes the anchor. A dismissal of any of the lead's visits
+ * suppresses the item (dismissalAliases, honored in syncOpportunities).
+ *
+ * Four bounded, org-scoped paged reads regardless of candidate count -
+ * completed visits, estimates, open leads, jobs with a lead - matched in
+ * memory. Never N+1, never an id list.
+ */
 async function detectCompletedAppointmentsWithoutEstimate(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
   const appointmentRows = await checkedAll("completed_appointment_no_estimate.appointments", () =>
     supabase
       .from("appointments")
-      .select("id, contact_id, lead_id, title, start_at, contacts(id, first_name, last_name, company_name)")
+      .select("id, contact_id, lead_id, title, start_at, status, contacts(id, first_name, last_name, company_name)")
       .eq("organization_id", organizationId)
       .eq("status", "completed")
-      .not("lead_id", "is", null)
       .order("id"),
   );
 
-  const appointments = (appointmentRows ?? []) as { id: string; contact_id: string | null; lead_id: string | null; title: string; start_at: string; contacts: ContactRef }[];
+  const appointments = (appointmentRows ?? []) as { id: string; contact_id: string | null; lead_id: string | null; title: string; start_at: string; status: string; contacts: ContactRef }[];
   if (appointments.length === 0) return [];
 
-  // Phase 2H: every estimate with a lead, matched in memory - the old
-  // lead-id list failed outright at roughly 400 leads.
-  const estimateRows = await checkedAll("completed_appointment_no_estimate.estimates", () =>
-    supabase.from("estimates").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).order("id"),
-  );
-  const leadsWithEstimate = new Set(((estimateRows ?? []) as { lead_id: string | null }[]).map((row) => row.lead_id));
+  // Phase 2H: every estimate and lead matched in memory - the old lead-id
+  // list failed outright at roughly 400 leads. Phase 2-8: every estimate
+  // (lead-less ones too, with contact and created_at), the open leads, and
+  // every job linked to a lead.
+  const [estimateRows, leadRows, jobRows] = await Promise.all([
+    checkedAll<{ lead_id: string | null; contact_id: string | null; created_at: string }>("completed_appointment_no_estimate.estimates", () =>
+      supabase.from("estimates").select("lead_id, contact_id, created_at").eq("organization_id", organizationId).order("id"),
+    ),
+    checkedAll<{ id: string; contact_id: string | null; created_at: string; status: string }>("completed_appointment_no_estimate.open_leads", () =>
+      supabase.from("leads").select("id, contact_id, created_at, status").eq("organization_id", organizationId).in("status", [...OPEN_LEAD_STATUSES]).order("id"),
+    ),
+    checkedAll<{ lead_id: string | null }>("completed_appointment_no_estimate.jobs", () =>
+      supabase.from("jobs").select("lead_id").eq("organization_id", organizationId).not("lead_id", "is", null).order("id"),
+    ),
+  ]);
 
-  return appointments
-    .filter((row) => row.lead_id !== null && !leadsWithEstimate.has(row.lead_id))
-    .map((row) => ({
-      type: "completed_appointment_no_estimate" as const,
-      sourceEntityType: "appointment" as const,
-      sourceEntityId: row.id,
-      contactId: row.contact_id,
-      title: displayNameOrFallback(row.contacts, row.title),
-      description: `Completed appointment "${row.title}" never turned into an estimate.`,
-      // No reliable amount exists at this stage - no estimate has ever been
-      // created for this lead, so there is nothing real to base a figure
-      // on. Never guessed from an average or any other org.
-      estimatedValue: null,
-      valueBasis: null,
-      metadata: { appointment_start_at: row.start_at },
-    }));
+  return findCompletedVisitsWithoutEstimate({ visits: appointments, leads: leadRows, estimates: estimateRows, jobs: jobRows }).map(({ leadId, anchor, visitIds }) => ({
+    type: "completed_appointment_no_estimate" as const,
+    sourceEntityType: "appointment" as const,
+    sourceEntityId: anchor.id,
+    contactId: anchor.contact_id,
+    title: displayNameOrFallback(anchor.contacts, anchor.title),
+    description: `Completed appointment "${anchor.title}" never turned into an estimate.`,
+    // No reliable amount exists at this stage - no estimate has ever been
+    // created for this lead, so there is nothing real to base a figure
+    // on. Never guessed from an average or any other org.
+    estimatedValue: null,
+    valueBasis: null,
+    metadata: { appointment_start_at: anchor.start_at, lead_id: leadId },
+    dismissalAliases: visitIds.filter((id) => id !== anchor.id),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -676,15 +710,13 @@ async function detectCompletedJobsWithoutReviewRequest(supabase: SupabaseClient,
       contactId: job.contact_id,
       title: displayNameOrFallback(job.contacts, job.title),
       description: `Completed job "${job.title}" has no review request yet.`,
-      // Pass 5C, per explicit product decision: unlike the referral
-      // opportunity above (deliberately never a value - a referral ask has
-      // no dollar figure of its own), this one DOES surface the completed
-      // job's own known value when stored, as honest context for the size
-      // of the job a review is being asked about - null/null when unknown,
-      // never coerced to $0. A deliberate divergence from the referral
-      // detector's own choice, not an inconsistency.
-      estimatedValue: job.amount,
-      valueBasis: job.amount != null ? "jobs.amount" : null,
+      // Phase 2-10 (B7): no value, like the referral opportunity above. A
+      // review ask is growth work with no dollar figure of its own; the old
+      // Pass 5C choice to surface the completed job's amount made it sort
+      // and total as if it were money at stake. Existing open rows are
+      // refreshed to null by the next sync (estimated_value is compared).
+      estimatedValue: null,
+      valueBasis: null,
       metadata: { job_completed_at: job.completed_at },
     }));
 }
@@ -795,14 +827,11 @@ const UNCONTACTED_LEAD_AGE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 /** messages.status values that actually prove the customer's carrier accepted or delivered the message - 'queued' (Twilio hasn't responded yet) and 'failed'/'undelivered' (attempted, never reached) are deliberately excluded, matching the Pass 5C Batch 2 audit's evidence hierarchy exactly: an attempt is not contact. */
 const SUCCESSFUL_OUTBOUND_STATUSES = new Set(["sent", "delivered"]);
 
-const INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID = "instant-lead-followup";
-
-type UncontactedLeadContactRow = { id: string; first_name: string | null; last_name: string | null; company_name: string | null; sms_opt_out: boolean };
-type UncontactedLeadContactRef = UncontactedLeadContactRow | UncontactedLeadContactRow[] | null;
-
-function oneUncontactedLeadContact(value: UncontactedLeadContactRef): UncontactedLeadContactRow | null {
-  return Array.isArray(value) ? (value[0] ?? null) : value;
-}
+type ContactEvidenceRow = {
+  contact_id: string | null;
+  status: string;
+  messages: { created_at: string; direction: "inbound" | "outbound" }[] | null;
+};
 
 /**
  * Deliberately NOT "the lead was ignored" or "the customer was never
@@ -827,40 +856,34 @@ function oneUncontactedLeadContact(value: UncontactedLeadContactRef): Uncontacte
  *     demonstrably engaged, regardless of what Trackpr did or didn't send
  *     first.
  *
- * Organization/automation eligibility (payment/pause/live/enabled) is
- * re-derived fresh from the database on every call, exactly like
- * evaluateOutboundGate's own live checks - never inferred from the
- * presence/absence of workflow_executions rows, since a disabled or paused
- * organization leaves zero such rows and would otherwise look identical to
- * "eligible but not yet acted on."
+ * Phase 2-5 (Phase 2 definition, L1, L2):
+ *   - Independent of automation. An uncontacted lead is human work whether
+ *     the organization is live, in test mode, paused or unpaid, and whether
+ *     instant-lead-followup is enabled - automation state only decides who
+ *     acts (lib/decisions/actor.ts), never whether the item exists. The old
+ *     live/paid/unpaused/enabled gate hid every lead exactly when only a
+ *     human could contact it.
+ *   - Opted-out contacts are kept: opt-out blocks texting, not calling, and
+ *     this type's action is already "call".
+ *   - L1: only evidence at or after the lead's own created_at counts - an
+ *     earlier conversation with a returning customer says nothing about
+ *     this lead. One exception, from B3: an open conversation whose newest
+ *     evidence is the customer's inbound message is waiting for a reply,
+ *     and waiting-for-reply wins over uncontacted whenever it happened.
+ *   - L2: the onboarding test lead (source ONBOARDING_TEST_LEAD_SOURCE) is
+ *     never a candidate - it is the owner's own test, not a customer.
  *
- * Three bounded, org-scoped queries (leads, conversations, messages)
- * regardless of candidate count, aggregated in-memory via Maps/Sets - the
- * same shape detectCancelledAppointmentsWithoutRebooking above already
- * uses. Never N+1 per lead.
+ * Two bounded, org-scoped reads (leads, then conversations with their
+ * newest evidence message embedded) regardless of candidate count,
+ * aggregated in memory. Never N+1 per lead.
  */
 async function detectUncontactedLeads(supabase: SupabaseClient, organizationId: string, now: Date): Promise<OpportunityCandidate[]> {
-  const [organizationResult, automationEnabled] = await Promise.all([
-    supabase.from("organizations").select("automation_mode, payment_status, automation_paused").eq("id", organizationId).maybeSingle(),
-    readAutomationEnabled(supabase, organizationId, INSTANT_LEAD_FOLLOWUP_AUTOMATION_ID),
-  ]);
-  const organizationRow = checked("uncontacted_lead.organizations", organizationResult);
-
-  // Mirrors evaluateOutboundGate's own organization_not_live/
-  // organization_payment_inactive/organization_automation_paused checks -
-  // an organization that isn't currently eligible for real automated
-  // outbound produces zero candidates, full stop, regardless of how many
-  // 'new' leads it has.
-  if (!organizationRow || organizationRow.automation_mode !== "live" || organizationRow.payment_status !== "active" || organizationRow.automation_paused || !automationEnabled) {
-    return [];
-  }
-
   const thresholdIso = new Date(now.getTime() - UNCONTACTED_LEAD_AGE_THRESHOLD_MS).toISOString();
 
   const leadRows = await checkedAll("uncontacted_lead.leads", () =>
     supabase
       .from("leads")
-      .select("id, contact_id, service, estimated_value, created_at, contacts(id, first_name, last_name, company_name, sms_opt_out)")
+      .select("id, contact_id, service, source, estimated_value, created_at, contacts(id, first_name, last_name, company_name)")
       .eq("organization_id", organizationId)
       .eq("status", "new")
       .not("contact_id", "is", null)
@@ -868,36 +891,49 @@ async function detectUncontactedLeads(supabase: SupabaseClient, organizationId: 
       .order("id"),
   );
 
-  const leads = (leadRows ?? []) as { id: string; contact_id: string; service: string | null; estimated_value: number | null; created_at: string; contacts: UncontactedLeadContactRef }[];
+  const leads = ((leadRows ?? []) as { id: string; contact_id: string; service: string | null; source: string | null; estimated_value: number | null; created_at: string; contacts: ContactRef }[]).filter(
+    (lead) => lead.source !== ONBOARDING_TEST_LEAD_SOURCE,
+  );
   if (leads.length === 0) return [];
-
-  // A contact who has opted out can never receive a remedial SMS - Trackpr
-  // itself cannot act on this, so surfacing it as an actionable "should
-  // contact" opportunity would be misleading.
-  const eligibleLeads = leads.filter((lead) => !(oneUncontactedLeadContact(lead.contacts)?.sms_opt_out ?? false));
-  if (eligibleLeads.length === 0) return [];
 
   // Phase 2H: the organization's conversations that hold at least one
   // inbound message or one successful outbound message - one paged read
-  // with the message condition applied inside an inner join (one matching
-  // message embedded per conversation, just as evidence). It replaces the
+  // with the message condition applied inside an inner join. It replaces the
   // contact-id and conversation-id lists, which failed at ~400 ids, and the
   // capped message read, which dropped messages past the first 1000.
-  const contactedConversations = await checkedAll<{ contact_id: string | null }>("uncontacted_lead.contacted_conversations", () =>
+  // Phase 2-5: the one embedded message is now each conversation's NEWEST
+  // piece of evidence, so its time and direction can be compared with each
+  // lead's created_at (L1, B3) - still one read.
+  const evidenceRows = await checkedAll<ContactEvidenceRow>("uncontacted_lead.contacted_conversations", () =>
     supabase
       .from("conversations")
-      .select("contact_id, messages!inner(id)")
+      .select("contact_id, status, messages!inner(created_at, direction)")
       .eq("organization_id", organizationId)
       .not("contact_id", "is", null)
       .eq("messages.organization_id", organizationId)
       .or(`direction.eq.inbound,and(direction.eq.outbound,status.in.(${[...SUCCESSFUL_OUTBOUND_STATUSES].join(",")}))`, { referencedTable: "messages" })
+      .order("created_at", { referencedTable: "messages", ascending: false })
       .limit(1, { referencedTable: "messages" })
       .order("id"),
   );
-  const contactedContactIds = new Set(contactedConversations.map((row) => row.contact_id));
 
-  return eligibleLeads
-    .filter((lead) => !contactedContactIds.has(lead.contact_id))
+  // Per contact: the newest evidence across all of its conversations, and
+  // whether any open conversation is waiting on the customer's reply.
+  const newestEvidenceMsByContact = new Map<string, number>();
+  const waitingContactIds = new Set<string>();
+  for (const row of evidenceRows) {
+    const newest = row.messages?.[0];
+    if (!row.contact_id || !newest) continue;
+    const newestMs = new Date(newest.created_at).getTime();
+    if (newestMs > (newestEvidenceMsByContact.get(row.contact_id) ?? Number.NEGATIVE_INFINITY)) newestEvidenceMsByContact.set(row.contact_id, newestMs);
+    if (row.status === "open" && newest.direction === "inbound") waitingContactIds.add(row.contact_id);
+  }
+
+  const contactedSinceCreated = (lead: { contact_id: string; created_at: string }) =>
+    waitingContactIds.has(lead.contact_id) || (newestEvidenceMsByContact.get(lead.contact_id) ?? Number.NEGATIVE_INFINITY) >= new Date(lead.created_at).getTime();
+
+  return leads
+    .filter((lead) => !contactedSinceCreated(lead))
     .map((lead) => ({
       type: "uncontacted_lead" as const,
       sourceEntityType: "lead" as const,
@@ -1065,13 +1101,17 @@ async function detectActiveLeadSignals(supabase: SupabaseClient, organizationId:
  * (see lib/opportunities/intelligence.ts), rather than no representation at
  * all until it either gets accepted or expires.
  *
- * sourceEntityId is the LEAD's id, not the estimate's - deliberately, so this
- * type can be excluded (like active_lead_signal above) for a lead already
- * covered by a more specific type, using the same lead-id key space. Phase 4C
- * already documented that a lead can have more than one simultaneously-sent
- * estimate; this collapses to one representative pending_estimate opportunity
- * per lead rather than one per estimate, which is more correct for a
- * per-lead intelligence surface than showing the same lead twice.
+ * Phase 2-6 (A1, A13, B1): keyed to the ESTIMATE - sourceEntityType
+ * 'estimate', sourceEntityId = estimates.id - and no longer limited to
+ * estimates linked to a lead. An estimate's own organization, id and status
+ * are its identity and state; estimates are legitimately created with "No
+ * lead", and the estimate follow-up automation already handles them. A
+ * missing lead or contact never drops the estimate. Two sent estimates on
+ * one lead are two opportunities (A13), never one arbitrary representative.
+ * The lead travels in metadata.lead_id (nullable) so the same-lead
+ * redundancy dedup in detectAllOpportunityCandidates (B8) and the B1
+ * dismissal carry-forward in syncOpportunities still work; metadata.
+ * estimate_id is kept for the estimate link and the decision layer.
  */
 async function detectPendingEstimates(supabase: SupabaseClient, organizationId: string): Promise<OpportunityCandidate[]> {
   const data = await checkedAll("pending_estimate.estimates", () =>
@@ -1080,23 +1120,28 @@ async function detectPendingEstimates(supabase: SupabaseClient, organizationId: 
       .select("id, lead_id, contact_id, title, amount, sent_at, contacts(id, first_name, last_name, company_name)")
       .eq("organization_id", organizationId)
       .eq("status", "sent")
-      .not("lead_id", "is", null)
       .order("id"),
   );
 
-  const rows = (data ?? []) as { id: string; lead_id: string; contact_id: string | null; title: string; amount: number | null; sent_at: string | null; contacts: ContactRef }[];
+  const rows = (data ?? []) as { id: string; lead_id: string | null; contact_id: string | null; title: string; amount: number | null; sent_at: string | null; contacts: ContactRef }[];
 
   return rows.map((row) => ({
     type: "pending_estimate" as const,
-    sourceEntityType: "lead" as const,
-    sourceEntityId: row.lead_id,
+    sourceEntityType: "estimate" as const,
+    sourceEntityId: row.id,
     contactId: row.contact_id,
     title: displayNameOrFallback(row.contacts, row.title),
     description: `Estimate "${row.title}" sent - awaiting the customer's decision.`,
     estimatedValue: row.amount,
     valueBasis: row.amount != null ? "estimates.amount" : null,
-    metadata: { estimate_id: row.id, sent_at: row.sent_at },
+    metadata: { estimate_id: row.id, sent_at: row.sent_at, lead_id: row.lead_id },
   }));
+}
+
+/** Phase 2-6: the lead a pending_estimate candidate belongs to (metadata.lead_id), or null for an estimate with no lead. */
+function pendingEstimateLeadId(candidate: OpportunityCandidate): string | null {
+  const leadId = candidate.metadata.lead_id;
+  return typeof leadId === "string" ? leadId : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1225,8 +1270,14 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
   // (qualified_lead_unbooked, uncontacted_lead) doesn't need a second,
   // duplicate row for the same underlying lead. See detectActiveLeadSignals'
   // own comment above for the full reasoning.
+  // Phase 2-6: pending estimates are keyed to the estimate, so the lead they
+  // belong to comes from metadata.lead_id; an estimate with no lead is never
+  // deduped against a lead-level type.
   const moreSpecificLeadIds = new Set([...qualifiedLeads, ...uncontactedLeads].map((candidate) => candidate.sourceEntityId));
-  const dedupedPendingEstimates = pendingEstimates.filter((candidate) => !moreSpecificLeadIds.has(candidate.sourceEntityId));
+  const dedupedPendingEstimates = pendingEstimates.filter((candidate) => {
+    const leadId = pendingEstimateLeadId(candidate);
+    return leadId === null || !moreSpecificLeadIds.has(leadId);
+  });
 
   // Live browser verification caught the remaining real duplicate this
   // exclusion alone didn't cover: a lead that is BOTH hot/high-value AND has
@@ -1237,7 +1288,7 @@ export async function detectAllOpportunityCandidates(supabase: SupabaseClient, o
   // fact (a real sent estimate, not just a temperature/value flag), so it
   // wins; active_lead_signal is suppressed for any lead a pending estimate
   // already covers, same as it is for the other more-specific types above.
-  const pendingEstimateLeadIds = new Set(dedupedPendingEstimates.map((candidate) => candidate.sourceEntityId));
+  const pendingEstimateLeadIds = new Set(dedupedPendingEstimates.map(pendingEstimateLeadId).filter((leadId): leadId is string => leadId !== null));
   const dedupedActiveLeadSignals = activeLeadSignals.filter(
     (candidate) => !moreSpecificLeadIds.has(candidate.sourceEntityId) && !pendingEstimateLeadIds.has(candidate.sourceEntityId),
   );
@@ -1303,6 +1354,28 @@ type ExistingOpenRow = {
   metadata: Record<string, unknown> | null;
 };
 type RecentRow = { type: OpportunityType; source_entity_id: string; status: OpportunityStatus; created_at: string };
+
+/**
+ * Phase 2-9 (A15/B6, rulings Q1-Q5): directed dismissal carry-forward across
+ * types for the SAME source - the same underlying condition reappearing
+ * under another code stays dismissed. Each rule suppresses creating a new
+ * `to` row when, among that source's open-or-dismissed rows of `to` and the
+ * `from` types, the most recent is dismissed (Q4) - so an older dismissal
+ * never overrides a newer open sibling, and existing open rows are never
+ * closed (Q5). Deliberately directed and narrow:
+ *   - estimate (Q1): a dismissed pending estimate suppresses the later
+ *     expired (stale) estimate for the same estimate id. Legacy lead-keyed
+ *     pending dismissals do not reach it (Q1b).
+ *   - lead (Q2b): a dismissed uncontacted or qualified-unbooked lead
+ *     suppresses only the less-specific active_lead_signal for the same lead
+ *     - never the other way, and never a booking prompt after the lead moves.
+ * The job/invoice family is intentionally absent (Q3): an overdue invoice is
+ * new money-at-risk work and always appears.
+ */
+const DISMISSAL_CARRY_FORWARD: { to: OpportunityType; from: OpportunityType[] }[] = [
+  { to: "stale_estimate", from: ["pending_estimate"] },
+  { to: "active_lead_signal", from: ["uncontacted_lead", "qualified_lead_unbooked"] },
+];
 
 /**
  * Runs detection and reconciles it against the database. Called from the
@@ -1379,6 +1452,19 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
     if (row.status === "dismissed") dismissedKeys.add(key);
   }
 
+  // Phase 2-9: per carry-forward rule, the status of each source's most
+  // recent open-or-dismissed row among the rule's types (recentRows is
+  // newest first, so the first row seen per source wins).
+  const carryForwardStatus = new Map<OpportunityType, Map<string, OpportunityStatus>>();
+  for (const rule of DISMISSAL_CARRY_FORWARD) {
+    const group = new Set<OpportunityType>([rule.to, ...rule.from]);
+    const latestBySource = new Map<string, OpportunityStatus>();
+    for (const row of recentRows) {
+      if (group.has(row.type) && !latestBySource.has(row.source_entity_id)) latestBySource.set(row.source_entity_id, row.status);
+    }
+    carryForwardStatus.set(rule.to, latestBySource);
+  }
+
   let created = 0;
   let refreshed = 0;
   let resolved = 0;
@@ -1448,7 +1534,21 @@ export async function syncOpportunities(supabase: SupabaseClient, organizationId
     const key = candidateKey(candidate.type, candidate.sourceEntityId);
     const existing = existingByKey.get(key);
 
-    if (!existing && dismissedKeys.has(key)) {
+    // Phase 2-6 (B1): pending estimates used to be keyed to their lead. A
+    // dismissal of that old lead-keyed row carries forward to every
+    // estimate-keyed candidate of the same lead, exactly as the old key
+    // suppressed every estimate of that lead - so no dismissal is resurrected
+    // by the re-key. The canonical estimate key is checked as for every type.
+    const carriedLeadKey = candidate.type === "pending_estimate" ? pendingEstimateLeadId(candidate) : null;
+    // Phase 2-8 (M5): a dismissal of any of the lead's completed visits suppresses its one completed-visit item.
+    // Phase 2-9 (A15/B6): a directed cross-type carry-forward for the same source (DISMISSAL_CARRY_FORWARD).
+    const dismissed =
+      dismissedKeys.has(key) ||
+      (carriedLeadKey !== null && dismissedKeys.has(candidateKey("pending_estimate", carriedLeadKey))) ||
+      (candidate.dismissalAliases ?? []).some((alias) => dismissedKeys.has(candidateKey(candidate.type, alias))) ||
+      carryForwardStatus.get(candidate.type)?.get(candidate.sourceEntityId) === "dismissed";
+
+    if (!existing && dismissed) {
       suppressed += 1;
       continue;
     }

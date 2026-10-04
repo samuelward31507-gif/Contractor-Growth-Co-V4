@@ -141,12 +141,17 @@ test("getOpenOpportunitiesResult: every open opportunity at 999, exactly 1,000 a
   }
 });
 
-test("summary totals are complete: known value, unknown-value count and per-type counts include every opportunity past row 1,000", async () => {
+test("summary totals are complete: per-class value, unknown-value and per-type counts include every opportunity past row 1,000", async () => {
   for (const n of SIZES) {
     const { supabase } = fakeSupabase((q) => (isOpportunities(q) ? { rows: shuffled(opportunities(n)) } : {}));
     const summary = summarizeOpportunities((await getOpenOpportunitiesResult(supabase, "org-1")).data);
     const old = Math.max(0, n - 1000);
-    assert.deepEqual([summary.count, summary.knownEstimatedValue, summary.unknownValueCount], [n, old * 100, Math.min(n, 1000)], `${n}`);
+    // Phase 2-13: invoice_overdue is committed money, stale_estimate potential, dormant_customer non-monetary.
+    assert.deepEqual(
+      [summary.count, summary.committed, summary.potential, summary.nonMonetaryCount],
+      [n, { value: Math.floor(old / 2) * 100, count: Math.floor(old / 2), unknownValueCount: 0 }, { value: 0, count: Math.min(n, 1000), unknownValueCount: Math.min(n, 1000) }, Math.ceil(old / 2)],
+      `${n}`,
+    );
     assert.deepEqual([summary.byType.stale_estimate, summary.byType.dormant_customer, summary.byType.invoice_overdue], [Math.min(n, 1000), Math.ceil(old / 2), Math.floor(old / 2)], `${n}`);
   }
 });
@@ -170,8 +175,10 @@ test("a page-1 error, a page-2 error or the row limit is failed with no rows; a 
 
 test("guard: the open-opportunities read is paged newest first with an id tie-break and no capped read", () => {
   const source = fs.readFileSync(path.join(ROOT, "lib/opportunities/queries.ts"), "utf8");
-  const start = source.indexOf("export async function getOpenOpportunitiesResult(");
-  const body = source.slice(start, source.indexOf("\n}\n", start));
+  // Phase 2-4: the read is wrapped in React.cache, so its body ends at "\n});\n".
+  const start = source.indexOf("export const getOpenOpportunitiesResult = cache(async (");
+  assert.ok(start !== -1, "getOpenOpportunitiesResult declaration not found");
+  const body = source.slice(start, source.indexOf("\n});\n", start));
   assert.match(body, /readAllPages<OpportunityRow>/);
   assert.match(body, /\.order\("created_at", \{ ascending: false \}\)\.order\("id"\)/);
   assert.doesNotMatch(body, /\.limit\(/);

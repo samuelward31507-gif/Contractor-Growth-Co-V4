@@ -119,6 +119,7 @@ test("5. HANDOFF-01: an open human escalation incident appears as a human_escala
     assert.ok(item, "an open human_escalation_requested incident must appear in attentionItems");
     assert.equal(item!.detail, "The customer asked for a human.");
     assert.equal(item!.href, `/conversations/${conversationId}`);
+    assert.equal(item!.conversationId, conversationId, "Phase 2-12: the incident's conversation travels on the item");
     assert.equal(item!.incidentId, (incident as { id: string }).id);
     assert.equal(item!.incidentStatus, "open");
   } finally {
@@ -900,7 +901,8 @@ test("45. completed_job_no_review_request and completed_job_no_referral_request 
     const reviewItem = data.attentionItems.find((i) => i.kind === "completed_job_no_review_request");
     assert.ok(reviewItem, "expected a completed_job_no_review_request attention item");
     assert.equal(reviewItem!.detail, "Review request still needed.");
-    assert.equal(reviewItem!.value, "$8,000", "unlike the referral kind, this one surfaces the completed job's known value");
+    // Phase 2-10 (B7): a review request no longer carries the completed job's amount - like the referral kind.
+    assert.equal(reviewItem!.value, null, "a review ask never carries a dollar value (B7)");
     assert.equal(reviewItem!.href, `/jobs/${job!.id}`);
 
     const referralItem = data.attentionItems.find((i) => i.kind === "completed_job_no_referral_request");
@@ -976,7 +978,7 @@ test("47. priority order: human_escalation (tier 1) ranks ahead of hot_lead (tie
   }
 });
 
-test("48. the 10-item cap keeps the highest-priority kind and drops only the lowest-priority overflow", async () => {
+test("48. Phase 2-1: no list-wide cap - every candidate survives, still in priority order", async () => {
   const { data: capOrg } = await service.from("organizations").insert({ name: "Dashboard Attention Test Org (Cap)" }).select("id").single();
   const capOrgId = capOrg!.id;
   try {
@@ -994,10 +996,9 @@ test("48. the 10-item cap keeps the highest-priority kind and drops only the low
 
     // 5 overdue appointments (tier 2, per-kind cap of 5) + 5 awaiting-
     // confirmation appointments (tier 2, per-kind cap of 5) + the one
-    // human_escalation above = 11 candidates competing for the global
-    // 10-item cap - exactly one must be dropped, and it must be the LAST
-    // one in priority order (the 5th awaiting_confirmation item), never
-    // the human_escalation.
+    // human_escalation above = 11 candidates. Phase 2-1 removed the old
+    // list-wide 10-item cap (it used to drop the 5th awaiting_confirmation
+    // item): all 11 must survive, and the fixed priority order must hold.
     // A single captured `now` (not a fresh Date.now() per iteration) plus a
     // 2-hour stride for each 1-hour-long appointment - guarantees a real
     // gap between every pair, so this never races the database's own
@@ -1032,10 +1033,13 @@ test("48. the 10-item cap keeps the highest-priority kind and drops only the low
     }
 
     const data = await getDashboardData(service, capOrgId);
-    assert.equal(data.attentionItems.length, 10, "the cap must still be exactly 10");
-    assert.equal(data.attentionItems.filter((i) => i.kind === "human_escalation").length, 1, "human_escalation must never be squeezed out by lower-priority overflow");
-    assert.equal(data.attentionItems.filter((i) => i.kind === "overdue_appointment").length, 5, "all 5 overdue_appointment items must survive - they rank ahead of awaiting_confirmation");
-    assert.equal(data.attentionItems.filter((i) => i.kind === "awaiting_confirmation").length, 4, "exactly 1 of the 5 awaiting_confirmation items must be dropped by the cap - the lowest-priority overflow");
+    assert.equal(data.attentionItems.length, 11, "no list-wide cap - all 11 candidates survive");
+    assert.equal(data.attentionItems.filter((i) => i.kind === "human_escalation").length, 1);
+    assert.equal(data.attentionItems.filter((i) => i.kind === "overdue_appointment").length, 5);
+    assert.equal(data.attentionItems.filter((i) => i.kind === "awaiting_confirmation").length, 5, "the 5th awaiting_confirmation item the old cap dropped is now kept");
+    const kinds = data.attentionItems.map((i) => i.kind);
+    assert.equal(kinds[0], "human_escalation", "the fixed priority order still holds");
+    assert.ok(kinds.lastIndexOf("overdue_appointment") < kinds.indexOf("awaiting_confirmation"), "overdue appointments still rank ahead of awaiting confirmation");
 
     await service.from("automation_incidents").delete().eq("id", (incident as { id: string }).id);
   } finally {

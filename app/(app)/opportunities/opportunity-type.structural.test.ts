@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { OPPORTUNITY_TYPE_ORDER, OPPORTUNITY_TYPE_LABEL, OPPORTUNITY_TYPE_ICON, OPPORTUNITY_TYPE_TONE, OPPORTUNITY_ACTION_LABEL, opportunityActionHref }: typeof import("./_components/opportunity-type") = require("./_components/opportunity-type.ts");
+const { OPPORTUNITY_TYPE_ORDER, OPPORTUNITY_TYPE_LABEL, OPPORTUNITY_TYPE_ICON, OPPORTUNITY_TYPE_TONE, OPPORTUNITY_ACTION_LABEL, opportunityActionHref, groupTotalLabel }: typeof import("./_components/opportunity-type") = require("./_components/opportunity-type.ts");
 const { TIER_BY_TYPE }: typeof import("@/lib/opportunities/intelligence") = require("../../../lib/opportunities/intelligence.ts");
 
 type Opportunity = import("@/lib/opportunities/queries").Opportunity;
@@ -56,4 +56,64 @@ test("the two invoice types land on the job page (create invoice) and the invoic
   assert.equal(OPPORTUNITY_ACTION_LABEL.invoice_overdue, "View invoice");
   assert.equal(OPPORTUNITY_TYPE_TONE.invoice_overdue, "danger");
   assert.ok(OPPORTUNITY_TYPE_ORDER.indexOf("invoice_overdue") < OPPORTUNITY_TYPE_ORDER.indexOf("qualified_lead_unbooked"), "committed revenue at risk sorts ahead of active pursuit, matching TIER_ORDER");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2-13 (§7): By type shows one total per value class, never a combined one
+// ---------------------------------------------------------------------------
+
+test("By type group header: a committed or potential group shows its class total and count; a non-monetary group shows its count only", () => {
+  assert.equal(groupTotalLabel("invoice_overdue", [makeOpportunity({ id: "a", estimatedValue: 450 }), makeOpportunity({ id: "b", contactId: "contact-2", estimatedValue: 550 })]), "$1,000 committed · 2");
+  assert.equal(groupTotalLabel("stale_estimate", [makeOpportunity({ id: "a", type: "stale_estimate", estimatedValue: 1200 }), makeOpportunity({ id: "b", type: "stale_estimate", estimatedValue: null })]), "$1,200 potential · 2", "an unknown value is not counted as $0 - it is simply not in the sum");
+  assert.equal(groupTotalLabel("qualified_lead_unbooked", [makeOpportunity({ id: "a", type: "qualified_lead_unbooked", estimatedValue: null })]), "1", "no value entered anywhere in the group: never a '$0 potential' total");
+  assert.equal(groupTotalLabel("completed_job_no_referral_request", [makeOpportunity({ id: "a", type: "completed_job_no_referral_request" })]), "1");
+  assert.equal(groupTotalLabel("dormant_customer", [makeOpportunity({ id: "a", type: "dormant_customer", estimatedValue: 900 })]), "1", "a stray value on a non-monetary type is never shown as money");
+});
+
+test("By type summary line and rows: separate committed and potential totals; a non-monetary row never says 'Unknown value'; item values render unchanged", () => {
+  const fs: typeof import("node:fs") = require("node:fs");
+  const list = fs.readFileSync(require("node:path").join(process.cwd(), "app/(app)/opportunities/_components/opportunities-list.tsx"), "utf8");
+  assert.match(list, /summary\.committed\.count > 0 \? `\$\{formatCurrency\(summary\.committed\.value\)\} committed · ` : ""/);
+  assert.match(list, /summary\.potential\.count > 0 \? `\$\{formatCurrency\(summary\.potential\.value\)\} potential · ` : ""/);
+  assert.doesNotMatch(list, /summary\.committed\.value \+ summary\.potential\.value|knownEstimatedValue/, "never one combined total");
+  assert.match(list, /OPPORTUNITY_VALUE_CLASS\[opportunity\.type\] === "non_monetary" \? null : \(/);
+  assert.match(list, /\{formatCurrency\(opportunity\.estimatedValue\)\}/, "each item's own value is shown as before");
+  assert.match(list, /const superseded = sameDealSupersededIds\(opportunities\);/);
+  assert.match(list, /\{groupTotalLabel\(type, items, superseded\)\}/, "headers use the same deal-level exclusions as the summary");
+});
+
+test("8. (Phase 2-13 correction) By type: each class's group headers add up exactly to the summary line - including a customer with several deals and a same-deal lead/estimate pair", () => {
+  const { summarizeOpportunities, sameDealSupersededIds }: typeof import("@/lib/opportunities/queries") = require("../../../lib/opportunities/queries.ts");
+  const o = (id: string, type: Opportunity["type"], contactId: string, estimatedValue: number | null, extra: Partial<Opportunity> = {}) => makeOpportunity({ id, type, contactId, estimatedValue, sourceEntityId: id, ...extra });
+  const records = [
+    o("casey-inv-4", "invoice_overdue", "casey", 3000), o("casey-inv-3", "invoice_overdue", "casey", 2000), o("blake-inv-1", "invoice_overdue", "blake", 2200),
+    o("avery-accepted", "accepted_estimate_no_job", "avery", 2500), o("avery-job", "completed_job_not_invoiced", "avery", 1500),
+    o("casey-e1", "pending_estimate", "casey", 1100, { metadata: { lead_id: "casey-lead-x" } }), o("casey-e2", "pending_estimate", "casey", 2200), o("casey-e3", "pending_estimate", "casey", 3300),
+    ...[500, 1000, 1000, 1000, 500, 500, 500].map((v, i) => o(`avery-lead-${i}`, "uncontacted_lead", "avery", v, { sourceEntityType: "lead" })),
+    // same deal: Dana's qualified lead and her own estimate - one $900 deal, not $1,300
+    o("dana-lead", "qualified_lead_unbooked", "dana", 400, { sourceEntityType: "lead" }), o("dana-est", "pending_estimate", "dana", 900, { metadata: { lead_id: "dana-lead" } }),
+    o("review-1", "completed_job_no_review_request", "casey", null), o("referral-1", "completed_job_no_referral_request", "avery", null),
+  ];
+  const summary = summarizeOpportunities(records);
+  const superseded = sameDealSupersededIds(records);
+  const headerSum = { committed: 0, potential: 0 } as Record<string, number>;
+  for (const type of new Set(records.map((r) => r.type))) {
+    const match = groupTotalLabel(type, records.filter((r) => r.type === type), superseded).match(/^\$([\d,]+) (committed|potential) · /);
+    if (match) headerSum[match[2]] += Number(match[1].replace(/,/g, ""));
+  }
+  assert.deepEqual([summary.committed.value, summary.potential.value], [11200, 12500]);
+  assert.deepEqual(headerSum, { committed: summary.committed.value, potential: summary.potential.value });
+});
+
+test("8b. (final correction) a lead group whose only value is supplied by its deal's estimate shows its count, never '$0 potential'; headers still add up when that estimate has no amount", () => {
+  const { summarizeOpportunities, sameDealSupersededIds }: typeof import("@/lib/opportunities/queries") = require("../../../lib/opportunities/queries.ts");
+  const records = [
+    makeOpportunity({ id: "l1", type: "qualified_lead_unbooked", sourceEntityType: "lead", sourceEntityId: "l1", estimatedValue: 800 }),
+    makeOpportunity({ id: "e1", type: "pending_estimate", sourceEntityType: "estimate", sourceEntityId: "e1", estimatedValue: null, metadata: { lead_id: "l1" } }),
+    makeOpportunity({ id: "e2", type: "pending_estimate", sourceEntityType: "estimate", sourceEntityId: "e2", estimatedValue: 1200 }),
+  ];
+  const superseded = sameDealSupersededIds(records);
+  assert.equal(groupTotalLabel("qualified_lead_unbooked", [records[0]], superseded), "1");
+  assert.equal(groupTotalLabel("pending_estimate", [records[1], records[2]], superseded), "$1,200 potential · 2");
+  assert.deepEqual(summarizeOpportunities(records).potential, { value: 1200, count: 3, unknownValueCount: 1 });
 });

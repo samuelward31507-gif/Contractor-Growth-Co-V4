@@ -25,6 +25,8 @@ const read = (relative: string) => fs.readFileSync(path.join(ROOT, relative), "u
 const PAGE = read("app/(app)/today/page.tsx");
 const SECTIONS = read("app/(app)/today/_components/dashboard-sections.tsx");
 const ROW = read("lib/ui/queue-row.tsx");
+const REGISTRY = read("lib/decisions/registry.ts");
+const ASSEMBLE = read("lib/decisions/assemble.ts");
 
 // ---------------------------------------------------------------------------
 // 1. Wording model
@@ -49,11 +51,12 @@ test("the attention line counts what needs the owner, and says so plainly when n
   assert.equal(model.attentionLine(7), "7 things need your attention today.");
 });
 
-test("conversations waiting: counts the awaiting_reply attention items only, and discloses the attention read's cap", () => {
-  const items = (kinds: string[]) => kinds.map((kind) => ({ kind }));
+test("conversations waiting: counts Act II's human waiting-for-reply items only, and discloses the attention read's cap", () => {
+  // Phase 2-3b (C4): the input is Act II's human items (decisions.attention).
+  const items = (codes: string[]) => codes.map((reasonCode) => ({ reasonCode }));
   assert.deepEqual(model.conversationsWaitingCount(items([])), { count: 0, capped: false });
-  assert.deepEqual(model.conversationsWaitingCount(items(["awaiting_reply", "abandoned_conversation", "human_escalation", "awaiting_reply"])), { count: 2, capped: false }, "only conversations whose last message is the customer's count - not escalations or stalled outreach");
-  assert.deepEqual(model.conversationsWaitingCount(items(Array(5).fill("awaiting_reply"))), { count: 5, capped: true });
+  assert.deepEqual(model.conversationsWaitingCount(items(["customer_awaiting_reply", "conversation_stalled", "human_escalation", "customer_awaiting_reply"])), { count: 2, capped: false }, "only conversations whose last message is the customer's count - not escalations or stalled outreach");
+  assert.deepEqual(model.conversationsWaitingCount(items(Array(5).fill("customer_awaiting_reply"))), { count: 5, capped: true });
   assert.equal(model.CONVERSATION_ATTENTION_CAP, 5, "matches dashboard_conversation_attention's own rn <= 5");
 });
 
@@ -82,6 +85,14 @@ test("Trackpr handled: one line from the customer-facing AI count, nothing claim
 const SUMMARY = { hot_lead_count: 2, quotes_out_count: 3, ready_to_schedule_count: 1, won_not_finished_count: 4, outstanding_count: 1, not_yet_invoiced_count: 2, not_yet_invoiced_unknown_count: 0 };
 const VALUES = { openLeads: "$10", quotesOut: "$20", readyToSchedule: "$30", inProgress: "$40", readyToInvoice: "$45.00", outstanding: "$50.00" };
 
+test("Phase 2-3c: 'Trackpr is handling N automatically' - only when N > 0, from decisions.trackprHandling, linking to /automations, just above the unchanged 'Trackpr handled' row", () => {
+  assert.equal(model.handlingLine(0), null, "no row when Trackpr is handling nothing");
+  assert.equal(model.handlingLine(1), "Trackpr is handling 1 automatically");
+  assert.equal(model.handlingLine(3), "Trackpr is handling 3 automatically");
+  assert.match(PAGE, /handling=\{handlingLine\(decisions\.trackprHandling\.length\)\}/, "N is the assembler's own trackprHandling - never a second calculation");
+  assert.match(SECTIONS, /\.\.\.\(handling \? \[\{ key: "handling", icon: Workflow, text: handling, href: "\/automations", action: "View automations" \}\] : \[\]\),\s*\{ key: "handled", icon: Workflow, text: handled, href: "\/automations", action: "View automations" \},/, "the same row pattern, immediately before the existing handled row, which is unchanged");
+});
+
 test("where the work stands: six current-state stages, each linking to the page and filter that owns it", () => {
   const stages = model.pipelineStages(SUMMARY, VALUES, { count: 0, value: "$0.00" });
   assert.deepEqual(stages.map((s) => [s.label, s.value, s.detail, s.href, s.tone]), [
@@ -105,8 +116,8 @@ test("Unpaid is the one money-owed figure; anything past due is its secondary de
 // 2. Page structure
 // ---------------------------------------------------------------------------
 
-test("hierarchy: needs attention, then Today, then where the work stands - nothing historical", () => {
-  const order = ["id=\"needs-attention\"", "id=\"today\"", "id=\"pipeline\""].map((marker) => PAGE.indexOf(marker));
+test("hierarchy: the three acts - what happened, what needs attention, what opportunity exists (opportunities, then where the work stands) - nothing historical", () => {
+  const order = ["id=\"today\"", "id=\"needs-attention\"", "id=\"opportunities\"", "id=\"pipeline\""].map((marker) => PAGE.indexOf(marker));
   assert.ok(order.every((index) => index > 0), `every section is present: ${order}`);
   assert.deepEqual([...order].sort((a, b) => a - b), order, "sections appear in the approved order (also the mobile stacking order)");
   assert.match(PAGE, /<h1 className=\{pageTitleClass\}>\{greeting\}<\/h1>/);
@@ -119,8 +130,9 @@ test("historical figures live on Analytics, not Today: no all-time Collected/Inv
   assert.doesNotMatch(PAGE, /"Open opportunities"|label: "Collected"|label: "Invoiced"/);
 });
 
-test("conversations waiting come from the awaiting_reply attention items, not the AI-off escalation count", () => {
-  assert.match(PAGE, /conversationsWaiting: conversationsWaitingCount\(data\.attentionItems\)/);
+test("conversations waiting come from Act II's human items (Phase 2-3b), not the raw attention list or the AI-off escalation count", () => {
+  assert.match(PAGE, /conversationsWaiting: conversationsWaitingCount\(decisions\.attention\)/);
+  assert.match(PAGE, /const decisions = assembleDecisions\([\s\S]*conversationsWaiting: conversationsWaitingCount\(decisions\.attention\)/, "computed after the assembler, from its human Act II items");
   assert.doesNotMatch(PAGE, /aiEscalationsCount/);
 });
 
@@ -138,7 +150,12 @@ test("data: the organization timezone first, then one batch of reads sharing the
     "scheduleOpportunitySync(supabase, membership.organizationId)",
   ];
   for (const call of calls) assert.ok(batch.includes(call), `batch still contains ${call}`);
-  assert.equal((batch.match(/\(supabase, membership\.organizationId/g) ?? []).length, calls.length, "no read was added to the batch");
+  // Phase 2-3 (approved B5): the one added read - the decision context -
+  // chained onto the request-memoized dashboard read inside this same
+  // batch, so it adds no await and never re-reads the dashboard.
+  const decisionContext = "getDashboardSqlData(supabase, membership.organizationId).then((dashboard) => getDecisionContext(supabase, membership.organizationId, { attentionItems: dashboard.attentionItems, timeZone: timeZone ?? null }))";
+  assert.ok(batch.includes(decisionContext), "the decision context is chained onto the cached dashboard read");
+  assert.equal((batch.match(/\(supabase, membership\.organizationId/g) ?? []).length, calls.length + 2, "nothing else was added: the existing reads plus the chained dashboard (cached) and decision-context calls");
   assert.match(PAGE, /const timeZone = await getOrganizationTimezone\(supabase, membership\.organizationId\);[\s\S]*const dayBounds = organizationDayBounds\(briefingNow, timeZone \?\? "UTC"\);[\s\S]*await Promise\.all\(\[/, "the timezone is read before the batch so every day-scoped read uses the organization's day");
   assert.equal((PAGE.match(/await /g) ?? []).length, 5, "only searchParams, the request client, the membership, the timezone and the one batch are awaited");
   assert.doesNotMatch(PAGE, /\.from\(|\.rpc\(|getOrganizationHealth|getBusinessMetricsSnapshot/);
@@ -163,9 +180,13 @@ test("every money figure comes from the loaded summary through its existing form
 });
 
 test("actions: every attention row, today figure and pipeline stage is a real link with a specific label", () => {
-  assert.match(PAGE, /secondaryLabel=\{entry\.secondaryLabel\}/);
-  assert.match(PAGE, /secondaryLabel="Review"/);
-  assert.match(PAGE, /secondaryLabel: kind === "awaiting_reply" \? "Open conversation" : "View"/);
+  // Phase 2-2: every Today row - exception, attention, opportunity - renders
+  // through one DecisionRow, its button resolved from the registry
+  // (labels and links pinned in lib/decisions/registry.test.ts).
+  assert.match(PAGE, /secondaryHref=\{item\.nextAction\.href\}\s*secondaryLabel=\{item\.nextAction\.label\}/);
+  assert.equal((PAGE.match(/<QueueRow\b/g) ?? []).length, 1, "one row component for every Today row");
+  assert.match(REGISTRY, /human_escalation: \{ problemLabel: "Needs a human", actionLabel: "Review"/);
+  assert.match(REGISTRY, /customer_awaiting_reply: \{ problemLabel: "Waiting on a reply", actionLabel: "Open conversation"/);
   assert.match(SECTIONS, /<Link\s+key=\{figure\.key\}\s+href=\{figure\.href\}/);
   assert.match(SECTIONS, /href=\{stage\.href\}/);
   assert.match(PAGE, /<SectionLink href="\/money">Open Money<\/SectionLink>/, "the money-owed figure keeps its way into Money");
@@ -173,9 +194,41 @@ test("actions: every attention row, today figure and pipeline stage is a real li
   assert.match(PAGE, /<ShowAllLink href="\/today\?all=1" count=\{totalNeedingAttention\} \/>/);
 });
 
-test("the Opportunities view (/today?view=by-type) still renders the full grouped list", () => {
+test("attention and opportunity split the existing priority order by tier - nothing re-detected - and one attention count drives the header, Act II and \"You're all caught up\"", () => {
+  // Phase 2-2: the split and the count now live in the pure assembler
+  // (behavior pinned in lib/decisions/assemble.test.ts); Today reads them.
+  assert.match(ASSEMBLE, /export const OPPORTUNITY_TIERS: ReadonlySet<PriorityTier> = new Set\(\["recoverable", "growth"\]\);/);
+  // Phase 2-12: the signal input is the attention list minus waiting-reply items whose conversation has a human escalation -
+  // exactly input.attentionItems when no escalation names a conversation. The queue itself is unchanged.
+  assert.match(ASSEMBLE, /buildPriorityQueue\(input\.prioritizedOpportunities, getConversationSignals\(signalSource\)\)/, "the unchanged queue, same inputs, same order");
+  assert.match(ASSEMBLE, /const signalSource = escalatedConversationIds\.size === 0 \? input\.attentionItems : input\.attentionItems\.filter\(/);
+  assert.match(ASSEMBLE, /totalNeedingAttention: exceptions\.length \+ attention\.length/);
+  assert.match(PAGE, /const decisions = assembleDecisions\(\{ attentionItems: data\.attentionItems, prioritizedOpportunities, context: decisionContext \}\);/);
+  assert.match(PAGE, /const totalNeedingAttention = decisions\.totalNeedingAttention;/);
+  assert.match(PAGE, /attentionLine\(totalNeedingAttention\)/);
+  assert.match(PAGE, /\{totalNeedingAttention === 0 \? \(\s*<div className="px-5 py-10 text-center">\s*<p className="text-sm font-medium text-ink">You&apos;re all caught up\.<\/p>/);
+  assert.equal((PAGE.match(/You&apos;re all caught up/g) ?? []).length, 1, "one caught-up state, in Act II");
+  const attention = PAGE.slice(PAGE.indexOf('id="needs-attention"'), PAGE.indexOf('id="opportunities"'));
+  assert.doesNotMatch(attention, /TodayViewTabs|OpportunitiesList/, "the attention act has no tabs to hunt through");
+});
+
+test("the Opportunities view (/today?view=by-type#opportunities) still renders the full grouped list, inside the third act", () => {
+  assert.match(PAGE, /<DashboardSection id="opportunities" title="Opportunities" action=\{<TodayViewTabs active=\{view\} opportunityCount=\{openOpportunities\.length\} \/>\}>/);
+  assert.match(read("app/(app)/today/_components/today-view-tabs.tsx"), /href: "\/today#opportunities"[\s\S]*href: "\/today\?view=by-type#opportunities"/);
+  assert.match(PAGE, /<ShowAllLink href="\/today\?view=by-type#opportunities" count=\{openOpportunities\.length\} \/>/);
   assert.match(PAGE, /return value === "by-type" \? "by-type" : "priority";/);
   assert.match(PAGE, /<OpportunitiesList opportunities=\{openOpportunities\} failed=\{opportunitiesResult\.failed\} \/>/);
+});
+
+test("a fresh load of #opportunities lands on Act III: the section mounts a client scroll that runs only for its own fragment", () => {
+  const SCROLL = read("app/(app)/today/_components/scroll-to-anchor-on-load.tsx");
+  assert.match(SCROLL, /^"use client";/);
+  assert.match(SCROLL, /useEffect\(\(\) => \{\s*if \(window\.location\.hash !== `#\$\{id\}`\) return;\s*document\.getElementById\(id\)\?\.scrollIntoView\(\{ block: "start" \}\);\s*\}, \[id\]\);/);
+  assert.match(SCROLL, /return null;/, "renders nothing");
+  const act3 = PAGE.slice(PAGE.indexOf('<DashboardSection id="opportunities"'), PAGE.indexOf("</DashboardSection>", PAGE.indexOf('<DashboardSection id="opportunities"')));
+  assert.match(act3, /<ScrollToAnchorOnLoad id="opportunities" \/>/, "inside Act III, so it mounts only once that section has streamed in");
+  assert.equal((PAGE.match(/<ScrollToAnchorOnLoad /g) ?? []).length, 1);
+  assert.match(read("app/(app)/opportunities/page.tsx"), /redirect\("\/today\?view=by-type#opportunities"\)/, "the redirect target is unchanged");
 });
 
 test("vertical: the estimates/jobs/invoices pipeline only renders for a contractor organization", () => {

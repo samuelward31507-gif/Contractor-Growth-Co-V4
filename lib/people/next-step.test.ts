@@ -20,22 +20,44 @@ const { findPersonNextStep }: typeof import("./next-step") = require("./next-ste
 
 const NOW = new Date("2026-01-15T12:00:00.000Z").getTime();
 
-const emptyParams = { leads: [] as Lead[], appointments: [] as Appointment[], estimates: [] as Estimate[], jobs: [] as Job[], conversations: [] as Conversation[], now: NOW };
+const emptyParams = { leads: [] as Lead[], appointments: [] as Appointment[], estimates: [] as Estimate[], jobs: [] as Job[], conversations: [] as Conversation[], waitingConversationIds: new Set<string>(), now: NOW };
 
 test("a conversation waiting for a human reply outranks everything else", () => {
   const result = findPersonNextStep({
     ...emptyParams,
     conversations: [{ id: "c1", status: "open", ai_enabled: false }] as unknown as Conversation[],
+    waitingConversationIds: new Set(["c1"]),
     appointments: [{ id: "a1", status: "scheduled", start_at: "2026-02-01T00:00:00.000Z" }] as unknown as Appointment[],
   });
   assert.equal(result?.href, "/conversations/c1");
   assert.equal(result?.attention, true);
 });
 
-test("an AI-handled open conversation does not count as waiting for a human", () => {
+// Phase 2-13 (§3): waiting = the latest customer message is inbound with no successful outbound after it.
+// Whether AI is on no longer decides it (this replaces the earlier AI-off test).
+test("an open AI-off conversation the business has already answered is not waiting", () => {
+  const result = findPersonNextStep({
+    ...emptyParams,
+    conversations: [{ id: "c1", status: "open", ai_enabled: false }] as unknown as Conversation[],
+  });
+  assert.equal(result, null);
+});
+
+test("an open AI-on conversation whose latest customer message is unanswered is waiting", () => {
   const result = findPersonNextStep({
     ...emptyParams,
     conversations: [{ id: "c1", status: "open", ai_enabled: true }] as unknown as Conversation[],
+    waitingConversationIds: new Set(["c1"]),
+  });
+  assert.equal(result?.href, "/conversations/c1");
+  assert.equal(result?.label, "Needs your attention");
+});
+
+test("a closed conversation is never waiting, and another contact's waiting conversation does not apply", () => {
+  const result = findPersonNextStep({
+    ...emptyParams,
+    conversations: [{ id: "c1", status: "closed", ai_enabled: false }] as unknown as Conversation[],
+    waitingConversationIds: new Set(["c1", "someone-else"]),
   });
   assert.equal(result, null);
 });
@@ -142,6 +164,7 @@ test("a waiting conversation still outranks a completed job's open balance", () 
     jobs: completedJob(),
     invoices: [invoice({})],
     conversations: [{ id: "c1", status: "open", ai_enabled: false }] as unknown as Conversation[],
+    waitingConversationIds: new Set(["c1"]),
     now: OCT_10,
   });
   assert.equal(result?.href, "/conversations/c1");

@@ -11,6 +11,7 @@ import { getInvoices } from "@/lib/invoices/queries";
 import { deriveContactLifecycle, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
 import { summarizeOpenLeadValue } from "@/lib/contacts/open-lead-value";
 import { findPersonNextStep, type NextStep } from "@/lib/people/next-step";
+import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import Link from "next/link";
 import { PageHeader } from "@/lib/ui/page-header";
 import { getTerminology } from "@/lib/verticals/terminology";
@@ -103,7 +104,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     redirect("/onboarding");
   }
 
-  const [allContacts, leads, estimates, jobs, appointments, reviewRequests, conversations, invoices] = await Promise.all([
+  const [allContacts, leads, estimates, jobs, appointments, reviewRequests, conversations, invoices, waiting] = await Promise.all([
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getEstimates(supabase, membership.organizationId),
@@ -115,6 +116,8 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     // like estimates/jobs, so a completed job's next step can read its live
     // invoice ("Collect payment" / "Create invoice") - see lib/people/next-step.ts.
     getInvoices(supabase, membership.organizationId),
+    // Phase 2-13 (§3): one paged org read of the conversations waiting on the business.
+    getWaitingConversationIds(supabase, membership.organizationId),
   ]);
   const lifecycleByContactId = new Map<string, ContactLifecycleStage>(
     allContacts.map((contact) => [contact.id, deriveContactLifecycle(contact.id, { leads, estimates, jobs, appointments, reviewRequests })]),
@@ -154,6 +157,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
         estimates: estimatesByContactId.get(contact.id) ?? [],
         jobs: jobsByContactId.get(contact.id) ?? [],
         conversations: conversationsByContactId.get(contact.id) ?? [],
+        waitingConversationIds: waiting.ids,
         invoices: invoicesByContactId.get(contact.id) ?? [],
       }),
     );

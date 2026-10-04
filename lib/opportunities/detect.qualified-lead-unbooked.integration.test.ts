@@ -212,3 +212,67 @@ test("7. estimatedValue/valueBasis are never fabricated - null stays null, a rea
     await cleanupOrg(orgId);
   }
 });
+
+// Phase 2-7 (A10): the contact fallback on real rows - an appointment with no
+// lead_id books a qualified lead only for the same contact and only when it
+// starts at or after the lead was created.
+let leadlessSlot = 0;
+async function makeLeadlessAppointment(orgId: string, contactId: string | null, daysFromNow: number, status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show", leadId: string | null = null) {
+  leadlessSlot += 1;
+  const start = new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000 + leadlessSlot * 60 * 60 * 1000);
+  const end = new Date(start.getTime() + 30 * 60 * 1000);
+  const { error } = await service.from("appointments").insert({ organization_id: orgId, contact_id: contactId, lead_id: leadId, title: "Lead-less visit", start_at: start.toISOString(), end_at: end.toISOString(), status });
+  assert.ifError(error);
+}
+
+test("8. (Phase 2-7, A10) a lead-less appointment for the same contact after the lead was created books it - scheduled and completed", async () => {
+  const orgId = await makeOrg("Qualified Unbooked Test Org (8)");
+  try {
+    const scheduledContact = await makeContact(orgId, "+15555720111");
+    const scheduledLead = await makeQualifiedLead(orgId, scheduledContact);
+    await makeLeadlessAppointment(orgId, scheduledContact, 3, "scheduled");
+    const completedContact = await makeContact(orgId, "+15555720112");
+    const completedLead = await makeQualifiedLead(orgId, completedContact);
+    await makeLeadlessAppointment(orgId, completedContact, 0.01, "completed");
+
+    const candidates = await detectAllOpportunityCandidates(service, orgId);
+    assert.equal(isCandidate(candidates, scheduledLead), false);
+    assert.equal(isCandidate(candidates, completedLead), false, "completed still counts as booked (L5)");
+  } finally {
+    await cleanupOrg(orgId);
+  }
+});
+
+test("9. (Phase 2-7, A10) a lead-less appointment from before the lead existed, for another contact, or cancelled / no-show does not book it", async () => {
+  const orgId = await makeOrg("Qualified Unbooked Test Org (9)");
+  try {
+    const contactId = await makeContact(orgId, "+15555720113");
+    const otherContact = await makeContact(orgId, "+15555720114");
+    const leadId = await makeQualifiedLead(orgId, contactId);
+    await makeLeadlessAppointment(orgId, contactId, -30, "completed");
+    await makeLeadlessAppointment(orgId, otherContact, 3, "scheduled");
+    await makeLeadlessAppointment(orgId, contactId, 4, "cancelled");
+    await makeLeadlessAppointment(orgId, contactId, -0.5, "no_show");
+
+    const candidates = await detectAllOpportunityCandidates(service, orgId);
+    assert.equal(isCandidate(candidates, leadId), true);
+  } finally {
+    await cleanupOrg(orgId);
+  }
+});
+
+test("10. (Phase 2-7) an appointment linked to a different lead never books this lead, even for the same contact", async () => {
+  const orgId = await makeOrg("Qualified Unbooked Test Org (10)");
+  try {
+    const contactId = await makeContact(orgId, "+15555720115");
+    const leadId = await makeQualifiedLead(orgId, contactId);
+    const { data: other, error } = await service.from("leads").insert({ organization_id: orgId, contact_id: contactId, status: "won", temperature: "warm", source: "website" }).select("id").single();
+    assert.ifError(error);
+    await makeLeadlessAppointment(orgId, contactId, 3, "scheduled", other!.id);
+
+    const candidates = await detectAllOpportunityCandidates(service, orgId);
+    assert.equal(isCandidate(candidates, leadId), true);
+  } finally {
+    await cleanupOrg(orgId);
+  }
+});

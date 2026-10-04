@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
 
@@ -128,8 +129,13 @@ export type OpenOpportunitiesResult = { data: Opportunity[]; failed: boolean };
  * the exact same query, just with its error observed instead of discarded.
  * Every other, lower-stakes caller (Dashboard, Contact Detail) keeps using
  * getOpenOpportunities below unchanged.
+ *
+ * Phase 2-4: request-memoized (React.cache, keyed on the request's Supabase
+ * client) so Today's page, getPrioritizedOpportunities and the decision
+ * context share one read instead of each paging through it. Outside a
+ * server request it is a plain pass-through.
  */
-export async function getOpenOpportunitiesResult(supabase: SupabaseClient, organizationId: string): Promise<OpenOpportunitiesResult> {
+export const getOpenOpportunitiesResult = cache(async (supabase: SupabaseClient, organizationId: string): Promise<OpenOpportunitiesResult> => {
   // Phase 3A-4: every open opportunity, paged (readAllPages) - the old single
   // read capped at 500 rows silently dropped the oldest open opportunities from the
   // summary totals and per-contact lists. Newest first with id as the
@@ -141,19 +147,95 @@ export async function getOpenOpportunitiesResult(supabase: SupabaseClient, organ
   );
 
   return { data: read.failed ? [] : read.rows.map(normalizeOpportunity), failed: read.failed };
-}
+});
 
 /** Every currently-open opportunity for the org, newest first - the primary read for both the dashboard summary and the Attention Engine. */
 export async function getOpenOpportunities(supabase: SupabaseClient, organizationId: string): Promise<Opportunity[]> {
   return (await getOpenOpportunitiesResult(supabase, organizationId)).data;
 }
 
+/**
+ * Phase 2-13 (§7, A12): the three value classes - never added together.
+ *   committed     - money owed or contractually agreed: an overdue invoice's
+ *                   balance, a completed job's amount, an accepted estimate.
+ *   potential     - money that could be won: a sent or expired estimate's
+ *                   amount, a lead's estimated value.
+ *   non_monetary  - no honest dollar figure (reviews, referrals, no-shows,
+ *                   cancellations, dormant customers, a visit with no
+ *                   estimate) - never shown or counted as a missing value.
+ */
+export type OpportunityValueClass = "committed" | "potential" | "non_monetary";
+
+export const OPPORTUNITY_VALUE_CLASS: Record<OpportunityType, OpportunityValueClass> = {
+  invoice_overdue: "committed",
+  completed_job_not_invoiced: "committed",
+  accepted_estimate_no_job: "committed",
+  pending_estimate: "potential",
+  stale_estimate: "potential",
+  uncontacted_lead: "potential",
+  qualified_lead_unbooked: "potential",
+  active_lead_signal: "potential",
+  completed_job_no_review_request: "non_monetary",
+  completed_job_no_referral_request: "non_monetary",
+  no_show: "non_monetary",
+  cancelled_appointment_no_rebooking: "non_monetary",
+  dormant_customer: "non_monetary",
+  completed_appointment_no_estimate: "non_monetary",
+};
+
+/**
+ * §7 "no double counting", at the level of the DEAL - never the customer
+ * (Phase 2-13 correction). Same deal: deduplicate. Same customer, different
+ * deal: count separately. Contact identity is never a dedup key.
+ *
+ * Committed needs no rule here: the detectors make one deal's committed
+ * records mutually exclusive (accepted_estimate_no_job only while the
+ * estimate has no job; completed_job_not_invoiced only while the job has no
+ * live invoice; invoice_overdue only with one), so every committed record is
+ * its own revenue.
+ *
+ * Potential: a lead-level record (uncontacted / qualified / active lead) is
+ * the same deal as a pending estimate for that same lead - linked explicitly
+ * by the estimate's metadata.lead_id - and the estimate, the more advanced
+ * record, supplies the value. The link is the deal's identity, so it holds
+ * whether or not the estimate has an amount: with no amount the deal stays
+ * unknown-valued (counted as unknown, never as $0) rather than falling back
+ * to the lead's figure. (The detectors already suppress most of these pairs;
+ * this keeps the totals right whatever is stored.) A stale (expired)
+ * estimate carries no lead link, so it is never matched to a lead.
+ */
+const LEAD_LEVEL_TYPES = new Set<OpportunityType>(["uncontacted_lead", "qualified_lead_unbooked", "active_lead_signal"]);
+
+/** Ids of the opportunities whose value is already counted through a more advanced record of the same deal. */
+export function sameDealSupersededIds(opportunities: Opportunity[]): Set<string> {
+  const leadIdsWithEstimate = new Set<string>();
+  for (const opportunity of opportunities) {
+    const leadId = opportunity.metadata.lead_id;
+    if (opportunity.type === "pending_estimate" && typeof leadId === "string") leadIdsWithEstimate.add(leadId);
+  }
+  const superseded = new Set<string>();
+  for (const opportunity of opportunities) {
+    if (LEAD_LEVEL_TYPES.has(opportunity.type) && opportunity.sourceEntityType === "lead" && leadIdsWithEstimate.has(opportunity.sourceEntityId)) superseded.add(opportunity.id);
+  }
+  return superseded;
+}
+
+export type OpportunityClassTotal = {
+  /** SUM(estimated_value) of the class's opportunities with a value, each deal counted once (sameDealSupersededIds) - real dollars, never a fabricated figure. */
+  value: number;
+  /** Open opportunities of this class. */
+  count: number;
+  /** Of those, how many have no value entered - shown distinctly, never treated as $0. */
+  unknownValueCount: number;
+};
+
 export type OpportunitySummary = {
   count: number;
-  /** SUM(estimated_value) over open opportunities with a non-null value - real dollars only, never a fabricated figure standing in for the unknown-value ones. */
-  knownEstimatedValue: number;
-  /** Count of open opportunities whose estimated_value is NULL - the UI must show this distinctly from knownEstimatedValue, never silently drop it or imply it's worth $0. */
-  unknownValueCount: number;
+  /** Phase 2-13 (§7): one total per class, never one combined figure. */
+  committed: OpportunityClassTotal;
+  potential: OpportunityClassTotal;
+  /** Non-monetary opportunities: no value dimension, never counted as missing a value. */
+  nonMonetaryCount: number;
   byType: Record<OpportunityType, number>;
 };
 
@@ -176,20 +258,30 @@ const EMPTY_BY_TYPE: Record<OpportunityType, number> = {
 
 /** Summarizes an already-fetched open-opportunity list - kept as a pure function (no I/O) so it's directly unit-testable with controlled input, matching this codebase's established pure/impure split. */
 export function summarizeOpportunities(opportunities: Opportunity[]): OpportunitySummary {
-  let knownEstimatedValue = 0;
-  let unknownValueCount = 0;
   const byType: Record<OpportunityType, number> = { ...EMPTY_BY_TYPE };
+  const committed: OpportunityClassTotal = { value: 0, count: 0, unknownValueCount: 0 };
+  const potential: OpportunityClassTotal = { value: 0, count: 0, unknownValueCount: 0 };
+  let nonMonetaryCount = 0;
+
+  const superseded = sameDealSupersededIds(opportunities);
 
   for (const opportunity of opportunities) {
     byType[opportunity.type] += 1;
-    if (opportunity.estimatedValue != null) {
-      knownEstimatedValue += opportunity.estimatedValue;
-    } else {
-      unknownValueCount += 1;
+    const valueClass = OPPORTUNITY_VALUE_CLASS[opportunity.type];
+    if (valueClass === "non_monetary") {
+      nonMonetaryCount += 1;
+      continue;
     }
+    const total = valueClass === "committed" ? committed : potential;
+    total.count += 1;
+    if (opportunity.estimatedValue == null) {
+      total.unknownValueCount += 1;
+      continue;
+    }
+    if (!superseded.has(opportunity.id)) total.value += opportunity.estimatedValue;
   }
 
-  return { count: opportunities.length, knownEstimatedValue, unknownValueCount, byType };
+  return { count: opportunities.length, committed, potential, nonMonetaryCount, byType };
 }
 
 /** Scoped to the org, matching every other single-row lookup in this codebase - any error (invalid id, wrong org) resolves to null rather than throwing. */

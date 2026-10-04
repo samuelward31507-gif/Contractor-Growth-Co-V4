@@ -33,19 +33,9 @@ import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status"
 import { ContactActions } from "./_components/contact-actions";
 import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contacts/open-lead-value";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+// Phase 2-13 (D3): the shared registry labels - every type, never a raw code.
+import { OPPORTUNITY_TYPE_LABEL } from "@/lib/decisions/registry";
 
-const OPPORTUNITY_TYPE_LABELS: Record<string, string> = {
-  qualified_lead_unbooked: "Qualified, not booked",
-  stale_estimate: "Estimate expired",
-  completed_appointment_no_estimate: "Visited, no estimate",
-  dormant_customer: "Dormant",
-  no_show: "No-show",
-  completed_job_no_referral_request: "No referral request yet",
-  uncontacted_lead: "Uncontacted lead",
-  accepted_estimate_no_job: "Accepted estimate - job not scheduled",
-  completed_job_not_invoiced: "Completed, not invoiced",
-  invoice_overdue: "Invoice overdue",
-};
 
 const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [item.value, item.label]));
 
@@ -251,7 +241,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
               <div>
                 <p className="text-xs font-medium text-ink-3">What happens next</p>
                 <p className="text-sm font-semibold text-ink">
-                  {OPPORTUNITY_TYPE_LABELS[openOpportunities[0].type] ?? openOpportunities[0].type}
+                  {OPPORTUNITY_TYPE_LABEL[openOpportunities[0].type]}
                 </p>
                 {openOpportunities[0].estimatedValue != null ? (
                   <p className="text-xs text-ink-3">{formatCurrency(openOpportunities[0].estimatedValue)}</p>
@@ -481,7 +471,7 @@ export default async function ContactDetailPage({ params }: PageProps<"/contacts
                     <dd className={`${detailValueClass} space-y-1`}>
                       {openOpportunities.map((opportunity) => (
                         <span key={opportunity.id} className="block text-sm font-normal text-ink-2">
-                          {OPPORTUNITY_TYPE_LABELS[opportunity.type] ?? opportunity.type}
+                          {OPPORTUNITY_TYPE_LABEL[opportunity.type]}
                           {opportunity.estimatedValue != null ? ` · ${formatCurrency(opportunity.estimatedValue)}` : ""}
                         </span>
                       ))}

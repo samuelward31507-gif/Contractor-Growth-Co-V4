@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, LayoutDashboard, Hammer, Inbox, Menu, Users, X, LogOut, type LucideIcon } from "lucide-react";
+import { BarChart3, CalendarDays, LayoutDashboard, Menu, Users, Wallet, X, LogOut, type LucideIcon } from "lucide-react";
 import type { OrganizationVertical } from "@/lib/auth/organization";
 import { getNavGroupsForVertical, resolveActiveNavItem, type NavItem } from "./nav-items";
 import { NavLink } from "./nav-link";
@@ -13,30 +13,31 @@ const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-i
 
 /**
  * A bottom tab: either one nav destination (`href`) or a whole group
- * (`groupId` - Schedule stays lit on Calendar and Appointments alike).
+ * (`groupId` - People stays lit on Contacts, Leads and Inbox alike).
  */
 type Tab = { label: string; icon: LucideIcon; href: string; groupId?: string };
 
 /**
- * The four destinations a contractor reaches for most on a phone - today's
- * picture, customer messages, the day's schedule, the work itself - in
- * reach of a thumb; everything else is one tap away in the More sheet.
- * A vertical without Jobs (gym) gets its member list in that slot.
+ * The same primary IA as the desktop sidebar - Today, People, Money,
+ * Schedule - in reach of a thumb, with Insights and every secondary area
+ * one tap away in the More sheet. Each group tab opens the group's first
+ * destination and stays lit anywhere inside the group. A vertical without
+ * the Money group (gym) gets Insights in that slot.
  */
-function tabsFor(vertical: OrganizationVertical, contactsLabel: string): Tab[] {
+function tabsFor(vertical: OrganizationVertical): Tab[] {
   return [
     { label: "Today", icon: LayoutDashboard, href: "/today" },
-    { label: "Inbox", icon: Inbox, href: "/conversations" },
+    { label: "People", icon: Users, href: "/people", groupId: "people" },
+    vertical === "contractor" ? { label: "Money", icon: Wallet, href: "/money", groupId: "money" } : { label: "Insights", icon: BarChart3, href: "/insights", groupId: "insights" },
     { label: "Schedule", icon: CalendarDays, href: "/schedule", groupId: "schedule" },
-    vertical === "contractor" ? { label: "Jobs", icon: Hammer, href: "/jobs" } : { label: contactsLabel, icon: Users, href: "/people" },
   ];
 }
 
 /**
  * Trackpr 2.0 (step 2C): the light mobile navigation - a white bottom tab
  * bar in the same quiet system as the desktop sidebar, and a More sheet
- * that shows the complete grouped IA (Customers, Schedule, Work, Growth,
- * Insights, then Settings / Agency Command Center and the account), so
+ * that shows the complete grouped IA (People, Money, Schedule, Insights,
+ * More, then Settings / Agency Command Center and the account), so
  * nothing reachable on desktop is out of reach on a phone. Driven by the
  * same getNavGroupsForVertical + resolveActiveNavItem as the sidebar, so
  * the two surfaces can never disagree.
@@ -59,8 +60,7 @@ export function MobileTabBar({
   const allItems = groups.flatMap((group) => group.items);
   const activeItem = resolveActiveNavItem(allItems, location);
   const activeGroupId = groups.find((group) => activeItem && group.items.includes(activeItem))?.id;
-  const contactsLabel = allItems.find((item) => item.href === "/people")?.label ?? "Contacts";
-  const tabs = tabsFor(vertical, contactsLabel);
+  const tabs = tabsFor(vertical);
 
   const isTabActive = (tab: Tab) => (tab.groupId ? activeGroupId === tab.groupId : activeItem?.href === tab.href);
   const menuActive = activeItem !== null && !tabs.some(isTabActive);

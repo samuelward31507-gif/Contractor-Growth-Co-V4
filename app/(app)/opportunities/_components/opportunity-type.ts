@@ -16,7 +16,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { BadgeTone } from "@/lib/ui/badge";
-import type { Opportunity, OpportunityType } from "@/lib/opportunities/queries";
+import { OPPORTUNITY_VALUE_CLASS, sameDealSupersededIds, type Opportunity, type OpportunityType } from "@/lib/opportunities/queries";
+import { formatCurrency } from "@/lib/dashboard/format";
 
 /**
  * Trackpr 2.0, Phase 3F: the presentation-only layer for the 10 opportunity
@@ -57,22 +58,6 @@ export const OPPORTUNITY_TYPE_ORDER: OpportunityType[] = [
   "completed_job_no_referral_request",
 ];
 
-export const OPPORTUNITY_TYPE_LABEL: Record<OpportunityType, string> = {
-  uncontacted_lead: "Never contacted",
-  qualified_lead_unbooked: "Qualified, not booked",
-  accepted_estimate_no_job: "Accepted, no job yet",
-  stale_estimate: "Estimate expired",
-  completed_appointment_no_estimate: "Visit completed, no estimate",
-  no_show: "Missed appointment",
-  cancelled_appointment_no_rebooking: "Cancelled, not rebooked",
-  dormant_customer: "Dormant customer",
-  completed_job_no_review_request: "Review request needed",
-  completed_job_no_referral_request: "Referral request needed",
-  active_lead_signal: "Marked hot or high-value",
-  pending_estimate: "Estimate sent, awaiting reply",
-  completed_job_not_invoiced: "Completed, not invoiced",
-  invoice_overdue: "Invoice overdue",
-};
 
 export const OPPORTUNITY_TYPE_ICON: Record<OpportunityType, LucideIcon> = {
   uncontacted_lead: PhoneMissed,
@@ -109,80 +94,28 @@ export const OPPORTUNITY_TYPE_TONE: Record<OpportunityType, BadgeTone> = {
 };
 
 /**
- * The one action target per type - reuses exactly the same canonical
- * destinations Phase 3C/3D/3E already established (People, Schedule's list
- * view, Estimates), or, for the job/estimate-sourced types, the real
- * existing detail route via the opportunity's own sourceEntityId - the exact
- * same deep-link Dashboard's own attention items already use for the two
- * job-sourced types (lib/dashboard/queries.ts). Never a new route, never a
- * fabricated relationship - every href below is either a canonical
- * destination this redesign already shipped, or data the Opportunity Engine
- * already provides on the opportunity itself.
- *
- * Final Major Product Build (nav-restructure follow-up): accepted_estimate_
- * no_job/stale_estimate/pending_estimate used to all point at the generic
- * /money browse view - a real destination, but a dead end relative to the
- * specific record the opportunity is actually about, and stale now that
- * Estimates is its own nav destination rather than Money. These three now
- * deep-link straight to the real estimate record (sourceEntityId for the
- * first two; pending_estimate's own sourceEntityId is deliberately the
- * LEAD's id - see detectPendingEstimates's own comment in
- * lib/opportunities/detect.ts - so its real estimate id is read from
- * metadata.estimate_id, which that same detector always sets).
- * completed_appointment_no_estimate's own action is labeled "Create
- * estimate" (OPPORTUNITY_ACTION_LABEL below) but used to land on a page with
- * no create affordance for this specific customer - it now opens the real
- * create-estimate dialog on /estimates pre-filled with this contact (see
- * AddEstimateButton's own contactId query-param support), so the label is
- * no longer aspirational.
+ * Phase 2-2: the problem labels, action labels and action links now live in
+ * the single next-action registry (lib/decisions/registry.ts). Re-exported
+ * here, unchanged, for the By type list and every existing importer.
  */
-export function opportunityActionHref(opportunity: Opportunity): string {
-  switch (opportunity.type) {
-    case "uncontacted_lead":
-    case "qualified_lead_unbooked":
-    case "active_lead_signal":
-      return opportunity.contactId ? `/people/${opportunity.contactId}` : "/people";
-    case "accepted_estimate_no_job":
-    case "stale_estimate":
-      return `/estimates/${opportunity.sourceEntityId}`;
-    case "pending_estimate": {
-      const estimateId = opportunity.metadata.estimate_id;
-      return typeof estimateId === "string" ? `/estimates/${estimateId}` : "/estimates";
-    }
-    case "completed_appointment_no_estimate":
-      return opportunity.contactId ? `/estimates?new=estimate&contactId=${opportunity.contactId}` : "/estimates";
-    case "no_show":
-    case "cancelled_appointment_no_rebooking":
-      return "/schedule?view=list";
-    case "dormant_customer":
-      return opportunity.contactId ? `/people/${opportunity.contactId}` : "/people";
-    case "completed_job_no_review_request":
-    case "completed_job_no_referral_request":
-    // Phase 1B-5: the job page owns the Create-invoice affordance.
-    case "completed_job_not_invoiced":
-      return `/jobs/${opportunity.sourceEntityId}`;
-    case "invoice_overdue": {
-      // Sourced from the job (the stable dedup key); the invoice id travels
-      // in metadata exactly like pending_estimate's estimate id.
-      const invoiceId = opportunity.metadata.invoice_id;
-      return typeof invoiceId === "string" ? `/invoices/${invoiceId}` : "/money?browse=invoices&status=overdue";
-    }
-  }
-}
+export { OPPORTUNITY_TYPE_LABEL, OPPORTUNITY_ACTION_LABEL, opportunityActionHref } from "@/lib/decisions/registry";
 
-export const OPPORTUNITY_ACTION_LABEL: Record<OpportunityType, string> = {
-  uncontacted_lead: "View lead",
-  qualified_lead_unbooked: "View lead",
-  accepted_estimate_no_job: "View estimate",
-  stale_estimate: "View estimate",
-  completed_appointment_no_estimate: "Create estimate",
-  no_show: "View schedule",
-  cancelled_appointment_no_rebooking: "View schedule",
-  dormant_customer: "View customer",
-  completed_job_no_review_request: "View job",
-  completed_job_no_referral_request: "View job",
-  active_lead_signal: "View lead",
-  pending_estimate: "View estimate",
-  completed_job_not_invoiced: "Create invoice",
-  invoice_overdue: "View invoice",
-};
+/**
+ * Phase 2-13 (§7): a By type group's header - its class's money total (every
+ * type has exactly one class, so a group never mixes committed and
+ * potential) and its count. Non-monetary groups, and groups that contribute
+ * no value (none entered, or all supplied by the deal's estimate), show the
+ * count only - never a "$0" total.
+ * `superseded` is the whole list's same-deal exclusions
+ * (sameDealSupersededIds), so the headers of one class always add up to the
+ * summary line's total for that class.
+ */
+export function groupTotalLabel(type: OpportunityType, items: Opportunity[], superseded: ReadonlySet<string> = sameDealSupersededIds(items)): string {
+  const valueClass = OPPORTUNITY_VALUE_CLASS[type];
+  if (valueClass === "non_monetary") return String(items.length);
+  // Only the values this group actually contributes; when none (no value entered, or every value is supplied by its deal's estimate), the count alone - never "$0".
+  const contributing = items.filter((item) => item.estimatedValue != null && !superseded.has(item.id));
+  if (contributing.length === 0) return String(items.length);
+  const total = contributing.reduce((sum, item) => sum + (item.estimatedValue as number), 0);
+  return `${formatCurrency(total)} ${valueClass} · ${items.length}`;
+}

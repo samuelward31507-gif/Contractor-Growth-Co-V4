@@ -47,14 +47,21 @@ export function findPersonNextStep(params: {
   estimates: Estimate[];
   jobs: Job[];
   conversations: Conversation[];
+  /**
+   * Phase 2-13 (§3): the open conversations waiting on the business - the
+   * latest customer message is inbound with no successful outbound after it
+   * (lib/conversations/getWaitingConversationIds). Whether AI is on is not
+   * part of it. Required, so no caller can fall back to the old AI-off rule.
+   */
+  waitingConversationIds: ReadonlySet<string>;
   /** Phase 1B-4: this person's invoices (any status). Optional so older callers keep compiling; without it a completed job can only ever suggest "Create invoice". */
   invoices?: Pick<Invoice, "id" | "job_id" | "number" | "status" | "balance_due" | "due_date">[];
   timeZone?: string;
   now?: number;
 }): NextStep | null {
-  const { leads, appointments, estimates, jobs, conversations, invoices = [], timeZone, now = Date.now() } = params;
+  const { leads, appointments, estimates, jobs, conversations, waitingConversationIds, invoices = [], timeZone, now = Date.now() } = params;
 
-  const waitingConversation = conversations.find((conversation) => conversation.status === "open" && !conversation.ai_enabled);
+  const waitingConversation = conversations.find((conversation) => conversation.status === "open" && waitingConversationIds.has(conversation.id));
   if (waitingConversation) {
     return {
       label: "Needs your attention",

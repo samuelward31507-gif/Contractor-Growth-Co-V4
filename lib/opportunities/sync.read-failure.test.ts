@@ -74,7 +74,9 @@ function makeFakeSupabase(tables: Record<string, Row[]>, options: { failSelectAt
           message.conversation_id === conversation.id &&
           message.organization_id === conversation.organization_id &&
           (message.direction === "inbound" || (message.direction === "outbound" && ["sent", "delivered"].includes(String(message.status))));
-        result = result.filter((conversation) => (tables.messages ?? []).some((message) => qualifying(message, conversation))).map((conversation) => ({ ...conversation, messages: [{ id: "m" }] }));
+        // Phase 2-5: the one embedded message is the conversation's newest evidence (ordered newest first, limit 1).
+        const newest = (conversation: Row) => (tables.messages ?? []).filter((message) => qualifying(message, conversation)).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+        result = result.filter((conversation) => newest(conversation) !== undefined).map((conversation) => ({ ...conversation, messages: [{ created_at: newest(conversation)!.created_at, direction: newest(conversation)!.direction }] }));
       }
       if (op === "select" && page) result = result.slice(page[0], page[1] + 1);
       else if (op === "insert") {
@@ -222,7 +224,7 @@ test("every read, failed one at a time: the sync aborts with failed: true, perfo
   const baseline = makeFakeSupabase(fixture());
   await syncOpportunities(baseline.client, ORG, NOW);
   const readCount = baseline.calls.filter((call) => call.op === "select").length;
-  assert.equal(readCount, 34); // Phase 2H: 36 -> 34 - the dormant contacts read joins its jobs read; conversations + messages are one join
+  assert.equal(readCount, 34); // Phase 2H: 36 -> 34 - the dormant contacts read joins its jobs read; conversations + messages are one join. Phase 2-5: 34 -> 32 - the uncontacted-lead detector no longer reads the organization or instant-lead-followup's setting. Phase 2-8: 32 -> 34 - the completed-visit detector also reads the open leads and the jobs linked to a lead
   const failedReads = new Set<string>();
 
   for (let index = 0; index < readCount; index += 1) {
@@ -247,7 +249,7 @@ test("every read, failed one at a time: the sync aborts with failed: true, perfo
   assert.equal(failedReads.size, 34, [...failedReads].join(", "));
 });
 
-test("the destructive cases specifically: a failed primary read no longer resolves, a failed exclusion read no longer inserts, a failed dismissal read no longer re-opens, a failed automation-enabled read no longer fails open", async () => {
+test("the destructive cases specifically: a failed primary read no longer resolves, a failed exclusion read no longer inserts, a failed dismissal read no longer re-opens", async () => {
   const labelFor = async (index: number) => {
     logged = [];
     const fake = makeFakeSupabase(fixture(), { failSelectAt: index });
@@ -259,7 +261,7 @@ test("the destructive cases specifically: a failed primary read no longer resolv
   const readLabels: string[] = [];
   for (let index = 0; index < 34; index += 1) readLabels.push((await labelFor(index)).read);
 
-  for (const read of ["stale_estimate.estimates", "qualified_lead_unbooked.leads", "completed_job_no_review_request.organizations", "uncontacted_lead.organizations"]) {
+  for (const read of ["stale_estimate.estimates", "qualified_lead_unbooked.leads", "completed_job_no_review_request.organizations", "uncontacted_lead.leads"]) {
     const outcome = await labelFor(readLabels.indexOf(read));
     assert.equal(outcome.read, read);
     assert.equal(outcome.writes, 0, `${read}: a failed primary read resolves nothing`);
@@ -272,8 +274,8 @@ test("the destructive cases specifically: a failed primary read no longer resolv
   const dismissal = await labelFor(readLabels.indexOf("sync.open_and_dismissed_opportunities"));
   assert.equal(dismissal.writes, 0);
   assert.equal(dismissal.opportunities.filter((row) => row.type === "no_show" && row.status === "open").length, 0, "the dismissed no-show is not re-opened");
-  const enabled = await labelFor(readLabels.indexOf("automation_settings.enabled (instant-lead-followup)"));
-  assert.equal(enabled.writes, 0, "a failed automation-enabled read no longer counts as enabled");
+  // Phase 2-5: the uncontacted-lead detector no longer reads automation state at all, so there is no automation-enabled read left to fail open.
+  assert.ok(!readLabels.includes("automation_settings.enabled (instant-lead-followup)") && !readLabels.includes("uncontacted_lead.organizations"));
   const lostLookup = await labelFor(readLabels.indexOf("sync.resolved_lead_statuses"));
   assert.equal(lostLookup.writes, 0, "a failed lost-lead lookup no longer resolves as condition_no_longer_true");
   assert.equal(lostLookup.opportunities.find((row) => row.id === "opp-gone")!.status, "open");

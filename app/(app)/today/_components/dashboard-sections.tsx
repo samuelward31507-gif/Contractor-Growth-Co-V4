@@ -47,10 +47,12 @@ export function SectionLink({ href, children }: { href: string; children: ReactN
  * the owner), then compact follow-ups - jobs recently completed and
  * review/referral replies waiting - and one line on what Trackpr handled.
  */
-export function TodayPanel({ figures, briefing, handled }: { figures: TodayFigure[]; briefing: Pick<OwnerDailyBriefing, "jobsRecentlyCompleted" | "reviewReferralOpportunities">; handled: string }) {
+export function TodayPanel({ figures, briefing, handled, handling }: { figures: TodayFigure[]; briefing: Pick<OwnerDailyBriefing, "jobsRecentlyCompleted" | "reviewReferralOpportunities">; handled: string; handling?: string | null }) {
   const follow = [
     ...briefing.jobsRecentlyCompleted.map((job) => ({ key: `job-${job.id}`, icon: Wrench, text: `${job.contactName ?? job.title} - job completed`, href: job.href, action: "View job" })),
     ...briefing.reviewReferralOpportunities.map((item) => ({ key: `rr-${item.id}`, icon: Star, text: item.kind === "review" ? "A review reply is waiting" : "A referral reply is waiting", href: item.href, action: "View" })),
+    // Phase 2-3c: work Trackpr is handling right now - only when there is some.
+    ...(handling ? [{ key: "handling", icon: Workflow, text: handling, href: "/automations", action: "View automations" }] : []),
     { key: "handled", icon: Workflow, text: handled, href: "/automations", action: "View automations" },
   ];
 
