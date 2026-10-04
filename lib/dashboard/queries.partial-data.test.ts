@@ -61,7 +61,12 @@ function makeQueryBuilder(result: MockResult) {
     in: () => builder,
     not: () => builder,
     order: () => builder,
-    limit: () => Promise.resolve(result),
+    // Phase 3 (W1/W2): embedded reads chain .or()/.limit(n, { referencedTable }) before order/range, so
+    // limit returns the builder and the builder itself is awaitable (a direct `await ...limit(n)`).
+    or: () => builder,
+    is: () => builder,
+    limit: () => builder,
+    then: (resolve: (value: MockResult) => unknown, reject: (reason: unknown) => unknown) => Promise.resolve(result).then(resolve, reject),
     // Phase 3A-4: paged reads (readAllPages) resolve through range().
     range: () => Promise.resolve(result),
     maybeSingle: () => Promise.resolve(result),

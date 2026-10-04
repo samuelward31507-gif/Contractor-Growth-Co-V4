@@ -28,7 +28,8 @@ function mockClient(rows: Record<string, unknown>[]): SupabaseClient {
       select: () => ({
         eq: () => ({
           is: () => ({
-            limit: async () => ({ data: rows }),
+            // Phase 3 (W2): the read is paged (order + range) - one page holds every row.
+            order: () => ({ range: async () => ({ data: rows, error: null }) }),
           }),
         }),
       }),

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 
 export type ReviewRequestStatus = "not_requested" | "requested" | "responded" | "completed" | "declined" | "failed";
 export type ReferralRequestStatus = "not_requested" | "requested" | "responded" | "converted" | "declined" | "failed";
@@ -98,25 +99,37 @@ export async function getReferralRequestForJob(supabase: SupabaseClient, organiz
  */
 export async function getReviewRequestsForJobs(supabase: SupabaseClient, organizationId: string, jobIds: string[]): Promise<ReviewRequest[]> {
   if (jobIds.length === 0) return [];
-  const { data } = await supabase.from("review_requests").select(REVIEW_REQUEST_COLUMNS).eq("organization_id", organizationId).in("job_id", jobIds).limit(1000);
-  return (data ?? []) as ReviewRequest[];
+  const read = await readAllPages<unknown>(() =>
+    supabase.from("review_requests").select(REVIEW_REQUEST_COLUMNS).eq("organization_id", organizationId).in("job_id", jobIds)
+      .order("id"),
+  );
+  return read.rows as ReviewRequest[];
 }
 
 export async function getReferralRequestsForJobs(supabase: SupabaseClient, organizationId: string, jobIds: string[]): Promise<ReferralRequest[]> {
   if (jobIds.length === 0) return [];
-  const { data } = await supabase.from("referral_requests").select(REFERRAL_REQUEST_COLUMNS).eq("organization_id", organizationId).in("job_id", jobIds).limit(1000);
-  return (data ?? []) as ReferralRequest[];
+  const read = await readAllPages<unknown>(() =>
+    supabase.from("referral_requests").select(REFERRAL_REQUEST_COLUMNS).eq("organization_id", organizationId).in("job_id", jobIds)
+      .order("id"),
+  );
+  return read.rows as ReferralRequest[];
 }
 
 /** Loads every review/referral request for the org (capped, matching getJobs/getLeads), for the Jobs page's summary. */
 export async function getReviewRequests(supabase: SupabaseClient, organizationId: string): Promise<ReviewRequest[]> {
-  const { data } = await supabase.from("review_requests").select(REVIEW_REQUEST_COLUMNS).eq("organization_id", organizationId).limit(1000);
-  return (data ?? []) as ReviewRequest[];
+  const read = await readAllPages<unknown>(() =>
+    supabase.from("review_requests").select(REVIEW_REQUEST_COLUMNS).eq("organization_id", organizationId)
+      .order("id"),
+  );
+  return read.rows as ReviewRequest[];
 }
 
 export async function getReferralRequests(supabase: SupabaseClient, organizationId: string): Promise<ReferralRequest[]> {
-  const { data } = await supabase.from("referral_requests").select(REFERRAL_REQUEST_COLUMNS).eq("organization_id", organizationId).limit(1000);
-  return (data ?? []) as ReferralRequest[];
+  const read = await readAllPages<unknown>(() =>
+    supabase.from("referral_requests").select(REFERRAL_REQUEST_COLUMNS).eq("organization_id", organizationId)
+      .order("id"),
+  );
+  return read.rows as ReferralRequest[];
 }
 
 export type ReviewRequestsResult = { data: ReviewRequest[]; failed: boolean };
@@ -135,13 +148,19 @@ export type ReferralRequestsResult = { data: ReferralRequest[]; failed: boolean 
  * touched.
  */
 export async function getReviewRequestsResult(supabase: SupabaseClient, organizationId: string): Promise<ReviewRequestsResult> {
-  const { data, error } = await supabase.from("review_requests").select(REVIEW_REQUEST_COLUMNS).eq("organization_id", organizationId).limit(1000);
-  return { data: (data ?? []) as ReviewRequest[], failed: Boolean(error) };
+  const read = await readAllPages<unknown>(() =>
+    supabase.from("review_requests").select(REVIEW_REQUEST_COLUMNS).eq("organization_id", organizationId)
+      .order("id"),
+  );
+  return { data: read.rows as ReviewRequest[], failed: read.failed };
 }
 
 export async function getReferralRequestsResult(supabase: SupabaseClient, organizationId: string): Promise<ReferralRequestsResult> {
-  const { data, error } = await supabase.from("referral_requests").select(REFERRAL_REQUEST_COLUMNS).eq("organization_id", organizationId).limit(1000);
-  return { data: (data ?? []) as ReferralRequest[], failed: Boolean(error) };
+  const read = await readAllPages<unknown>(() =>
+    supabase.from("referral_requests").select(REFERRAL_REQUEST_COLUMNS).eq("organization_id", organizationId)
+      .order("id"),
+  );
+  return { data: read.rows as ReferralRequest[], failed: read.failed };
 }
 
 export type ReviewReferralSummary = {

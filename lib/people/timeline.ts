@@ -198,17 +198,25 @@ export function buildPersonTimeline(params: {
       id: `msg-${message.id}`,
       at: message.created_at,
       icon: message.direction === "inbound" ? MessageCircle : Send,
-      label:
-        message.direction === "inbound"
-          ? "Customer replied"
-          : message.sender_type === "ai"
-            ? "Automated follow-up sent"
-            : message.sender_type === "system"
-              ? "System message sent"
-              : "You sent a message",
+      label: messageTimelineLabel(message),
       detail: truncate(message.body),
     })),
   ];
 
   return events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+}
+
+/**
+ * Phase 3 (W1): a message's timeline label says what actually happened. Only a
+ * sent / delivered outbound message "was sent"; a failed or undelivered one
+ * failed, a queued one is still sending, and a logged entry is an internal
+ * note that never reached the customer.
+ */
+export function messageTimelineLabel(message: { direction: string; status: string | null; sender_type: string }): string {
+  if (message.direction === "inbound") return "Customer replied";
+  if (message.status === "logged") return "Note added";
+  const who = message.sender_type === "ai" ? "Automated follow-up" : message.sender_type === "system" ? "System message" : "Your message";
+  if (message.status === "failed" || message.status === "undelivered") return `${who} failed to send`;
+  if (message.status === "queued") return `${who} sending`;
+  return message.sender_type === "ai" ? "Automated follow-up sent" : message.sender_type === "system" ? "System message sent" : "You sent a message";
 }

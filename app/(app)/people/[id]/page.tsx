@@ -4,12 +4,12 @@ import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-con
 import { Phone, MessageCircle, Briefcase, CalendarClock, FileSearch, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles, ArrowRight, AlertCircle, FileX2, Receipt } from "lucide-react";
 import { getContact, getContacts } from "@/lib/contacts/queries";
 import { getContactRelationshipCounts } from "@/lib/contacts/duplicates";
-import { getLeads, OPEN_LEAD_STATUSES } from "@/lib/leads/queries";
+import { getContactLeads, OPEN_LEAD_STATUSES } from "@/lib/leads/queries";
 import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contacts/open-lead-value";
-import { getAppointments } from "@/lib/appointments/queries";
-import { getEstimates } from "@/lib/estimates/queries";
-import { getConversations, getMessages, CONVERSATION_CHANNELS } from "@/lib/conversations/queries";
-import { getJobs } from "@/lib/jobs/queries";
+import { getAppointmentsForContact } from "@/lib/appointments/queries";
+import { getContactEstimates } from "@/lib/estimates/queries";
+import { getContactConversations, getMessages, CONVERSATION_CHANNELS } from "@/lib/conversations/queries";
+import { getContactJobs } from "@/lib/jobs/queries";
 import { getContactInvoices } from "@/lib/invoices/queries";
 import { calendarDateInTimeZone, formatInvoiceNumber, formatMoney, isOverdue } from "@/lib/invoices/domain";
 import { getCustomerLifecycle } from "@/lib/customers/lifecycle";
@@ -87,11 +87,13 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
       // this page.
       getContacts(supabase, membership.organizationId),
       getContactRelationshipCounts(supabase, membership.organizationId, id),
-      getLeads(supabase, membership.organizationId),
-      getAppointments(supabase, membership.organizationId),
-      getEstimates(supabase, membership.organizationId),
-      getConversations(supabase, membership.organizationId),
-      getJobs(supabase, membership.organizationId),
+      // Phase 3 (W2): this person's own records, read by contact - never the whole
+      // organization's lists filtered in memory (which also stopped at 1,000 rows).
+      getContactLeads(supabase, membership.organizationId, id),
+      getAppointmentsForContact(supabase, membership.organizationId, id),
+      getContactEstimates(supabase, membership.organizationId, id),
+      getContactConversations(supabase, membership.organizationId, id),
+      getContactJobs(supabase, membership.organizationId, id),
       getCustomerLifecycle(supabase, membership.organizationId, id),
       getOpenOpportunities(supabase, membership.organizationId),
       getOrganizationTimezone(supabase, membership.organizationId),
@@ -280,7 +282,8 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
             {[
               { label: "Leads", value: String(relationshipCounts.leads), detail: undefined, icon: Flame },
               {
-                label: "Open opportunity value",
+                // Phase 3 (W1): this is the sum of the person's open leads' values (summarizeOpenLeadValue) - named as such, matching Insights' "Open lead value".
+                label: "Open lead value",
                 value: openLeadValueDisplay,
                 detail: openLeadValueSummary.unknownValueCount > 0 ? `${openLeadValueSummary.unknownValueCount} with unknown value` : undefined,
                 icon: Wallet,

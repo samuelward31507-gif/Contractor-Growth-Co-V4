@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
 import type { Contact } from "@/lib/contacts/queries";
 import type { LeadStatus, LeadTemperature } from "@/lib/leads/queries";
@@ -110,14 +111,16 @@ export type LastMessagesByConversationResult = { data: Map<string, Message>; fai
  * below unchanged.
  */
 export async function getConversationsResult(supabase: SupabaseClient, organizationId: string): Promise<ConversationsResult> {
-  const { data, error } = await supabase
-    .from("conversations")
-    .select(CONVERSATION_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("updated_at", { ascending: false })
-    .limit(500);
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("conversations")
+      .select(CONVERSATION_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("updated_at", { ascending: false })
+      .order("id"),
+  );
 
-  return { data: ((data ?? []) as RawConversationRow[]).map(normalizeConversation), failed: error != null };
+  return { data: (read.rows as RawConversationRow[]).map(normalizeConversation), failed: read.failed };
 }
 
 /**
@@ -140,15 +143,18 @@ export async function getConversations(supabase: SupabaseClient, organizationId:
  * getContactAppointments's exact contract.
  */
 export async function getContactConversations(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Conversation[]> {
-  const { data } = await supabase
-    .from("conversations")
-    .select(CONVERSATION_COLUMNS)
-    .eq("organization_id", organizationId)
-    .eq("contact_id", contactId)
-    .order("updated_at", { ascending: false })
-    .limit(50);
+  // Phase 3 (W2): every record for this contact - a silent 50-row cap dropped a repeat customer's history.
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("conversations")
+      .select(CONVERSATION_COLUMNS)
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .order("updated_at", { ascending: false })
+      .order("id"),
+  );
 
-  return ((data ?? []) as RawConversationRow[]).map(normalizeConversation);
+  return (read.rows as RawConversationRow[]).map(normalizeConversation);
 }
 
 /**
@@ -161,28 +167,31 @@ export async function getLastMessagesByConversationResult(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<LastMessagesByConversationResult> {
-  const { data, error } = await supabase
-    .from("messages")
-    .select(MESSAGE_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(2000);
+  // Phase 3 (W2): each conversation's own newest message, embedded per conversation and paged over every
+  // conversation - the old org-wide "newest 2,000 messages" read left older conversations with no last message.
+  const read = await readAllPages<{ id: string; messages: Message[] | null }>(() =>
+    supabase
+      .from("conversations")
+      .select(`id, messages(${MESSAGE_COLUMNS})`)
+      .eq("organization_id", organizationId)
+      .eq("messages.organization_id", organizationId)
+      .order("created_at", { referencedTable: "messages", ascending: false })
+      .order("id", { referencedTable: "messages", ascending: false })
+      .limit(1, { referencedTable: "messages" })
+      .order("id"),
+  );
 
   const map = new Map<string, Message>();
-  for (const message of (data ?? []) as Message[]) {
-    if (!map.has(message.conversation_id)) {
-      map.set(message.conversation_id, message);
-    }
+  for (const row of read.rows) {
+    const newest = row.messages?.[0];
+    if (newest) map.set(row.id, newest);
   }
-  return { data: map, failed: error != null };
+  return { data: map, failed: read.failed };
 }
 
 /**
- * The messages table has no per-conversation "last message" query available
- * without a window-function RPC (out of scope - no schema/function changes
- * allowed). Instead this loads the org's recent messages once, newest
- * first, and reduces to one entry per conversation in memory - the same
- * "fetch capped, derive in JS" approach already used by the dashboard.
+ * Each conversation's newest message (see getLastMessagesByConversationResult:
+ * one paged read with the newest message embedded per conversation).
  */
 export async function getLastMessagesByConversation(
   supabase: SupabaseClient,
@@ -243,15 +252,11 @@ export async function getMessages(
   organizationId: string,
   conversationId: string,
 ): Promise<Message[]> {
-  const { data } = await supabase
-    .from("messages")
-    .select(MESSAGE_COLUMNS)
-    .eq("organization_id", organizationId)
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .limit(1000);
-
-  return (data ?? []) as Message[];
+  // Phase 3 (W2): the whole thread, oldest first - a capped ascending read dropped a long thread's NEWEST messages.
+  const read = await readAllPages<Message>(() =>
+    supabase.from("messages").select(MESSAGE_COLUMNS).eq("organization_id", organizationId).eq("conversation_id", conversationId).order("created_at", { ascending: true }).order("id"),
+  );
+  return read.rows;
 }
 
 export type ConversationFilters = {
@@ -328,15 +333,18 @@ export async function getContactAppointments(
   organizationId: string,
   contactId: string,
 ): Promise<RelevantAppointment[]> {
-  const { data } = await supabase
-    .from("appointments")
-    .select("id, contact_id, title, start_at, end_at, status")
-    .eq("organization_id", organizationId)
-    .eq("contact_id", contactId)
-    .order("start_at", { ascending: true })
-    .limit(50);
+  // Phase 3 (W2): every record for this contact - a silent 50-row cap dropped a repeat customer's history.
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("appointments")
+      .select("id, contact_id, title, start_at, end_at, status")
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .order("start_at", { ascending: true })
+      .order("id"),
+  );
 
-  return (data ?? []) as RelevantAppointment[];
+  return read.rows as RelevantAppointment[];
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { SUCCESSFUL_OUTBOUND_STATUS_SET } from "@/lib/conversations/waiting";
 import { contactDisplayName } from "@/lib/contacts/format";
 import {
   isReactivationDue,
@@ -825,7 +826,7 @@ async function detectCancelledAppointmentsWithoutRebooking(supabase: SupabaseCli
 const UNCONTACTED_LEAD_AGE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 /** messages.status values that actually prove the customer's carrier accepted or delivered the message - 'queued' (Twilio hasn't responded yet) and 'failed'/'undelivered' (attempted, never reached) are deliberately excluded, matching the Pass 5C Batch 2 audit's evidence hierarchy exactly: an attempt is not contact. */
-const SUCCESSFUL_OUTBOUND_STATUSES = new Set(["sent", "delivered"]);
+const SUCCESSFUL_OUTBOUND_STATUSES = SUCCESSFUL_OUTBOUND_STATUS_SET;
 
 type ContactEvidenceRow = {
   contact_id: string | null;

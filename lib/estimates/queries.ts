@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import type { Contact } from "@/lib/contacts/queries";
 import type { LeadStatus, LeadTemperature } from "@/lib/leads/queries";
 
@@ -74,14 +75,16 @@ export type EstimatesResult = { data: Estimate[]; failed: boolean };
 
 /** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on a genuine empty org. Wired into the canonical Estimates list page, whose own "no estimates yet" empty state would otherwise be indistinguishable from a failed read. */
 export async function getEstimatesResult(supabase: SupabaseClient, organizationId: string): Promise<EstimatesResult> {
-  const { data, error } = await supabase
-    .from("estimates")
-    .select(ESTIMATE_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(1000);
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("estimates")
+      .select(ESTIMATE_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return { data: ((data ?? []) as RawEstimateRow[]).map(normalizeEstimate), failed: error != null };
+  return { data: (read.rows as RawEstimateRow[]).map(normalizeEstimate), failed: read.failed };
 }
 
 export async function getEstimates(supabase: SupabaseClient, organizationId: string): Promise<Estimate[]> {
@@ -117,15 +120,18 @@ export async function getEstimate(
  * contract (lib/conversations/queries.ts).
  */
 export async function getContactEstimates(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Estimate[]> {
-  const { data } = await supabase
-    .from("estimates")
-    .select(ESTIMATE_COLUMNS)
-    .eq("organization_id", organizationId)
-    .eq("contact_id", contactId)
-    .order("created_at", { ascending: false })
-    .limit(50);
+  // Phase 3 (W2): every record for this contact - a silent 50-row cap dropped a repeat customer's history.
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("estimates")
+      .select(ESTIMATE_COLUMNS)
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return ((data ?? []) as RawEstimateRow[]).map(normalizeEstimate);
+  return (read.rows as RawEstimateRow[]).map(normalizeEstimate);
 }
 
 export type EstimateFilters = {

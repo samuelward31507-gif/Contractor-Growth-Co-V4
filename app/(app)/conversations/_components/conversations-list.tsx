@@ -16,21 +16,26 @@ function lastMessagePreview(conversation: ConversationWithLastMessage): string {
 /**
  * There's no read/unread column on conversations or messages (no schema
  * change is in scope here) - so "needs a reply" is derived from real data
- * instead of a fabricated read flag: an open conversation whose most recent
- * message came from the customer, with nobody having replied since.
+ * instead of a fabricated read flag. Phase 3 (W1): the canonical waiting
+ * rule (lib/conversations/waiting) - an open conversation whose latest
+ * customer message has no successful (sent / delivered) outbound after it.
+ * A failed send or a logged note is not a reply.
  */
-function needsReply(conversation: ConversationWithLastMessage): boolean {
-  return conversation.status === "open" && conversation.lastMessage?.direction === "inbound";
+function needsReply(conversation: ConversationWithLastMessage, waitingIds: ReadonlySet<string>): boolean {
+  return conversation.status === "open" && waitingIds.has(conversation.id);
 }
 
 export function ConversationsList({
   conversations,
   hasActiveFilters,
   activeId,
+  waitingIds,
 }: {
   conversations: ConversationWithLastMessage[];
   hasActiveFilters: boolean;
   activeId: string | null;
+  /** Phase 3 (W1): the open conversations waiting on the business (getWaitingConversationIds). */
+  waitingIds: ReadonlySet<string>;
 }) {
   if (conversations.length === 0) {
     return (
@@ -47,7 +52,7 @@ export function ConversationsList({
       {conversations.map((conversation) => {
         const name = conversation.contact ? contactDisplayName(conversation.contact) : "No contact";
         const isActive = conversation.id === activeId;
-        const awaitingReply = needsReply(conversation);
+        const awaitingReply = needsReply(conversation, waitingIds);
 
         return (
           <li key={conversation.id}>

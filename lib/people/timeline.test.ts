@@ -182,3 +182,17 @@ test("an empty person (no records anywhere) yields an empty timeline, not an err
   const events = buildPersonTimeline(emptyParams);
   assert.deepEqual(events, []);
 });
+
+// Phase 3 (W1): a message's label says what actually happened - only a sent / delivered outbound "was sent".
+test("messageTimelineLabel (Phase 3): failed / undelivered sends failed, queued is still sending, a logged entry is a note; sent / delivered keep the existing labels", () => {
+  const { messageTimelineLabel }: typeof import("./timeline") = require("./timeline.ts");
+  const label = (direction: string, status: string, sender_type: string) => messageTimelineLabel({ direction, status, sender_type });
+  assert.equal(label("inbound", "received", "customer"), "Customer replied");
+  assert.equal(label("outbound", "delivered", "ai"), "Automated follow-up sent");
+  assert.equal(label("outbound", "sent", "system"), "System message sent");
+  assert.equal(label("outbound", "delivered", "user"), "You sent a message");
+  assert.equal(label("outbound", "failed", "ai"), "Automated follow-up failed to send");
+  assert.equal(label("outbound", "undelivered", "user"), "Your message failed to send");
+  assert.equal(label("outbound", "queued", "system"), "System message sending");
+  assert.equal(label("outbound", "logged", "user"), "Note added");
+});

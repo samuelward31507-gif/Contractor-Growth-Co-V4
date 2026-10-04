@@ -24,12 +24,16 @@ import { ConversationsToolbar } from "./conversations-toolbar";
 export function ConversationsWorkspace({
   conversations,
   summary,
+  waitingConversationIds,
   children,
 }: {
   conversations: ConversationWithLastMessage[];
   summary: ConversationSummary;
+  /** Phase 3 (W1): ids from the canonical waiting helper - a plain array, since a Set does not cross the server/client boundary. */
+  waitingConversationIds: string[];
   children: ReactNode;
 }) {
+  const waitingIds = useMemo(() => new Set(waitingConversationIds), [waitingConversationIds]);
   const activeId = useSelectedLayoutSegment();
   const [query, setQuery] = useState("");
   const [channel, setChannel] = useState<ConversationChannel | "all">("all");
@@ -100,7 +104,7 @@ export function ConversationsWorkspace({
               />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <ConversationsList conversations={filtered} hasActiveFilters={hasActiveFilters} activeId={activeId} />
+              <ConversationsList conversations={filtered} hasActiveFilters={hasActiveFilters} activeId={activeId} waitingIds={waitingIds} />
             </div>
           </div>
 

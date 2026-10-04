@@ -124,6 +124,8 @@ function makeFakeSupabase(tables: Record<string, Row[]>, options: FakeOptions = 
       is: (column: string, value: unknown) => (filters.push(["is", column, value]), b),
       order: () => b,
       limit: (n: number) => ((limitN = n), b),
+      // Phase 3 (W2): paged reads (readAllPages) resolve through range(from, to).
+      range: (from: number, to: number) => Promise.resolve(execute()).then((r) => (Array.isArray(r.data) ? { ...r, data: r.data.slice(from, to + 1) } : r)),
       maybeSingle: () => ((maybe = true), b),
       single: () => ((single = true), b),
       then: (resolve: (value: unknown) => void) => resolve(execute()),

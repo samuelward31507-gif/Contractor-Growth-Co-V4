@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import type { Contact } from "./queries";
 
 const CONTACT_COLUMNS = "id, first_name, last_name, phone, email, company_name, notes, created_at, updated_at";
@@ -22,14 +23,11 @@ export type DuplicateGroup = {
  * records, not candidates for another merge.
  */
 export async function findPotentialDuplicates(supabase: SupabaseClient, organizationId: string): Promise<DuplicateGroup[]> {
-  const { data } = await supabase
-    .from("contacts")
-    .select(`${CONTACT_COLUMNS}, phone_normalized, email_normalized`)
-    .eq("organization_id", organizationId)
-    .is("merged_into_id", null)
-    .limit(1000);
-
-  const rows = (data ?? []) as (Contact & { phone_normalized: string | null; email_normalized: string | null })[];
+  // Phase 3 (W2): every unmerged contact - a duplicate past row 1,000 is still a duplicate.
+  const read = await readAllPages<Contact & { phone_normalized: string | null; email_normalized: string | null }>(() =>
+    supabase.from("contacts").select(`${CONTACT_COLUMNS}, phone_normalized, email_normalized`).eq("organization_id", organizationId).is("merged_into_id", null).order("id"),
+  );
+  const rows = read.rows;
 
   const byPhone = new Map<string, typeof rows>();
   const byEmail = new Map<string, typeof rows>();

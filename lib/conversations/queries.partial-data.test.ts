@@ -25,11 +25,13 @@ type MockResult = { data: unknown; error: { message: string; code?: string } | n
 
 function makeMockSupabase(overrides: Partial<Record<string, MockResult>>): SupabaseClient {
   function makeBuilder(result: MockResult) {
+    // Phase 3 (W2): reads are paged - limit/order chain, range resolves (one page holds every row).
     const builder = {
       select: () => builder,
       eq: () => builder,
       order: () => builder,
-      limit: () => Promise.resolve(result),
+      limit: () => builder,
+      range: () => Promise.resolve(result),
     };
     return builder;
   }
@@ -105,30 +107,35 @@ function makeMessageRow(conversationId: string, id: string) {
 }
 
 test("getLastMessagesByConversationResult: a genuinely empty result never sets failed", async () => {
-  const supabase = makeMockSupabase({ messages: { data: [], error: null } });
+  const supabase = makeMockSupabase({ conversations: { data: [], error: null } });
   const result = await getLastMessagesByConversationResult(supabase, "org-1");
   assert.equal(result.failed, false);
   assert.equal(result.data.size, 0);
 });
 
 test("getLastMessagesByConversationResult: a real Postgrest error sets failed, never leaks the raw error, and never crashes", async () => {
-  const supabase = makeMockSupabase({ messages: { data: null, error: { message: "timeout" } } });
+  const supabase = makeMockSupabase({ conversations: { data: null, error: { message: "timeout" } } });
   const result = await getLastMessagesByConversationResult(supabase, "org-1");
   assert.equal(result.failed, true);
   assert.equal(result.data.size, 0);
 });
 
-test("getLastMessagesByConversationResult: valid data reduces to exactly one (the newest) message per conversation, unchanged from before this phase", async () => {
+// Phase 3 (W2): each conversation's newest message is now embedded per conversation (one paged read over
+// conversations) instead of reduced from an org-wide "newest 2,000 messages" read.
+test("getLastMessagesByConversationResult: each conversation's embedded newest message - one entry per conversation, none for a conversation without messages", async () => {
   const supabase = makeMockSupabase({
-    messages: {
-      data: [makeMessageRow("conv-1", "msg-2"), makeMessageRow("conv-1", "msg-1")], // newest-first, matching the real query's own order()
+    conversations: {
+      data: [
+        { id: "conv-1", messages: [makeMessageRow("conv-1", "msg-2")] },
+        { id: "conv-2", messages: [] },
+      ],
       error: null,
     },
   });
   const result = await getLastMessagesByConversationResult(supabase, "org-1");
   assert.equal(result.failed, false);
   assert.equal(result.data.size, 1);
-  assert.equal(result.data.get("conv-1")!.id, "msg-2", "the first (newest) row for a conversation wins - unchanged reduction logic");
+  assert.equal(result.data.get("conv-1")!.id, "msg-2", "the embedded (newest) message for a conversation");
 
   assert.deepEqual(await getLastMessagesByConversation(supabase, "org-1"), result.data);
 });

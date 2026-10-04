@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import type { Contact } from "@/lib/contacts/queries";
 import type { LeadStatus, LeadTemperature } from "@/lib/leads/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
@@ -81,14 +82,16 @@ export type JobsResult = { data: Job[]; failed: boolean };
 
 /** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on a genuine empty org. Wired into the canonical Jobs list page, whose own "no jobs yet" empty state would otherwise be indistinguishable from a failed read. */
 export async function getJobsResult(supabase: SupabaseClient, organizationId: string): Promise<JobsResult> {
-  const { data, error } = await supabase
-    .from("jobs")
-    .select(JOB_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(1000);
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("jobs")
+      .select(JOB_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return { data: ((data ?? []) as RawJobRow[]).map(normalizeJob), failed: error != null };
+  return { data: (read.rows as RawJobRow[]).map(normalizeJob), failed: read.failed };
 }
 
 export async function getJobs(supabase: SupabaseClient, organizationId: string): Promise<Job[]> {
@@ -146,15 +149,18 @@ export async function getJobByEstimateId(
  * contract (lib/conversations/queries.ts).
  */
 export async function getContactJobs(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Job[]> {
-  const { data } = await supabase
-    .from("jobs")
-    .select(JOB_COLUMNS)
-    .eq("organization_id", organizationId)
-    .eq("contact_id", contactId)
-    .order("created_at", { ascending: false })
-    .limit(50);
+  // Phase 3 (W2): every record for this contact - a silent 50-row cap dropped a repeat customer's history.
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("jobs")
+      .select(JOB_COLUMNS)
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return ((data ?? []) as RawJobRow[]).map(normalizeJob);
+  return (read.rows as RawJobRow[]).map(normalizeJob);
 }
 
 export type JobFilters = {

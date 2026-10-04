@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LeadStatus } from "@/lib/leads/queries";
 import { readAllPages } from "./revenue-attribution";
+import { SUCCESSFUL_OUTBOUND_STATUS_SET } from "@/lib/conversations/waiting";
 import type { ResolvedDateRange, LeadStageTransitionMetrics, LeadStageTimingMetrics, ResponseTimeBucket, LeadResponseTimeMetrics } from "./types";
 
 /**
@@ -280,7 +281,7 @@ export async function hasAnyLeadStageHistory(supabase: SupabaseClient, organizat
 // ---------------------------------------------------------------------------
 
 /** Matches Pass 5C Batch 2's uncontacted_lead detector exactly - 'queued'/'failed'/'undelivered' are attempts, never contact. */
-const SUCCESSFUL_OUTBOUND_STATUSES = new Set(["sent", "delivered"]);
+const SUCCESSFUL_OUTBOUND_STATUSES = SUCCESSFUL_OUTBOUND_STATUS_SET;
 
 const ONE_MINUTE_MS = 60 * 1000;
 const FIVE_MINUTES_MS = 5 * ONE_MINUTE_MS;

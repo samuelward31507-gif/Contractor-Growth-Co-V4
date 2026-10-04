@@ -87,9 +87,12 @@ export async function getCustomerLifecycleResult(
   contactId: string,
   now: Date = new Date(),
 ): Promise<CustomerLifecycle & { failed: boolean }> {
-  const { data, error } = await supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("contact_id", contactId).eq("status", "completed").limit(1000);
+  const read = await readAllPages<unknown>(() =>
+    supabase.from("jobs").select("contact_id, amount, completed_at").eq("organization_id", organizationId).eq("contact_id", contactId).eq("status", "completed")
+      .order("id"),
+  );
 
-  return { contactId, ...summarizeCompletedJobs((data ?? []) as JobRow[], now), failed: error != null };
+  return { contactId, ...summarizeCompletedJobs(read.rows as JobRow[], now), failed: read.failed };
 }
 
 /**

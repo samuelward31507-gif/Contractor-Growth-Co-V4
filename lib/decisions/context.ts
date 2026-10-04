@@ -7,6 +7,7 @@ import { isWithinBusinessHours } from "@/lib/automation/outbound-gate";
 import { getAiSettings, getBusinessHours } from "@/lib/settings/queries";
 import { getOpenOpportunitiesResult, type OpenOpportunitiesResult } from "@/lib/opportunities/queries";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
+import { WAITING_EVIDENCE_FILTER } from "@/lib/conversations/waiting";
 import { WAITING_REPLY_CAP, firstUnansweredInboundAt, type DecisionContext, type WaitingConversationState } from "./actor";
 
 /**
@@ -54,16 +55,18 @@ type WaitingConversationRow = {
   id: string;
   ai_enabled: boolean;
   contact: { sms_opt_out: boolean } | { sms_opt_out: boolean }[] | null;
-  messages: { created_at: string; direction: "inbound" | "outbound" }[] | null;
+  messages: { created_at: string; direction: "inbound" | "outbound"; status: string | null }[] | null;
 };
 
 /** One batched read for every waiting conversation (at most WAITING_REPLY_CAP of them - the dashboard SQL returns no more): its AI flag, its contact's opt-out, and its newest messages. */
 async function readWaitingConversations(supabase: SupabaseClient, organizationId: string, conversationIds: string[]): Promise<Map<string, WaitingConversationState>> {
   const { data, error } = await supabase
     .from("conversations")
-    .select("id, ai_enabled, contact:contacts(sms_opt_out), messages(created_at, direction)")
+    .select("id, ai_enabled, contact:contacts(sms_opt_out), messages(created_at, direction, status)")
     .eq("organization_id", organizationId)
     .in("id", conversationIds)
+    // Phase 3 (W1): only inbound and successful outbound messages fill the window - failed sends and notes are not replies.
+    .or(WAITING_EVIDENCE_FILTER, { referencedTable: "messages" })
     .order("created_at", { referencedTable: "messages", ascending: false })
     .limit(WAITING_MESSAGE_WINDOW, { referencedTable: "messages" });
   const states = new Map<string, WaitingConversationState>();

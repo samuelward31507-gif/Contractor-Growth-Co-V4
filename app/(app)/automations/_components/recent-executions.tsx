@@ -22,7 +22,7 @@ export function RecentExecutions({ executions, retrySupported }: { executions: A
       <EmptyState
         icon={History}
         title="No runs yet"
-        description="This automation is configured but hasn't processed any events yet. Activity will show up here as soon as it runs."
+        description="This automation hasn't processed any events yet. Activity will show up here as soon as it runs."
       />
     );
   }

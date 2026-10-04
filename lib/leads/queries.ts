@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllPages } from "@/lib/bi/revenue-attribution";
 import type { Contact } from "@/lib/contacts/queries";
 
 export type LeadStatus = "new" | "contacted" | "qualified" | "appointment" | "estimate" | "won" | "lost";
@@ -73,14 +74,16 @@ export type LeadsResult = { data: Lead[]; failed: boolean };
 
 /** Trackpr 2.0, Phase 4C (P2 #1): `failed` is true only on a real Postgrest error, never on a genuine empty org. Wired into the canonical Leads (Customers) list page, whose own "no leads yet" empty state would otherwise be indistinguishable from a failed read. */
 export async function getLeadsResult(supabase: SupabaseClient, organizationId: string): Promise<LeadsResult> {
-  const { data, error } = await supabase
-    .from("leads")
-    .select(LEAD_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(1000);
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("leads")
+      .select(LEAD_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return { data: ((data ?? []) as RawLeadRow[]).map(normalizeLead), failed: error != null };
+  return { data: (read.rows as RawLeadRow[]).map(normalizeLead), failed: read.failed };
 }
 
 export async function getLeads(supabase: SupabaseClient, organizationId: string): Promise<Lead[]> {
@@ -103,15 +106,18 @@ export async function getLeads(supabase: SupabaseClient, organizationId: string)
  * contract (lib/conversations/queries.ts).
  */
 export async function getContactLeads(supabase: SupabaseClient, organizationId: string, contactId: string): Promise<Lead[]> {
-  const { data } = await supabase
-    .from("leads")
-    .select(LEAD_COLUMNS)
-    .eq("organization_id", organizationId)
-    .eq("contact_id", contactId)
-    .order("created_at", { ascending: false })
-    .limit(50);
+  // Phase 3 (W2): every record for this contact - a silent 50-row cap dropped a repeat customer's history.
+  const read = await readAllPages<unknown>(() =>
+    supabase
+      .from("leads")
+      .select(LEAD_COLUMNS)
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  );
 
-  return ((data ?? []) as RawLeadRow[]).map(normalizeLead);
+  return (read.rows as RawLeadRow[]).map(normalizeLead);
 }
 
 export async function getHotLeadCount(supabase: SupabaseClient, organizationId: string): Promise<number> {
