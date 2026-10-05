@@ -83,11 +83,20 @@ export async function emitPostJobFollowup(
   // (every completed job's review/referral ask silently failed, in every
   // organization) confirmed via a fresh QA lifecycle test, not a
   // pre-existing data artifact.
+  //
+  // The org's review_url is snapshotted into the stored payload too, for the
+  // same reason: the callback reads it from event.payload.review_url (never
+  // re-fetching the org's current value), and review_requests is only
+  // recorded when it is present. Stored as configured, or null - never
+  // invented.
+  const businessProfile = await getBusinessProfile(supabase, organizationId);
+  const reviewUrl = businessProfile?.review_url ?? null;
+
   const eventResult = await createAutomationEvent(supabase, {
     eventType: "job.post_followup",
     entityType: "job",
     entityId: jobId,
-    payload: { job_id: jobId, contact_id: job.contact_id, lead_id: job.lead_id, conversation_id: conversationId },
+    payload: { job_id: jobId, contact_id: job.contact_id, lead_id: job.lead_id, conversation_id: conversationId, review_url: reviewUrl },
     idempotencyKey: `post_job_followup:${jobId}`,
   });
 
@@ -104,10 +113,7 @@ export async function emitPostJobFollowup(
     return;
   }
 
-  const [aiSettings, businessProfile] = await Promise.all([
-    getAiSettings(supabase, organizationId),
-    getBusinessProfile(supabase, organizationId),
-  ]);
+  const aiSettings = await getAiSettings(supabase, organizationId);
 
   // review_url is passed through exactly as stored - Trackpr is the only
   // place this value can ever originate; the n8n prompt is instructed to
@@ -130,7 +136,7 @@ export async function emitPostJobFollowup(
         conversation_id: conversationId,
         title: job.title,
         status: job.status,
-        review_url: businessProfile?.review_url ?? null,
+        review_url: reviewUrl,
       },
     },
     execution: {

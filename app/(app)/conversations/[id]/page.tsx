@@ -29,6 +29,8 @@ import { ConversationStatusBadge } from "../_components/status-badge";
 import { ConversationActions } from "./_components/conversation-actions";
 import { ConversationContext, type AutomationActivity } from "./_components/conversation-context";
 import { MessageComposer } from "./_components/message-composer";
+import { SimulateCustomerReply } from "./_components/simulate-customer-reply";
+import { isCustomerReplySimulationEnvironment } from "@/lib/messaging/simulate-customer-reply";
 import { MessageThread } from "./_components/message-thread";
 
 export default async function ConversationDetailPage({ params }: PageProps<"/conversations/[id]">) {
@@ -155,6 +157,18 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     contactEstimates[0] ??
     null;
 
+  // TEST-only "Simulate customer reply": display gate only - the
+  // simulateCustomerReply action re-checks environment, admin role and TEST
+  // mode itself on every submit. The org read is skipped entirely on
+  // production deployments.
+  const canSimulateCustomerReply =
+    isCustomerReplySimulationEnvironment() &&
+    (membership.role === "owner" || membership.role === "admin") &&
+    conversation.channel === "sms" &&
+    conversation.status === "open" &&
+    Boolean(conversation.contact_id) &&
+    (await supabase.from("organizations").select("automation_mode").eq("id", membership.organizationId).maybeSingle()).data?.automation_mode === "test";
+
   // There's no dedicated automation-log query keyed by conversation in
   // scope here - this is derived straight from the messages already loaded
   // above (every AI-sent message in this thread is, by definition,
@@ -195,6 +209,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
         <div className="flex min-h-0 flex-1 flex-col">
           <MessageThread messages={messages} />
           <MessageComposer conversationId={conversation.id} />
+          {canSimulateCustomerReply ? <SimulateCustomerReply conversationId={conversation.id} initialSimulationId={crypto.randomUUID()} /> : null}
         </div>
 
         {/* Below xl: a collapsed-by-default disclosure so contact/lead/

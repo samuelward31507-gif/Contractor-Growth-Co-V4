@@ -2,13 +2,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { matchSmsKeyword } from "@/lib/messaging/keywords";
-import { emitCustomerReplyFollowup } from "@/lib/automation/customer-reply";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { buildHelpResponseMessage } from "@/lib/messaging/help-response";
 import { isValidTwilioSignature } from "@/lib/messaging/twilio-signature";
-import { recordRequestResponses, classifyAndEscalateReviewReply } from "@/lib/reviews-referrals/tracking";
-import { classifyAndProcessEstimateReply } from "@/lib/automation/estimate-reply";
-import { classifyAndProcessBookingReply } from "@/lib/automation/booking-reply";
+import { processInboundCustomerMessage } from "@/lib/messaging/inbound-customer-message";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 import { recordSmsCostEventForMessage } from "@/lib/costs/sms-cost-events";
 import { writeSmsOptOut } from "@/lib/messaging/opt-out";
@@ -220,56 +217,13 @@ export async function POST(request: NextRequest) {
   // normal message triggers the customer_reply_followup automation, which
   // is gated end-to-end by evaluateOutboundGate() before any real send.
   if (!insertError && !keyword) {
-    const { data: conversationLead } = await service
-      .from("conversations")
-      .select("lead_id")
-      .eq("id", conversation.id)
-      .maybeSingle();
-
-    // Growth System Completion Pass 1 (Part 5): runs BEFORE the customer-reply
-    // AI dispatch below, and only ever locks AI out of the conversation
-    // (never sends anything itself) - so a negative/unclear reply to a
-    // review request is guaranteed to never receive an AI-drafted response,
-    // by construction, not by convention. A no-op when there is no
-    // currently-'requested' review_request for this contact, or the reply
-    // reads as clearly positive.
-    await classifyAndEscalateReviewReply(service, organization.id, contact.id, conversation.id, body);
-
-    // E1 (pre-launch lead-leak audit): same placement and shape as the
-    // review-reply classification immediately above - runs BEFORE the
-    // customer-reply AI dispatch so a clear acceptance is acted on (or an
-    // unclear one locks the conversation) before the AI ever drafts a
-    // competing reply. A no-op when this contact has no estimate currently
-    // in 'sent' status.
-    await classifyAndProcessEstimateReply(service, organization.id, contact.id, conversationLead?.lead_id ?? null, conversation.id, body);
-
-    // Pass 1 (booking loop completion): unlike the two classifiers above
-    // (which only ever lock/no-op, never fully own a reply), this one CAN
-    // fully handle the message - a real slot selection, a reschedule
-    // request, or a cancellation. When it does, the AI must never also
-    // draft a competing reply to the same message, so emitCustomerReplyFollowup
-    // is skipped entirely for that turn. A no-op (false) for any message
-    // this module has no opinion about - normal AI qualification continues
-    // exactly as before.
-    const bookingReplyHandled = await classifyAndProcessBookingReply(service, organization.id, contact.id, conversationLead?.lead_id ?? null, conversation.id, body);
-
-    if (!bookingReplyHandled) {
-      await emitCustomerReplyFollowup(service, {
-        organizationId: organization.id,
-        contactId: contact.id,
-        conversationId: conversation.id,
-        leadId: conversationLead?.lead_id ?? null,
-        messageBody: body,
-        providerMessageId: messageSid,
-      });
-    }
-
-    // Review & Referral Tracking V1: deterministic, non-AI bookkeeping only
-    // - records that the contact replied at all, never what they said or
-    // whether it means the review/referral succeeded. Runs alongside (not
-    // instead of) the customer-reply automation above; a no-op when there is
-    // no currently-'requested' review/referral row for this contact.
-    await recordRequestResponses(service, organization.id, contact.id);
+    await processInboundCustomerMessage(service, {
+      organizationId: organization.id,
+      contactId: contact.id,
+      conversationId: conversation.id,
+      body,
+      providerMessageId: messageSid,
+    });
   } else if (!insertError && keyword === "help") {
     // Deterministic, non-AI reply. Goes through the same sendOutboundMessage()
     // every other outbound send uses - so it still respects opt-out

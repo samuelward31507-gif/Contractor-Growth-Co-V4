@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service";
+import { assertOrgAdmin } from "@/lib/automation/authorization";
+import { isCustomerReplySimulationEnvironment, simulateInboundCustomerReply, validateSimulatedReply } from "@/lib/messaging/simulate-customer-reply";
 import { CONVERSATION_STATUSES, type ConversationStatus } from "@/lib/conversations/queries";
 
 export type ConversationActionState = {
@@ -170,4 +173,91 @@ export async function createMessage(
   revalidatePath(`/conversations/${conversationId}`);
   revalidatePath("/conversations");
   return { success: true };
+}
+
+export type SimulateCustomerReplyState = {
+  error?: string;
+  success?: boolean;
+  duplicate?: boolean;
+};
+
+/**
+ * TEST-only: records a customer reply in this conversation without Twilio
+ * and runs it through the real inbound-reply path (see lib/messaging/
+ * simulate-customer-reply.ts). Every guard is re-checked here on each call,
+ * never trusted from the page that rendered the form:
+ * non-production deployment, org owner/admin, organization still in TEST
+ * mode, and the conversation being this organization's open SMS thread with
+ * a contact. Sends nothing - any AI reply it leads to is denied by
+ * evaluateOutboundGate()'s organization_not_live check.
+ *
+ * The service-role client is used only after those checks pass, for the
+ * same reason the real Twilio webhook uses it: the inbound-reply pipeline
+ * (customer-reply event/execution *AsService helpers, reply classifiers) is
+ * service-role code. Same precedent as settings/team/actions.ts, which also
+ * uses it only after verifying an org admin.
+ */
+export async function simulateCustomerReply(
+  _prevState: SimulateCustomerReplyState,
+  formData: FormData,
+): Promise<SimulateCustomerReplyState> {
+  if (!isCustomerReplySimulationEnvironment()) {
+    return { error: "Simulating customer replies is only available on test deployments." };
+  }
+
+  const conversationId = String(formData.get("conversationId") ?? "");
+  const simulationId = String(formData.get("simulationId") ?? "");
+  const validation = validateSimulatedReply(String(formData.get("body") ?? ""), simulationId);
+  if (!validation.ok) {
+    return { error: validation.error };
+  }
+  if (!conversationId) {
+    return { error: "Missing conversation." };
+  }
+
+  const { supabase, organizationId } = await requireOrganization();
+
+  const admin = await assertOrgAdmin(supabase, organizationId);
+  if (!admin.ok) {
+    return { error: admin.error };
+  }
+
+  const { data: organization } = await supabase
+    .from("organizations")
+    .select("automation_mode")
+    .eq("id", organizationId)
+    .maybeSingle();
+  if (organization?.automation_mode !== "test") {
+    return { error: "Simulating customer replies is only available while automations are in TEST mode." };
+  }
+
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("id, contact_id, channel, status")
+    .eq("id", conversationId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (!conversation) {
+    return { error: "This conversation could not be found." };
+  }
+  // The real webhook always lands a reply in the contact's one open SMS
+  // conversation (findOrCreateOpenConversation) - simulate only into that.
+  if (!conversation.contact_id || conversation.channel !== "sms" || conversation.status !== "open") {
+    return { error: "Customer replies can only be simulated in an open SMS conversation with a contact." };
+  }
+
+  const result = await simulateInboundCustomerReply(createServiceRoleClient(), {
+    organizationId,
+    contactId: conversation.contact_id,
+    conversationId: conversation.id,
+    body: validation.body,
+    simulationId,
+  });
+  if (!result.ok) {
+    return { error: result.error };
+  }
+
+  revalidatePath(`/conversations/${conversationId}`);
+  revalidatePath("/conversations");
+  return { success: true, duplicate: result.duplicate };
 }

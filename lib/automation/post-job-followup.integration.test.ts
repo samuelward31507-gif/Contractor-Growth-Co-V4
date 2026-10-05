@@ -158,3 +158,40 @@ test("a job with no linked contact still creates the event, with a genuinely nul
   assert.equal(payload.contact_id, null);
   assert.equal(payload.conversation_id, null, "no contact means no conversation can be opened - never fabricated");
 });
+
+test("the stored job.post_followup payload snapshots the org's configured review_url, and stores null (never invented) when none is configured", async () => {
+  const insertCompletedJob = async (title: string) => {
+    const { data: job } = await service
+      .from("jobs")
+      .insert({ organization_id: organizationId, contact_id: null, title, status: "completed", completed_at: new Date().toISOString() })
+      .select("id")
+      .single();
+    return job!.id as string;
+  };
+  const storedPayload = async (jobId: string) => {
+    const { data: event } = await service
+      .from("automation_events")
+      .select("payload")
+      .eq("organization_id", organizationId)
+      .eq("event_type", "job.post_followup")
+      .eq("entity_id", jobId)
+      .single();
+    assert.ok(event);
+    return event!.payload as Record<string, unknown>;
+  };
+
+  await service.from("organizations").update({ review_url: null }).eq("id", organizationId);
+  const unconfiguredJobId = await insertCompletedJob("No Review URL Job");
+  await emit(unconfiguredJobId);
+  assert.equal((await storedPayload(unconfiguredJobId)).review_url, null);
+
+  const configuredUrl = "https://g.page/r/regression-test-review-link";
+  await service.from("organizations").update({ review_url: configuredUrl }).eq("id", organizationId);
+  const configuredJobId = await insertCompletedJob("Review URL Job");
+  await emit(configuredJobId);
+  assert.equal(
+    (await storedPayload(configuredJobId)).review_url,
+    configuredUrl,
+    "the n8n callback reads review_url from the STORED payload, and review_requests is only recorded when it is present",
+  );
+});
