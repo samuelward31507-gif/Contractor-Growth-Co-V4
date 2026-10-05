@@ -40,7 +40,7 @@ export function Hero() {
           Revenue systems built to turn more opportunities into revenue<span className="text-cinder-accent">.</span>
         </h1>
         <p className="cinder-rise mt-7 max-w-[540px] text-pretty text-[18px] leading-relaxed text-cinder-ink-2 sm:mt-9 sm:text-[21px]" style={{ animationDelay: "120ms" }}>
-          Cinder connects every step between a new opportunity and a paid invoice — so less revenue slips through the gaps.
+          Cinder connects every step between a new opportunity and a final payment — so less revenue slips through the gaps.
         </p>
         <div className="cinder-rise mt-9 flex flex-col gap-3 sm:mt-10 sm:flex-row sm:items-center" style={{ animationDelay: "180ms" }}>
           <Button href={TALK_HREF} arrow size="lg">
@@ -81,7 +81,7 @@ export function Problem() {
         <div className="lg:sticky lg:top-28 lg:self-start">
           <Eyebrow>The problem</Eyebrow>
           <h2 className={`mt-6 ${H2}`}>Revenue doesn&apos;t disappear all at once.</h2>
-          <p className="mt-6 text-pretty text-[17px] leading-relaxed text-cinder-ink-2 sm:text-[19px]">It leaks through small operational gaps. A late reply. An estimate nobody follows up. An invoice nobody chases.</p>
+          <p className="mt-6 text-pretty text-[17px] leading-relaxed text-cinder-ink-2 sm:text-[19px]">It leaks through small operational gaps. A late reply. A proposal nobody follows up. A payment nobody chases.</p>
           <p className="mt-4 text-pretty text-[17px] leading-relaxed text-cinder-ink-2 sm:text-[19px]">
             Most businesses don&apos;t have a lead problem. They have a <span className="font-medium text-cinder-ink">follow-through</span> problem.
           </p>
@@ -277,7 +277,7 @@ export function Industries() {
       id="industries"
       eyebrow="Industries"
       title="Built for revenue-heavy businesses."
-      intro="Trackpr launches with contractors and the trades. Cinder is building toward the businesses where speed, follow-through and revenue visibility matter most."
+      intro="Cinder builds for businesses where speed, follow-through and revenue visibility matter most. Trackpr launches with contractors and the trades."
     >
       <div className="mt-16 grid gap-4 sm:mt-20 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <Reveal>

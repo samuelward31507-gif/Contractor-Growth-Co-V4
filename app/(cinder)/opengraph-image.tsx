@@ -5,8 +5,8 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 export const alt = "Cinder Revenue Company - revenue systems that turn more opportunities into revenue.";
 
-const STAGES = ["Lead", "Response", "Qualification", "Appointment", "Estimate", "Job", "Payment"];
-const PIVOTAL = new Set(["Response", "Estimate", "Payment"]);
+const STAGES = ["Lead", "Response", "Qualification", "Appointment", "Proposal", "Delivery", "Payment"];
+const PIVOTAL = new Set(["Response", "Proposal", "Payment"]);
 
 /**
  * The Cinder share card - the logo, the positioning line and the lifecycle

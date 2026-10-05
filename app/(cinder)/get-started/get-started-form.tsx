@@ -48,7 +48,7 @@ export function GetStartedForm() {
       `Contact name: ${get("name")}`,
       `Phone: ${get("phone")}`,
       `Email: ${get("email")}`,
-      `Trade / industry: ${get("trade")}`,
+      `Industry: ${get("trade")}`,
       `Website: ${get("website")}`,
       `Approximate monthly lead volume: ${get("leadVolume")}`,
       "",
@@ -100,11 +100,11 @@ export function GetStartedForm() {
           </div>
           <div className="space-y-1.5">
             <label htmlFor="trade" className={labelClass}>
-              Trade / industry {requiredMark}
+              Industry {requiredMark}
             </label>
             <select id="trade" name="trade" required defaultValue="" className={inputClass}>
               <option value="" disabled>
-                Select one
+                Select your industry
               </option>
               {TRADES.map((trade) => (
                 <option key={trade} value={trade}>
@@ -143,7 +143,7 @@ export function GetStartedForm() {
               name="challenge"
               rows={3}
               className={`${inputClass} resize-none`}
-              placeholder="e.g. estimates go unanswered, missed calls, no time to follow up..."
+              placeholder="e.g. missed calls, slow replies, no time to follow up..."
             />
           </div>
         </div>

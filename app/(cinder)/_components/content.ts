@@ -39,8 +39,8 @@ export const STAGES: Stage[] = [
   { key: "response", label: "Response", question: "Did someone respond?", leak: "The reply comes a day late, or never.", state: "Answered", pivotal: true },
   { key: "qualification", label: "Qualification", question: "Is this actually an opportunity?", leak: "Good fits and poor fits get the same attention.", state: "Qualified" },
   { key: "appointment", label: "Appointment", question: "Did they book?", leak: "Interest that never turns into a time.", state: "Booked" },
-  { key: "estimate", label: "Estimate", question: "Was the opportunity priced?", leak: "Sent once. Never followed up.", state: "Priced", pivotal: true },
-  { key: "job", label: "Job", question: "Did it become work?", leak: "Accepted, then never scheduled.", state: "Scheduled" },
+  { key: "proposal", label: "Proposal", question: "Was the opportunity priced?", leak: "Sent once. Never followed up.", state: "Priced", pivotal: true },
+  { key: "delivery", label: "Delivery", question: "Was the work delivered?", leak: "Accepted, then never scheduled.", state: "Scheduled" },
   { key: "payment", label: "Payment", question: "Did the business actually get paid?", leak: "Invoiced, then forgotten.", state: "Paid", pivotal: true },
 ];
 
@@ -61,8 +61,8 @@ export const ACTIVE_STAGE = 4;
 export const PILLARS = [
   { key: "capture", name: "Capture", line: "Bring opportunities into one system.", stages: ["Lead"] },
   { key: "engage", name: "Engage", line: "Respond and follow up consistently.", stages: ["Response", "Qualification"] },
-  { key: "convert", name: "Convert", line: "Move qualified opportunities toward revenue.", stages: ["Appointment", "Estimate"] },
-  { key: "operate", name: "Operate", line: "Coordinate the work that follows.", stages: ["Job", "Payment"] },
+  { key: "convert", name: "Convert", line: "Move qualified opportunities toward revenue.", stages: ["Appointment", "Proposal"] },
+  { key: "operate", name: "Operate", line: "Coordinate the work that follows.", stages: ["Delivery", "Payment"] },
   { key: "grow", name: "Grow", line: "Turn operational data into better decisions.", stages: ["Every stage"] },
 ] as const;
 

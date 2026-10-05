@@ -162,7 +162,7 @@ test("brand 5: contractor/trades language appears only where it describes Trackp
   const ALLOWED: Record<string, string[]> = {
     "app/(cinder)/trackpr/page.tsx": ["A product of Cinder Revenue Company, live today beginning with contractors and the trades."],
     "app/(cinder)/_components/sections.tsx": [
-      'intro="Trackpr launches with contractors and the trades. Cinder is building toward the businesses where speed, follow-through and revenue visibility matter most."',
+      'intro="Cinder builds for businesses where speed, follow-through and revenue visibility matter most. Trackpr launches with contractors and the trades."',
       'sm:text-[48px]">Contractors &amp; trades</h3>',
       "Trackpr&apos;s first live vertical — shaped around how the trades win and deliver work, from the first call to the paid invoice.",
       'aria-label="The trades lifecycle in Trackpr"',
@@ -228,4 +228,24 @@ test("brand 8: no invented products, integrations, customers, pricing, revenue f
   const sections = read("app/(cinder)/_components/sections.tsx");
   assert.match(sections, /None is supported by Trackpr yet\./);
   assert.match(read("app/(cinder)/_components/trackpr-product.tsx"), /Trackpr does not support these yet\./);
+});
+
+test("positioning: Cinder's own revenue lifecycle and intake speak to any revenue-heavy business, not only the trades", () => {
+  // Cinder's lifecycle (hero, problem, platform, share card) uses general
+  // stages; estimates and jobs stay Trackpr's product vocabulary only.
+  const content = read("app/(cinder)/_components/content.ts");
+  const stages = [...content.slice(content.indexOf("export const STAGES"), content.indexOf("export const TRANSITIONS")).matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(stages, ["Lead", "Response", "Qualification", "Appointment", "Proposal", "Delivery", "Payment"]);
+  assert.match(read("app/(cinder)/opengraph-image.tsx"), /const STAGES = \["Lead", "Response", "Qualification", "Appointment", "Proposal", "Delivery", "Payment"\];/);
+  const corporate = [content.slice(0, content.indexOf("export const TRACKPR_ANSWERS")), read("app/(cinder)/layout.tsx"), read("app/(cinder)/opengraph-image.tsx"), read("app/(cinder)/_components/lifecycle.tsx")].join("\n");
+  const withoutComments = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  assert.doesNotMatch(withoutComments(corporate).replaceAll(DEPLOYMENT_HOST, ""), /\bestimates?\b|\bjobs?\b|\binvoices?\b|\btrades?\b|contractor/i);
+  const sections = read("app/(cinder)/_components/sections.tsx");
+  const hero = sections.slice(sections.indexOf("export function Hero"), sections.indexOf("export function Platform"));
+  assert.doesNotMatch(withoutComments(hero), /\bestimates?\b|\bjobs?\b|\binvoices?\b|\btrades?\b|contractor/i, "hero and problem sections");
+  // The intake asks for an industry; the trade options remain (no product change).
+  const form = read("app/(cinder)/get-started/get-started-form.tsx");
+  assert.match(form, /Industry \{requiredMark\}/);
+  assert.match(form, />\s*Select your industry\s*</);
+  assert.doesNotMatch(form, /Trade \/ industry|Select your trade/);
 });
