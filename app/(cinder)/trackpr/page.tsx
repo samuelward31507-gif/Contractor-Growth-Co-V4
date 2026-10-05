@@ -4,7 +4,7 @@ import { TrackprAvailability, TrackprCta, TrackprHero, TrackprLifecycle, Trackpr
 
 const TITLE = "Trackpr — The first revenue operating system from Cinder";
 const DESCRIPTION =
-  "Trackpr shows what is happening with your revenue, what needs attention and what should happen next - from the first lead to the final payment. A product of Cinder Revenue Company, available today for contractors and the trades.";
+  "Trackpr shows what is happening with your revenue, what needs attention and what should happen next - from the first lead to the final payment. A product of Cinder Revenue Company, live today beginning with contractors and the trades.";
 
 export const metadata: Metadata = {
   title: { absolute: TITLE },

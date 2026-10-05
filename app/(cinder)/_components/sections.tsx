@@ -276,8 +276,8 @@ export function Industries() {
     <Section
       id="industries"
       eyebrow="Industries"
-      title="Expanding into more revenue-heavy businesses."
-      intro="Every revenue-heavy business has its own lifecycle, from first enquiry to payment. Trackpr is live today for contractors; Cinder is studying where the same system goes next."
+      title="Built for revenue-heavy businesses."
+      intro="Trackpr launches with contractors and the trades. Cinder is building toward the businesses where speed, follow-through and revenue visibility matter most."
     >
       <div className="mt-16 grid gap-4 sm:mt-20 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <Reveal>
@@ -292,9 +292,9 @@ export function Industries() {
                 Trackpr
               </Badge>
             </div>
-            <h3 className="mt-10 text-[36px] font-semibold tracking-[-0.035em] sm:mt-14 sm:text-[48px]">Contractors</h3>
-            <p className="mt-3 max-w-[520px] text-pretty text-[17px] leading-relaxed text-cinder-ink-2">Trackpr is purpose-built around the contractor revenue lifecycle — from the first call to the paid invoice.</p>
-            <ol aria-label="The contractor lifecycle in Trackpr" className="mt-8 flex flex-wrap items-center gap-x-2 gap-y-2 font-mono text-[11.5px] uppercase tracking-[0.06em] text-cinder-ink-2">
+            <h3 className="mt-10 text-[36px] font-semibold tracking-[-0.035em] sm:mt-14 sm:text-[48px]">Contractors &amp; trades</h3>
+            <p className="mt-3 max-w-[520px] text-pretty text-[17px] leading-relaxed text-cinder-ink-2">Trackpr&apos;s first live vertical — shaped around how the trades win and deliver work, from the first call to the paid invoice.</p>
+            <ol aria-label="The trades lifecycle in Trackpr" className="mt-8 flex flex-wrap items-center gap-x-2 gap-y-2 font-mono text-[11.5px] uppercase tracking-[0.06em] text-cinder-ink-2">
               {["Lead", "Estimate", "Job", "Invoice", "Payment"].map((step, i, all) => (
                 <li key={step} className="flex items-center gap-2">
                   <span className="rounded-md bg-cinder-well px-2 py-1">{step}</span>
@@ -310,8 +310,8 @@ export function Industries() {
 
         <Reveal delay={90}>
           <div className="flex h-full flex-col rounded-[24px] border border-dashed border-cinder-line-strong p-7 sm:p-10">
-            <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-cinder-ink-3">Coming into focus</p>
-            <p className="mt-3 text-pretty text-[17px] leading-relaxed text-cinder-ink-2">The revenue-heavy businesses Cinder is studying next. None is supported yet.</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-cinder-ink-3">Coming next</p>
+            <p className="mt-3 text-pretty text-[17px] leading-relaxed text-cinder-ink-2">Future verticals Cinder is building toward. None is supported by Trackpr yet.</p>
             <ul className="mt-8 divide-y divide-cinder-line border-y border-cinder-line">
               {FUTURE_VERTICALS.map((name) => (
                 <li key={name} className="flex items-center gap-3 py-3.5 text-[15px] text-cinder-ink-2">
@@ -350,7 +350,7 @@ export function Company() {
             <dl className="mt-10 grid grid-cols-1 border-y border-cinder-line sm:grid-cols-3 sm:divide-x sm:divide-cinder-line">
               {[
                 ["Company", "Cinder Revenue Company"],
-                ["First system", "Trackpr"],
+                ["Flagship product", "Trackpr"],
                 ["Focus", "Revenue-heavy businesses"],
               ].map(([term, value]) => (
                 <div key={term} className="border-b border-cinder-line py-4 last:border-b-0 sm:border-b-0 sm:px-5 sm:first:pl-0">

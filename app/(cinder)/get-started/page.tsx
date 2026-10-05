@@ -28,7 +28,7 @@ export default function GetStartedPage() {
               Get started with Trackpr<span className="text-cinder-accent">.</span>
             </h1>
             <p className="mt-6 max-w-[520px] text-pretty text-lg leading-relaxed text-cinder-ink-2">
-              Trackpr is Cinder&apos;s revenue operating system, available today for contractors and the trades. Tell us about your business and where
+              Trackpr is the first revenue operating system from Cinder, live today beginning with contractors and the trades. Tell us about your business and where
               opportunities are being lost — we&apos;ll take it from there.
             </p>
 

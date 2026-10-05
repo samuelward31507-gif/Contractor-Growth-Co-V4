@@ -100,7 +100,7 @@ export function TrackprHero() {
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-cinder-accent" />
             Live
           </Badge>
-          Available today for contractors and the trades.
+          Live today, beginning with contractors and the trades.
         </p>
       </div>
     </section>
@@ -173,17 +173,19 @@ export function TrackprLifecycle() {
 
 export function TrackprAvailability() {
   return (
-    <Section eyebrow="Availability" title="Live for contractors. Built to go further.">
+    <Section eyebrow="Availability" title="Launching with the trades. Built to go further.">
       <div className="mt-14 grid gap-4 sm:mt-20 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <Reveal>
           <article className="flex h-full flex-col rounded-[24px] border border-cinder-line bg-cinder-surface p-7 shadow-[0_1px_2px_rgba(13,21,18,0.04)] sm:p-10">
-            <Badge tone="accent">
-              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-cinder-accent" />
-              Live today
-            </Badge>
+            <div className="flex">
+              <Badge tone="accent">
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-cinder-accent" />
+                Live today
+              </Badge>
+            </div>
             <h3 className="mt-10 text-[32px] font-semibold tracking-[-0.035em] sm:text-[40px]">Contractors and the trades</h3>
             <p className="mt-3 max-w-[540px] text-pretty text-[17px] leading-relaxed text-cinder-ink-2">
-              Today, Trackpr is purpose-built around the contractor lifecycle — calls and forms, estimates, jobs and invoices.
+              Trackpr&apos;s first live vertical — shaped around how the trades win and deliver work: calls and forms, estimates, jobs and invoices.
             </p>
             <div className="mt-auto pt-10">
               <Button href={GET_STARTED_HREF} arrow>
@@ -194,7 +196,7 @@ export function TrackprAvailability() {
         </Reveal>
         <Reveal delay={90}>
           <div className="flex h-full flex-col rounded-[24px] border border-dashed border-cinder-line-strong p-7 sm:p-10">
-            <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-cinder-ink-3">Coming into focus</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-cinder-ink-3">Coming next</p>
             <p className="mt-3 text-pretty text-[17px] leading-relaxed text-cinder-ink-2">
               Cinder is expanding into more revenue-heavy businesses. Trackpr does not support these yet.
             </p>

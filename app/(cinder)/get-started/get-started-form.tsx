@@ -48,7 +48,7 @@ export function GetStartedForm() {
       `Contact name: ${get("name")}`,
       `Phone: ${get("phone")}`,
       `Email: ${get("email")}`,
-      `Trade: ${get("trade")}`,
+      `Trade / industry: ${get("trade")}`,
       `Website: ${get("website")}`,
       `Approximate monthly lead volume: ${get("leadVolume")}`,
       "",
@@ -100,11 +100,11 @@ export function GetStartedForm() {
           </div>
           <div className="space-y-1.5">
             <label htmlFor="trade" className={labelClass}>
-              Trade {requiredMark}
+              Trade / industry {requiredMark}
             </label>
             <select id="trade" name="trade" required defaultValue="" className={inputClass}>
               <option value="" disabled>
-                Select your trade
+                Select one
               </option>
               {TRADES.map((trade) => (
                 <option key={trade} value={trade}>

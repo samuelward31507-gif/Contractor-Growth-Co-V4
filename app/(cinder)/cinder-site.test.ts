@@ -8,9 +8,11 @@
  *      self-contained SVG (no external references, no embedded raster).
  *   3. Product truth: no invented proof - no percentages, testimonials,
  *      customer logos, prices or "AI-powered" copy anywhere on the site.
- *   4. Brand hierarchy: Cinder is the company, Trackpr its flagship product;
- *      no Contractor Growth Co. marketing, and no contractor-only
- *      positioning for Cinder itself (contractors are Trackpr's live market).
+ *   4. Brand hierarchy: Cinder Revenue Company is the parent brand, Trackpr
+ *      its flagship product, contractors and the trades Trackpr's current
+ *      live vertical - never Cinder's identity. Contractor Growth Co. appears
+ *      only as the legal contracting party in /privacy and /terms, whose
+ *      legal text is pinned unchanged.
  *
  * Run with:
  *   node --import ./lib/automation/test-loader.mjs --test "app/(cinder)/cinder-site.test.ts"
@@ -19,6 +21,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 const ROOT = process.cwd();
 const read = (relative: string) => fs.readFileSync(path.join(ROOT, relative), "utf8");
@@ -84,24 +87,42 @@ test("accessibility: one h1, a skip link, a labelled mobile disclosure, and moti
 });
 
 // ---------------------------------------------------------------------------
-// Brand hierarchy (Cinder brand consolidation)
+// Brand hierarchy
+//   Cinder Revenue Company (revenue technology company)
+//     -> Trackpr (first flagship revenue operating system)
+//       -> live today with contractors and the trades (product availability)
+//       -> future revenue-heavy verticals (named as not yet supported)
 // ---------------------------------------------------------------------------
 
-/** Every public marketing file: the site above plus the intake form, the legal pages and the error boundary. */
-const PUBLIC_FILES = [...SITE_FILES, "app/(cinder)/get-started/get-started-form.tsx", "app/(cinder)/error.tsx", "app/(cinder)/privacy/page.tsx", "app/(cinder)/terms/page.tsx"];
+const LEGAL_FILES = ["app/(cinder)/privacy/page.tsx", "app/(cinder)/terms/page.tsx"];
+/** Every public marketing file other than the legal pages. */
+const MARKETING_FILES = [...SITE_FILES, "app/(cinder)/get-started/get-started-form.tsx", "app/(cinder)/error.tsx", "app/robots.ts", "app/sitemap.ts"];
+// The deployment's hostname is an address, not copy; it stays until the Cinder domain exists.
+const DEPLOYMENT_HOST = "contractor-growth-co-v4.vercel.app";
+const source = (file: string) => read(file).replaceAll(DEPLOYMENT_HOST, "");
 
-test("brand: / identifies Cinder Revenue Company - title, social metadata, organization data and hero", () => {
+test("brand 1: Cinder Revenue Company is the primary public brand - organization data, site name, nav, footer", () => {
+  const layout = read("app/(cinder)/layout.tsx");
+  assert.match(layout, /"@type": "Organization",\s*name: "Cinder Revenue Company",[\s\S]*brand: \{ "@type": "Brand", name: "Trackpr" \}/);
+  assert.match(layout, /siteName: "Cinder Revenue Company"/);
+  assert.match(read("app/(cinder)/_components/nav.tsx"), /aria-label="Cinder Revenue Company - home"/);
+  const footer = read("app/(cinder)/_components/footer.tsx");
+  assert.match(footer, /© \{new Date\(\)\.getFullYear\(\)\} Cinder Revenue Company/);
+  assert.match(footer, /Trackpr is a product of Cinder Revenue Company\./);
+  // Every page in the group inherits the Cinder title template.
+  assert.match(layout, /title: \{ default: TITLE, template: "%s \| Cinder Revenue Company" \}/);
+});
+
+test("brand 2: / identifies Cinder as the parent company", () => {
   const layout = read("app/(cinder)/layout.tsx");
   assert.match(layout, /const TITLE = "Cinder Revenue Company \| Revenue Systems";/);
-  assert.match(layout, /title: \{ default: TITLE, template: "%s \| Cinder Revenue Company" \}/);
-  assert.match(layout, /siteName: "Cinder Revenue Company"/);
-  assert.match(layout, /"@type": "Organization",\s*name: "Cinder Revenue Company",[\s\S]*brand: \{ "@type": "Brand", name: "Trackpr" \}/);
   assert.match(read("app/(cinder)/page.tsx"), /alternates: \{ canonical: "\/" \}/);
   assert.match(read("app/(cinder)/opengraph-image.tsx"), /export const alt = "Cinder Revenue Company/);
   assert.ok(COPY.includes("Revenue systems built to turn more opportunities into revenue"));
+  assert.match(read("app/(cinder)/_components/sections.tsx"), /\["Flagship product", "Trackpr"\]/);
 });
 
-test("brand: /trackpr presents Trackpr as Cinder's flagship product", () => {
+test("brand 3: /trackpr identifies Trackpr as Cinder's flagship product", () => {
   const page = read("app/(cinder)/trackpr/page.tsx");
   assert.match(page, /const TITLE = "Trackpr — The first revenue operating system from Cinder";/);
   assert.match(page, /title: \{ absolute: TITLE \}/);
@@ -115,37 +136,96 @@ test("brand: /trackpr presents Trackpr as Cinder's flagship product", () => {
     assert.ok(product.includes(`q: "${question}"`), question);
   }
   assert.match(read("app/(cinder)/trackpr/opengraph-image.tsx"), /The first revenue operating system from Cinder\./);
-  assert.match(read("app/(cinder)/_components/footer.tsx"), /Trackpr is a product of Cinder Revenue Company\./);
+  assert.match(read("app/(cinder)/get-started/page.tsx"), /Get started with Trackpr<span/);
 });
 
-test("brand: no Contractor Growth Co. anywhere in the Cinder marketing presentation (legal text excepted)", () => {
-  // The privacy policy and terms keep their legal text as written - it names
-  // the contracting entity - so only their page chrome is checked there.
-  const legal = new Set(["app/(cinder)/privacy/page.tsx", "app/(cinder)/terms/page.tsx"]);
-  for (const file of PUBLIC_FILES) {
-    const source = read(file);
-    const checked = legal.has(file) ? source.slice(0, source.indexOf("export default")) : source;
-    assert.doesNotMatch(checked, /Contractor Growth/i, file);
+test("brand 4: public Cinder marketing never describes Cinder as a contractor company", () => {
+  // Corporate surfaces carry no contractor or trades language at all.
+  for (const file of ["app/(cinder)/layout.tsx", "app/(cinder)/page.tsx", "app/(cinder)/opengraph-image.tsx", "app/(cinder)/error.tsx", "app/(cinder)/_components/nav.tsx", "app/(cinder)/_components/footer.tsx", "app/(cinder)/_components/lifecycle.tsx", "app/(cinder)/_components/content.ts", "app/robots.ts", "app/sitemap.ts"]) {
+    assert.doesNotMatch(source(file), /contractor|\btrades\b/i, file);
   }
-  for (const file of ["app/(cinder)/privacy/page.tsx", "app/(cinder)/terms/page.tsx"]) {
-    assert.match(read(file), /Cinder Revenue Company|Eyebrow/, `${file} wears the Cinder chrome`);
-  }
-});
-
-test("brand: Cinder's corporate positioning is not contractor-only - contractors appear only as Trackpr's live market", () => {
-  // Corporate surfaces: no contractor language at all. The deployment's
-  // hostname (SITE_URL) is an address, not copy, and is left as deployed.
-  const DEPLOYMENT_HOST = "contractor-growth-co-v4.vercel.app";
-  for (const file of ["app/(cinder)/layout.tsx", "app/(cinder)/page.tsx", "app/(cinder)/opengraph-image.tsx", "app/(cinder)/_components/nav.tsx", "app/(cinder)/_components/footer.tsx", "app/(cinder)/_components/lifecycle.tsx", "app/(cinder)/_components/content.ts"]) {
-    assert.doesNotMatch(read(file).replaceAll(DEPLOYMENT_HOST, ""), /contractor/i, file);
-  }
-  // The home sections: only the Industries section names contractors (as the live market).
+  // On the home page only the Industries section may name them, as Trackpr's live vertical.
   const sections = read("app/(cinder)/_components/sections.tsx");
   const industries = sections.slice(sections.indexOf("export function Industries"), sections.indexOf("export function Company"));
-  assert.doesNotMatch(sections.replace(industries, ""), /contractor/i, "hero, platform, Trackpr, why, company and final CTA");
-  assert.match(industries, /title="Expanding into more revenue-heavy businesses\."/);
-  // Future markets are named as future, never as supported.
+  assert.doesNotMatch(sections.replace(industries, ""), /contractor|\btrades\b/i, "hero, platform, Trackpr, why, company and final CTA");
+  assert.match(industries, /title="Built for revenue-heavy businesses\."/);
+  // No phrase that makes Cinder (rather than Trackpr's availability) about contractors.
+  for (const file of MARKETING_FILES) {
+    assert.doesNotMatch(source(file), /Cinder (builds|is|serves|helps)[^."]{0,60}contractor|built for contractors|for contractors\b|contractor-first|Contractor Growth System|Turn More Leads Into Booked Jobs/i, file);
+  }
+});
+
+test("brand 5: contractor/trades language appears only where it describes Trackpr's live vertical", () => {
+  // Every line of public marketing source that names contractors or the
+  // trades, reviewed. A new mention fails here until it is added - and it
+  // must be about Trackpr's availability, not Cinder's identity.
+  const ALLOWED: Record<string, string[]> = {
+    "app/(cinder)/trackpr/page.tsx": ["A product of Cinder Revenue Company, live today beginning with contractors and the trades."],
+    "app/(cinder)/_components/sections.tsx": [
+      'intro="Trackpr launches with contractors and the trades. Cinder is building toward the businesses where speed, follow-through and revenue visibility matter most."',
+      'sm:text-[48px]">Contractors &amp; trades</h3>',
+      "Trackpr&apos;s first live vertical — shaped around how the trades win and deliver work, from the first call to the paid invoice.",
+      'aria-label="The trades lifecycle in Trackpr"',
+    ],
+    "app/(cinder)/_components/trackpr-product.tsx": [
+      "Live today, beginning with contractors and the trades.",
+      'title="Launching with the trades. Built to go further."',
+      'sm:text-[40px]">Contractors and the trades</h3>',
+      "Trackpr&apos;s first live vertical — shaped around how the trades win and deliver work: calls and forms, estimates, jobs and invoices.",
+    ],
+    "app/(cinder)/get-started/page.tsx": ["Trackpr is the first revenue operating system from Cinder, live today beginning with contractors and the trades."],
+  };
+  for (const file of MARKETING_FILES) {
+    const mentions = source(file).split("\n").filter((line) => /contractor|\btrades\b/i.test(line.replace(/\bTRADES\b/g, ""))).map((line) => line.trim());
+    const allowed = ALLOWED[file] ?? [];
+    assert.equal(mentions.length, allowed.length, `${file}: ${JSON.stringify(mentions)}`);
+    for (const mention of mentions) assert.ok(allowed.some((phrase) => mention.includes(phrase)), `${file}: unreviewed mention ${mention}`);
+  }
+});
+
+test("brand 6: Contractor Growth Co. appears in no public marketing copy outside /privacy and /terms", () => {
+  for (const file of [...MARKETING_FILES, "app/layout.tsx"]) assert.doesNotMatch(source(file), /Contractor Growth/i, file);
+  // The legal pages' chrome and metadata (everything before the page body) are Cinder's too.
+  for (const file of LEGAL_FILES) {
+    const chrome = read(file).slice(0, read(file).indexOf("export default"));
+    assert.doesNotMatch(chrome, /Contractor Growth/i, file);
+  }
+  assert.ok(!exists("app/(marketing)"), "the Contractor Growth Co. marketing site is retired");
+});
+
+test("brand 7: the legal pages are legally unchanged - same text, same contracting party", () => {
+  // Fingerprint of every text node in each page body, whitespace-collapsed.
+  // Identical to the text these pages carried before the Cinder move; a
+  // legal edit must update this deliberately.
+  const PINNED: Record<string, string> = {
+    "app/(cinder)/privacy/page.tsx": "e6b82ed537ffa200a145065b438d11b4edca399656e2c01a52c0d732d801d6f5",
+    "app/(cinder)/terms/page.tsx": "3fcf3a729f87a4b93bd8c876309a94530c6db56a53a687d472cd0de4af0b6c8d",
+  };
+  for (const file of LEGAL_FILES) {
+    const page = read(file);
+    const body = page.slice(page.indexOf("export default"));
+    const text = [...body.matchAll(/>([^<>{}]+)</g)].map((m) => m[1].replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+    assert.equal(crypto.createHash("sha256").update(text).digest("hex"), PINNED[file], `${file} legal text changed`);
+    assert.match(body, /Contractor Growth Co\./, `${file} still names the legal contracting party`);
+    assert.match(body, /mailto:contractorgrowthcompany@gmail\.com/i, `${file} keeps its legal contact`);
+  }
+});
+
+test("brand 8: no invented products, integrations, customers, pricing, revenue figures or capabilities", () => {
+  // Visible text nodes plus quoted strings, minus CSS values (arbitrary Tailwind values and bare sizes like "100%").
+  const isCss = (value: string) => /[[\]]|^\d+(%|px)$/.test(value);
+  const MARKETING_COPY = MARKETING_FILES.filter((f) => !f.endsWith("trackpr-showcase.tsx"))
+    .map((f) => [...source(f).matchAll(/>([^<>{}]+)</g)].map((m) => m[1]).join(" ") + " " + [...source(f).matchAll(/"([^"]+)"/g)].map((m) => m[1]).filter((v) => !isCss(v)).join(" "))
+    .join(" ");
+  // Figures live only in the showcase, which is labelled sample data.
+  assert.doesNotMatch(MARKETING_COPY, /\$\s?\d/, "no dollar figures outside the labelled sample showcase");
+  assert.doesNotMatch(MARKETING_COPY, /\d+\s?%|\d+x\b|\btestimonial|\bcase stud|\btrusted by\b|\bcustomers? (love|trust|say)|per month|\/mo\b|pricing|free trial/i);
+  // The one integration Trackpr ships is Google Calendar; no others are named.
+  assert.doesNotMatch(MARKETING_COPY, /QuickBooks|Salesforce|HubSpot|Zapier|Jobber|ServiceTitan|Housecall|Outlook|Slack|Mailchimp|integrates with/i);
+  // Only one product exists; future verticals are explicitly unsupported.
+  assert.doesNotMatch(MARKETING_COPY, /\b(our|two|three|other|second) products\b|coming soon:/i);
   assert.match(read("app/(cinder)/_components/content.ts"), /FUTURE_VERTICALS = \["Gyms", "Clinics", "Med spas", "Dental", "Agencies", "Dealerships", "Other service businesses"\]/);
-  assert.match(industries, /None is supported yet\./);
+  const sections = read("app/(cinder)/_components/sections.tsx");
+  assert.match(sections, /None is supported by Trackpr yet\./);
   assert.match(read("app/(cinder)/_components/trackpr-product.tsx"), /Trackpr does not support these yet\./);
 });
