@@ -1,3 +1,4 @@
+import type { SchedulingDateContext } from "./scheduling-date-context";
 import type { OrganizationVertical } from "@/lib/auth/organization";
 
 /**
@@ -66,7 +67,13 @@ export type N8nWorkflowContract = {
       last_name: string | null;
       phone: string | null;
       email: string | null;
-    } | null;
+    } | null;    /**
+     * Customer replies only: today's date/time and the next two weeks of
+     * local days in the organization's timezone, so the AI can resolve
+     * relative dates ("next Tuesday") into an exact booking date range. See
+     * lib/automation/scheduling-date-context.ts.
+     */
+    scheduling?: SchedulingDateContext;
   };
 };
 

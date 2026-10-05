@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
 import { startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
+import { buildSchedulingDateContext } from "./scheduling-date-context";
 import { getAutomationConfig, readInboundCustomerReplyConfig, type InboundCustomerReplyConfig } from "./settings";
 import { getMessages, type Message } from "@/lib/conversations/queries";
 import { getContact } from "@/lib/contacts/queries";
@@ -216,6 +217,7 @@ export async function emitCustomerReplyFollowup(
             email: contact.email,
           }
         : null,
+      scheduling: buildSchedulingDateContext(new Date(), businessProfile?.timezone ?? "UTC"),
     },
   };
 
