@@ -41,9 +41,10 @@ const sends = { count: 0 };
 class Query {
   private filters: ((row: Row) => boolean)[] = [];
   private updateValues: Row | null = null;
+  private insertRows: Row[] | null = null;
   private sortBy: { column: string; ascending: boolean } | null = null;
   private max: number | null = null;
-  private single = false;
+  private singleRow = false;
   private table: string;
   constructor(table: string) {
     this.table = table;
@@ -56,9 +57,17 @@ class Query {
   order(column: string, options?: { ascending?: boolean }) { this.sortBy = { column, ascending: options?.ascending !== false }; return this; }
   limit(n: number) { this.max = n; return this; }
   update(values: Row) { this.updateValues = values; return this; }
-  maybeSingle() { this.single = true; return this.run(); }
+  insert(values: Row | Row[]) { this.insertRows = Array.isArray(values) ? values : [values]; return this; }
+  single() { return this.maybeSingle(); }
+  maybeSingle() { this.singleRow = true; return this.run(); }
   then<T>(resolve: (value: { data: unknown; error: null }) => T, reject?: (reason: unknown) => T) { return this.run().then(resolve, reject); }
   private async run() {
+    if (this.insertRows) {
+      const now = tick();
+      const inserted = this.insertRows.map((row) => ({ id: nextId(this.table), created_at: now, updated_at: now, ...row }));
+      (store[this.table] ??= []).push(...inserted);
+      return { data: this.singleRow ? inserted[0] : inserted, error: null };
+    }
     let rows = (store[this.table] ?? []).filter((row) => this.filters.every((f) => f(row)));
     if (this.updateValues) for (const row of rows) Object.assign(row, this.updateValues, { updated_at: tick() });
     if (this.sortBy) {
@@ -66,7 +75,7 @@ class Query {
       rows = [...rows].sort((a, b) => (String(a[column]) < String(b[column]) ? -1 : 1) * (ascending ? 1 : -1));
     }
     if (this.max !== null) rows = rows.slice(0, this.max);
-    return { data: this.single ? (rows[0] ?? null) : rows, error: null };
+    return { data: this.singleRow ? (rows[0] ?? null) : rows, error: null };
   }
 }
 const supabase = { from: (table: string) => new Query(table) };
@@ -113,6 +122,7 @@ mock.module(lib("lib/messaging/outbound.ts"), {
     },
   },
 });
+mock.module(lib("lib/supabase/service.ts"), { namedExports: { createServiceRoleClient: () => supabase } });
 mock.module(lib("lib/notifications/founder.ts"), { namedExports: { notifyFounder: async () => ({ outcome: "no_recipient" }) } });
 mock.module(lib("lib/automation-health/service.ts"), { namedExports: { recordAutomationHealthSignal: async () => undefined } });
 mock.module(lib("app/api/automation/n8n-callback/route.ts"), {
@@ -161,6 +171,14 @@ async function recordOffer() {
   const { event } = await createEvent(null, ORG, { eventType: "customer.message.received", entityType: "conversation", entityId: CONV, idempotencyKey: `customer.message.received:${nextId("sim")}` });
   const { execution } = await startExecution(null, event.id as string, "customer_reply_followup");
   await completeExecution(null, execution.id, { booking_action: "check_availability", availability_status: "available", offered_slots: SLOTS, offered_title: "Roof inspection", reschedule_appointment_id: null, should_send: false, blocked_reason: "organization_not_live" });
+}
+
+/** An already-booked upcoming appointment (no booking context left open). */
+function addUpcomingAppointment(startAt: string) {
+  const now = tick();
+  const appointment = { id: nextId("appt"), organization_id: ORG, contact_id: CONTACT, lead_id: LEAD, start_at: startAt, end_at: startAt, title: "Roof inspection", status: "scheduled", confirmed_at: null, created_at: now, updated_at: now };
+  store.appointments.push(appointment);
+  return appointment;
 }
 
 const reply = (body: string) => classifyAndProcessBookingReply(supabase, ORG, CONTACT, LEAD, CONV, body);
@@ -257,4 +275,76 @@ test("an appointment for a different contact does not close this conversation's 
   store.appointments.push({ id: "appt-other", organization_id: ORG, contact_id: "contact-2", start_at: SLOTS[0]!.start_at, end_at: SLOTS[0]!.end_at, status: "scheduled", created_at: tick(), updated_at: tick() });
 
   assert.equal((await getRecentBookingContext(supabase, ORG, CONV))?.type, "offer");
+});
+
+// ---------------------------------------------------------------------------
+// Natural-language confirmation through the real reply handler
+// ---------------------------------------------------------------------------
+
+for (const body of ["YES", "Yes, that time works for me.", "Yes, that works.", "That time works for me"]) {
+  test(`booked offer + "${body}" -> confirms the one upcoming appointment and records confirmed_at`, async () => {
+    await recordOffer();
+    await reply("4:00 PM works for me");
+
+    assert.equal(await reply(body), true);
+
+    assert.equal(store.appointments[0]!.status, "confirmed");
+    assert.ok(store.appointments[0]!.confirmed_at);
+    assert.equal(eventsOfType("appointment.confirmation_acknowledged").length, 1);
+    assert.equal(eventsOfType("appointment.slot_clarification_sent").length, 0);
+  });
+}
+
+test("a negative or ambiguous reply never confirms (handed on to the normal AI flow)", async () => {
+  const appointment = addUpcomingAppointment("2099-04-01T15:00:00.000Z");
+  for (const body of ["No, that time does not work", "Maybe", "Yes, but can we do 10 instead?"]) {
+    await reply(body);
+  }
+  assert.equal(appointment.status, "scheduled");
+  assert.equal(appointment.confirmed_at, null);
+  assert.equal(eventsOfType("appointment.confirmation_acknowledged").length, 0);
+});
+
+test("a cancellation or reschedule request never confirms", async () => {
+  const appointment = addUpcomingAppointment("2099-04-01T15:00:00.000Z");
+  await reply("Yes, I need to reschedule");
+  await reply("Yes, please cancel it");
+  assert.notEqual(appointment.status, "confirmed");
+  assert.equal(appointment.confirmed_at, null);
+  assert.equal(eventsOfType("appointment.confirmation_acknowledged").length, 0);
+});
+
+test("multiple upcoming appointments stay safe: neither the strict nor the natural form confirms either one", async () => {
+  const first = addUpcomingAppointment("2099-04-01T15:00:00.000Z");
+  const second = addUpcomingAppointment("2099-04-02T15:00:00.000Z");
+
+  assert.equal(await reply("Yes, that time works for me."), false, "handed on, never guessed");
+  assert.equal(await reply("YES"), false);
+
+  assert.equal(first.status, "scheduled");
+  assert.equal(second.status, "scheduled");
+  assert.equal(eventsOfType("appointment.confirmation_acknowledged").length, 0);
+});
+
+test("with an OPEN offer the natural form is never trusted: no appointment is confirmed or booked", async () => {
+  const existing = addUpcomingAppointment("2099-04-01T15:00:00.000Z");
+  await recordOffer();
+
+  await reply("Yes, that time works for me.");
+
+  assert.equal(existing.status, "scheduled", "an open offer means the customer may be choosing a slot, not confirming");
+  assert.equal(store.appointments.length, 1);
+  assert.equal(eventsOfType("appointment.confirmation_acknowledged").length, 0);
+});
+
+test("repeated natural confirmations add nothing after the first", async () => {
+  const appointment = addUpcomingAppointment("2099-04-01T15:00:00.000Z");
+  await reply("Yes, that time works for me.");
+  const confirmedAt = appointment.confirmed_at;
+  const eventCount = store.automation_events.length;
+
+  assert.equal(await reply("Yes, that works."), true);
+
+  assert.equal(appointment.confirmed_at, confirmedAt);
+  assert.equal(store.automation_events.length, eventCount);
 });

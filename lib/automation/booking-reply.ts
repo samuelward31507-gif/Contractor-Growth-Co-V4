@@ -117,6 +117,43 @@ export function classifyConfirmationIntent(body: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Natural-language confirmation ("Yes, that time works for me.").
+//
+// The strict pattern above stays exactly as it is; this is a second,
+// equally anchored check for a short, plainly affirmative sentence: an
+// affirmative opener, a confirming statement, or both, optionally followed
+// by thanks. Anything with a question mark, or with negation, cancellation,
+// rescheduling, an alternative, a hedge or a "but", never matches - so "Yes,
+// but can we do 10 instead?" or "That doesn't work" can never confirm.
+//
+// The caller only consults it when the conversation has NO booking context
+// (no open slot offer, no pending reschedule), so it can never be mistaken
+// for a slot choice, and handleConfirmationIntent still requires exactly one
+// upcoming appointment.
+// ---------------------------------------------------------------------------
+
+const NATURAL_CONFIRMATION_BLOCKERS =
+  /\?|\b(no|nope|not|never|don'?t|doesn'?t|didn'?t|can'?t|cannot|won'?t|wouldn'?t|isn'?t|unable|cancel\w*|reschedul\w*|move|change|instead|different|another|other|earlier|later|maybe|perhaps|probably|might|unsure|think|guess|but|unless|if|or|wait|actually|question|call)\b/i;
+const AFFIRMATIVE_OPENER = "(?:yes|yep|yeah|yup|sure|ok|okay|perfect|great|confirm|confirmed)";
+const CONFIRMING_STATEMENT =
+  "(?:(?:(?:that|this|the)(?: (?:time|appointment|slot|day))? )?(?:works|is good|is fine|is perfect|is great|sounds good)(?: for (?:me|us))?|i'?ll be there|we'?ll be there|see you then|see you there|confirmed|please confirm)";
+const NATURAL_CONFIRMATION_PATTERN = new RegExp(
+  `^(?:${AFFIRMATIVE_OPENER}(?: ${CONFIRMING_STATEMENT})?|${CONFIRMING_STATEMENT})(?: (?:thanks|thank you|thx))?$`,
+  "i",
+);
+
+export function classifyNaturalConfirmationIntent(body: string): boolean {
+  const text = body.trim().replace(/[\u2018\u2019]/g, "'");
+  if (!text || NATURAL_CONFIRMATION_BLOCKERS.test(text)) return false;
+  const normalized = text
+    .toLowerCase()
+    .replace(/[,.!;:\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return NATURAL_CONFIRMATION_PATTERN.test(normalized);
+}
+
+// ---------------------------------------------------------------------------
 // Slot-selection resolution - matches a customer's freeform reply against
 // the EXACT slots Trackpr most recently offered. Deliberately conservative:
 // a candidate that could plausibly match more than one offered slot resolves
@@ -646,7 +683,9 @@ export async function classifyAndProcessBookingReply(
   // selection (handled above) always takes priority for an affirmative
   // reply, since "yes" during booking means "yes, that slot," not "yes, I'll
   // show up to an appointment that doesn't exist yet."
-  if (classifyConfirmationIntent(messageBody)) {
+  // The natural-language form is only trusted when no booking context is
+  // open at all (see classifyNaturalConfirmationIntent).
+  if (classifyConfirmationIntent(messageBody) || (context === null && classifyNaturalConfirmationIntent(messageBody))) {
     return handleConfirmationIntent(supabase, organizationId, contactId, leadId, conversationId, sendSmsFn);
   }
 

@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { classifyBookingReplyIntent, resolveSlotSelection, classifyConfirmationIntent }: typeof import("./booking-reply") = require("./booking-reply.ts");
+const { classifyBookingReplyIntent, resolveSlotSelection, classifyConfirmationIntent, classifyNaturalConfirmationIntent }: typeof import("./booking-reply") = require("./booking-reply.ts");
 
 // 3 slots at 09:00 / 10:30 / 13:00 UTC on a fixed day - matches the org
 // timezone "UTC" used throughout these pure tests (no DST ambiguity).
@@ -186,4 +186,33 @@ test("precedence: 'I can't make it' classifies as cancel, never confirmation", (
   const body = "I can't make it.";
   assert.equal(classifyBookingReplyIntent(body), "cancel");
   assert.equal(classifyConfirmationIntent(body), false);
+});
+
+// ---------------------------------------------------------------------------
+// classifyNaturalConfirmationIntent ("Yes, that time works for me.")
+// ---------------------------------------------------------------------------
+
+test("classifyNaturalConfirmationIntent: plain affirmative sentences confirm, including every strict-pattern phrase it covers", () => {
+  for (const body of ["YES", "yes", "Yes!", "OK", "confirm", "sounds good", "works for me", "Yes, that time works for me.", "Yes, that works.", "That time works for me", "That works for me, thanks!", "Yes, that appointment is fine", "Yep, see you then.", "Yes, I\u2019ll be there"]) {
+    assert.equal(classifyNaturalConfirmationIntent(body), true, `expected "${body}" to confirm`);
+  }
+});
+
+test("classifyNaturalConfirmationIntent: negative, hedged, questioning or ambiguous replies never confirm", () => {
+  for (const body of ["No, that time does not work", "That doesn't work for me", "Not sure that works", "Maybe", "I think so", "Yes, but can we do 10 instead?", "That works for you?", "yes I have a question", "sure, but can you call me first?", "Yes 9 works", "Yes, that works or Friday", "Yes, if it's in the morning", "Yes that time works for me \u{1F44D}", "", "   "]) {
+    assert.equal(classifyNaturalConfirmationIntent(body), false, `expected "${body}" NOT to confirm`);
+  }
+});
+
+test("classifyNaturalConfirmationIntent: cancellation and reschedule requests never confirm, and still classify as cancel/reschedule first", () => {
+  for (const body of ["Yes, I need to reschedule", "Yes, can I move it to Friday?", "Yes, please cancel it", "Can we do Friday instead?", "I can't make it."]) {
+    assert.equal(classifyNaturalConfirmationIntent(body), false, `expected "${body}" NOT to confirm`);
+  }
+  assert.equal(classifyBookingReplyIntent("Yes, I need to reschedule"), "reschedule");
+  assert.equal(classifyBookingReplyIntent("I can't make it."), "cancel");
+});
+
+test("the strict classifier is unchanged: 'Yes, that time works for me.' is still not a strict match (only the natural classifier accepts it)", () => {
+  assert.equal(classifyConfirmationIntent("Yes, that time works for me."), false);
+  assert.equal(classifyConfirmationIntent("YES"), true);
 });
