@@ -35,3 +35,33 @@ export function computeConfirmationInvalidationOnTimeChange(previousStatus: Appo
   if (!timeChanged) return {};
   return previousStatus === "confirmed" ? { confirmed_at: null, confirmation_requested_at: null, status: "scheduled" } : { confirmed_at: null, confirmation_requested_at: null };
 }
+
+/**
+ * The confirmation-tracking rule for an explicit status change: the same
+ * meaning the customer's SMS "YES" (lib/automation/appointments.ts's
+ * confirmAppointmentAsService) already gives a confirmation - status
+ * 'confirmed' AND a confirmed_at timestamp - applied to a contractor's manual
+ * Confirm (the calendar quick action or the edit form), which previously
+ * changed only the status and left no record of when it was confirmed.
+ *
+ * - into 'confirmed' from any other status: stamp confirmed_at = now.
+ * - already 'confirmed' and staying 'confirmed': no change, so a repeated
+ *   Confirm keeps the original timestamp (idempotent).
+ * - 'confirmed' back to 'scheduled': clear confirmed_at, so a manual
+ *   un-confirm reads as awaiting confirmation again - the same state
+ *   computeConfirmationInvalidationOnTimeChange gives a rescheduled one.
+ * - anything else (complete/cancel/no-show): untouched - those statuses never
+ *   display confirmation state, and a completed appointment keeps the record
+ *   of when it was confirmed.
+ */
+export type ConfirmationTransitionFields = { confirmed_at: string | null };
+
+export function computeConfirmationOnStatusChange(
+  previousStatus: AppointmentStatus,
+  nextStatus: AppointmentStatus,
+  now: Date,
+): ConfirmationTransitionFields | Record<string, never> {
+  if (nextStatus === "confirmed" && previousStatus !== "confirmed") return { confirmed_at: now.toISOString() };
+  if (nextStatus === "scheduled" && previousStatus === "confirmed") return { confirmed_at: null };
+  return {};
+}

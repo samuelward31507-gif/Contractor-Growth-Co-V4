@@ -97,3 +97,16 @@ test("10. Pass 5B, Part A5: the lifecycle-dispatch/Google-sync decision (`next.s
   const body = helperMatch![0];
   assert.match(body, /status:\s*fieldsWithInvalidation\.status\s*\?\?\s*previous\.status/);
 });
+
+test("11. a manual Confirm records confirmed_at: applyAppointmentUpdate - shared by the calendar quick action and the edit form - merges computeConfirmationOnStatusChange into the same write, AFTER the time-change invalidation", () => {
+  const helperMatch = SOURCE.match(/async function applyAppointmentUpdate\([\s\S]*?\n\}/);
+  assert.ok(helperMatch);
+  const body = helperMatch![0];
+  assert.match(body, /computeConfirmationOnStatusChange\(previous\.status, invalidation\.status \?\? fields\.status \?\? previous\.status, new Date\(\)\)/);
+  assert.match(body, /fieldsWithInvalidation: AppointmentUpdateFields = \{ \.\.\.fields, \.\.\.invalidation, \.\.\.confirmation \}/, "confirmation must be applied last, in the single write");
+  assert.match(extractFunction("updateAppointmentStatus"), /applyAppointmentUpdate\(supabase, organizationId, id, \{ status \}\)/, "the one-click Confirm goes through that same helper");
+});
+
+test("12. creating an appointment directly as 'confirmed' records confirmed_at through the same rule, never a separate one", () => {
+  assert.match(extractFunction("createAppointment"), /\.insert\(\{ \.\.\.input, \.\.\.computeConfirmationOnStatusChange\("scheduled", input\.status, new Date\(\)\), organization_id: organizationId \}\)/);
+});

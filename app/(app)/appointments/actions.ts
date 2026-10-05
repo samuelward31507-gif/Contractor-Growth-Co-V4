@@ -10,7 +10,7 @@ import { emitAppointmentCreated, emitAppointmentNoShow, emitAppointmentLifecycle
 import { syncAppointmentCreatedToGoogle, syncAppointmentUpdatedToGoogle, syncAppointmentRemovedFromGoogle } from "@/lib/calendar/appointment-sync";
 import { zonedWallTimeToUtc } from "@/lib/scheduling/availability";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
-import { computeConfirmationInvalidationOnTimeChange } from "@/lib/appointments/confirmation";
+import { computeConfirmationInvalidationOnTimeChange, computeConfirmationOnStatusChange } from "@/lib/appointments/confirmation";
 
 export type AppointmentFormState = {
   error?: string;
@@ -231,7 +231,9 @@ export async function createAppointment(
 
   const { data: created, error: insertError } = await supabase
     .from("appointments")
-    .insert({ ...input, organization_id: organizationId })
+    // A brand-new appointment created directly as "Confirmed" is a manual
+    // confirmation too - same confirmed_at rule as the Confirm action.
+    .insert({ ...input, ...computeConfirmationOnStatusChange("scheduled", input.status, new Date()), organization_id: organizationId })
     .select("id")
     .single();
 
@@ -419,7 +421,12 @@ async function applyAppointmentUpdate(
   // still a single, atomic UPDATE - never a second round trip.
   const timeChanged = (fields.start_at !== undefined && fields.start_at !== previous.start_at) || (fields.end_at !== undefined && fields.end_at !== previous.end_at);
   const invalidation = computeConfirmationInvalidationOnTimeChange(previous.status, timeChanged);
-  const fieldsWithInvalidation: AppointmentUpdateFields = { ...fields, ...invalidation };
+  // Confirmation tracking: a manual Confirm records confirmed_at exactly like
+  // the customer's SMS "YES" does (computeConfirmationOnStatusChange). Judged
+  // on the post-invalidation status and applied last, so a confirm saved
+  // together with a time change is a fresh confirmation of the new time.
+  const confirmation = computeConfirmationOnStatusChange(previous.status, invalidation.status ?? fields.status ?? previous.status, new Date());
+  const fieldsWithInvalidation: AppointmentUpdateFields = { ...fields, ...invalidation, ...confirmation };
 
   const { data, error: updateError } = await supabase
     .from("appointments")

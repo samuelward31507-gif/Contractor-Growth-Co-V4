@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { computeConfirmationInvalidationOnTimeChange }: typeof import("./confirmation") = require("./confirmation.ts");
+const { computeConfirmationInvalidationOnTimeChange, computeConfirmationOnStatusChange }: typeof import("./confirmation") = require("./confirmation.ts");
 
 test("no time change: no fields touched at all, regardless of status", () => {
   assert.deepEqual(computeConfirmationInvalidationOnTimeChange("confirmed", false), {});
@@ -37,4 +37,28 @@ test("time change on a cancelled/completed/no_show appointment never forces a st
     const result = computeConfirmationInvalidationOnTimeChange(status, true);
     assert.equal((result as { status?: string }).status, undefined);
   }
+});
+
+const NOW = new Date("2026-10-05T09:00:00.000Z");
+
+test("manual Confirm records confirmed_at: any non-confirmed status moving to 'confirmed' stamps the confirmation time", () => {
+  for (const previous of ["scheduled", "completed", "cancelled", "no_show"] as const) {
+    assert.deepEqual(computeConfirmationOnStatusChange(previous, "confirmed", NOW), { confirmed_at: "2026-10-05T09:00:00.000Z" }, previous);
+  }
+});
+
+test("Confirm is idempotent: an already-confirmed appointment staying 'confirmed' keeps its original confirmed_at", () => {
+  assert.deepEqual(computeConfirmationOnStatusChange("confirmed", "confirmed", NOW), {});
+});
+
+test("un-confirming (confirmed -> scheduled) clears confirmed_at so the appointment reads as awaiting confirmation again", () => {
+  assert.deepEqual(computeConfirmationOnStatusChange("confirmed", "scheduled", NOW), { confirmed_at: null });
+});
+
+test("completing, cancelling or no-showing never touches confirmed_at - a completed appointment keeps the record of when it was confirmed", () => {
+  for (const next of ["completed", "cancelled", "no_show"] as const) {
+    assert.deepEqual(computeConfirmationOnStatusChange("confirmed", next, NOW), {}, next);
+    assert.deepEqual(computeConfirmationOnStatusChange("scheduled", next, NOW), {}, next);
+  }
+  assert.deepEqual(computeConfirmationOnStatusChange("scheduled", "scheduled", NOW), {});
 });
