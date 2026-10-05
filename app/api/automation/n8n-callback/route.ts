@@ -557,7 +557,23 @@ export async function resolveBookingFallbackTitle(service: SupabaseClient, organ
 }
 
 /** A wide date range can produce far more real slots than fit in a readable SMS - this caps how many the offer message ever lists, never how many getAvailableBookingSlots() itself computes. */
-const MAX_OFFERED_SLOTS = 5;
+export const MAX_OFFERED_SLOTS = 5;
+
+/**
+ * The slots actually offered to the customer: every slot when there are at
+ * most MAX_OFFERED_SLOTS, otherwise MAX_OFFERED_SLOTS of them spread evenly
+ * across the available range (first and last included, chronological order)
+ * so a full day is offered as morning-to-afternoon choices rather than the
+ * first few hours. This exact list is BOTH what the offer message names and
+ * what is stored as the selectable offer - a customer can never book a time
+ * that was not communicated to them; any other time they ask for goes back
+ * through the normal AI reply and a fresh availability check.
+ */
+export function selectOfferedSlots<T extends { start_at: string; end_at: string }>(slots: T[]): T[] {
+  if (slots.length <= MAX_OFFERED_SLOTS) return slots;
+  const last = slots.length - 1;
+  return Array.from({ length: MAX_OFFERED_SLOTS }, (_, i) => slots[Math.round((i * last) / (MAX_OFFERED_SLOTS - 1))]!);
+}
 
 /**
  * Phase 2D.2: pure fact-recitation from real, freshly-computed slots - no
@@ -567,13 +583,14 @@ const MAX_OFFERED_SLOTS = 5;
  * composeRescheduledBody (lib/automation/appointments.ts). `slots` must
  * already be non-empty and is only ever what getAvailableBookingSlots()
  * itself returned for this exact request - callers never pass anything
- * else in here.
+ * else in here. Lists exactly selectOfferedSlots(slots); when more openings
+ * exist than are listed, it says so and invites the customer to ask.
  */
 export function composeAvailabilityOfferMessage(slots: BookingSlot[], title: string, timezone: string): string {
-  const lines = slots
-    .slice(0, MAX_OFFERED_SLOTS)
-    .map((slot) => `${formatAppointmentDate(slot.start_at, timezone)} at ${formatAppointmentTime(slot.start_at, timezone)}`);
-  return `We have these openings for your ${title}:\n${lines.join("\n")}\n\nWhich works best for you?`;
+  const offered = selectOfferedSlots(slots);
+  const lines = offered.map((slot) => `${formatAppointmentDate(slot.start_at, timezone)} at ${formatAppointmentTime(slot.start_at, timezone)}`);
+  const more = slots.length > offered.length ? " If none of these suit you, reply with a time that does and we'll check." : "";
+  return `We have these openings for your ${title}:\n${lines.join("\n")}\n\nWhich works best for you?${more}`;
 }
 
 /**
@@ -735,7 +752,7 @@ export async function handleBookingIntent(
       // Only ever the real slots this exact response already returned to
       // the customer - never re-derived or re-fetched, so what's stored
       // here can never drift from what the customer actually saw.
-      offered_slots: availability.status === "available" ? serializeSlots(availability.slots) : [],
+      offered_slots: availability.status === "available" ? serializeSlots(selectOfferedSlots(availability.slots)) : [],
       offered_title: title,
       reschedule_appointment_id: rescheduleAppointmentId,
     });

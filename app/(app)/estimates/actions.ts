@@ -9,6 +9,7 @@ import { emitEstimateSent, emitEstimateLifecycleEvent } from "@/lib/automation/e
 import { deliverEstimateToCustomer } from "@/lib/automation/estimate-delivery";
 import { resolveCustomerLinkBaseUrl } from "@/lib/estimates/approval-link";
 import { emitJobCreatedFromEstimate } from "@/lib/automation/jobs";
+import { findRecentDuplicateEstimate } from "@/lib/estimates/duplicate-guard";
 
 export type EstimateActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -106,6 +107,14 @@ export async function createEstimate(_prevState: EstimateFormState, formData: Fo
 
   const contactValid = await verifyContactInOrganization(supabase, organizationId, input.contactId);
   if (!contactValid) return { error: "Select a valid contact." };
+
+  // A repeated submission of the same form resolves to the draft it already
+  // created rather than a second identical estimate (see duplicate-guard.ts).
+  const duplicateId = await findRecentDuplicateEstimate(supabase, organizationId, input);
+  if (duplicateId) {
+    revalidatePath("/money");
+    return { success: true, id: duplicateId };
+  }
 
   const { data, error: insertError } = await supabase
     .from("estimates")

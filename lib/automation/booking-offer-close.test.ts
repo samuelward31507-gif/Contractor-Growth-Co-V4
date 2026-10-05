@@ -36,7 +36,7 @@ let clock = 0;
 let ids = 0;
 const tick = () => new Date(Date.UTC(2026, 0, 1, 0, 0, ++clock)).toISOString();
 const nextId = (prefix: string) => `${prefix}-${++ids}`;
-const sends = { count: 0 };
+const sends = { count: 0, n8n: 0, founder: [] as string[] };
 
 class Query {
   private filters: ((row: Row) => boolean)[] = [];
@@ -83,7 +83,7 @@ const supabase = { from: (table: string) => new Query(table) };
 const createEvent = async (_s: unknown, organizationId: string, input: Row) => {
   const duplicate = (store.automation_events ?? []).find((e) => e.idempotency_key === input.idempotencyKey);
   if (duplicate) return { ok: true, duplicate: true, skipped: false, event: duplicate };
-  const event = { id: nextId("evt"), organization_id: organizationId, event_type: input.eventType, entity_type: input.entityType, entity_id: input.entityId, idempotency_key: input.idempotencyKey, created_at: tick() };
+  const event = { id: nextId("evt"), organization_id: organizationId, event_type: input.eventType, entity_type: input.entityType, entity_id: input.entityId, idempotency_key: input.idempotencyKey, payload: input.payload, created_at: tick() };
   store.automation_events.push(event);
   return { ok: true, duplicate: false, skipped: false, event };
 };
@@ -123,7 +123,23 @@ mock.module(lib("lib/messaging/outbound.ts"), {
   },
 });
 mock.module(lib("lib/supabase/service.ts"), { namedExports: { createServiceRoleClient: () => supabase } });
-mock.module(lib("lib/notifications/founder.ts"), { namedExports: { notifyFounder: async () => ({ outcome: "no_recipient" }) } });
+mock.module(lib("lib/notifications/founder.ts"), {
+  namedExports: {
+    notifyFounder: async (_s: unknown, input: { kind: string }) => {
+      sends.founder.push(input.kind);
+      return { outcome: "no_recipient" };
+    },
+  },
+});
+mock.module(lib("lib/automation/n8n.ts"), {
+  namedExports: {
+    N8N_TIMEOUT_MS: 30_000,
+    triggerN8nWorkflow: async () => {
+      sends.n8n += 1;
+      return { ok: true };
+    },
+  },
+});
 mock.module(lib("lib/automation-health/service.ts"), { namedExports: { recordAutomationHealthSignal: async () => undefined } });
 mock.module(lib("app/api/automation/n8n-callback/route.ts"), {
   namedExports: {
@@ -131,6 +147,7 @@ mock.module(lib("app/api/automation/n8n-callback/route.ts"), {
     resolveBookingFallbackTitle: async () => "Appointment",
     BOOKING_FALLBACK_MESSAGE: "fallback",
     serializeSlots: (slots: unknown) => slots,
+    selectOfferedSlots: (slots: unknown) => slots,
   },
 });
 mock.module(lib("lib/scheduling/booking.ts"), {
@@ -167,10 +184,10 @@ const { classifyAndProcessBookingReply } = await import(lib("lib/automation/book
 const { getRecentBookingContext } = await import(lib("lib/automation/booking-context.ts"));
 
 /** The stored check_availability offer, exactly as the n8n callback records it. */
-async function recordOffer() {
+async function recordOffer(slots = SLOTS) {
   const { event } = await createEvent(null, ORG, { eventType: "customer.message.received", entityType: "conversation", entityId: CONV, idempotencyKey: `customer.message.received:${nextId("sim")}` });
   const { execution } = await startExecution(null, event.id as string, "customer_reply_followup");
-  await completeExecution(null, execution.id, { booking_action: "check_availability", availability_status: "available", offered_slots: SLOTS, offered_title: "Roof inspection", reschedule_appointment_id: null, should_send: false, blocked_reason: "organization_not_live" });
+  await completeExecution(null, execution.id, { booking_action: "check_availability", availability_status: "available", offered_slots: slots, offered_title: "Roof inspection", reschedule_appointment_id: null, should_send: false, blocked_reason: "organization_not_live" });
 }
 
 /** An already-booked upcoming appointment (no booking context left open). */
@@ -195,6 +212,8 @@ beforeEach(() => {
   clock = 0;
   ids = 0;
   sends.count = 0;
+  sends.n8n = 0;
+  sends.founder = [];
 });
 
 test("1. open offer + ambiguous YES -> clarification, unchanged: nothing booked or confirmed, offer stays open", async () => {
@@ -347,4 +366,66 @@ test("repeated natural confirmations add nothing after the first", async () => {
 
   assert.equal(appointment.confirmed_at, confirmedAt);
   assert.equal(store.automation_events.length, eventCount);
+});
+
+// ---------------------------------------------------------------------------
+// A stored offer holds only the displayed slots
+// ---------------------------------------------------------------------------
+
+test("a time that was not in the stored (displayed) offer cannot silently book; a displayed one books normally", async () => {
+  // What selectOfferedSlots stores for 11 openings 07:00-17:00: 7, 10, 12, 15, 17.
+  const displayed = [7, 10, 12, 15, 17].map((hour) => ({ start_at: `2099-03-03T${String(hour).padStart(2, "0")}:00:00.000Z`, end_at: `2099-03-03T${String(hour + 1).padStart(2, "0")}:00:00.000Z` }));
+  await recordOffer(displayed);
+
+  assert.equal(await reply("8:00 AM works for me"), false, "handed on to the normal AI reply, never booked");
+  assert.equal(store.appointments.length, 0);
+  assert.equal((await getRecentBookingContext(supabase, ORG, CONV))?.type, "offer", "the offer stays open");
+
+  assert.equal(await reply("10:00 AM works for me"), true);
+  assert.equal(store.appointments.length, 1);
+  assert.equal(store.appointments[0]!.start_at, "2099-03-03T10:00:00.000Z");
+});
+
+// ---------------------------------------------------------------------------
+// appointment.created for customer-booked appointments
+// ---------------------------------------------------------------------------
+
+test("a customer slot booking records exactly one canonical appointment.created (source customer_booking), record-only", async () => {
+  await recordOffer();
+  await reply("4:00 PM works for me");
+
+  const created = eventsOfType("appointment.created");
+  assert.equal(created.length, 1);
+  assert.equal(created[0]!.entity_id, store.appointments[0]!.id);
+  assert.equal(created[0]!.idempotency_key, `appointment.created:${store.appointments[0]!.id}`, "same key as the contractor path - never two per appointment");
+  assert.deepEqual(created[0]!.payload, { appointment_id: store.appointments[0]!.id, contact_id: CONTACT, conversation_id: CONV, source: "customer_booking" });
+
+  const execution = store.workflow_executions.find((e) => e.automation_event_id === created[0]!.id)!;
+  assert.equal(execution.workflow_name, "appointment_created_lifecycle");
+  assert.equal(execution.status, "completed");
+  assert.deepEqual(execution.metadata, { lifecycle_only: true, appointment_id: store.appointments[0]!.id, source: "customer_booking" });
+});
+
+test("no duplicate confirmation, automation or notification: one booked-confirmation, zero n8n dispatches, one owner notification", async () => {
+  await recordOffer();
+  await reply("4:00 PM works for me");
+
+  assert.equal(eventsOfType("appointment.booked_confirmation_sent").length, 1);
+  assert.equal(sends.n8n, 0, "the contractor path's AI confirmation workflow is never dispatched for a customer booking");
+  assert.deepEqual(sends.founder, ["appointment_booked"]);
+  assert.equal(sends.count, 0, "everything customer-facing is still behind the TEST-mode gate");
+});
+
+test("a replayed booking adds no second appointment.created", async () => {
+  await recordOffer();
+  await reply("4:00 PM works for me");
+  await reply("4:00 PM works for me");
+  assert.equal(eventsOfType("appointment.created").length, 1);
+  assert.equal(store.appointments.length, 1);
+});
+
+test("the contractor-created path labels its appointment.created payload source: contractor", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(path.join(process.cwd(), "lib/automation/appointments.ts"), "utf8");
+  assert.match(source, /conversation_id: conversationId, source: APPOINTMENT_CREATED_SOURCE_CONTRACTOR \}/);
 });

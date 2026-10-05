@@ -22,6 +22,8 @@ const SLOTS = [
 ];
 
 const state = {
+  slots: SLOTS as { start_at: string; end_at: string }[],
+  gateBody: null as string | null,
   gate: { allowed: false, reason: "organization_not_live" } as Record<string, unknown>,
   availabilityRange: null as [string, string] | null,
   completion: null as Record<string, unknown> | null,
@@ -50,12 +52,19 @@ mock.module(lib("lib/messaging/outbound.ts"), {
     },
   },
 });
-mock.module(lib("lib/automation/outbound-gate.ts"), { namedExports: { evaluateOutboundGate: async () => state.gate } });
+mock.module(lib("lib/automation/outbound-gate.ts"), {
+  namedExports: {
+    evaluateOutboundGate: async (_c: unknown, input: { aiResult: { response_message: string } }) => {
+      state.gateBody = input.aiResult.response_message;
+      return state.gate;
+    },
+  },
+});
 mock.module(lib("lib/scheduling/booking.ts"), {
   namedExports: {
     getAvailableBookingSlots: async (_c: unknown, _org: string, start: Date, end: Date) => {
       state.availabilityRange = [start.toISOString(), end.toISOString()];
-      return { status: "available", slots: SLOTS };
+      return { status: "available", slots: state.slots };
     },
     bookAppointment: async () => ({ success: true, appointmentId: "appt-1", startAt: SLOTS[0]!.start_at, endAt: SLOTS[0]!.end_at, timezone: "America/Denver" }),
     rescheduleAppointment: async () => ({ success: false, reason: "unused" }),
@@ -68,7 +77,8 @@ mock.module(lib("lib/notifications/founder.ts"), { namedExports: { notifyFounder
 mock.module(lib("lib/automation-health/service.ts"), { namedExports: { recordAutomationHealthSignal: async () => undefined } });
 mock.module(lib("lib/reviews-referrals/tracking.ts"), { namedExports: { recordPostJobFollowupOutcome: async () => undefined } });
 
-const { handleBookingIntent } = await import(lib("app/api/automation/n8n-callback/route.ts"));
+const { handleBookingIntent, selectOfferedSlots, composeAvailabilityOfferMessage, MAX_OFFERED_SLOTS } = await import(lib("app/api/automation/n8n-callback/route.ts"));
+const { evaluateContentSafety } = await import(lib("lib/automation/content-safety.ts"));
 
 const params = (bookingIntent: Record<string, unknown>) => ({
   organizationId: "org-1",
@@ -80,6 +90,8 @@ const params = (bookingIntent: Record<string, unknown>) => ({
 });
 
 beforeEach(() => {
+  state.slots = SLOTS;
+  state.gateBody = null;
   state.gate = { allowed: false, reason: "organization_not_live" };
   state.availabilityRange = null;
   state.completion = null;
@@ -115,4 +127,49 @@ test("book: the confirmation's TEST-mode block is recorded alongside the booking
   assert.equal(state.completion?.booking_action, "book");
   assert.equal(state.completion?.blocked_reason, "organization_not_live");
   assert.equal(state.sends, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Offered slots == displayed slots
+// ---------------------------------------------------------------------------
+
+/** Sarah's real case: 11 one-hour openings, 7:00 AM - 5:00 PM Denver (13:00Z - 23:00Z) on 2026-10-13. */
+const ELEVEN = Array.from({ length: 11 }, (_, i) => ({
+  start_at: new Date(Date.UTC(2026, 9, 13, 13 + i)).toISOString(),
+  end_at: new Date(Date.UTC(2026, 9, 13, 14 + i)).toISOString(),
+}));
+
+test("11 available slots: exactly 5 are offered, spread across the day, and those 5 are the stored selectable offer", async () => {
+  state.slots = ELEVEN;
+  await handleBookingIntent(service, params({ date_range_start: "2026-10-13T06:00:00.000Z", date_range_end: "2026-10-14T05:59:59.999Z" }));
+
+  const offered = state.completion?.offered_slots as { start_at: string }[];
+  assert.equal(offered.length, MAX_OFFERED_SLOTS);
+  // 7 AM, 10 AM, 12 PM, 3 PM, 5 PM Denver - first and last opening included, chronological.
+  assert.deepEqual(offered.map((slot) => slot.start_at), ["2026-10-13T13:00:00.000Z", "2026-10-13T16:00:00.000Z", "2026-10-13T18:00:00.000Z", "2026-10-13T21:00:00.000Z", "2026-10-13T23:00:00.000Z"]);
+  assert.equal(state.completion?.slot_count, 11, "slot_count still reports the real availability");
+});
+
+test("displayed slots and selectable slots are identical, and the message says more times exist", async () => {
+  state.slots = ELEVEN;
+  await handleBookingIntent(service, params({ date_range_start: "2026-10-13T06:00:00.000Z", date_range_end: "2026-10-14T05:59:59.999Z" }));
+
+  const body = state.gateBody!;
+  assert.deepEqual(
+    body.split("\n").filter((line) => line.includes(" at ")),
+    ["7:00 AM", "10:00 AM", "12:00 PM", "3:00 PM", "5:00 PM"].map((time) => `Tuesday, October 13, 2026 at ${time}`),
+  );
+  assert.equal(body.split("\n").filter((line) => line.includes(" at ")).length, (state.completion?.offered_slots as unknown[]).length);
+  assert.match(body, /If none of these suit you, reply with a time that does/);
+  assert.deepEqual(evaluateContentSafety(body), { safe: true }, "still passes the outbound content-safety screen");
+});
+
+test("1-5 available slots: all offered, message unchanged (no extra line)", async () => {
+  for (const count of [1, 2, 5]) {
+    const slots = ELEVEN.slice(0, count);
+    assert.deepEqual(selectOfferedSlots(slots), slots);
+    const message: string = composeAvailabilityOfferMessage(slots, "Roof inspection", "America/Denver");
+    assert.ok(message.endsWith("Which works best for you?"), `count ${count}`);
+    assert.equal(message.split("\n").filter((line: string) => line.includes(" at ")).length, count);
+  }
 });

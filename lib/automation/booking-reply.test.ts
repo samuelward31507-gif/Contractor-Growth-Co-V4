@@ -216,3 +216,24 @@ test("the strict classifier is unchanged: 'Yes, that time works for me.' is stil
   assert.equal(classifyConfirmationIntent("Yes, that time works for me."), false);
   assert.equal(classifyConfirmationIntent("YES"), true);
 });
+
+// ---------------------------------------------------------------------------
+// Only the slots actually offered are selectable
+// ---------------------------------------------------------------------------
+
+test("11 openings: a time that was available but NOT offered never matches; an offered time still matches exactly", () => {
+  const { selectOfferedSlots }: typeof import("../../app/api/automation/n8n-callback/route") = require("../../app/api/automation/n8n-callback/route.ts");
+  const eleven = Array.from({ length: 11 }, (_, i) => ({
+    start_at: new Date(Date.UTC(2099, 2, 3, 7 + i)).toISOString(),
+    end_at: new Date(Date.UTC(2099, 2, 3, 8 + i)).toISOString(),
+  }));
+  const offered = selectOfferedSlots(eleven);
+  assert.equal(offered.length, 5);
+
+  for (const notOffered of ["8:00 AM", "9am", "11:00", "2pm"]) {
+    assert.equal(resolveSlotSelection(notOffered, offered, "UTC").outcome, "no_match", `"${notOffered}" was never offered`);
+  }
+  const picked = resolveSlotSelection("10:00 AM works for me", offered, "UTC");
+  assert.equal(picked.outcome, "matched");
+  if (picked.outcome === "matched") assert.equal(picked.slot.start_at, "2099-03-03T10:00:00.000Z");
+});

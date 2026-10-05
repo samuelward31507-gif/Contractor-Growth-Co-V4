@@ -6,9 +6,9 @@ import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { recordAutomationHealthSignal } from "../automation-health/service";
 import { notifyFounder } from "@/lib/notifications/founder";
 import { getAvailableBookingSlots, bookAppointment, rescheduleAppointment, type BookingSlot } from "@/lib/scheduling/booking";
-import { cancelAppointmentAsService, confirmAppointmentAsService } from "./appointments";
+import { cancelAppointmentAsService, confirmAppointmentAsService, recordAppointmentCreatedFromBookingAsService } from "./appointments";
 import { getRecentBookingContext, openRescheduleContext, recordFreshAvailabilityOffer } from "./booking-context";
-import { composeAvailabilityOfferMessage, resolveBookingFallbackTitle, BOOKING_FALLBACK_MESSAGE, serializeSlots } from "@/app/api/automation/n8n-callback/route";
+import { composeAvailabilityOfferMessage, resolveBookingFallbackTitle, BOOKING_FALLBACK_MESSAGE, serializeSlots, selectOfferedSlots } from "@/app/api/automation/n8n-callback/route";
 import { formatAppointmentDate, formatAppointmentTimeRange } from "@/lib/appointments/format";
 import type { SendSmsInput, SendSmsResult } from "./sms";
 
@@ -551,7 +551,7 @@ async function handleStaleSlot(
   await sendDeterministicMessage(supabase, organizationId, contactId, leadId, conversationId, body, "appointment.stale_slot_reoffered", "appointment_stale_slot_reoffer", sendSmsFn);
 
   if (availability.status === "available" && availability.slots.length > 0) {
-    await recordFreshAvailabilityOffer(supabase, organizationId, conversationId, serializeSlots(availability.slots), title, rescheduleAppointmentId);
+    await recordFreshAvailabilityOffer(supabase, organizationId, conversationId, serializeSlots(selectOfferedSlots(availability.slots)), title, rescheduleAppointmentId);
   } else {
     await escalateToHuman(supabase, organizationId, contactId, leadId, conversationId, "A customer's selected appointment slot was no longer available and no alternative slots could be computed.");
   }
@@ -603,6 +603,7 @@ async function finalizeSlotSelection(
   });
 
   if (result.success) {
+    await recordAppointmentCreatedFromBookingAsService(supabase, organizationId, result.appointmentId, contactId, conversationId);
     await sendDeterministicMessage(
       supabase,
       organizationId,

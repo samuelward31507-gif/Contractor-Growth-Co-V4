@@ -81,7 +81,7 @@ export async function emitAppointmentCreated(supabase: SupabaseClient, appointme
     eventType: "appointment.created",
     entityType: "appointment",
     entityId: appointmentId,
-    payload: { appointment_id: appointmentId, contact_id: appointment.contact_id, conversation_id: conversationId },
+    payload: { appointment_id: appointmentId, contact_id: appointment.contact_id, conversation_id: conversationId, source: APPOINTMENT_CREATED_SOURCE_CONTRACTOR },
     idempotencyKey: `appointment.created:${appointmentId}`,
   });
 
@@ -127,6 +127,60 @@ export async function emitAppointmentCreated(supabase: SupabaseClient, appointme
     conversationId,
     asService: false,
   });
+}
+
+/** `appointment.created` payload.source: who created the appointment. */
+export const APPOINTMENT_CREATED_SOURCE_CONTRACTOR = "contractor";
+export const APPOINTMENT_CREATED_SOURCE_CUSTOMER_BOOKING = "customer_booking";
+
+/**
+ * Records `appointment.created` for an appointment the CUSTOMER booked by
+ * picking an offered slot (lib/automation/booking-reply.ts), so every
+ * appointment - contractor-created or customer-booked - has exactly one
+ * canonical appointment.created event.
+ *
+ * Record-only, deliberately unlike emitAppointmentCreated: the booking path
+ * has already sent its own deterministic "You're booked!" confirmation and
+ * its own appointment_booked owner notification, so dispatching the
+ * contractor path's AI confirmation workflow (or notifying again) here would
+ * double both. The event carries `source: "customer_booking"` (the
+ * contractor path carries "contractor") so anything downstream can tell the
+ * two apart, and it shares the contractor path's idempotency key
+ * (`appointment.created:<id>`) so one appointment can never get two.
+ */
+export async function recordAppointmentCreatedFromBookingAsService(
+  supabase: SupabaseClient,
+  organizationId: string,
+  appointmentId: string,
+  contactId: string,
+  conversationId: string | null,
+): Promise<void> {
+  const eventResult = await createAutomationEventAsService(supabase, organizationId, {
+    eventType: "appointment.created",
+    entityType: "appointment",
+    entityId: appointmentId,
+    payload: { appointment_id: appointmentId, contact_id: contactId, conversation_id: conversationId, source: APPOINTMENT_CREATED_SOURCE_CUSTOMER_BOOKING },
+    idempotencyKey: `appointment.created:${appointmentId}`,
+  });
+  if (!eventResult.ok) {
+    console.error("[automation] failed to record appointment.created for a customer booking", { appointmentId, error: eventResult.error });
+    return;
+  }
+  if (eventResult.duplicate || eventResult.skipped) return;
+
+  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, "appointment_created_lifecycle");
+  if (!executionResult.ok) {
+    console.error("[automation] failed to start appointment.created lifecycle execution", { appointmentId, error: executionResult.error });
+    return;
+  }
+  const completed = await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, {
+    lifecycle_only: true,
+    appointment_id: appointmentId,
+    source: APPOINTMENT_CREATED_SOURCE_CUSTOMER_BOOKING,
+  });
+  if (!completed.ok) {
+    console.error("[automation] failed to complete appointment.created lifecycle execution", { appointmentId, error: completed.error });
+  }
 }
 
 /**
