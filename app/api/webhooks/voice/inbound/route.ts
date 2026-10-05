@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
-import { OPEN_LEAD_STATUSES } from "@/lib/leads/queries";
+import { resolveLeadForIntake } from "@/lib/leads/intake";
 import { createAutomationEventAsService } from "@/lib/automation/events";
 import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "@/lib/automation/executions";
 import { evaluateOutboundGate } from "@/lib/automation/outbound-gate";
@@ -113,35 +113,25 @@ export async function handleMissedCall(
   // OWN immediate deterministic SMS below, and dispatching the AI-drafted
   // "instant lead follow-up" on top of it would double-text the caller for
   // the exact same "we got your inquiry" moment.
-  const { data: existingOpenLead } = await service
-    .from("leads")
-    .select("id")
-    .eq("organization_id", organization.id)
-    .eq("contact_id", contactId)
-    .in("status", [...OPEN_LEAD_STATUSES])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let leadId: string | null = existingOpenLead?.id ?? null;
-  if (!leadId) {
-    const { data: newLead, error: leadInsertError } = await service
-      .from("leads")
-      .insert({ organization_id: organization.id, contact_id: contactId, source: "phone", status: "new", temperature: "cold" })
-      .select("id")
-      .single();
-    if (leadInsertError) {
-      console.error("[voice][inbound] failed to create lead for missed call", { organizationId: organization.id, error: leadInsertError.message });
-    } else {
-      leadId = newLead?.id ?? null;
-      if (leadId) {
-        await emitLeadStageChangedAsService(service, organization.id, { leadId, previousStatus: null, newStatus: "new", source: "automation" });
-      }
+  //
+  // P0 A1: through the shared intake rule (lib/leads/intake.ts), which also
+  // moves the contact's SMS conversation pointer off an empty or closed
+  // lead, so the missed-call text is never sent against a stale lead. A
+  // Twilio retry finds the lead created by the first delivery (now open)
+  // and reuses it.
+  const intake = await resolveLeadForIntake(service, { organizationId: organization.id, contactId, source: "phone", temperature: "cold" });
+  let leadId: string | null = null;
+  let conversationId: string | null = null;
+  if (!intake.ok) {
+    console.error("[voice][inbound] failed to create lead for missed call", { organizationId: organization.id, error: intake.error });
+    conversationId = (await findOrCreateOpenConversation(service, organization.id, contactId, "sms", null))?.id ?? null;
+  } else {
+    leadId = intake.leadId;
+    conversationId = intake.conversationId;
+    if (intake.created) {
+      await emitLeadStageChangedAsService(service, organization.id, { leadId, previousStatus: null, newStatus: "new", source: "automation" });
     }
   }
-
-  const conversation = await findOrCreateOpenConversation(service, organization.id, contactId, "sms", leadId);
-  const conversationId = conversation?.id ?? null;
 
   // Deduplicate: a Twilio Voice webhook retry resolves to the SAME
   // automation_events row rather than sending a second text - the same

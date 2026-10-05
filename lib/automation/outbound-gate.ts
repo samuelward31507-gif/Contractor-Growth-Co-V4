@@ -403,13 +403,19 @@ export async function evaluateOutboundGate(
   if (input.leadId) {
     const { data: lead } = await supabase
       .from("leads")
-      .select("id, organization_id, status")
+      .select("id, organization_id, contact_id, status")
       .eq("id", input.leadId)
       .maybeSingle();
 
     if (!lead) return deny("lead_not_found");
     if (lead.organization_id !== input.organizationId) return deny("lead_wrong_organization");
-    if (conversation.lead_id !== input.leadId) return deny("lead_conversation_mismatch");
+    // P0 A1: a conversation is the customer's thread and may span several
+    // of that customer's leads over time (conversations.lead_id is only its
+    // current opportunity), so the lead must belong to the SAME CONTACT as
+    // the conversation - not equal the conversation's lead pointer, which
+    // silently blocked a returning customer's new opportunity. A lead of
+    // any other contact (or with no contact) is still denied.
+    if (!lead.contact_id || lead.contact_id !== conversation.contact_id) return deny("lead_conversation_mismatch");
 
     if (input.leadEligibleStatuses) {
       if (!input.leadEligibleStatuses.includes(lead.status as LeadStatus)) {

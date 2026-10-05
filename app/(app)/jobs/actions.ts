@@ -9,6 +9,7 @@ import { emitPostJobFollowup } from "@/lib/automation/post-job-followup";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 import { emitLeadCreatedFollowup } from "@/lib/automation/lead-followup";
 import { emitLeadStageChanged } from "@/lib/automation/lead-stage-history";
+import { resolveLeadForIntake } from "@/lib/leads/intake";
 import { getJob } from "@/lib/jobs/queries";
 import { parseJobEditInput } from "@/lib/jobs/edit-input";
 
@@ -510,16 +511,18 @@ export async function createLeadFromReferralForOrganization(
   const originatingJob = await getJob(supabase, organizationId, jobId);
   const service = input.service?.trim() || originatingJob?.title || "Referral";
 
-  const { data: lead, error: insertError } = await supabase
-    .from("leads")
-    .insert({ organization_id: organizationId, contact_id: contact.id, source: "referral", service, status: "new", temperature: "warm" })
-    .select("id")
-    .single();
+  // P0 A1: the shared automated-intake rule (lib/leads/intake.ts) - a
+  // referred person who already has an open lead has this referral
+  // attributed to that lead instead of getting a duplicate parallel one; a
+  // person with no open lead (unknown, or only closed leads) gets a new
+  // 'referral' lead and their SMS conversation is pointed at it.
+  const intake = await resolveLeadForIntake(supabase, { organizationId, contactId: contact.id, source: "referral", service, temperature: "warm" });
 
-  if (insertError || !lead) {
+  if (!intake.ok) {
     await releaseClaim();
     return { ok: false, error: "We couldn't create this lead." };
   }
+  const lead = { id: intake.leadId };
 
   // The referral is already exclusively claimed by this call (the atomic
   // update above already won the race) - recording the real lead id here is
@@ -536,18 +539,23 @@ export async function createLeadFromReferralForOrganization(
 
   await recordAudit(supabase, organizationId, "referral_marked_converted", "referral_request", referral.id);
 
-  await emitLeadStageChanged(supabase, { leadId: lead.id, previousStatus: null, newStatus: "new", source: "manual", actorUserId: userId });
+  // Only a genuinely new lead starts the new-lead lifecycle; an existing
+  // open lead already had its own, and the referral attribution above is
+  // the record of this intake.
+  if (intake.created) {
+    await emitLeadStageChanged(supabase, { leadId: lead.id, previousStatus: null, newStatus: "new", source: "manual", actorUserId: userId });
 
-  await emitLeadCreatedFollowup(supabase, {
-    leadId: lead.id,
-    contactId: contact.id,
-    organizationId,
-    source: "referral",
-    service,
-    status: "new",
-    temperature: "warm",
-    estimatedValue: null,
-  });
+    await emitLeadCreatedFollowup(supabase, {
+      leadId: lead.id,
+      contactId: contact.id,
+      organizationId,
+      source: "referral",
+      service,
+      status: "new",
+      temperature: "warm",
+      estimatedValue: null,
+    });
+  }
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/leads");

@@ -3,6 +3,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 import { emitLeadCreatedFollowupAsService } from "@/lib/automation/lead-followup";
 import { emitLeadStageChangedAsService } from "@/lib/automation/lead-stage-history";
+import { resolveLeadForIntake, recordLeadIntakeAsService, hasRecentLeadIntake } from "@/lib/leads/intake";
 
 const MAX_SHORT_FIELD_LENGTH = 200;
 const MAX_MESSAGE_LENGTH = 2000;
@@ -186,23 +187,36 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: true, duplicate: true, leadId: recentLead.id, contactId });
   }
 
-  const { data: lead, error: leadInsertError } = await service
-    .from("leads")
-    .insert({
-      organization_id: organizationId,
-      contact_id: contactId,
-      service: serviceField,
-      source: source ?? "lead_capture_api",
-      status: "new",
-      temperature: "cold",
-    })
-    .select("id")
-    .single();
-
-  if (leadInsertError || !lead) {
-    console.error("[lead-capture] failed to create lead", { organizationId, contactId, error: leadInsertError?.message });
+  // P0 A1: one active opportunity per contact for automated intake. A
+  // returning contact with an open lead has this submission attached to it
+  // (recorded as lead.intake_received) instead of getting a duplicate
+  // parallel lead; a contact with no open lead (new, or only closed leads)
+  // gets a new lead, and the contact's SMS conversation is pointed at it.
+  const leadSource = source ?? "lead_capture_api";
+  const intake = await resolveLeadForIntake(service, { organizationId, contactId, source: leadSource, service: serviceField, temperature: "cold" });
+  if (!intake.ok) {
+    console.error("[lead-capture] failed to create lead", { organizationId, contactId, error: intake.error });
     return NextResponse.json({ ok: false, error: "Could not create this lead. Please try again." }, { status: 500 });
   }
+
+  if (!intake.created) {
+    // A redelivery of an intake already attached to this lead within the
+    // same duplicate window is not another intake.
+    if (await hasRecentLeadIntake(service, organizationId, intake.leadId, duplicateWindowStart)) {
+      return NextResponse.json({ ok: true, duplicate: true, leadId: intake.leadId, contactId });
+    }
+    await recordLeadIntakeAsService(service, {
+      organizationId,
+      leadId: intake.leadId,
+      contactId,
+      conversationId: intake.conversationId,
+      source: leadSource,
+      idempotencyKey: `lead.intake_received:web_form:${intake.leadId}:${Math.floor(Date.now() / (DUPLICATE_WINDOW_MINUTES * 60 * 1000))}`,
+    });
+    return NextResponse.json({ ok: true, duplicate: false, attachedToExistingLead: true, leadId: intake.leadId, contactId });
+  }
+
+  const lead = { id: intake.leadId };
 
   await emitLeadStageChangedAsService(service, organizationId, { leadId: lead.id, previousStatus: null, newStatus: "new", source: "automation" });
 
@@ -210,7 +224,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     leadId: lead.id,
     contactId,
     organizationId,
-    source: source ?? "lead_capture_api",
+    source: leadSource,
     service: serviceField ?? "",
     status: "new",
     temperature: "cold",
