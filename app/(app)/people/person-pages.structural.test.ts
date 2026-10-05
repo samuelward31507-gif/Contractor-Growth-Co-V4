@@ -82,3 +82,15 @@ test("Phase 3 (W1): the automation history empty state never claims the automati
   const source = read("app/(app)/automations/_components/recent-executions.tsx");
   assert.doesNotMatch(source, /configured but/);
 });
+
+test("an existing lead stays editable: each lead row on the Person page carries the existing LeadActions (Edit -> LeadDialog -> updateLead), and /leads/:id stays retired", () => {
+  const personPage = read("app/(app)/people/[id]/page.tsx");
+  assert.match(personPage, /import \{ LeadActions \} from "\.\.\/\.\.\/leads\/\[id\]\/_components\/lead-actions";/);
+  assert.match(personPage, /\{leads\.map\(\(lead\) => \([\s\S]*?<LeadActions lead=\{lead\} contacts=\{contacts\} vertical=\{membership\.vertical\} \/>[\s\S]*?<\/li>/, "LeadActions must render inside each lead row");
+
+  const leadActions = read("app/(app)/leads/[id]/_components/lead-actions.tsx");
+  assert.match(leadActions, /<LeadDialog\s+mode="edit"/, "Edit must open the existing LeadDialog in edit mode");
+  assert.match(read("app/(app)/leads/_components/lead-dialog.tsx"), /mode === "create" \? createLead : updateLead/, "edit mode must save through updateLead");
+
+  assert.match(read("next.config.ts"), /source: "\/leads\/:id", destination: "\/customers\/:id\?from=lead"/, "the old lead page stays retired");
+});

@@ -33,6 +33,7 @@ import { DetailHeader } from "@/lib/ui/detail-header";
 import { primaryButtonAutoClass, secondaryButtonAutoClass } from "@/lib/ui/form";
 import { LEAD_STATUS_TONE } from "../../leads/_components/lead-status";
 import { ContactActions } from "../../contacts/[id]/_components/contact-actions";
+import { LeadActions } from "../../leads/[id]/_components/lead-actions";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointments/_components/status";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
@@ -371,11 +372,11 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                 ) : (
                   <ul className="mt-1 divide-y divide-line">
                     {leads.map((lead) => (
-                      <li key={lead.id}>
+                      <li key={lead.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
                         {/* Performance Pass A: /leads/:id only redirects (via /customers/:id) back to
                             /people/<the lead's contact> - this page - so link there directly. A lead
                             with no contact keeps the old link and its existing fallback. */}
-                        <Link href={lead.contact_id ? `/people/${lead.contact_id}` : `/leads/${lead.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-ink">
+                        <Link href={lead.contact_id ? `/people/${lead.contact_id}` : `/leads/${lead.id}`} className="flex min-w-0 flex-1 items-center justify-between gap-3 text-sm transition-colors hover:text-ink">
                           <span className="min-w-0">
                             <span className="block truncate font-medium text-ink">{lead.service || "General inquiry"}</span>
                             <span className="block text-xs text-ink-3">{formatContactDate(lead.created_at)}</span>
@@ -385,6 +386,10 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                             <Badge tone={LEAD_STATUS_TONE[lead.status]}>{LEAD_STATUS_LABELS[lead.status]}</Badge>
                           </span>
                         </Link>
+                        {/* The retired /leads/[id] page was the only place an existing lead could be
+                            edited (status, temperature, service, value) - its LeadActions now lives on
+                            each lead row here instead, unchanged: Edit -> LeadDialog -> updateLead. */}
+                        <LeadActions lead={lead} contacts={contacts} vertical={membership.vertical} />
                       </li>
                     ))}
                   </ul>
