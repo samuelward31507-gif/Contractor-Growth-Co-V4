@@ -139,3 +139,17 @@ test("10. every redirect rule whose destination is UNCHANGED since it was first 
     }
   });
 });
+
+test("11. (Cinder brand consolidation) the retired marketing pages /how-it-works and /services redirect permanently to the Trackpr product page; /trackpr, /get-started and the legal pages are not redirected", async () => {
+  const { pathToRegexp } = require("next/dist/compiled/path-to-regexp") as { pathToRegexp: (path: string, keys: unknown[]) => RegExp };
+  const rules = await getRedirects();
+  for (const source of ["/how-it-works", "/services"]) {
+    const rule = findRule(rules, source);
+    assert.ok(rule, `${source} must redirect`);
+    assert.equal(rule!.destination, "/trackpr");
+    assert.equal(rule!.permanent, true);
+  }
+  for (const pathname of ["/", "/trackpr", "/get-started", "/privacy", "/terms"]) {
+    assert.deepEqual(rules.filter((r) => pathToRegexp(r.source, []).test(pathname)).map((r) => r.source), [], `${pathname} renders, not redirects`);
+  }
+});

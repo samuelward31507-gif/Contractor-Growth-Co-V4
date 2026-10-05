@@ -147,7 +147,7 @@ const subOf = (token: string) => (JSON.parse(Buffer.from(token.split(".")[1], "b
 const esCookie = (userId: string, options: Parameters<typeof es256>[1] = {}) => sessionCookie(userId, { accessToken: es256(userId, options) });
 
 const APP_ROUTES = ["/today", "/people", "/people/some-id", "/jobs", "/schedule", "/conversations", "/settings", "/insights", "/money?browse=invoices"];
-const PUBLIC_ROUTES = ["/", "/how-it-works", "/privacy", "/terms", "/robots.txt", "/sitemap.xml", "/demo", "/quote/abc", "/pay/abc", "/api/leads/capture/x", "/auth/reset-password"];
+const PUBLIC_ROUTES = ["/", "/trackpr", "/opengraph-image-9e9a2", "/trackpr/opengraph-image-1jv2rp", "/how-it-works", "/privacy", "/terms", "/robots.txt", "/sitemap.xml", "/demo", "/quote/abc", "/pay/abc", "/api/leads/capture/x", "/auth/reset-password"];
 
 test("1. logged out: every protected route redirects to /login, with no membership query", async () => {
   for (const route of [...APP_ROUTES, "/agency", "/agency/usage", "/onboarding"]) {

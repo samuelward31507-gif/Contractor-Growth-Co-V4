@@ -114,6 +114,13 @@ const nextConfig: NextConfig = {
       // consolidation passes. /money itself is untouched and still fully
       // reachable by URL; it's simply no longer linked from navigation, so
       // it needs no redirect rule of its own here.
+
+      // --- Public marketing (Cinder brand consolidation) ---
+      // The Contractor Growth Co. marketing site is retired; its two
+      // explanatory pages are folded into the Trackpr product page. Permanent:
+      // /trackpr is the lasting home for what these URLs described.
+      { source: "/how-it-works", destination: "/trackpr", permanent: true },
+      { source: "/services", destination: "/trackpr", permanent: true },
     ];
   },
 };
