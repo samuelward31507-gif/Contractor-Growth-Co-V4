@@ -8,7 +8,8 @@ import { getLead, type LeadStatus } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
-import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouch } from "./late-touch";
+import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouch, recordLifecycleBlockedTouch } from "./late-touch";
+import { checkLifecycleEligibility, type LifecycleBlockReason } from "./lifecycle-eligibility";
 
 export const LEAD_REACTIVATION_WORKFLOW = "lead_reactivation_followup";
 
@@ -64,7 +65,7 @@ export type ReactivationOutcome =
   | { leadId: string; outcome: "skipped_disabled" }
   | { leadId: string; outcome: "active_engagement" }
   | { leadId: string; outcome: "not_eligible_status" }
-  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" }
+  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" | LifecycleBlockReason }
   | { leadId: string; outcome: "failed"; error: string };
 
 export type ReactivationRunResult = {
@@ -288,6 +289,27 @@ async function processOneLead(
       lateHours,
     });
     return { leadId, ...overdue };
+  }
+
+  // P0 A3: the shared lifecycle rule (lib/automation/lifecycle-eligibility.ts)
+  // on top of the lead-level checks above - no touch while another open lead
+  // is the contact's current opportunity, while the contact (on any lead)
+  // has an active appointment/estimate/job, or for an automatic sms_inbound
+  // lead nobody has qualified yet. Recorded as a blocked touch under the
+  // same idempotency key; nothing is dispatched.
+  const eligibility = await checkLifecycleEligibility(supabase, organizationId, "lead.reactivation", leadId);
+  if (!eligibility.eligible) {
+    const blocked = await recordLifecycleBlockedTouch(supabase, {
+      organizationId,
+      eventType: "lead.reactivation",
+      entityId: leadId,
+      payload: { lead_id: leadId, contact_id: lead.contact_id, conversation_id: openConversation.id, occurrence },
+      idempotencyKey,
+      workflowName: LEAD_REACTIVATION_WORKFLOW,
+      reason: eligibility.reason,
+      detail: eligibility.detail,
+    });
+    return { leadId, ...blocked };
   }
 
   const eventResult = await createAutomationEventAsService(supabase, organizationId, {

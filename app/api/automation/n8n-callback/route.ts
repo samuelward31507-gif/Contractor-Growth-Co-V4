@@ -21,6 +21,7 @@ import { getAvailableBookingSlots, bookAppointment, rescheduleAppointment, type 
 import { cancelAppointmentAsService } from "@/lib/automation/appointments";
 import { getRecentBookingContext } from "@/lib/automation/booking-context";
 import { getAiSettings } from "@/lib/settings/queries";
+import { checkLifecycleEligibility } from "@/lib/automation/lifecycle-eligibility";
 import { formatAppointmentDate, formatAppointmentTime, formatAppointmentTimeRange } from "@/lib/appointments/format";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -1101,6 +1102,34 @@ export async function POST(request: NextRequest) {
   // emitPostJobFollowup) - never re-fetched from organizations here, since
   // the org's configured URL could have changed since the request was made.
   const reviewUrl = typeof event.payload?.review_url === "string" ? (event.payload.review_url as string) : null;
+
+  // P0 A3: a lead re-engagement touch (lost-lead nurture, lead reactivation)
+  // is re-checked against the shared lifecycle rule now, not only when the
+  // cron tick dispatched it - a newer open lead or an active
+  // appointment/estimate/job may have appeared meanwhile. An ineligible
+  // touch is a business block: completed with a blocked_reason, BEFORE any
+  // AI handling, so it records no AI interaction, locks no conversation,
+  // raises no escalation and sends nothing.
+  if ((event.event_type === "lead.lost_nurture" || event.event_type === "lead.reactivation") && leadId) {
+    const lifecycle = await checkLifecycleEligibility(service, event.organization_id, event.event_type, leadId, contactId);
+    if (!lifecycle.eligible) {
+      const result = await completeWorkflowExecutionAsService(service, execution.id, {
+        should_send: false,
+        blocked_reason: lifecycle.reason,
+        blocked_detail: lifecycle.detail,
+        lead_id: leadId,
+      });
+      if (!result.ok) {
+        if (isAlreadyProcessedError(result.error)) {
+          return NextResponse.json({ ok: true, alreadyProcessed: true });
+        }
+        console.error("[automation] failed to complete execution", { executionId: execution.id, error: result.error });
+        await recordCallbackFailureSignal(service, event, execution.id, result.error);
+        return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, sent: false, blockedReason: lifecycle.reason });
+    }
+  }
 
   if (aiResult) {
     const interactionType = interactionTypeFor(event.event_type);

@@ -9,7 +9,8 @@ import { getLead } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
-import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouch } from "./late-touch";
+import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouch, recordLifecycleBlockedTouch } from "./late-touch";
+import { checkLifecycleEligibility, type LifecycleBlockReason } from "./lifecycle-eligibility";
 
 export const LEAD_LOST_NURTURE_WORKFLOW = "lead_lost_nurture_followup";
 
@@ -44,7 +45,7 @@ export type NurtureOutcome =
   | { leadId: string; outcome: "not_due" }
   | { leadId: string; outcome: "skipped_duplicate" }
   | { leadId: string; outcome: "skipped_disabled" }
-  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" }
+  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" | LifecycleBlockReason }
   | { leadId: string; outcome: "failed"; error: string };
 
 export type NurtureRunResult = {
@@ -155,6 +156,26 @@ async function processOneLead(
       lateHours,
     });
     return { leadId, ...overdue };
+  }
+
+  // P0 A3: a lost lead is only nurtured while it is still the contact's
+  // relevant opportunity - not once the contact has an open lead (a newer
+  // opportunity supersedes it) or an active appointment/estimate/job. The
+  // touch is recorded as blocked (same idempotency key, so it is never
+  // re-tried or sent later); nothing is dispatched.
+  const eligibility = await checkLifecycleEligibility(supabase, organizationId, "lead.lost_nurture", leadId);
+  if (!eligibility.eligible) {
+    const blocked = await recordLifecycleBlockedTouch(supabase, {
+      organizationId,
+      eventType: "lead.lost_nurture",
+      entityId: leadId,
+      payload: { lead_id: leadId, contact_id: lead.contact_id, occurrence },
+      idempotencyKey: `lead.lost_nurture:${leadId}:${occurrence}`,
+      workflowName: LEAD_LOST_NURTURE_WORKFLOW,
+      reason: eligibility.reason,
+      detail: eligibility.detail,
+    });
+    return { leadId, ...blocked };
   }
 
   // Resolve contact/conversation BEFORE creating the automation_events row:

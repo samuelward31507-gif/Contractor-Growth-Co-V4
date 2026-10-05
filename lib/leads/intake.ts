@@ -98,9 +98,27 @@ export async function resolveLeadForIntake(supabase: SupabaseClient, input: Lead
       })
       .select("id")
       .single();
-    if (error || !newLead) return { ok: false, error: error?.message ?? "Could not create lead." };
-    leadId = newLead.id as string;
-    created = true;
+    if (error?.code === "23505") {
+      // P0 A3: a concurrent intake for the same contact won the insert
+      // (supabase/pending/lead_sms_intake_unique.sql) - reuse its lead, the
+      // same way resolveOrCreateContact handles its own unique-index race.
+      const { data: winner } = await supabase
+        .from("leads")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("contact_id", contactId)
+        .in("status", [...OPEN_LEAD_STATUSES])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!winner) return { ok: false, error: "A concurrent intake created this contact's lead but it could not be re-read." };
+      leadId = winner.id as string;
+    } else if (error || !newLead) {
+      return { ok: false, error: error?.message ?? "Could not create lead." };
+    } else {
+      leadId = newLead.id as string;
+      created = true;
+    }
   }
 
   const conversation = existingConversation ?? (await findOrCreateOpenConversation(supabase, organizationId, contactId, "sms", leadId));

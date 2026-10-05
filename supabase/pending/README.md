@@ -402,3 +402,11 @@ Applied to TEST (`trackpr-stripe-test`) on 2026-10-05 via the MCP `apply_migrati
 Note: the MCP SQL tools hang (60 s timeout, nothing executed) on any statement containing `DROP` - they appear to wait for a destructive-statement confirmation that is never surfaced. The forward script therefore uses `create or replace trigger` (Postgres 14+) instead of drop-and-create. The rollback script necessarily contains `DROP` and must be run by a person in the SQL editor.
 
 Pending for Production: when A2 is approved, apply as one transaction, read back the ledger version, and move the file into `supabase/migrations/` under that version.
+
+## lead_sms_intake_unique.sql (P0 A3 - TEST only so far)
+
+One partial unique index, `leads_one_new_sms_intake_per_contact` on `public.leads (organization_id, contact_id) where source = 'sms_inbound' and status = 'new' and contact_id is not null`. It closes the A1 race where two simultaneous first texts from a new number each insert an `sms_inbound` lead; `lib/leads/intake.ts` treats the resulting 23505 as "the other delivery won" and reuses the winner (the same pattern `resolveOrCreateContact` uses for contacts). Only A1's automated SMS intake writes `sms_inbound`, and only unqualified (`new`) rows are covered, so manual leads, other sources, and any lead once it is qualified or closed are never constrained. `lead_sms_intake_unique_rollback.sql` drops the index (run by a person - it contains DROP). Validated with `scratch/validate-lead-sms-intake-unique.mjs`.
+
+### Status
+
+Applied to TEST (`trackpr-stripe-test`) on 2026-10-05 via the MCP `apply_migration` mechanism, recorded as ledger version `20261005161633 lead_sms_intake_unique`; verified no existing rows conflicted. Pending for Production.

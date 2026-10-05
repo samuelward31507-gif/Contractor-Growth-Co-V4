@@ -80,6 +80,16 @@ class Query {
             return { data: null, error: { code: "23505", message: "duplicate open conversation" } };
           }
         }
+        // Mirrors the A3 partial unique index leads_one_new_sms_intake_per_contact.
+        if (
+          this.table === "leads" &&
+          row.source === "sms_inbound" &&
+          (row.status ?? "new") === "new" &&
+          row.contact_id &&
+          rows.some((r) => r.organization_id === row.organization_id && r.contact_id === row.contact_id && r.source === "sms_inbound" && r.status === "new")
+        ) {
+          return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint \"leads_one_new_sms_intake_per_contact\"" } };
+        }
         if (this.table === "messages" && row.provider_message_id && rows.some((r) => r.provider_message_id === row.provider_message_id)) {
           return { data: null, error: { code: "23505", message: "duplicate provider_message_id" } };
         }
@@ -655,4 +665,33 @@ test("manual second lead is never blocked by the automated rule, and its first r
   assert.equal(openLeads(contact.id as string).length, 2, "a contractor may deliberately create a second open lead");
   assert.equal(conversation.lead_id, leadA.id);
   assert.equal((await gateFor(contact.id as string, conversation.id, manualB.id)).allowed, true);
+});
+
+// ===========================================================================
+// P0 A3: concurrent intake
+// ===========================================================================
+
+test("A3 concurrency: two simultaneous first texts from a brand-new number -> exactly one open lead, both deliveries attributed to it", async () => {
+  const contact = addContact("+15557770777");
+  const [a, b] = await Promise.all([
+    resolveLeadForIntake(db as never, { organizationId: ORG, contactId: contact.id, source: "sms_inbound" }),
+    resolveLeadForIntake(db as never, { organizationId: ORG, contactId: contact.id, source: "sms_inbound" }),
+  ]);
+  assert.equal(openLeads(contact.id as string).length, 1, "the unique index refuses the second insert");
+  assert.ok(a.ok && b.ok, "the losing delivery re-reads the winner instead of failing");
+  assert.equal(a.ok && a.leadId, b.ok && b.leadId);
+  assert.deepEqual([a.ok && a.created, b.ok && b.created].sort(), [false, true], "exactly one created it");
+});
+
+test("A3 concurrency: after the first SMS lead is closed, a later text creates a new one; a qualified one is reused", async () => {
+  const contact = addContact("+15557770778");
+  const first = await resolveLeadForIntake(db as never, { organizationId: ORG, contactId: contact.id, source: "sms_inbound" });
+  assert.ok(first.ok);
+  leads().find((l) => l.id === (first.ok && first.leadId))!.status = "lost";
+  const second = await resolveLeadForIntake(db as never, { organizationId: ORG, contactId: contact.id, source: "sms_inbound" });
+  assert.ok(second.ok && second.created && second.leadId !== (first.ok && first.leadId));
+  leads().find((l) => l.id === (second.ok && second.leadId))!.status = "contacted";
+  const third = await resolveLeadForIntake(db as never, { organizationId: ORG, contactId: contact.id, source: "sms_inbound" });
+  assert.equal(third.ok && third.leadId, second.ok && second.leadId, "an open (qualified) lead is reused, never duplicated");
+  assert.equal(openLeads(contact.id as string).length, 1);
 });
