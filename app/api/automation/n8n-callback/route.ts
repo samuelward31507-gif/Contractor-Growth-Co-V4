@@ -725,6 +725,10 @@ export async function handleBookingIntent(
 
     const result = await completeWorkflowExecutionAsService(service, executionId, {
       should_send: offerSent,
+      // The offer's own gate decision (e.g. organization_not_live in TEST
+      // mode), recorded like every other gated send so a block is auditable.
+      blocked_reason: offerGateResult.allowed ? null : offerGateResult.reason,
+      blocked_detail: offerGateResult.allowed ? null : (offerGateResult.detail ?? null),
       booking_action: "check_availability",
       availability_status: availability.status,
       slot_count: availability.status === "available" ? availability.slots.length : 0,
@@ -931,6 +935,8 @@ export async function handleBookingIntent(
 
   const completed = await completeWorkflowExecutionAsService(service, executionId, {
     should_send: sent,
+    blocked_reason: gateResult.allowed ? null : gateResult.reason,
+    blocked_detail: gateResult.allowed ? null : (gateResult.detail ?? null),
     booking_action: "book",
     booking_success: bookingResult.success,
     booking_failure_reason: bookingResult.success ? null : bookingResult.reason,
