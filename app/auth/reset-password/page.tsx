@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import AuthLayout from "@/app/(auth)/layout";
 import { ResetPasswordForm } from "./reset-password-form";
 
@@ -7,6 +8,8 @@ import { ResetPasswordForm } from "./reset-password-form";
 // (auth) route group's own layout component directly (not duplicating its
 // markup) guarantees the identical visual shell login/signup already use,
 // with zero redesign.
+export const metadata: Metadata = { title: "Set your password · Trackpr" };
+
 export default function ResetPasswordPage() {
   return (
     <AuthLayout>

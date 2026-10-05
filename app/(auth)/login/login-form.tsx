@@ -1,37 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
-import { authButtonClass, authErrorBannerClass, authInputClass, authLabelClass } from "@/lib/ui/auth-form";
+import { useActionState, type ReactNode } from "react";
+import { AuthError, AuthHeader, AuthSubmit, authFieldClass, authLabelClass, authLinkClass } from "../_components/auth-ui";
+import { PasswordInput } from "../_components/password-input";
 import { login, type LoginState } from "./actions";
 
 const initialState: LoginState = {};
+const ERROR_ID = "login-error";
 
-export function LoginForm() {
+/** `notice` is a page-level message (an expired confirmation link) shown under the heading. */
+export function LoginForm({ notice }: { notice?: ReactNode }) {
   const [state, formAction, isPending] = useActionState(login, initialState);
+  const describedBy = state.error ? ERROR_ID : undefined;
 
   return (
-    <form action={formAction} className="space-y-7" noValidate>
-      <div className="space-y-1.5">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Welcome back.</h1>
-        <p className="text-sm text-slate-500">Sign in to your workspace.</p>
-      </div>
+    <form action={formAction} className="space-y-8" noValidate>
+      <AuthHeader title="Welcome back." subtitle="Sign in to your revenue operating system." />
 
-      {state.error ? (
-        <p className={authErrorBannerClass} role="alert">
-          <svg aria-hidden viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0">
-            <path
-              fillRule="evenodd"
-              d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.63-1.516 2.63H3.72c-1.347 0-2.189-1.463-1.515-2.63L8.485 2.495ZM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
-              clipRule="evenodd"
-            />
-          </svg>
-          <span>{state.error}</span>
-        </p>
-      ) : null}
+      {notice}
+      {state.error ? <AuthError id={ERROR_ID}>{state.error}</AuthError> : null}
 
-      <div className="space-y-4">
-        <div className="space-y-1.5">
+      <div className="space-y-5">
+        <div className="space-y-2">
           <label htmlFor="email" className={authLabelClass}>
             Email
           </label>
@@ -39,47 +30,39 @@ export function LoginForm() {
             id="email"
             name="email"
             type="email"
+            inputMode="email"
             autoComplete="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             required
-            className={authInputClass}
+            aria-describedby={describedBy}
+            className={authFieldClass}
             placeholder="you@company.com"
           />
         </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between gap-4">
             <label htmlFor="password" className={authLabelClass}>
               Password
             </label>
-            <Link href="/forgot-password" className="text-[13px] font-medium text-slate-500 underline-offset-4 hover:text-slate-900 hover:underline">
+            <Link href="/forgot-password" className={`text-[13px] text-cinder-ink-2 ${authLinkClass}`}>
               Forgot password?
             </Link>
           </div>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            className={authInputClass}
-            placeholder="••••••••"
-          />
+          <PasswordInput id="password" name="password" autoComplete="current-password" describedBy={describedBy} />
         </div>
       </div>
 
-      <button type="submit" disabled={isPending} className={authButtonClass}>
-        {isPending ? (
-          <>
-            <svg aria-hidden className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4Z" />
-            </svg>
-            <span className="ml-2">Signing in…</span>
-          </>
-        ) : (
-          "Sign in"
-        )}
-      </button>
+      <AuthSubmit pending={isPending} idleLabel="Sign in" pendingLabel="Signing in…" />
+
+      <p className="border-t border-cinder-line pt-6 text-center text-[13px] text-cinder-ink-3">
+        New to Trackpr?{" "}
+        <Link href="/signup" className={authLinkClass}>
+          Create an account
+        </Link>
+      </p>
     </form>
   );
 }
