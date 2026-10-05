@@ -12,6 +12,8 @@ import { CONTACT_EMAIL } from "@/lib/site/contact";
 export const SITE_URL = "https://contractor-growth-co-v4.vercel.app";
 export const TRACKPR_HREF = "/trackpr";
 export const TRACKPR_DEMO_HREF = "/demo";
+/** Product access for existing Trackpr users - the application's own sign-in page. */
+export const SIGN_IN_HREF = "/login";
 export const TALK_HREF = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Talk to Cinder")}`;
 
 export const NAV_LINKS = [

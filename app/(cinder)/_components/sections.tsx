@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, LogIn } from "lucide-react";
 import { CinderMark } from "./logo";
 import { LifecycleInstrument } from "./lifecycle";
 import { TrackprShowcase } from "./trackpr-showcase";
 import { Reveal } from "./reveal";
 import { Badge, Button, CONTAINER, Eyebrow, H2, Section, TextLink } from "./ui";
-import { FUTURE_VERTICALS, PILLARS, STAGES, TALK_HREF, TRACKPR_ANSWERS, TRACKPR_DEMO_HREF, TRACKPR_HREF, WHY } from "./content";
+import { FUTURE_VERTICALS, PILLARS, SIGN_IN_HREF, STAGES, TALK_HREF, TRACKPR_ANSWERS, TRACKPR_DEMO_HREF, TRACKPR_HREF, WHY } from "./content";
 
 const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent";
 
@@ -210,6 +210,14 @@ export function Trackpr() {
                 Try the interactive demo
               </Button>
             </div>
+            {/* Product access for existing users - quieter than the marketing actions above. */}
+            <p className="mt-6 text-sm text-cinder-ink-3">
+              Already use Trackpr?{" "}
+              <Link href={SIGN_IN_HREF} className={`group ml-1 inline-flex items-center gap-1.5 rounded font-medium text-cinder-ink transition-colors hover:text-cinder-accent ${FOCUS}`}>
+                <LogIn className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                Sign in to Trackpr
+              </Link>
+            </p>
           </div>
 
           <div>
