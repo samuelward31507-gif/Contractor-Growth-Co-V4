@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEvent } from "./events";
-import { startWorkflowExecution, completeWorkflowExecution } from "./executions";
+import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution } from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
 import type { SendSmsInput, SendSmsResult } from "./sms";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
@@ -134,13 +134,23 @@ export async function deliverEstimateToCustomer(
       outcome = sendResult.ok ? { status: "sent", messageId: sendResult.messageId } : { status: "send_failed", error: sendResult.error };
     }
 
+    // A send that the gate allowed but the provider rejected is a failed
+    // execution (with an sms_send_failed incident), never a "completed" one
+    // with the error tucked into metadata.
+    if (outcome.status === "send_failed") {
+      const failed = await failWorkflowExecution(supabase, executionId, outcome.error, "sms_send_failed");
+      if (!failed.ok) {
+        console.error("[automation] failed to record estimate_delivery send failure", { estimateId, error: failed.error });
+      }
+      return outcome;
+    }
+
     const completed = await completeWorkflowExecution(supabase, executionId, {
       estimate_id: estimateId,
       approval_url_included: true,
       should_send: outcome.status === "sent",
       blocked_reason: outcome.status === "blocked" ? outcome.reason : null,
       blocked_detail: !gate.allowed ? (gate.detail ?? null) : null,
-      send_error: outcome.status === "send_failed" ? outcome.error : null,
     });
     if (!completed.ok) {
       console.error("[automation] failed to complete estimate_delivery execution", { estimateId, error: completed.error });

@@ -35,6 +35,8 @@ const state = {
   gateInput: null as Record<string, unknown> | null,
   sendInput: null as Record<string, unknown> | null,
   completion: null as Record<string, unknown> | null,
+  failure: null as { error: string; category: string } | null,
+  sendResult: { ok: true, messageId: "msg-1", conversationId: "conv-1", providerMessageId: "SM1" } as Record<string, unknown>,
 };
 
 const sessionClient = {
@@ -63,6 +65,11 @@ mock.module(lib("lib/automation/executions.ts"), {
       state.completion = metadata;
       return { ok: true };
     },
+    failWorkflowExecution: async (_client: unknown, _id: string, error: string, category: string) => {
+      state.calls.push("fail");
+      state.failure = { error, category };
+      return { ok: true };
+    },
   },
 });
 mock.module(lib("lib/automation/outbound-gate.ts"), {
@@ -79,7 +86,7 @@ mock.module(lib("lib/messaging/outbound.ts"), {
     sendOutboundMessage: async (_client: unknown, input: Record<string, unknown>) => {
       state.calls.push("sendOutboundMessage");
       state.sendInput = input;
-      return { ok: true, messageId: "msg-1", conversationId: "conv-1", providerMessageId: "SM1" };
+      return state.sendResult;
     },
   },
 });
@@ -101,6 +108,8 @@ beforeEach(() => {
   state.gate = { allowed: false, reason: "organization_not_live" };
   state.calls = [];
   state.eventInput = state.gateInput = state.sendInput = state.completion = null;
+  state.failure = null;
+  state.sendResult = { ok: true, messageId: "msg-1", conversationId: "conv-1", providerMessageId: "SM1" };
 });
 
 test("the delivery text carries the real approval link and passes the gate's content-safety screen (no price, no invented-claim phrasing)", () => {
@@ -137,6 +146,31 @@ test("live (gate allows): exactly one outbound send, as a system message tied to
   assert.equal(state.sendInput?.workflowExecutionId, "exec-1");
   assert.equal(state.sendInput?.body, `gated body ${URL}`, "always the gate's body, never a re-composed one");
   assert.equal(state.completion?.should_send, true);
+});
+
+test("P0 A0: a gate-allowed send that the provider rejects marks the execution FAILED (sms_send_failed), not completed - one send attempt, no retry send", async () => {
+  state.gate = { allowed: true, contactId: "contact-1", conversationId: "conv-1", body: `gated body ${URL}` };
+  state.sendResult = { ok: false, error: "Twilio error 21610", messageId: "msg-1", conversationId: "conv-1" };
+  const original = console.error;
+  console.error = () => {};
+  try {
+    const outcome = await deliverEstimateToCustomer(sessionClient as never, "est-1", BASE);
+    assert.deepEqual(outcome, { status: "send_failed", error: "Twilio error 21610" });
+  } finally {
+    console.error = original;
+  }
+  assert.deepEqual(state.calls, ["createAutomationEvent", `start:${ESTIMATE_DELIVERY_WORKFLOW}`, "gate", "sendOutboundMessage", "fail"]);
+  assert.deepEqual(state.failure, { error: "Twilio error 21610", category: "sms_send_failed" });
+  assert.equal(state.completion, null, "never marked completed");
+});
+
+test("P0 A0: a successful send stays completed (never failed)", async () => {
+  state.gate = { allowed: true, contactId: "contact-1", conversationId: "conv-1", body: `gated body ${URL}` };
+  await deliverEstimateToCustomer(sessionClient as never, "est-1", BASE);
+  assert.equal(state.failure, null);
+  assert.equal(state.calls.at(-1), "complete");
+  assert.equal(state.completion?.should_send, true);
+  assert.equal(state.completion?.blocked_reason, null);
 });
 
 test("idempotent: a replayed send for the same estimate is a duplicate event - no execution, no gate, no send", async () => {

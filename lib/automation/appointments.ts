@@ -434,7 +434,9 @@ const RESCHEDULED_ELIGIBLE_STATUSES: AppointmentStatus[] = ["scheduled", "confir
  * protection, and live appointment-status re-verification are all still
  * enforced, even though this message is never AI-drafted. Never blocks or
  * fails the lifecycle event itself (already recorded by the caller) - a
- * failure here is logged, not thrown.
+ * failure here is logged, not thrown, and returned as execution metadata
+ * (blocked_reason/blocked_detail, send_error, or message_id) so the
+ * caller's completed execution shows what actually happened.
  *
  * Deliberately uses its own internal service-role client rather than the
  * caller's (which, for emitAppointmentLifecycleEvent, is always a real user
@@ -453,11 +455,11 @@ async function sendAppointmentLifecycleMessage(
   executionId: string,
   /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
   const service = createServiceRoleClient();
 
   const fullAppointment = await getAppointment(service, organizationId, appointmentId);
-  if (!fullAppointment) return;
+  if (!fullAppointment) return { should_send: false, blocked_reason: "appointment_not_found", blocked_detail: null };
 
   const businessProfile = await getBusinessProfile(service, organizationId);
   const timezone = businessProfile?.timezone ?? "UTC";
@@ -488,7 +490,7 @@ async function sendAppointmentLifecycleMessage(
 
   if (!gateResult.allowed) {
     console.error(`[automation] ${eventType} message blocked`, { appointmentId, reason: gateResult.reason });
-    return;
+    return { should_send: false, blocked_reason: gateResult.reason, blocked_detail: gateResult.detail ?? null };
   }
 
   const sendResult = await sendOutboundMessage(service, {
@@ -504,7 +506,9 @@ async function sendAppointmentLifecycleMessage(
 
   if (!sendResult.ok) {
     console.error(`[automation] failed to send ${eventType} message`, { appointmentId, error: sendResult.error });
+    return { should_send: true, send_error: sendResult.error };
   }
+  return { should_send: true, message_id: sendResult.messageId };
 }
 
 /**
@@ -556,13 +560,18 @@ export async function emitAppointmentLifecycleEvent(
     return;
   }
 
-  if (eventType === "appointment.cancelled" || eventType === "appointment.rescheduled") {
-    await sendAppointmentLifecycleMessage(eventResult.event.organization_id, appointmentId, eventType, executionResult.execution.id, sendSmsFn);
-  }
+  // The send outcome (gate block reason, send error, or message id) is
+  // recorded on the execution so a blocked or failed notification is
+  // visible, never a silent "completed".
+  const sendOutcome =
+    eventType === "appointment.cancelled" || eventType === "appointment.rescheduled"
+      ? await sendAppointmentLifecycleMessage(eventResult.event.organization_id, appointmentId, eventType, executionResult.execution.id, sendSmsFn)
+      : {};
 
   const completed = await completeWorkflowExecution(supabase, executionResult.execution.id, {
     lifecycle_only: true,
     appointment_id: appointmentId,
+    ...sendOutcome,
   });
   if (!completed.ok) {
     console.error(`[automation] failed to complete ${eventType} execution`, { appointmentId, error: completed.error });
@@ -614,13 +623,18 @@ export async function emitAppointmentLifecycleEventAsService(
     return;
   }
 
-  if (eventType === "appointment.cancelled" || eventType === "appointment.rescheduled") {
-    await sendAppointmentLifecycleMessage(eventResult.event.organization_id, appointmentId, eventType, executionResult.execution.id, sendSmsFn);
-  }
+  // The send outcome (gate block reason, send error, or message id) is
+  // recorded on the execution so a blocked or failed notification is
+  // visible, never a silent "completed".
+  const sendOutcome =
+    eventType === "appointment.cancelled" || eventType === "appointment.rescheduled"
+      ? await sendAppointmentLifecycleMessage(eventResult.event.organization_id, appointmentId, eventType, executionResult.execution.id, sendSmsFn)
+      : {};
 
   const completed = await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, {
     lifecycle_only: true,
     appointment_id: appointmentId,
+    ...sendOutcome,
   });
   if (!completed.ok) {
     console.error(`[automation] failed to complete ${eventType} execution`, { appointmentId, error: completed.error });

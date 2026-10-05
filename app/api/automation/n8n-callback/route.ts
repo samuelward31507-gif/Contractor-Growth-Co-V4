@@ -314,6 +314,17 @@ export function isAlreadyProcessedError(error: string): boolean {
 }
 
 /**
+ * Pure: the failure reason when a callback carries no usable AI result -
+ * ai_result missing/null, or model null (the marker every n8n AI-failure
+ * node sends) - otherwise null.
+ */
+export function describeAiResultFailure(aiResult: AiResult | null): string | null {
+  if (!aiResult) return "ai_result_missing: n8n callback carried no AI result";
+  if (aiResult.model === null) return "ai_model_failure: AI model call failed or returned no usable result";
+  return null;
+}
+
+/**
  * Automation Health + Alerting V1: records an n8n_callback_failed signal
  * when this route itself could not persist an n8n callback's outcome
  * (complete_workflow_execution/fail_workflow_execution returning an
@@ -1031,6 +1042,29 @@ export async function POST(request: NextRequest) {
   }
 
   const aiResult = body.ai_result;
+
+  // An AI/model failure is a failed workflow, not an escalation. Every n8n
+  // callback node that ran the model reports its model name; the n8n
+  // AI-failure branches report model: null (with a placeholder
+  // needs_human: true that is NOT a real AI judgement). Treating that as a
+  // normal result used to lock the conversation and page a human for an
+  // outage. Instead the execution is failed - the event becomes 'failed'
+  // and retryable through the normal retry path - with no ai_interactions
+  // row, no lock, no escalation and no customer message. A legitimate
+  // result (model set) with needs_human: true still escalates below.
+  const aiFailureReason = describeAiResultFailure(aiResult);
+  if (aiFailureReason) {
+    const failed = await failWorkflowExecutionAsService(service, execution.id, aiFailureReason, "workflow_failed");
+    if (!failed.ok) {
+      if (isAlreadyProcessedError(failed.error)) {
+        return NextResponse.json({ ok: true, alreadyProcessed: true });
+      }
+      console.error("[automation] failed to record AI failure", { executionId: execution.id, error: failed.error });
+      await recordCallbackFailureSignal(service, event, execution.id, failed.error);
+      return NextResponse.json({ ok: false, error: failed.error }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, failed: true });
+  }
 
   // entity_id/entity_type covers lead.created (entity_type: "lead").
   // customer.message.received's entity is the conversation, with lead_id

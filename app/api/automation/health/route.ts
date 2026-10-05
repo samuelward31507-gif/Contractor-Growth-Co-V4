@@ -5,6 +5,7 @@ import { recordAutomationHealthSignal } from "@/lib/automation-health/service";
 import { getAutomationForWorkflowName } from "@/lib/automation/catalog";
 import { getScheduledAutomationLiveness } from "@/lib/automation-health/scheduled-automation-liveness";
 import { evaluateScheduledAutomationDegradedAlert } from "@/lib/automation-health/scheduled-automation-alert";
+import { EXECUTION_TIMEOUT_MINUTES, failTimedOutExecutions } from "@/lib/automation/execution-timeout";
 
 /**
  * Read-only operational check for workflow_executions rows stuck in
@@ -61,6 +62,13 @@ export async function GET(request: NextRequest) {
   const service = createServiceRoleClient();
   const thresholdIso = new Date(Date.now() - STUCK_THRESHOLD_MINUTES * 60 * 1000).toISOString();
   const failedSinceIso = new Date(Date.now() - FAILED_EXECUTION_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
+
+  // Executions running past EXECUTION_TIMEOUT_MINUTES (well beyond the
+  // stuck threshold) are failed first, through the normal fail machinery,
+  // so their events become failed/retryable instead of 'processing'
+  // forever. Their earlier workflow_stuck incidents are then auto-resolved
+  // below by resolve_stale_stuck_incidents, since they have left 'running'.
+  const timeout = await failTimedOutExecutions(service);
 
   const { data: stuck, error } = await service
     .from("workflow_executions")
@@ -136,6 +144,9 @@ export async function GET(request: NextRequest) {
     thresholdMinutes: STUCK_THRESHOLD_MINUTES,
     stuckCount: stuck.length,
     stuck,
+    executionTimeoutMinutes: EXECUTION_TIMEOUT_MINUTES,
+    timedOutCount: timeout.timedOut.length,
+    timedOut: timeout.timedOut,
     failedExecutionCount: failedExecutionCount ?? 0,
     failedExecutionWindowHours: FAILED_EXECUTION_WINDOW_HOURS,
     activeCriticalIncidents: criticalIncidentCount ?? 0,

@@ -40,6 +40,18 @@ export type RetryRejectionReason =
  */
 export const SAFE_RETRY_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followup", "instant-lead-followup"]);
 
+/**
+ * Workflows inside an allowlisted automation that are nonetheless NOT safe
+ * to retry. estimate-followup is allowlisted for its trackpr-dispatched
+ * workflows (estimate_followup, estimate_expired_lifecycle - re-fetched
+ * live by retryEstimateWorkflow), but the same automation also owns the
+ * n8n-dispatched estimate_sent_followup, which retry.ts would route to the
+ * generic redispatchToN8n - exactly the impoverished-payload case
+ * lib/automation/n8n-retry.ts documents as unsafe for it. Checked by
+ * workflow name, since the automation id alone cannot tell them apart.
+ */
+export const UNSAFE_RETRY_WORKFLOW_NAMES = new Set(["estimate_sent_followup"]);
+
 export type RetryEligibleExecution = {
   id: string;
   organizationId: string;
@@ -129,7 +141,7 @@ export async function checkRetryEligibility(
   // before the enabled check below: whether retry is safe for this
   // automation at all is a more fundamental question than whether it's
   // currently turned on.
-  if (!automationId || !SAFE_RETRY_AUTOMATION_IDS.has(automationId)) {
+  if (!automationId || !SAFE_RETRY_AUTOMATION_IDS.has(automationId) || UNSAFE_RETRY_WORKFLOW_NAMES.has(execution.workflow_name)) {
     return { ok: false, reason: "not_safely_retryable", automationId };
   }
 

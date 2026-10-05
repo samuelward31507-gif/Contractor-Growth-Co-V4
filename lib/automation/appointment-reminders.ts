@@ -65,13 +65,18 @@ export type ReminderRunResult = {
  * confirmation, rather than building a second, competing reminder/
  * confirmation-request system - per that pass's own explicit instruction.
  * Only asks when the appointment isn't already 'confirmed' (a manual
- * contractor confirm, or an earlier customer YES) - a customer who already
+ * contractor confirm, or an earlier customer CONFIRM) - a customer who already
  * confirmed should just get a plain factual reminder, never asked again.
+ *
+ * The ask is "Reply CONFIRM", never a YES: a bare "YES" is a carrier
+ * START keyword (lib/messaging/keywords.ts), consumed by the inbound
+ * compliance layer before any confirmation handling runs, so a customer who
+ * followed such an instruction could never be confirmed.
  */
-function composeReminderBody(appointment: CandidateAppointment, timezone: string): string {
+export function composeReminderBody(appointment: CandidateAppointment, timezone: string): string {
   const dateLabel = formatAppointmentDate(appointment.start_at, timezone);
   const timeLabel = formatAppointmentTimeRange(appointment.start_at, appointment.end_at, timezone);
-  const confirmationAsk = appointment.status === "confirmed" ? "" : " Reply YES to confirm, or let us know if you need to reschedule.";
+  const confirmationAsk = appointment.status === "confirmed" ? "" : " Reply CONFIRM to confirm, or let us know if you need to reschedule.";
   return `Reminder: your appointment "${appointment.title}" is scheduled for ${dateLabel} at ${timeLabel}.${confirmationAsk} Reply STOP to opt out of texts.`;
 }
 

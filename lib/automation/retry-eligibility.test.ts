@@ -219,3 +219,27 @@ test("the two Trackpr-dispatched automations (appointment-reminders, estimate-fo
   assert.equal(followupResult.ok, true);
   assert.equal(followupResult.ok && followupResult.automationId, "estimate-followup");
 });
+
+// ---------------------------------------------------------------------------
+// P0 A0: estimate_sent_followup is n8n-dispatched inside the allowlisted
+// estimate-followup automation - it must never reach the generic n8n retry.
+// ---------------------------------------------------------------------------
+
+test("estimate_sent_followup (n8n-dispatched, under the allowlisted estimate-followup automation) is rejected as not safely retryable", async () => {
+  const client = createMockSupabase({
+    execution: { ...BASE_EXECUTION, workflow_name: "estimate_sent_followup" },
+    event: { ...BASE_EVENT, event_type: "estimate.sent" },
+  });
+  const result = await checkRetryEligibility(client, ORG_ID, EXECUTION_ID);
+  assert.deepEqual(result, { ok: false, reason: "not_safely_retryable", automationId: "estimate-followup" });
+});
+
+test("estimate_expired_lifecycle (Trackpr-dispatched, same automation) is unchanged and still eligible", async () => {
+  const client = createMockSupabase({
+    execution: { ...BASE_EXECUTION, workflow_name: "estimate_expired_lifecycle" },
+    event: { ...BASE_EVENT, event_type: "estimate.expired" },
+  });
+  const result = await checkRetryEligibility(client, ORG_ID, EXECUTION_ID);
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.automationId, "estimate-followup");
+});

@@ -429,3 +429,34 @@ test("the contractor-created path labels its appointment.created payload source:
   const source = readFileSync(path.join(process.cwd(), "lib/automation/appointments.ts"), "utf8");
   assert.match(source, /conversation_id: conversationId, source: APPOINTMENT_CREATED_SOURCE_CONTRACTOR \}/);
 });
+
+// ---------------------------------------------------------------------------
+// P0 A0: reminders ask for "Reply CONFIRM" (a bare YES is a carrier START
+// keyword). CONFIRM must reach the same confirmation path.
+// ---------------------------------------------------------------------------
+
+for (const body of ["CONFIRM", "confirm", "Confirm.", "CONFIRMED"]) {
+  test(`reminder reply "${body}" (no booking context, one upcoming appointment) -> confirms it and records confirmed_at`, async () => {
+    const appointment = addUpcomingAppointment("2099-04-01T15:00:00.000Z");
+
+    assert.equal(await reply(body), true);
+
+    assert.equal(appointment.status, "confirmed");
+    assert.ok(appointment.confirmed_at);
+    assert.equal(eventsOfType("appointment.confirmation_acknowledged").length, 1);
+    assert.equal(sends.count, 0, "the TEST-mode gate blocks the acknowledgement");
+  });
+}
+
+test("repeated CONFIRM after the reminder confirmation -> no duplicate side effects", async () => {
+  const appointment = addUpcomingAppointment("2099-04-01T15:00:00.000Z");
+  await reply("CONFIRM");
+  const confirmedAt = appointment.confirmed_at;
+  const eventCount = store.automation_events.length;
+
+  assert.equal(await reply("CONFIRM"), true, "handled silently, never handed to the AI");
+
+  assert.equal(appointment.confirmed_at, confirmedAt, "confirmed_at is never re-stamped");
+  assert.equal(store.automation_events.length, eventCount, "no second acknowledgement");
+  assert.equal(store.appointments.length, 1);
+});
