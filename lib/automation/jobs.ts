@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEvent, createAutomationEventAsService } from "./events";
-import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution, startWorkflowExecutionAsService, completeWorkflowExecutionAsService } from "./executions";
+import { startWorkflowExecution, completeWorkflowExecution, failWorkflowExecution, startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getEstimate } from "@/lib/estimates/queries";
@@ -126,29 +126,23 @@ export async function emitJobCreatedFromEstimate(
 }
 
 /**
- * Phase 1B-5 (approved option 2, lifecycle only): the service-role twin of
- * emitJobCreatedFromEstimate above, for the two estimate-acceptance paths
- * that have no Supabase Auth session - the public quote approval link
- * (lib/estimates/approval.ts) and the customer's SMS "yes"
- * (lib/automation/estimate-reply.ts). Before this, both called the
- * session-only function with a service client: the job row and the
- * lead -> won sync were correct, but the job.created event and the lead
- * stage-history entry silently no-oped ("Not authenticated.").
+ * The service-role twin of emitJobCreatedFromEstimate above, for the two
+ * estimate-acceptance paths that have no Supabase Auth session - the public
+ * quote approval link (lib/estimates/approval.ts) and the customer's SMS
+ * "yes" (lib/automation/estimate-reply.ts).
  *
  * Job creation and the lead -> won sync are the identical writes, guards and
- * 23505 resolution as the session variant. What differs, by explicit
- * decision:
- *   - lead.stage_changed goes through emitLeadStageChangedAsService with the
- *     same idempotency suffix (the estimate id) as the session path.
- *   - job.created is recorded as a LIFECYCLE-ONLY marker: created, started
- *     under `job_created_lifecycle`, completed with lifecycle_only: true. It
- *     never dispatches job_created_followup, never calls n8n, never creates
- *     a conversation, and never sends SMS or email. The idempotency key is
- *     the same `job.created:<job_id>` the session path uses, so a job can
- *     only ever carry one job.created row whichever path created it.
- *   - createAutomationEventAsService still applies the job-lifecycle
- *     catalog entry's enable toggle and automation_paused, exactly as the
- *     session path's createAutomationEvent does for this event type.
+ * 23505 resolution as the session variant; lead.stage_changed goes through
+ * emitLeadStageChangedAsService with the same idempotency suffix (the
+ * estimate id). job.created then goes through the SAME emitJobCreatedEvent
+ * the contractor's manual Accept uses (service mode): same event, same
+ * `job.created:<job_id>` idempotency key, same job_created_followup kickoff
+ * dispatched to n8n, whose customer text can only ever be sent by the n8n
+ * callback after evaluateOutboundGate. (Phase 1B-5 originally recorded only
+ * a lifecycle marker here, so a customer who accepted on their own got less
+ * than one whose contractor clicked Accept; the acceptance paths are now
+ * normalized.) createAutomationEventAsService still applies the
+ * job-lifecycle catalog toggle and automation_paused.
  *
  * `organizationId` must already be trusted - both callers derive it from
  * the estimate row itself (resolved from an approval token or from the
@@ -223,36 +217,12 @@ export async function emitJobCreatedFromEstimateAsService(
       }
     }
 
-    const eventResult = await createAutomationEventAsService(supabase, organizationId, {
-      eventType: "job.created",
-      entityType: "job",
-      entityId: jobId,
-      payload: {
-        job_id: jobId,
-        estimate_id: estimateId,
-        contact_id: estimate.contact_id,
-        lead_id: estimate.lead_id,
-        lifecycle_only: true,
-      },
-      idempotencyKey: `job.created:${jobId}`,
-    });
-
-    if (!eventResult.ok) {
-      console.error("[automation] failed to create job.created event", { jobId, error: eventResult.error });
-      return;
-    }
-    if (eventResult.duplicate || eventResult.skipped) return;
-
-    const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, "job_created_lifecycle");
-    if (!executionResult.ok) {
-      console.error("[automation] failed to start job.created lifecycle execution", { jobId, error: executionResult.error });
-      return;
-    }
-
-    const completed = await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, { lifecycle_only: true, job_id: jobId });
-    if (!completed.ok) {
-      console.error("[automation] failed to complete job.created lifecycle execution", { jobId, error: completed.error });
-    }
+    // Every acceptance path - contractor "Mark Accepted", the public quote
+    // link, the customer's SMS "accept" - converges on the same job.created
+    // automation (event + n8n kickoff notification, gated by the callback's
+    // outbound gate). Idempotent on job.created:<jobId>, so racing paths for
+    // one job can only ever dispatch once.
+    await emitJobCreatedEvent(supabase, organizationId, jobId, estimateId, "service");
   } catch (error) {
     console.error("[automation] emitJobCreatedFromEstimateAsService threw", { estimateId, error: error instanceof Error ? error.message : String(error) });
   }
@@ -269,7 +239,14 @@ export async function emitJobCreatedFromEstimateAsService(
  * else - idempotency, the AI-drafted kickoff message, eligibility - is
  * identical regardless of which path created the job.
  */
-export async function emitJobCreatedEvent(supabase: SupabaseClient, organizationId: string, jobId: string, estimateId: string | null): Promise<void> {
+export async function emitJobCreatedEvent(
+  supabase: SupabaseClient,
+  organizationId: string,
+  jobId: string,
+  estimateId: string | null,
+  /** "service" for the session-less acceptance paths (quote link, SMS reply) - same event, same kickoff, service-role event/execution helpers. */
+  mode: "session" | "service" = "session",
+): Promise<void> {
   // Trackpr 2.0, n8n job-created payload fix: job/contact/conversation must
   // be resolved BEFORE createAutomationEvent below, not after - see that
   // call's own comment for why (same fix, same reasoning, as
@@ -309,7 +286,7 @@ export async function emitJobCreatedEvent(supabase: SupabaseClient, organization
   // job.created send was unconditionally denied by the gate's own
   // missing_contact_id check - the same defect class already fixed for
   // job.post_followup, found live in production for this event type too.
-  const eventResult = await createAutomationEvent(supabase, {
+  const eventInput = {
     eventType: "job.created",
     entityType: "job",
     entityId: jobId,
@@ -321,7 +298,8 @@ export async function emitJobCreatedEvent(supabase: SupabaseClient, organization
       conversation_id: conversationId,
     },
     idempotencyKey: `job.created:${jobId}`,
-  });
+  };
+  const eventResult = mode === "service" ? await createAutomationEventAsService(supabase, organizationId, eventInput) : await createAutomationEvent(supabase, eventInput);
 
   if (!eventResult.ok) {
     console.error("[automation] failed to create job.created event", { jobId, error: eventResult.error });
@@ -330,7 +308,10 @@ export async function emitJobCreatedEvent(supabase: SupabaseClient, organization
   if (eventResult.duplicate) return;
   if (eventResult.skipped) return;
 
-  const executionResult = await startWorkflowExecution(supabase, eventResult.event.id, JOB_CREATED_WORKFLOW);
+  const executionResult =
+    mode === "service"
+      ? await startWorkflowExecutionAsService(supabase, eventResult.event.id, JOB_CREATED_WORKFLOW)
+      : await startWorkflowExecution(supabase, eventResult.event.id, JOB_CREATED_WORKFLOW);
   if (!executionResult.ok) {
     console.error("[automation] failed to start job.created execution", { jobId, error: executionResult.error });
     return;
@@ -383,7 +364,10 @@ export async function emitJobCreatedEvent(supabase: SupabaseClient, organization
   after(async () => {
     const dispatch = await triggerN8nWorkflow(contract);
     if (!dispatch.ok) {
-      const failed = await failWorkflowExecution(supabase, executionId, dispatch.error, "n8n_dispatch_failed");
+      const failed =
+        mode === "service"
+          ? await failWorkflowExecutionAsService(supabase, executionId, dispatch.error, "n8n_dispatch_failed")
+          : await failWorkflowExecution(supabase, executionId, dispatch.error, "n8n_dispatch_failed");
       if (!failed.ok) {
         console.error("[automation] failed to record job.created dispatch failure", {
           executionId,

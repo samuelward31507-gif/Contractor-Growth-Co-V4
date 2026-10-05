@@ -1,7 +1,10 @@
 /**
- * Phase 1B-5 (approved option 2): emitJobCreatedFromEstimateAsService - the
- * lifecycle-only job.created path for the two estimate acceptances that have
- * no auth session (quote approval link, SMS "yes"). A fake service-role
+ * emitJobCreatedFromEstimateAsService - the job path for the two estimate
+ * acceptances that have no auth session (quote approval link, SMS "yes").
+ * Since the TEST-lifecycle acceptance normalization it records the same
+ * job.created event and starts the same job_created_followup kickoff as the
+ * contractor's manual Accept (the n8n dispatch itself is deferred via
+ * after(), so nothing is fetched synchronously). A fake service-role
  * client (tables + RPCs, no auth session) and a stubbed global fetch - no
  * database, no network. Run with:
  *
@@ -122,7 +125,7 @@ async function withNoNetwork<T>(fn: () => Promise<T>): Promise<{ result: T; fetc
 
 const events = (rpcCalls: { fn: string; args: Row }[]) => rpcCalls.filter((call) => call.fn === "create_automation_event").map((call) => call.args);
 
-test("creates the job, syncs the lead to won, and records lead.stage_changed and a lifecycle-only job.created - both via the service RPC with the trusted organization id", async () => {
+test("creates the job, syncs the lead to won, and records lead.stage_changed and the SAME job.created + job_created_followup kickoff as the manual Accept - all via the service RPC with the trusted organization id", async () => {
   const { client, tables, rpcCalls } = makeServiceClient();
   const { fetches } = await withNoNetwork(() => emitJobCreatedFromEstimateAsService(client, ORG, "est-1"));
 
@@ -147,21 +150,20 @@ test("creates the job, syncs the lead to won, and records lead.stage_changed and
   assert.equal(job.p_entity_type, "job");
   assert.equal(job.p_entity_id, "jobs-new");
   assert.equal(job.p_idempotency_key, "job.created:jobs-new", "identical key to the session path, so one job.created per job whichever path created it");
-  assert.deepEqual(job.p_payload, { job_id: "jobs-new", estimate_id: "est-1", contact_id: "contact-1", lead_id: "lead-1", lifecycle_only: true });
+  assert.deepEqual(job.p_payload, { job_id: "jobs-new", estimate_id: "est-1", contact_id: "contact-1", lead_id: "lead-1", conversation_id: "conversations-new" }, "the same payload shape the manual Accept stores");
 
   const starts = rpcCalls.filter((call) => call.fn === "start_workflow_execution").map((call) => call.args.p_workflow_name);
-  assert.deepEqual(starts, ["lead_stage_changed_lifecycle", "job_created_lifecycle"], "never job_created_followup");
+  assert.deepEqual(starts, ["lead_stage_changed_lifecycle", "job_created_followup"], "the customer's own acceptance gets the same kickoff automation");
   const completions = rpcCalls.filter((call) => call.fn === "complete_workflow_execution").map((call) => call.args.p_metadata);
-  assert.deepEqual(completions, [{ lifecycle_only: true, lead_id: "lead-1" }, { lifecycle_only: true, job_id: "jobs-new" }]);
-  assert.equal(fetches, 0);
+  assert.deepEqual(completions, [{ lifecycle_only: true, lead_id: "lead-1" }], "the kickoff execution is completed later by the n8n callback, never here");
+  assert.equal(fetches, 0, "the n8n dispatch is deferred via after(), never a synchronous call");
 });
 
-test("no n8n dispatch and no outbound: nothing is fetched, no conversation is created, no message row is written, job_created_followup is never started", async () => {
+test("no direct outbound: only the job, the lead and the customer's SMS conversation are written - no message row, nothing fetched; any customer text can only come from the n8n callback through the outbound gate", async () => {
   const { client, writes, rpcCalls } = makeServiceClient();
   const { fetches } = await withNoNetwork(() => emitJobCreatedFromEstimateAsService(client, ORG, "est-1"));
-  assert.equal(fetches, 0, "no n8n webhook, no Twilio, no email provider");
-  assert.deepEqual([...new Set(writes.map((write) => write.table))].sort(), ["jobs", "leads"], "only the job and the lead are written - no conversations, no messages");
-  assert.equal(rpcCalls.some((call) => call.args.p_workflow_name === "job_created_followup"), false);
+  assert.equal(fetches, 0, "no n8n webhook, no Twilio, no email provider called synchronously");
+  assert.deepEqual([...new Set(writes.map((write) => write.table))].sort(), ["conversations", "jobs", "leads"], "no messages table write");
   assert.equal(rpcCalls.some((call) => call.fn === "fail_workflow_execution"), false);
 });
 
@@ -216,7 +218,7 @@ test("Phase 2B: both estimate → job paths copy the estimate's lead, and a job 
   assert.ok(!existing.writes.some((write) => write.table === "jobs" && write.op === "update" && (write.payload as Row)?.lead_id !== undefined));
 });
 
-test("both service-context callers use the lifecycle-only variant; the manual Accept action keeps the session variant and its kickoff dispatch", () => {
+test("every acceptance path converges on emitJobCreatedEvent: the service callers through emitJobCreatedFromEstimateAsService (service mode), the manual Accept through the session variant", () => {
   const read = (relative: string) => fs.readFileSync(path.join(process.cwd(), relative), "utf8");
   const approval = read("lib/estimates/approval.ts");
   const reply = read("lib/automation/estimate-reply.ts");
@@ -228,5 +230,6 @@ test("both service-context callers use the lifecycle-only variant; the manual Ac
   assert.doesNotMatch(reply, /emitJobCreatedFromEstimate\(/);
   assert.match(manual, /await emitJobCreatedFromEstimate\(supabase, organizationId, estimateId\)/);
   const serviceVariant = jobs.slice(jobs.indexOf("export async function emitJobCreatedFromEstimateAsService"), jobs.indexOf("export async function emitJobCreatedEvent"));
-  assert.doesNotMatch(serviceVariant, /triggerN8nWorkflow|after\(|JOB_CREATED_WORKFLOW|findOrCreateOpenConversation|sendOutboundMessage|emitJobCreatedEvent\(/);
+  assert.match(serviceVariant, /await emitJobCreatedEvent\(supabase, organizationId, jobId, estimateId, "service"\)/);
+  assert.doesNotMatch(serviceVariant, /triggerN8nWorkflow|sendOutboundMessage|job_created_lifecycle/, "no second, divergent dispatch or send path");
 });

@@ -1,10 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { emitEstimateSent, emitEstimateLifecycleEvent } from "@/lib/automation/estimates";
+import { deliverEstimateToCustomer } from "@/lib/automation/estimate-delivery";
+import { resolveCustomerLinkBaseUrl } from "@/lib/estimates/approval-link";
 import { emitJobCreatedFromEstimate } from "@/lib/automation/jobs";
 
 export type EstimateActionResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -191,6 +194,10 @@ export async function sendEstimate(estimateId: string): Promise<EstimateActionRe
   if (!data) return { ok: false, error: "This estimate could not be found or has already been sent." };
 
   await emitEstimateSent(supabase, estimateId);
+  // Delivers the real approval link to the customer (gated like every other
+  // automated send) - sending an estimate no longer depends on the
+  // contractor copying the link out of the page.
+  await deliverEstimateToCustomer(supabase, estimateId, resolveCustomerLinkBaseUrl((await headers()).get("host")));
 
   revalidatePath("/money");
   revalidatePath(`/estimates/${estimateId}`);

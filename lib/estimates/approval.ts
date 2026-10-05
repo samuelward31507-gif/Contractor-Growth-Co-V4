@@ -22,9 +22,9 @@ import { emitJobCreatedFromEstimateAsService } from "@/lib/automation/jobs";
  * a race with an SMS "yes" can never double-fire), then
  * emitEstimateLifecycleEventAsService, then
  * emitJobCreatedFromEstimateAsService (estimate accepted is the sole
- * job-creation trigger, per Phase 4.6; since Phase 1B-5 this service
- * variant also records the job.created lifecycle marker and the lead
- * stage-history entry, with no kickoff dispatch), then an idempotent
+ * job-creation trigger, per Phase 4.6; this service variant records the
+ * lead stage-history entry and the same job.created event + kickoff
+ * automation as the manual Accept), then an idempotent
  * automation event recording HOW
  * the acceptance happened (estimate.accepted_via_link vs .._via_reply) so
  * analytics can tell the channels apart. No outbound SMS is sent from this

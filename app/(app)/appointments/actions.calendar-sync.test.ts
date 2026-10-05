@@ -26,7 +26,7 @@ const REPO_ROOT = process.cwd();
 const SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/(app)/appointments/actions.ts"), "utf8");
 
 test("1. createAppointment: Google sync is only ever attempted AFTER the Trackpr insert has already succeeded - never before, never conditionally on it", () => {
-  const insertIndex = SOURCE.indexOf('.from("appointments")\n    .insert({ ...input, organization_id: organizationId })');
+  const insertIndex = SOURCE.indexOf('.from("appointments")\n    // A brand-new appointment created directly as "Confirmed" is a manual\n    // confirmation too - same confirmed_at rule as the Confirm action.\n    .insert({ ...input, ...computeConfirmationOnStatusChange("scheduled", input.status, new Date()), organization_id: organizationId })');
   const syncCallIndex = SOURCE.indexOf("syncAppointmentCreatedToGoogle(supabase, organizationId, created.id)");
   assert.ok(insertIndex !== -1 && syncCallIndex !== -1);
   assert.ok(insertIndex < syncCallIndex, "the Trackpr insert must appear before the Google sync call in source order");
