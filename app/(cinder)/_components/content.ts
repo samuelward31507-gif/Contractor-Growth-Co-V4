@@ -82,4 +82,4 @@ export const WHY = [
   { key: "improve", title: "Improve", line: "Use real operational data to identify where revenue is being lost." },
 ] as const;
 
-export const FUTURE_VERTICALS = ["Gyms", "Clinics", "Med spas", "Dental", "Other service businesses"] as const;
+export const FUTURE_VERTICALS = ["Gyms", "Clinics", "Med spas", "Dental", "Agencies", "Dealerships", "Other service businesses"] as const;

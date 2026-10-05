@@ -10,8 +10,12 @@
  * validation (see the accompanying report) - this file is the persisted,
  * repeatable half of that evidence.
  *
+ * Cinder brand consolidation: the legal pages moved from the retired
+ * Contractor Growth Co. marketing group into app/(cinder) (legal text
+ * unchanged), so the footer they are linked from is the Cinder footer.
+ *
  * Run with:
- *   node --import ./lib/automation/test-loader.mjs --test "app/(marketing)/legal-pages.test.ts"
+ *   node --import ./lib/automation/test-loader.mjs --test "app/(cinder)/legal-pages.test.ts"
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,9 +23,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 const REPO_ROOT = process.cwd();
-const PRIVACY_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/(marketing)/privacy/page.tsx"), "utf8");
-const TERMS_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/(marketing)/terms/page.tsx"), "utf8");
-const FOOTER_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/(marketing)/_components/marketing-footer.tsx"), "utf8");
+const PRIVACY_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/(cinder)/privacy/page.tsx"), "utf8");
+const TERMS_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/(cinder)/terms/page.tsx"), "utf8");
+const FOOTER_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/(cinder)/_components/footer.tsx"), "utf8");
 const SITEMAP_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/sitemap.ts"), "utf8");
 const PAYMENT_REQUIRED_SOURCE = fs.readFileSync(path.join(REPO_ROOT, "app/onboarding/payment-required.tsx"), "utf8");
 
@@ -110,8 +114,8 @@ test("7. neither legal page exposes internal architecture (project refs, interna
 });
 
 test("8. the marketing footer links to both /privacy and /terms", () => {
-  assert.match(FOOTER_SOURCE, /href:\s*"\/privacy"/);
-  assert.match(FOOTER_SOURCE, /href:\s*"\/terms"/);
+  assert.match(FOOTER_SOURCE, /href="\/privacy"/);
+  assert.match(FOOTER_SOURCE, /href="\/terms"/);
 });
 
 test("9. sitemap.ts includes /privacy and /terms", () => {

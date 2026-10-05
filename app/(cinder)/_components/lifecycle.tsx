@@ -125,7 +125,7 @@ export function LifecycleInstrument() {
           href="/#trackpr"
           className="group inline-flex items-center gap-1.5 rounded text-sm text-cinder-on-night-2 transition-colors hover:text-cinder-on-night focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent-on-night"
         >
-          Trackpr runs this lifecycle for contractors
+          See how Trackpr runs this lifecycle
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" strokeWidth={1.75} aria-hidden />
         </Link>
       </div>

@@ -20,9 +20,9 @@ const TRADES = [
 const LEAD_VOLUMES = ["Fewer than 10", "10–25", "25–50", "50–100", "100+"];
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-sm transition-colors focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15";
-const labelClass = "text-sm font-medium text-slate-700";
-const requiredMark = <span className="text-emerald-600">*</span>;
+  "w-full rounded-lg border border-cinder-line-strong bg-cinder-surface px-3.5 py-2.5 text-[15px] text-cinder-ink placeholder:text-cinder-ink-3/70 shadow-sm transition-colors focus:border-cinder-accent focus:outline-none focus:ring-2 focus:ring-cinder-accent/15";
+const labelClass = "text-sm font-medium text-cinder-ink-2";
+const requiredMark = <span className="text-cinder-accent">*</span>;
 
 /**
  * There is no lead-capture backend anywhere in this repository (no contact
@@ -57,16 +57,16 @@ export function GetStartedForm() {
     ].join("\n");
 
     window.location.href = buildMailtoUrl({
-      subject: `Growth system inquiry — ${get("businessName")}`,
+      subject: `Trackpr inquiry — ${get("businessName")}`,
       body,
     });
     setSent(true);
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-7 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+    <form onSubmit={handleSubmit} className="space-y-7 rounded-2xl border border-cinder-line bg-cinder-surface p-6 shadow-sm sm:p-8">
       <fieldset className="space-y-5">
-        <legend className="text-xs font-semibold uppercase tracking-wide text-slate-400">About you</legend>
+        <legend className="text-xs font-semibold uppercase tracking-wide text-cinder-ink-3">About you</legend>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <div className="space-y-1.5">
             <label htmlFor="name" className={labelClass}>
@@ -89,8 +89,8 @@ export function GetStartedForm() {
         </div>
       </fieldset>
 
-      <fieldset className="space-y-5 border-t border-slate-100 pt-7">
-        <legend className="text-xs font-semibold uppercase tracking-wide text-slate-400">About your business</legend>
+      <fieldset className="space-y-5 border-t border-cinder-line pt-7">
+        <legend className="text-xs font-semibold uppercase tracking-wide text-cinder-ink-3">About your business</legend>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <div className="space-y-1.5">
             <label htmlFor="businessName" className={labelClass}>
@@ -151,13 +151,13 @@ export function GetStartedForm() {
 
       <button
         type="submit"
-        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3.5 text-[15px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500 active:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-cinder-ink px-6 py-3.5 text-[15px] font-semibold text-cinder-on-night shadow-sm transition-colors hover:bg-[#1c2824] active:bg-cinder-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent"
       >
         <Mail className="h-4 w-4" aria-hidden />
         Send This to Us
       </button>
 
-      <p className="text-center text-xs leading-relaxed text-slate-500" role="status">
+      <p className="text-center text-xs leading-relaxed text-cinder-ink-3" role="status">
         {sent
           ? "Your email app should now be open with this information filled in — send it over and we'll follow up."
           : "This opens your email app with your answers filled in — nothing is submitted automatically, and no data is stored on this site."}

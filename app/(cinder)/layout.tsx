@@ -6,14 +6,13 @@ import { SITE_URL, TALK_HREF } from "./_components/content";
 
 const TITLE = "Cinder Revenue Company | Revenue Systems";
 const DESCRIPTION =
-  "Cinder builds revenue systems that turn more opportunities into revenue - connecting every step from the first lead to the final payment. Trackpr, the revenue operating system for contractors, is the first.";
+  "Cinder builds revenue systems that turn more opportunities into revenue - connecting every step from the first lead to the final payment. Trackpr is its first revenue operating system.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: TITLE,
+  title: { default: TITLE, template: "%s | Cinder Revenue Company" },
   description: DESCRIPTION,
   applicationName: "Cinder",
-  alternates: { canonical: "/" },
   icons: {
     icon: [{ url: "/brand/cinder-app-icon.svg", type: "image/svg+xml" }],
     apple: [{ url: "/brand/cinder-app-icon.svg" }],
@@ -51,8 +50,9 @@ const ORGANIZATION_JSON_LD = {
 
 /**
  * Cinder Revenue Company - the parent-brand website at /. Its own route
- * group, so it never inherits the Trackpr marketing layout (that site now
- * lives at /trackpr) or the authenticated application shell.
+ * group holds every public marketing page - the Cinder home, the Trackpr
+ * product page, the intake form and the legal pages - so none inherits the
+ * authenticated application shell.
  */
 export default function CinderLayout({ children }: { children: ReactNode }) {
   return (

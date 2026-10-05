@@ -10,7 +10,7 @@ import { FUTURE_VERTICALS, PILLARS, STAGES, TALK_HREF, TRACKPR_ANSWERS, TRACKPR_
 const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent";
 
 /** Trackpr's own tile - the product's mark as the app shows it, used wherever Cinder points to Trackpr. */
-function TrackprTile({ className = "h-5 w-5 text-[11px]" }: { className?: string }) {
+export function TrackprTile({ className = "h-5 w-5 text-[11px]" }: { className?: string }) {
   return (
     <span aria-hidden className={`inline-flex shrink-0 items-center justify-center rounded-[6px] bg-accent font-bold leading-none text-white ${className}`}>
       T
@@ -57,7 +57,7 @@ export function Hero() {
         >
           <TrackprTile />
           <span>
-            <span className="font-medium text-cinder-ink">Trackpr</span> — the first system from Cinder, built for contractors
+            <span className="font-medium text-cinder-ink">Trackpr</span> — the first revenue operating system from Cinder
           </span>
           <ArrowRight className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5" strokeWidth={1.75} aria-hidden />
         </Link>
@@ -200,7 +200,7 @@ export function Trackpr() {
             </h2>
             <p className="mt-5 text-balance text-[22px] font-medium leading-snug tracking-[-0.02em] text-cinder-ink-2 sm:text-[28px]">The first revenue operating system from Cinder.</p>
             <p className="mt-6 max-w-[500px] text-pretty text-[17px] leading-relaxed text-cinder-ink-2 sm:text-[19px]">
-              Built for contractors. Trackpr gives a business visibility and follow-through across the whole revenue lifecycle — in one place.
+              Trackpr gives a business visibility and follow-through across the whole revenue lifecycle — in one place.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
               <Button href={TRACKPR_HREF} arrow size="lg">
@@ -268,7 +268,7 @@ export function WhyCinder() {
 }
 
 // ---------------------------------------------------------------------------
-// Industries - canvas. One live vertical; the rest clearly ahead.
+// Industries - canvas. One live market for Trackpr; the rest clearly ahead.
 // ---------------------------------------------------------------------------
 
 export function Industries() {
@@ -276,8 +276,8 @@ export function Industries() {
     <Section
       id="industries"
       eyebrow="Industries"
-      title="Built around the business, not the software category."
-      intro="Every service business has its own revenue lifecycle. Cinder builds a system for each one — starting with the trade that runs on estimates, jobs and invoices."
+      title="Expanding into more revenue-heavy businesses."
+      intro="Every revenue-heavy business has its own lifecycle, from first enquiry to payment. Trackpr is live today for contractors; Cinder is studying where the same system goes next."
     >
       <div className="mt-16 grid gap-4 sm:mt-20 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <Reveal>
@@ -311,7 +311,7 @@ export function Industries() {
         <Reveal delay={90}>
           <div className="flex h-full flex-col rounded-[24px] border border-dashed border-cinder-line-strong p-7 sm:p-10">
             <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-cinder-ink-3">Coming into focus</p>
-            <p className="mt-3 text-pretty text-[17px] leading-relaxed text-cinder-ink-2">More vertical systems are coming. These are the businesses we are studying next — none is available yet.</p>
+            <p className="mt-3 text-pretty text-[17px] leading-relaxed text-cinder-ink-2">The revenue-heavy businesses Cinder is studying next. None is supported yet.</p>
             <ul className="mt-8 divide-y divide-cinder-line border-y border-cinder-line">
               {FUTURE_VERTICALS.map((name) => (
                 <li key={name} className="flex items-center gap-3 py-3.5 text-[15px] text-cinder-ink-2">
@@ -351,7 +351,7 @@ export function Company() {
               {[
                 ["Company", "Cinder Revenue Company"],
                 ["First system", "Trackpr"],
-                ["First vertical", "Contractors"],
+                ["Focus", "Revenue-heavy businesses"],
               ].map(([term, value]) => (
                 <div key={term} className="border-b border-cinder-line py-4 last:border-b-0 sm:border-b-0 sm:px-5 sm:first:pl-0">
                   <dt className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-cinder-ink-3">{term}</dt>

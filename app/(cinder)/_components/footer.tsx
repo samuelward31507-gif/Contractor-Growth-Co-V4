@@ -28,7 +28,7 @@ export function CinderFooter() {
             </ul>
           </nav>
           <div>
-            <h2 className="text-xs font-medium text-cinder-ink-3">Trackpr</h2>
+            <h2 className="text-xs font-medium text-cinder-ink-3">Trackpr · flagship product</h2>
             <ul className="mt-4 space-y-3">
               <li>
                 <Link href={TRACKPR_HREF} className={LINK}>
@@ -38,6 +38,11 @@ export function CinderFooter() {
               <li>
                 <Link href={TRACKPR_DEMO_HREF} className={LINK}>
                   Interactive demo
+                </Link>
+              </li>
+              <li>
+                <Link href="/get-started" className={LINK}>
+                  Get started
                 </Link>
               </li>
               <li>

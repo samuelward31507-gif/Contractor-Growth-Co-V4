@@ -1,34 +1,34 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Container, Eyebrow } from "../_components/section";
+import { CONTAINER, Eyebrow } from "../_components/ui";
 import { TERMS_VERSION } from "@/lib/legal/terms-version";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
-  description: "The terms that govern use of Trackpr and the Contractor Growth Co. managed service.",
+  description: "The terms that govern use of Trackpr and its managed service.",
   alternates: { canonical: "/terms" },
 };
 
-const h2 = "mt-12 text-xl font-semibold tracking-tight text-slate-900 first:mt-0";
-const p = "mt-4 text-[15px] leading-relaxed text-slate-600";
-const ul = "mt-4 list-disc space-y-2 pl-5 text-[15px] leading-relaxed text-slate-600";
+const h2 = "mt-12 text-xl font-semibold tracking-tight text-cinder-ink first:mt-0";
+const p = "mt-4 text-[15px] leading-relaxed text-cinder-ink-2";
+const ul = "mt-4 list-disc space-y-2 pl-5 text-[15px] leading-relaxed text-cinder-ink-2";
 
 export default function TermsOfServicePage() {
   return (
     <>
-      <div className="border-b border-slate-200 bg-slate-50">
-        <Container className="py-16 sm:py-20">
+      <div className="border-b border-cinder-line bg-cinder-canvas">
+        <div className={`${CONTAINER} py-16 sm:py-20`}>
           <Eyebrow>Legal</Eyebrow>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Terms of Service</h1>
-          <p className="mt-3 text-[15px] text-slate-500">Effective {TERMS_VERSION}</p>
-        </Container>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-cinder-ink sm:text-4xl">Terms of Service</h1>
+          <p className="mt-3 text-[15px] text-cinder-ink-3">Effective {TERMS_VERSION}</p>
+        </div>
       </div>
 
-      <Container className="max-w-3xl py-16 sm:py-20">
+      <div className="mx-auto w-full max-w-3xl px-5 py-16 sm:px-8 sm:py-20 lg:px-10">
         <h2 className={h2}>1. Acceptance of Terms</h2>
         <p className={p}>
           By creating an account, you agree to these Terms of Service (&quot;Terms&quot;) and acknowledge our{" "}
-          <Link href="/privacy" className="font-medium text-slate-900 underline-offset-4 hover:underline">
+          <Link href="/privacy" className="font-medium text-cinder-ink underline-offset-4 hover:underline">
             Privacy Policy
           </Link>
           . If you do not agree, do not create an account or use Trackpr. These Terms govern the relationship
@@ -179,7 +179,7 @@ export default function TermsOfServicePage() {
           As between you and Contractor Growth Co., you are responsible for the accuracy, legality, and
           appropriateness of the data you input into Trackpr. We process that data to provide the service as
           described in our{" "}
-          <Link href="/privacy" className="font-medium text-slate-900 underline-offset-4 hover:underline">
+          <Link href="/privacy" className="font-medium text-cinder-ink underline-offset-4 hover:underline">
             Privacy Policy
           </Link>
           .
@@ -229,20 +229,20 @@ export default function TermsOfServicePage() {
         <h2 className={h2}>25. Contact Us</h2>
         <p className={p}>
           Questions about these Terms, billing, or cancellation can be sent to{" "}
-          <a className="font-medium text-slate-900 underline-offset-4 hover:underline" href="mailto:contractorgrowthcompany@gmail.com">
+          <a className="font-medium text-cinder-ink underline-offset-4 hover:underline" href="mailto:contractorgrowthcompany@gmail.com">
             contractorgrowthcompany@gmail.com
           </a>
           .
         </p>
 
-        <p className="mt-12 text-[13px] text-slate-400">
+        <p className="mt-12 text-[13px] text-cinder-ink-3">
           See also our{" "}
           <Link href="/privacy" className="underline-offset-4 hover:underline">
             Privacy Policy
           </Link>
           .
         </p>
-      </Container>
+      </div>
     </>
   );
 }

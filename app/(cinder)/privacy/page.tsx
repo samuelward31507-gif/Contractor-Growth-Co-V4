@@ -1,30 +1,30 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Container, Eyebrow } from "../_components/section";
+import { CONTAINER, Eyebrow } from "../_components/ui";
 import { TERMS_VERSION } from "@/lib/legal/terms-version";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
-  description: "How Contractor Growth Co. collects, uses, and protects information through Trackpr.",
+  description: "How information is collected, used, and protected through Trackpr.",
   alternates: { canonical: "/privacy" },
 };
 
-const h2 = "mt-12 text-xl font-semibold tracking-tight text-slate-900 first:mt-0";
-const p = "mt-4 text-[15px] leading-relaxed text-slate-600";
-const ul = "mt-4 list-disc space-y-2 pl-5 text-[15px] leading-relaxed text-slate-600";
+const h2 = "mt-12 text-xl font-semibold tracking-tight text-cinder-ink first:mt-0";
+const p = "mt-4 text-[15px] leading-relaxed text-cinder-ink-2";
+const ul = "mt-4 list-disc space-y-2 pl-5 text-[15px] leading-relaxed text-cinder-ink-2";
 
 export default function PrivacyPolicyPage() {
   return (
     <>
-      <div className="border-b border-slate-200 bg-slate-50">
-        <Container className="py-16 sm:py-20">
+      <div className="border-b border-cinder-line bg-cinder-canvas">
+        <div className={`${CONTAINER} py-16 sm:py-20`}>
           <Eyebrow>Legal</Eyebrow>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Privacy Policy</h1>
-          <p className="mt-3 text-[15px] text-slate-500">Effective {TERMS_VERSION}</p>
-        </Container>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-cinder-ink sm:text-4xl">Privacy Policy</h1>
+          <p className="mt-3 text-[15px] text-cinder-ink-3">Effective {TERMS_VERSION}</p>
+        </div>
       </div>
 
-      <Container className="max-w-3xl py-16 sm:py-20">
+      <div className="mx-auto w-full max-w-3xl px-5 py-16 sm:px-8 sm:py-20 lg:px-10">
         <p className={p}>
           This Privacy Policy describes how Contractor Growth Co. (&quot;Contractor Growth Co.,&quot; &quot;we,&quot; &quot;us,&quot; or
           &quot;our&quot;) collects, uses, and protects information in connection with Trackpr, the software and managed
@@ -37,33 +37,33 @@ export default function PrivacyPolicyPage() {
         <p className={p}>We collect the following categories of information:</p>
         <ul className={ul}>
           <li>
-            <span className="font-medium text-slate-800">Account information.</span> The email address and password
+            <span className="font-medium text-cinder-ink">Account information.</span> The email address and password
             you use to create and sign in to your Trackpr account.
           </li>
           <li>
-            <span className="font-medium text-slate-800">Business/company information.</span> Information you
+            <span className="font-medium text-cinder-ink">Business/company information.</span> Information you
             provide about your business, such as your business name, owner or contact name, trade, phone number,
             service areas, business hours, and booking preferences.
           </li>
           <li>
-            <span className="font-medium text-slate-800">Contact information.</span> The name, phone number, and
+            <span className="font-medium text-cinder-ink">Contact information.</span> The name, phone number, and
             email address of the customer or contact account, so we can bill and communicate with you about your
             account.
           </li>
           <li>
-            <span className="font-medium text-slate-800">CRM/customer data processed through the service.</span>{" "}
+            <span className="font-medium text-cinder-ink">CRM/customer data processed through the service.</span>{" "}
             Information about your own leads and customers that you or your systems input into Trackpr - such as
             names, phone numbers, email addresses, messages, appointments, estimates, and job records - so that
             Trackpr can capture, track, and follow up on those opportunities on your behalf.
           </li>
           <li>
-            <span className="font-medium text-slate-800">Usage/technical information.</span> Information about how
+            <span className="font-medium text-cinder-ink">Usage/technical information.</span> Information about how
             you use Trackpr, such as pages visited within the application and actions taken, along with standard
             technical information (e.g. IP address, browser type) collected automatically by our hosting and
             authentication infrastructure.
           </li>
           <li>
-            <span className="font-medium text-slate-800">Communications.</span> Records of messages sent and
+            <span className="font-medium text-cinder-ink">Communications.</span> Records of messages sent and
             received through Trackpr on your behalf - including SMS messages to and from your leads and customers -
             and any messages you send to us directly (for example, support requests).
           </li>
@@ -152,20 +152,20 @@ export default function PrivacyPolicyPage() {
         <h2 className={h2}>11. Contact Us</h2>
         <p className={p}>
           Questions about this Privacy Policy can be sent to{" "}
-          <a className="font-medium text-slate-900 underline-offset-4 hover:underline" href="mailto:contractorgrowthcompany@gmail.com">
+          <a className="font-medium text-cinder-ink underline-offset-4 hover:underline" href="mailto:contractorgrowthcompany@gmail.com">
             contractorgrowthcompany@gmail.com
           </a>
           .
         </p>
 
-        <p className="mt-12 text-[13px] text-slate-400">
+        <p className="mt-12 text-[13px] text-cinder-ink-3">
           See also our{" "}
           <Link href="/terms" className="underline-offset-4 hover:underline">
             Terms of Service
           </Link>
           .
         </p>
-      </Container>
+      </div>
     </>
   );
 }
