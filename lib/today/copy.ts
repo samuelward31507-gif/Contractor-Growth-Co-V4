@@ -27,6 +27,8 @@ export const ATTENTION_COPY: Record<AttentionItem["kind"], { label: string; tone
   awaiting_reply: { label: DECISION_ATTENTION_LABEL.awaiting_reply, tone: "urgent" },
   abandoned_conversation: { label: DECISION_ATTENTION_LABEL.abandoned_conversation, tone: "urgent" },
   calendar_disconnected: { label: DECISION_ATTENTION_LABEL.calendar_disconnected, tone: "urgent" },
+  automation_needs_attention: { label: DECISION_ATTENTION_LABEL.automation_needs_attention, tone: "urgent" },
+  automation_retrying: { label: DECISION_ATTENTION_LABEL.automation_retrying, tone: "soon" },
   overdue_appointment: { label: DECISION_ATTENTION_LABEL.overdue_appointment, tone: "urgent" },
   awaiting_confirmation: { label: DECISION_ATTENTION_LABEL.awaiting_confirmation, tone: "urgent" },
   no_show: { label: "No-show", tone: "urgent" },

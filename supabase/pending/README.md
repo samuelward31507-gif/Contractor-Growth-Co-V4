@@ -388,3 +388,17 @@ To apply to production (only on explicit authorization):
 Rollback: `dashboard_conversation_attention_successful_reply_rollback.sql` restores the previous definition exactly (read back `c36968b1a75e06f99fd7ad3a8f3c295e`). The application code works with either definition.
 
 Applied to production on 2026-10-04 via the MCP `apply_migration` mechanism with the name `dashboard_conversation_attention_successful_reply` (the function body, without the file's explicit `begin;`/`commit;`, which the mechanism supplies). Before: md5 `c36968b1a75e06f99fd7ad3a8f3c295e` (the rollback baseline), ledger count 62. After: md5 `549cc031de2d92117d367ad7c3147c2b`, ledger version `20261004110145` (count 63); one function, STABLE, `authenticated` keeps EXECUTE, `anon` none. Read-only consistency check on the live organization: every awaiting item satisfies the canonical rule (newest inbound-or-successful-outbound message is inbound), no "went quiet" item is canonically waiting; Today shows 5 (the cap) of 13 canonically waiting conversations. The file now lives at `supabase/migrations/20261004110145_dashboard_conversation_attention_successful_reply.sql`, unmodified (its header still reads "STATUS: PENDING" because the text is kept byte-identical to what was reviewed); the rollback file stays here.
+
+## execution_outcome_retry_state.sql (P0 A2 - TEST only so far)
+
+Additive columns on `public.workflow_executions` for the execution/retry lifecycle: `outcome` (derived by the trigger `workflow_executions_derive_outcome` from status / `metadata.blocked_reason` / `error_message`, so no RPC changes), `retry_state`, `next_retry_at`, `max_attempts`, `retry_detail`; two partial indexes (due retries, running executions); a backfill that gives existing rows their outcome and marks every existing failure `not_retryable` / `pre_a2_failure` so automatic retry never picks up history. `execution_outcome_retry_state_rollback.sql` drops exactly what it adds.
+
+The application tolerates a database without it: the Today read and the health tick's retry steps log and do nothing when the columns are missing.
+
+### Status
+
+Applied to TEST (`trackpr-stripe-test`) on 2026-10-05 via the MCP `apply_migration` mechanism, recorded as ledger version `20261005160146 execution_outcome_retry_state`. Verified: 5 columns, trigger, 2 indexes; backfill 28 succeeded / 14 blocked / 8 historical failures `not_retryable` (`pre_a2_failure`). Validated beforehand with `scratch/validate-execution-outcome-retry-state.mjs` (PGlite: backfill, trigger transitions, constraints, idempotent re-apply, rollback).
+
+Note: the MCP SQL tools hang (60 s timeout, nothing executed) on any statement containing `DROP` - they appear to wait for a destructive-statement confirmation that is never surfaced. The forward script therefore uses `create or replace trigger` (Postgres 14+) instead of drop-and-create. The rollback script necessarily contains `DROP` and must be run by a person in the SQL editor.
+
+Pending for Production: when A2 is approved, apply as one transaction, read back the ledger version, and move the file into `supabase/migrations/` under that version.

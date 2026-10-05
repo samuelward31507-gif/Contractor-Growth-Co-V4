@@ -6,6 +6,7 @@ import { getAutomationForWorkflowName } from "@/lib/automation/catalog";
 import { getScheduledAutomationLiveness } from "@/lib/automation-health/scheduled-automation-liveness";
 import { evaluateScheduledAutomationDegradedAlert } from "@/lib/automation-health/scheduled-automation-alert";
 import { EXECUTION_TIMEOUT_MINUTES, failTimedOutExecutions } from "@/lib/automation/execution-timeout";
+import { classifyFailedExecutions, processDueRetries } from "@/lib/automation/execution-retry";
 
 /**
  * Read-only operational check for workflow_executions rows stuck in
@@ -69,6 +70,12 @@ export async function GET(request: NextRequest) {
   // forever. Their earlier workflow_stuck incidents are then auto-resolved
   // below by resolve_stale_stuck_incidents, since they have left 'running'.
   const timeout = await failTimedOutExecutions(service);
+
+  // P0 A2: every failed execution (including the timeouts just failed) gets
+  // one durable retry decision, then due retries run through the same path
+  // as a staff retry - gate and all. See lib/automation/execution-retry.ts.
+  const retryDecisions = await classifyFailedExecutions(service);
+  const retries = await processDueRetries(service);
 
   const { data: stuck, error } = await service
     .from("workflow_executions")
@@ -147,6 +154,9 @@ export async function GET(request: NextRequest) {
     executionTimeoutMinutes: EXECUTION_TIMEOUT_MINUTES,
     timedOutCount: timeout.timedOut.length,
     timedOut: timeout.timedOut,
+    retryDecisions: retryDecisions.decided,
+    retriesStarted: retries.started,
+    retriesStopped: retries.stopped,
     failedExecutionCount: failedExecutionCount ?? 0,
     failedExecutionWindowHours: FAILED_EXECUTION_WINDOW_HOURS,
     activeCriticalIncidents: criticalIncidentCount ?? 0,

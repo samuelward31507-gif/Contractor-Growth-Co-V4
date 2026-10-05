@@ -10,6 +10,8 @@ export type ReasonCode =
   // Operational exceptions (always first, untiered).
   | "human_escalation"
   | "calendar_sync_failed"
+  | "automation_needs_attention"
+  | "automation_retrying"
   // Live conversation / appointment signals.
   | "customer_awaiting_reply"
   | "appointment_overdue"
@@ -31,12 +33,14 @@ export type ReasonCode =
   | "review_request_needed"
   | "referral_request_needed";
 
-export type OperationalExceptionKind = Extract<AttentionItem["kind"], "human_escalation" | "calendar_disconnected">;
+export type OperationalExceptionKind = Extract<AttentionItem["kind"], "human_escalation" | "calendar_disconnected" | "automation_needs_attention" | "automation_retrying">;
 export type ConversationSignalKind = Extract<AttentionItem["kind"], "awaiting_reply" | "overdue_appointment" | "awaiting_confirmation" | "abandoned_conversation">;
 
 export const REASON_CODE_BY_EXCEPTION_KIND: Record<OperationalExceptionKind, ReasonCode> = {
   human_escalation: "human_escalation",
   calendar_disconnected: "calendar_sync_failed",
+  automation_needs_attention: "automation_needs_attention",
+  automation_retrying: "automation_retrying",
 };
 
 export const REASON_CODE_BY_SIGNAL_KIND: Record<ConversationSignalKind, ReasonCode> = {

@@ -12,8 +12,8 @@ import {
   startWorkflowExecutionAsService,
   completeWorkflowExecutionAsService,
   failWorkflowExecutionAsService,
-  completeWorkflowExecution,
-  failWorkflowExecution,
+  SESSION_EXECUTION_OPS,
+  type ExecutionOps,
   type WorkflowExecutionTriggerSource,
 } from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
@@ -413,6 +413,8 @@ export async function retryAppointmentReminder(
   supabase: SupabaseClient,
   event: { organizationId: string; entityType: string | null; entityId: string | null; payload: Record<string, unknown> },
   executionId: string,
+  /** P0 A2: SERVICE_EXECUTION_OPS for the automatic retry; the session pair otherwise. */
+  ops: ExecutionOps = SESSION_EXECUTION_OPS,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const appointmentId =
     event.entityType === "appointment"
@@ -422,7 +424,7 @@ export async function retryAppointmentReminder(
         : null;
 
   if (!appointmentId) {
-    await failWorkflowExecution(supabase, executionId, "Missing appointment reference.");
+    await ops.fail(supabase, executionId, "Missing appointment reference.");
     return { ok: false, error: "Missing appointment reference." };
   }
 
@@ -434,7 +436,7 @@ export async function retryAppointmentReminder(
     .maybeSingle();
 
   if (!appointment) {
-    await failWorkflowExecution(supabase, executionId, "The appointment no longer exists.");
+    await ops.fail(supabase, executionId, "The appointment no longer exists.");
     return { ok: false, error: "The appointment no longer exists." };
   }
 
@@ -467,7 +469,7 @@ export async function retryAppointmentReminder(
   });
 
   if (!gateResult.allowed) {
-    await completeWorkflowExecution(supabase, executionId, {
+    await ops.complete(supabase, executionId, {
       should_send: false,
       blocked_reason: gateResult.reason,
       blocked_detail: gateResult.detail ?? null,
@@ -487,11 +489,11 @@ export async function retryAppointmentReminder(
   });
 
   if (!sendResult.ok) {
-    await failWorkflowExecution(supabase, executionId, sendResult.error, "sms_send_failed");
+    await ops.fail(supabase, executionId, sendResult.error, "sms_send_failed");
     return { ok: false, error: sendResult.error };
   }
 
-  await completeWorkflowExecution(supabase, executionId, {
+  await ops.complete(supabase, executionId, {
     should_send: true,
     message_id: sendResult.messageId,
     conversation_id: sendResult.conversationId,

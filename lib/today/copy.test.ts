@@ -41,6 +41,9 @@ const ATTENTION_KINDS = [
   "cancelled_appointment_no_rebooking",
   "completed_job_no_review_request",
   "completed_job_no_referral_request",
+  // P0 A2
+  "automation_needs_attention",
+  "automation_retrying",
 ];
 
 test("1. every real AttentionItem kind has a copy entry with a non-empty label and a valid tone", () => {

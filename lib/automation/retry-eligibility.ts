@@ -52,6 +52,29 @@ export const SAFE_RETRY_AUTOMATION_IDS = new Set(["appointment-reminders", "esti
  */
 export const UNSAFE_RETRY_WORKFLOW_NAMES = new Set(["estimate_sent_followup"]);
 
+/**
+ * P0 A2: the automatic-retry policy - the exact workflows the gate above
+ * allows (the allowlisted automations' workflows minus
+ * UNSAFE_RETRY_WORKFLOW_NAMES; retry-policy.test.ts keeps the two in step),
+ * each with its attempt ceiling (counting the original attempt; never above
+ * MAX_WORKFLOW_RETRY_ATTEMPTS). Any workflow absent here is never retried
+ * automatically - its failure is recorded as not_retryable and needs a
+ * person.
+ */
+export const AUTOMATIC_RETRY_POLICY: Readonly<Record<string, { maxAttempts: number }>> = {
+  appointment_reminder: { maxAttempts: 3 },
+  estimate_followup: { maxAttempts: 3 },
+  estimate_expired_lifecycle: { maxAttempts: 3 },
+  lead_created_followup: { maxAttempts: 3 },
+};
+
+/** Bounded exponential backoff after a failed attempt `attempt`: 5, 15, 45, then capped at 60 minutes. */
+export const RETRY_BASE_DELAY_MINUTES = 5;
+export const RETRY_MAX_DELAY_MINUTES = 60;
+export function retryDelayMinutes(attempt: number): number {
+  return Math.min(RETRY_BASE_DELAY_MINUTES * 3 ** Math.max(0, attempt - 1), RETRY_MAX_DELAY_MINUTES);
+}
+
 export type RetryEligibleExecution = {
   id: string;
   organizationId: string;
@@ -85,8 +108,10 @@ export type RetryEligibilityResult =
  * Every check here is a pre-check for a clear, specific rejection reason -
  * the true, race-proof authority for "is this retryable right now" remains
  * start_workflow_execution's own RPC-level guards (it independently refuses
- * to run again once the parent event is 'processing'/'completed', and its
- * own attempt-numbering is the real ceiling enforcement). This function
+ * to run again once the parent event is 'processing'/'completed'; it numbers
+ * attempts but does NOT cap them - the MAX_WORKFLOW_RETRY_ATTEMPTS ceiling
+ * is enforced here and in startWorkflowExecution, and the automatic retry's
+ * own ceiling is AUTOMATIC_RETRY_POLICY). This function
  * exists so a rejection can be explained specifically (disabled automation
  * vs. already at the ceiling vs. not actually failed) rather than
  * collapsing into one generic RPC error.

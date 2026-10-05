@@ -7,6 +7,7 @@ import type { IncidentStatus } from "@/lib/automation-health/types";
 import { getOpenOpportunities } from "@/lib/opportunities/queries";
 import { cache } from "react";
 import { getDashboardConversationAttention, getDashboardRecordAttention, type DashboardRecordAttention } from "./sql";
+import { loadAutomationAttention } from "@/lib/automation/execution-visibility";
 
 /**
  * Q7 (pre-launch lead-leak audit): a lead below "hot" temperature but at or
@@ -170,7 +171,13 @@ export type AttentionItem = {
     | "uncontacted_lead"
     | "cancelled_appointment_no_rebooking"
     | "completed_job_no_review_request"
-    | "completed_job_no_referral_request";
+    | "completed_job_no_referral_request"
+    // P0 A2 (lib/automation/execution-visibility.ts): an automation that
+    // stopped retrying / can't be retried / was held back for something only
+    // a person can fix (an operational exception), and one Trackpr is still
+    // retrying or processing (counted as "Trackpr is handling").
+    | "automation_needs_attention"
+    | "automation_retrying";
   title: string;
   detail: string;
   value: string | null;
@@ -339,7 +346,7 @@ export async function getDashboardData(
 ): Promise<DashboardData> {
   const sqlConversationAttention = options.conversationAttention === "sql";
   const sqlRecordAttention = options.recordAttention === "sql";
-  const [leadsResult, appointmentsResult, estimatesResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities, sqlAttention, sqlRecord, legacyEvidence] = await Promise.all([
+  const [leadsResult, appointmentsResult, estimatesResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities, sqlAttention, sqlRecord, legacyEvidence, automationAttention] = await Promise.all([
     sqlRecordAttention ? SKIPPED_READ : supabase
       .from("leads")
       .select("id, status, temperature, estimated_value, service, created_at, contacts(first_name, last_name)")
@@ -410,6 +417,11 @@ export async function getDashboardData(
     sqlRecordAttention ? getDashboardRecordAttention(supabase, organizationId, HIGH_VALUE_THRESHOLD) : Promise.resolve(null),
     // Phase 3 (W1): the legacy path classifies on the same evidence as the SQL - each open conversation's newest inbound-or-successful-outbound message.
     sqlConversationAttention ? Promise.resolve(null) : getLatestEvidenceByConversation(supabase, organizationId),
+    // P0 A2: automations that need the contractor (stopped retrying, can't
+    // be retried, held back for something only a person can fix) and the
+    // ones Trackpr is still retrying - from workflow_executions' durable
+    // outcome/retry state. Never throws (empty on any read error).
+    loadAutomationAttention(supabase, organizationId),
   ]);
 
   const leads = leadsResult.data ?? [];
@@ -833,6 +845,7 @@ export async function getDashboardData(
   //      the lowest-urgency tier, new in this pass
   const attentionItems = [
     ...humanEscalations,
+    ...automationAttention,
     ...awaitingReply,
     ...abandonedConversations,
     ...calendarAttention,

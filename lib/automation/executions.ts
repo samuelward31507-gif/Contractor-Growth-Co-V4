@@ -33,7 +33,29 @@ export type WorkflowExecution = {
   error_message: string | null;
   metadata: Record<string, unknown>;
   trigger_source: WorkflowExecutionTriggerSource;
+  /** P0 A2 (supabase/pending/execution_outcome_retry_state.sql) - absent on a database without that migration. */
+  outcome?: WorkflowExecutionOutcome | null;
+  retry_state?: WorkflowRetryState | null;
+  next_retry_at?: string | null;
+  max_attempts?: number | null;
+  retry_detail?: string | null;
 };
+
+/**
+ * P0 A2: how an execution ended, derived in the database from status /
+ * metadata.blocked_reason / error_message (trigger
+ * workflow_executions_derive_outcome) - so it can never disagree with them.
+ * A legitimate safety block is 'blocked', never 'failed'.
+ */
+export type WorkflowExecutionOutcome = "succeeded" | "blocked" | "failed" | "timed_out" | "cancelled";
+
+/**
+ * P0 A2: Trackpr's decision about a FAILED execution (lib/automation/
+ * execution-retry.ts): retry scheduled, retried (a newer attempt took over),
+ * exhausted (stopped at max attempts) or not_retryable (never safe to
+ * retry automatically). The last two are permanent and need a person.
+ */
+export type WorkflowRetryState = "scheduled" | "retried" | "exhausted" | "not_retryable";
 
 /**
  * Retry ceiling for a single automation event's workflow executions. The
@@ -357,3 +379,16 @@ export async function failWorkflowExecutionAsService(
   await emitFailureIncidentSignal(supabase, execution, category, errorMessage);
   return { ok: true, execution };
 }
+
+/**
+ * P0 A2: the complete/fail pair a dispatcher records its result with - the
+ * session variants for a staff-triggered retry, the service-role variants
+ * for the automatic retry run by the health tick. Same RPCs either way.
+ */
+export type ExecutionOps = {
+  complete: (supabase: SupabaseClient, executionId: string, metadata?: Record<string, unknown>) => Promise<ExecutionResult>;
+  fail: (supabase: SupabaseClient, executionId: string, errorMessage: string, category?: WorkflowFailureCategory) => Promise<ExecutionResult>;
+};
+
+export const SESSION_EXECUTION_OPS: ExecutionOps = { complete: completeWorkflowExecution, fail: failWorkflowExecution };
+export const SERVICE_EXECUTION_OPS: ExecutionOps = { complete: completeWorkflowExecutionAsService, fail: failWorkflowExecutionAsService };

@@ -4,8 +4,8 @@ import {
   startWorkflowExecutionAsService,
   completeWorkflowExecutionAsService,
   failWorkflowExecutionAsService,
-  completeWorkflowExecution,
-  failWorkflowExecution,
+  SESSION_EXECUTION_OPS,
+  type ExecutionOps,
   type WorkflowExecutionTriggerSource,
 } from "./executions";
 import { evaluateOutboundGate } from "./outbound-gate";
@@ -481,6 +481,8 @@ export async function retryEstimateWorkflow(
   event: { organizationId: string; entityType: string | null; entityId: string | null; payload: Record<string, unknown> },
   executionId: string,
   workflowName: "estimate_followup" | "estimate_expired_lifecycle",
+  /** P0 A2: SERVICE_EXECUTION_OPS for the automatic retry; the session pair otherwise. */
+  ops: ExecutionOps = SESSION_EXECUTION_OPS,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const estimateId =
     event.entityType === "estimate"
@@ -490,7 +492,7 @@ export async function retryEstimateWorkflow(
         : null;
 
   if (!estimateId) {
-    await failWorkflowExecution(supabase, executionId, "Missing estimate reference.");
+    await ops.fail(supabase, executionId, "Missing estimate reference.");
     return { ok: false, error: "Missing estimate reference." };
   }
 
@@ -502,13 +504,13 @@ export async function retryEstimateWorkflow(
     .maybeSingle();
 
   if (!estimate) {
-    await failWorkflowExecution(supabase, executionId, "The estimate no longer exists.");
+    await ops.fail(supabase, executionId, "The estimate no longer exists.");
     return { ok: false, error: "The estimate no longer exists." };
   }
 
   if (workflowName === "estimate_expired_lifecycle") {
     await supabase.from("estimates").update({ status: "expired" }).eq("id", estimate.id).eq("status", "sent");
-    await completeWorkflowExecution(supabase, executionId, { lifecycle_only: true, estimate_id: estimate.id });
+    await ops.complete(supabase, executionId, { lifecycle_only: true, estimate_id: estimate.id });
     return { ok: true };
   }
 
@@ -519,7 +521,7 @@ export async function retryEstimateWorkflow(
   // message than the one that actually failed.
   const occurrence = event.payload?.occurrence === 1 || event.payload?.occurrence === 2 ? (event.payload.occurrence as 1 | 2) : null;
   if (!occurrence) {
-    await failWorkflowExecution(supabase, executionId, "Missing follow-up occurrence.");
+    await ops.fail(supabase, executionId, "Missing follow-up occurrence.");
     return { ok: false, error: "Missing follow-up occurrence." };
   }
 
@@ -543,7 +545,7 @@ export async function retryEstimateWorkflow(
   });
 
   if (!gateResult.allowed) {
-    await completeWorkflowExecution(supabase, executionId, {
+    await ops.complete(supabase, executionId, {
       should_send: false,
       blocked_reason: gateResult.reason,
       blocked_detail: gateResult.detail ?? null,
@@ -564,11 +566,11 @@ export async function retryEstimateWorkflow(
   });
 
   if (!sendResult.ok) {
-    await failWorkflowExecution(supabase, executionId, sendResult.error, "sms_send_failed");
+    await ops.fail(supabase, executionId, sendResult.error, "sms_send_failed");
     return { ok: false, error: sendResult.error };
   }
 
-  await completeWorkflowExecution(supabase, executionId, {
+  await ops.complete(supabase, executionId, {
     should_send: true,
     message_id: sendResult.messageId,
     conversation_id: sendResult.conversationId,

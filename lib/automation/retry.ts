@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkRetryEligibility, type RetryRejectionReason } from "./retry-eligibility";
-import { startWorkflowExecution } from "./executions";
+import { startWorkflowExecution, startWorkflowExecutionAsService, SESSION_EXECUTION_OPS, SERVICE_EXECUTION_OPS, type ExecutionOps } from "./executions";
 import { retryAppointmentReminder } from "./appointment-reminders";
 import { retryEstimateWorkflow } from "./estimate-followups";
 import { redispatchToN8n } from "./n8n-retry";
@@ -37,6 +37,32 @@ export async function retryWorkflowExecution(
   organizationId: string,
   executionId: string,
 ): Promise<RetryOutcome> {
+  return retryWithOps(supabase, organizationId, executionId, startWorkflowExecution, SESSION_EXECUTION_OPS);
+}
+
+/**
+ * P0 A2: the automatic retry run by the service-role health tick
+ * (lib/automation/execution-retry.ts). Identical path to the staff retry
+ * above - the same eligibility gate, the same start_workflow_execution
+ * (trigger_source "retry"), the same dispatchers and therefore the same
+ * outbound gate on every send - only recorded with the service-role
+ * execution functions, since no user session exists in a cron tick.
+ */
+export async function retryWorkflowExecutionAsService(
+  service: SupabaseClient,
+  organizationId: string,
+  executionId: string,
+): Promise<RetryOutcome> {
+  return retryWithOps(service, organizationId, executionId, startWorkflowExecutionAsService, SERVICE_EXECUTION_OPS);
+}
+
+async function retryWithOps(
+  supabase: SupabaseClient,
+  organizationId: string,
+  executionId: string,
+  startExecution: typeof startWorkflowExecution,
+  ops: ExecutionOps,
+): Promise<RetryOutcome> {
   const eligibility = await checkRetryEligibility(supabase, organizationId, executionId);
 
   if (!eligibility.ok) {
@@ -45,7 +71,7 @@ export async function retryWorkflowExecution(
 
   const { execution, event, automationId } = eligibility;
 
-  const startResult = await startWorkflowExecution(
+  const startResult = await startExecution(
     supabase,
     execution.automationEventId,
     execution.workflowName,
@@ -61,10 +87,10 @@ export async function retryWorkflowExecution(
 
   const dispatchResult =
     execution.workflowName === "appointment_reminder"
-      ? await retryAppointmentReminder(supabase, event, newExecution.id)
+      ? await retryAppointmentReminder(supabase, event, newExecution.id, ops)
       : execution.workflowName === "estimate_followup" || execution.workflowName === "estimate_expired_lifecycle"
-        ? await retryEstimateWorkflow(supabase, event, newExecution.id, execution.workflowName)
-        : await redispatchToN8n(supabase, event, newExecution);
+        ? await retryEstimateWorkflow(supabase, event, newExecution.id, execution.workflowName, ops)
+        : await redispatchToN8n(supabase, event, newExecution, ops);
 
   if (!dispatchResult.ok) {
     return {

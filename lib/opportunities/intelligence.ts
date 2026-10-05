@@ -414,7 +414,7 @@ export function getConversationSignals(attentionItems: AttentionItem[]): Priorit
 // simple, always-visible queue, never tiered/scored alongside opportunities.
 // ---------------------------------------------------------------------------
 
-const OPERATIONAL_EXCEPTION_KINDS = new Set<AttentionItem["kind"]>(["human_escalation", "calendar_disconnected"]);
+const OPERATIONAL_EXCEPTION_KINDS = new Set<AttentionItem["kind"]>(["human_escalation", "calendar_disconnected", "automation_needs_attention", "automation_retrying"]);
 
 export type OperationalException = { kind: AttentionItem["kind"]; title: string; detail: string; href: string; incidentId?: string; incidentStatus?: AttentionItem["incidentStatus"] };
 

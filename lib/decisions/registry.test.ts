@@ -29,8 +29,14 @@ const opp = (type: OpportunityType, overrides: Partial<Opportunity> = {}): Oppor
   ...overrides,
 });
 
-test("the 20 approved reason codes, and the exact stored type / kind each one maps from", () => {
-  assert.deepEqual(reasonCodes.REASON_CODE_BY_EXCEPTION_KIND, { human_escalation: "human_escalation", calendar_disconnected: "calendar_sync_failed" });
+test("the 22 approved reason codes, and the exact stored type / kind each one maps from", () => {
+  assert.deepEqual(reasonCodes.REASON_CODE_BY_EXCEPTION_KIND, {
+    human_escalation: "human_escalation",
+    calendar_disconnected: "calendar_sync_failed",
+    // P0 A2
+    automation_needs_attention: "automation_needs_attention",
+    automation_retrying: "automation_retrying",
+  });
   assert.deepEqual(reasonCodes.REASON_CODE_BY_SIGNAL_KIND, {
     awaiting_reply: "customer_awaiting_reply",
     overdue_appointment: "appointment_overdue",
@@ -54,9 +60,9 @@ test("the 20 approved reason codes, and the exact stored type / kind each one ma
     completed_job_no_referral_request: "referral_request_needed",
   });
   const all = [...Object.values(reasonCodes.REASON_CODE_BY_EXCEPTION_KIND), ...Object.values(reasonCodes.REASON_CODE_BY_SIGNAL_KIND), ...Object.values(reasonCodes.REASON_CODE_BY_OPPORTUNITY_TYPE)];
-  assert.equal(all.length, 20);
-  assert.equal(new Set(all).size, 20, "one reason code per source");
-  assert.deepEqual(Object.keys(registry.DECISION_REGISTRY).sort(), [...all].sort(), "the registry covers exactly the 20 codes");
+  assert.equal(all.length, 22);
+  assert.equal(new Set(all).size, 22, "one reason code per source");
+  assert.deepEqual(Object.keys(registry.DECISION_REGISTRY).sort(), [...all].sort(), "the registry covers exactly the 22 codes");
 });
 
 test("opportunity problem labels (Today rows and By type headings) are the pre-2-2 strings, re-exported unchanged", () => {

@@ -104,17 +104,21 @@ export function assembleDecisions(input: { attentionItems: AttentionItem[]; prio
   // Without a resolved context every item is human - the safe default,
   // timed against the real clock.
   const context = input.context ?? { ...ALL_HUMAN_CONTEXT, now: Date.now() };
-  const exceptions: DecisionItem[] = getOperationalExceptions(input.attentionItems).map((exception) => {
+  const operational: DecisionItem[] = getOperationalExceptions(input.attentionItems).map((exception) => {
     const reasonCode = REASON_CODE_BY_EXCEPTION_KIND[exception.kind as OperationalExceptionKind];
     const entry = DECISION_REGISTRY[reasonCode];
+    // P0 A2: an automation Trackpr is still retrying/processing is Trackpr's
+    // work, not the contractor's - it joins "Trackpr is handling", never
+    // Act II.
+    const trackprOwned = exception.kind === "automation_retrying";
     return {
       key: exception.incidentId ?? `${exception.kind}-${exception.href}`,
       reasonCode,
       act: "attention",
       operational: true,
-      actor: "human",
+      actor: trackprOwned ? "trackpr" : "human",
       tier: null,
-      tone: "urgent",
+      tone: trackprOwned ? "soon" : "urgent",
       problemLabel: entry.problemLabel,
       subject: { name: exception.title, href: exception.href },
       explanation: { primaryReason: exception.detail, supportingSignals: [], counterSignals: [], confidence: "confirmed" },
@@ -124,6 +128,7 @@ export function assembleDecisions(input: { attentionItems: AttentionItem[]; prio
       source: { kind: "exception", attentionKind: exception.kind, incidentId: exception.incidentId, incidentStatus: exception.incidentStatus },
     };
   });
+  const exceptions = operational.filter((item) => item.actor === "human");
 
   // Phase 2-12 (§3): a conversation with an open human-escalation incident
   // appears once - as the escalation. Its waiting-for-reply signal is
@@ -145,7 +150,7 @@ export function assembleDecisions(input: { attentionItems: AttentionItem[]; prio
   const attentionQueue = queue.filter((item) => item.act === "attention");
   const notYetAttention = attentionQueue.filter(tooYoung);
   const attention = attentionQueue.filter((item) => item.actor === "human" && !tooYoung(item));
-  const trackprHandling = attentionQueue.filter((item) => item.actor === "trackpr");
+  const trackprHandling = [...operational.filter((item) => item.actor === "trackpr"), ...attentionQueue.filter((item) => item.actor === "trackpr")];
   const opportunities = queue.filter((item) => item.act === "opportunity");
 
   return { exceptions, attention, opportunities, trackprHandling, notYetAttention, totalNeedingAttention: exceptions.length + attention.length };

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
-import { failWorkflowExecution } from "./executions";
+import { SESSION_EXECUTION_OPS, type ExecutionOps } from "./executions";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 import { getContact } from "@/lib/contacts/queries";
 
@@ -60,6 +60,8 @@ export async function redispatchToN8n(
   supabase: SupabaseClient,
   event: RetryEventContext,
   execution: RetryExecutionContext,
+  /** P0 A2: SERVICE_EXECUTION_OPS for the automatic retry; the session pair otherwise. */
+  ops: ExecutionOps = SESSION_EXECUTION_OPS,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const [aiSettings, businessProfile] = await Promise.all([
     getAiSettings(supabase, event.organizationId),
@@ -104,7 +106,7 @@ export async function redispatchToN8n(
 
   const dispatch = await triggerN8nWorkflow(contract);
   if (!dispatch.ok) {
-    await failWorkflowExecution(supabase, execution.id, dispatch.error, "n8n_dispatch_failed");
+    await ops.fail(supabase, execution.id, dispatch.error, "n8n_dispatch_failed");
     return { ok: false, error: dispatch.error };
   }
   return { ok: true };

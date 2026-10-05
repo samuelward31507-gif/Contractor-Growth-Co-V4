@@ -25,6 +25,8 @@ export type RegistryEntry = {
 export const DECISION_REGISTRY: Record<ReasonCode, RegistryEntry> = {
   human_escalation: { problemLabel: "Needs a human", actionLabel: "Review", defaultAction: null },
   calendar_sync_failed: { problemLabel: "Calendar disconnected", actionLabel: "Review", defaultAction: null },
+  automation_needs_attention: { problemLabel: "Automation needs you", actionLabel: "Review", defaultAction: null },
+  automation_retrying: { problemLabel: "Trackpr is retrying", actionLabel: "View", defaultAction: null },
 
   // A conversation waiting on the contractor opens that conversation -
   // labeled for what the page does (it has no compose box).
@@ -163,10 +165,12 @@ export const CONVERSATION_SIGNAL_ACTION: Record<ConversationSignalKind, Recommen
   (Object.keys(REASON_CODE_BY_SIGNAL_KIND) as ConversationSignalKind[]).map((kind) => [kind, DECISION_REGISTRY[REASON_CODE_BY_SIGNAL_KIND[kind]].defaultAction as RecommendedAction]),
 ) as Record<ConversationSignalKind, RecommendedAction>;
 
-/** The problem labels for the 6 AttentionItem kinds Today renders (operational exceptions and conversation signals). */
+/** The problem labels for the AttentionItem kinds Today renders (operational exceptions and conversation signals). */
 export const DECISION_ATTENTION_LABEL: Record<OperationalExceptionKind | ConversationSignalKind, string> = {
   human_escalation: DECISION_REGISTRY[REASON_CODE_BY_EXCEPTION_KIND.human_escalation].problemLabel,
   calendar_disconnected: DECISION_REGISTRY[REASON_CODE_BY_EXCEPTION_KIND.calendar_disconnected].problemLabel,
+  automation_needs_attention: DECISION_REGISTRY[REASON_CODE_BY_EXCEPTION_KIND.automation_needs_attention].problemLabel,
+  automation_retrying: DECISION_REGISTRY[REASON_CODE_BY_EXCEPTION_KIND.automation_retrying].problemLabel,
   awaiting_reply: DECISION_REGISTRY[REASON_CODE_BY_SIGNAL_KIND.awaiting_reply].problemLabel,
   overdue_appointment: DECISION_REGISTRY[REASON_CODE_BY_SIGNAL_KIND.overdue_appointment].problemLabel,
   awaiting_confirmation: DECISION_REGISTRY[REASON_CODE_BY_SIGNAL_KIND.awaiting_confirmation].problemLabel,
