@@ -249,3 +249,20 @@ test("positioning: Cinder's own revenue lifecycle and intake speak to any revenu
   assert.match(form, />\s*Select your industry\s*</);
   assert.doesNotMatch(form, /Trade \/ industry|Select your trade/);
 });
+
+test("product access: existing Trackpr users can sign in from the Cinder nav (desktop and mobile) and the Trackpr section, all via /login", () => {
+  assert.match(read("app/(cinder)/_components/content.ts"), /export const SIGN_IN_HREF = "\/login";/);
+  const nav = read("app/(cinder)/_components/nav.tsx");
+  // Desktop: a "Sign in" link beside the marketing actions.
+  assert.match(nav, /<Link href=\{SIGN_IN_HREF\}[^>]*>\s*<LogIn[^>]*\/>\s*Sign in\s*<\/Link>/);
+  // Mobile sheet: closes the menu as it navigates.
+  assert.match(nav, /href=\{SIGN_IN_HREF\}\s*onClick=\{\(\) => setOpen\(false\)\}[\s\S]*?Sign in to Trackpr/);
+  // Trackpr section on the home page, alongside the unchanged marketing CTAs.
+  const sections = read("app/(cinder)/_components/sections.tsx");
+  const trackpr = sections.slice(sections.indexOf("export function Trackpr("), sections.indexOf("export function WhyCinder"));
+  assert.match(trackpr, /<Link href=\{SIGN_IN_HREF\}[\s\S]*?Sign in to Trackpr\s*<\/Link>/);
+  assert.match(trackpr, /Explore Trackpr[\s\S]*Try the interactive demo/);
+  assert.match(nav, /See Trackpr[\s\S]*Talk to Cinder/);
+  // No separate product login route on the marketing site.
+  assert.ok(!exists("app/(cinder)/trackpr/login"));
+});

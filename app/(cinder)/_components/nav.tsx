@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, LogIn } from "lucide-react";
 import { CinderLogo } from "./logo";
 import { Button } from "./ui";
-import { NAV_LINKS, TRACKPR_HREF } from "./content";
+import { NAV_LINKS, SIGN_IN_HREF, TRACKPR_HREF } from "./content";
 
 const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent";
 
 /**
  * The Cinder site navigation: logo left, the four section links centred,
- * "See Trackpr" and the primary "Talk to Cinder" right. The bar sits on the
+ * "See Trackpr" and the primary "Talk to Cinder" right, with "Sign in" -
+ * product access to the Trackpr application at /login - set apart from the
+ * marketing actions by a hairline and a log-in glyph. The bar sits on the
  * canvas with no border until the page scrolls.
  *
  * Below lg the links fold into a full-height sheet - large type, the CTAs
@@ -67,7 +69,8 @@ export function CinderNav({ talkHref }: { talkHref: string }) {
           <CinderLogo className="h-[24px] w-auto lg:h-[26px]" title="Cinder" />
         </Link>
 
-        <nav aria-label="Primary" className="absolute left-1/2 hidden -translate-x-1/2 lg:block">
+        {/* Centred from xl; between lg and xl it sits in the flow so it never meets the actions on the right. */}
+        <nav aria-label="Primary" className="hidden lg:block xl:absolute xl:left-1/2 xl:-translate-x-1/2">
           <ul className="flex items-center gap-0.5">
             {NAV_LINKS.map((link) => (
               <li key={link.href}>
@@ -82,6 +85,11 @@ export function CinderNav({ talkHref }: { talkHref: string }) {
         <div className="hidden items-center gap-1 lg:flex">
           <Link href={TRACKPR_HREF} className={`group inline-flex items-center gap-1 rounded-full px-4 py-2 text-[14px] font-medium text-cinder-ink-2 transition-colors duration-200 hover:text-cinder-ink ${FOCUS}`}>
             See Trackpr
+          </Link>
+          <span aria-hidden className="mx-1 h-5 w-px bg-cinder-line-strong" />
+          <Link href={SIGN_IN_HREF} className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[14px] font-medium text-cinder-ink transition-colors duration-200 hover:bg-cinder-ink/[0.045] ${FOCUS}`}>
+            <LogIn className="h-4 w-4 text-cinder-ink-3" strokeWidth={1.75} aria-hidden />
+            Sign in
           </Link>
           <Button href={talkHref} arrow>
             Talk to Cinder
@@ -120,6 +128,17 @@ export function CinderNav({ talkHref }: { talkHref: string }) {
               </li>
             ))}
           </ul>
+          <Link
+            href={SIGN_IN_HREF}
+            onClick={() => setOpen(false)}
+            className={`mt-8 flex min-h-12 items-center justify-between gap-4 rounded-xl px-4 text-[15px] font-medium text-cinder-ink inset-ring inset-ring-cinder-line-strong transition-colors hover:bg-cinder-ink/[0.03] ${FOCUS}`}
+          >
+            <span className="flex items-center gap-3 whitespace-nowrap">
+              <LogIn className="h-[18px] w-[18px] text-cinder-ink-3" strokeWidth={1.75} aria-hidden />
+              Sign in to Trackpr
+            </span>
+            <span className="hidden whitespace-nowrap font-mono text-[10.5px] uppercase tracking-[0.12em] text-cinder-ink-3 min-[360px]:inline">Existing users</span>
+          </Link>
           <div className="mt-auto grid gap-3 pt-10">
             <Button href={talkHref} arrow size="lg">
               Talk to Cinder
