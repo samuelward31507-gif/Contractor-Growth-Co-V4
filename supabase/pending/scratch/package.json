@@ -7,7 +7,8 @@
     "validate": "node validate.mjs",
     "validate:idempotency": "node validate-payment-idempotency.mjs",
     "validate:online-payments": "node validate-online-payments.mjs",
-    "validate:opportunity-sync-state": "node validate-opportunity-sync-state.mjs"
+    "validate:opportunity-sync-state": "node validate-opportunity-sync-state.mjs",
+    "validate:agent-runs": "node validate-agent-runs.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8"

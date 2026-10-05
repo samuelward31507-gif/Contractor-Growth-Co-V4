@@ -388,3 +388,26 @@ To apply to production (only on explicit authorization):
 Rollback: `dashboard_conversation_attention_successful_reply_rollback.sql` restores the previous definition exactly (read back `c36968b1a75e06f99fd7ad3a8f3c295e`). The application code works with either definition.
 
 Applied to production on 2026-10-04 via the MCP `apply_migration` mechanism with the name `dashboard_conversation_attention_successful_reply` (the function body, without the file's explicit `begin;`/`commit;`, which the mechanism supplies). Before: md5 `c36968b1a75e06f99fd7ad3a8f3c295e` (the rollback baseline), ledger count 62. After: md5 `549cc031de2d92117d367ad7c3147c2b`, ledger version `20261004110145` (count 63); one function, STABLE, `authenticated` keeps EXECUTE, `anon` none. Read-only consistency check on the live organization: every awaiting item satisfies the canonical rule (newest inbound-or-successful-outbound message is inbound), no "went quiet" item is canonically waiting; Today shows 5 (the cap) of 13 canonically waiting conversations. The file now lives at `supabase/migrations/20261004110145_dashboard_conversation_attention_successful_reply.sql`, unmodified (its header still reads "STATUS: PENDING" because the text is kept byte-identical to what was reviewed); the rollback file stays here.
+
+## agent_runs.sql (pending)
+
+Agent Operating Layer, Phase 1 (`docs/agent-operating-layer.md`). This migration is additive only and touches no existing object. It creates:
+
+- `public.agent_runs`
+- two indexes
+- a SELECT policy and an INSERT policy, both requiring `is_agency_admin() and is_org_member(organization_id)`. The insert policy also requires `created_by = auth.uid()`.
+- grants: `select, insert` to authenticated, nothing to anon, all to service_role
+
+There is no UPDATE or DELETE path for authenticated users, so the table is append-only. The application writes to it only when `TRACKPR_AGENT_RUN_PERSISTENCE=on`. Until then the code runs identically whether or not the table exists.
+
+- `agent_runs_rollback.sql` drops the policies and the table. The table holds only derived run history, so nothing is lost.
+- `scratch/validate-agent-runs.mjs` applies the migration to PGlite and proves the following: admin-member read and insert work; plain members, other organizations, anon and a spoofed `created_by` are refused; there are no update or delete paths; the CHECK constraints hold; the script is rerun-safe; the rollback works and the migration re-applies cleanly. Run it with `cd supabase/pending/scratch && npm install && npm run validate:agent-runs` (38 checks).
+
+### Apply procedure (a person does this, not tooling)
+
+1. Confirm the table doesn't exist yet: `select to_regclass('public.agent_runs')` should return null.
+2. Apply `agent_runs.sql` as one transaction.
+3. Read back the ledger version.
+4. Verify read-only: two policies, RLS enabled, no anon privileges.
+5. `git mv` the file into `supabase/migrations/<version>_agent_runs.sql`.
+6. Only then set `TRACKPR_AGENT_RUN_PERSISTENCE=on` where run history is wanted.

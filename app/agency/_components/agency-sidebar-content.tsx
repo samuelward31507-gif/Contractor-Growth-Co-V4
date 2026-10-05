@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, LayoutDashboard, TrendingUp, Activity, DollarSign, Receipt, LogOut } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, TrendingUp, Activity, DollarSign, Receipt, Radar, LogOut } from "lucide-react";
 import { logout } from "@/app/(app)/actions";
 import { BrandMark } from "@/app/(app)/_components/sidebar-content";
 
@@ -21,6 +21,10 @@ const NAV_ITEMS = [
   { href: "/agency/usage", label: "Usage", icon: Activity },
   { href: "/agency/revenue", label: "Revenue", icon: DollarSign },
   { href: "/agency/costs", label: "Costs", icon: Receipt },
+  // Agent Operating Layer, Phase 1: the internal Chief of Staff console. It
+  // renders in the client shell for the operator's own workspace, and the
+  // page itself checks agency-admin status server-side.
+  { href: "/insights/intelligence", label: "Intelligence", icon: Radar },
 ] as const;
 
 const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
