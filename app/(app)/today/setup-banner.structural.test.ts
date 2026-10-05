@@ -25,7 +25,9 @@ test("Today: a workspace that isn't live shows the setup banner - owners/admins 
 
 test("set-password page: neutral copy for a first-time invite and a reset alike", () => {
   const form = read("app/auth/reset-password/reset-password-form.tsx");
-  assert.match(form, />Set your password\.<\/h1>/);
+  // The sign-in redesign renders every auth heading through AuthHeader, whose title is the page's h1.
+  assert.match(form, /<AuthHeader title="Set your password\."/);
+  assert.match(read("app/(auth)/_components/auth-ui.tsx"), /<h1 [^>]*>\{title\}<\/h1>/);
   assert.doesNotMatch(form, /Set a new password/);
 });
 

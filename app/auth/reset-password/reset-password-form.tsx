@@ -1,81 +1,40 @@
 "use client";
 
 import { useActionState } from "react";
-import { authButtonClass, authErrorBannerClass, authInputClass, authLabelClass } from "@/lib/ui/auth-form";
+import { AuthError, AuthHeader, AuthSubmit, authLabelClass } from "@/app/(auth)/_components/auth-ui";
+import { PasswordInput } from "@/app/(auth)/_components/password-input";
 import { resetPassword, type ResetPasswordState } from "./actions";
 
 const initialState: ResetPasswordState = {};
+const ERROR_ID = "reset-password-error";
 
 export function ResetPasswordForm() {
   const [state, formAction, isPending] = useActionState(resetPassword, initialState);
+  const describedBy = state.error ? ERROR_ID : undefined;
 
   return (
-    <form action={formAction} className="space-y-7" noValidate>
-      <div className="space-y-1.5">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Set your password.</h1>
-        <p className="text-sm text-slate-500">Choose a password for your account.</p>
-      </div>
+    <form action={formAction} className="space-y-8" noValidate>
+      <AuthHeader title="Set your password." subtitle="Choose a password for your account." />
 
-      {state.error ? (
-        <p className={authErrorBannerClass} role="alert">
-          <svg aria-hidden viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0">
-            <path
-              fillRule="evenodd"
-              d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.63-1.516 2.63H3.72c-1.347 0-2.189-1.463-1.515-2.63L8.485 2.495ZM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
-              clipRule="evenodd"
-            />
-          </svg>
-          <span>{state.error}</span>
-        </p>
-      ) : null}
+      {state.error ? <AuthError id={ERROR_ID}>{state.error}</AuthError> : null}
 
-      <div className="space-y-4">
-        <div className="space-y-1.5">
+      <div className="space-y-5">
+        <div className="space-y-2">
           <label htmlFor="password" className={authLabelClass}>
             New password
           </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={8}
-            className={authInputClass}
-            placeholder="At least 8 characters"
-          />
+          <PasswordInput id="password" name="password" autoComplete="new-password" minLength={8} placeholder="At least 8 characters" describedBy={describedBy} />
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <label htmlFor="confirmPassword" className={authLabelClass}>
             Confirm new password
           </label>
-          <input
-            id="confirmPassword"
-            name="confirmPassword"
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={8}
-            className={authInputClass}
-            placeholder="Re-enter your new password"
-          />
+          <PasswordInput id="confirmPassword" name="confirmPassword" autoComplete="new-password" minLength={8} placeholder="Re-enter your new password" describedBy={describedBy} />
         </div>
       </div>
 
-      <button type="submit" disabled={isPending} className={authButtonClass}>
-        {isPending ? (
-          <>
-            <svg aria-hidden className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4Z" />
-            </svg>
-            <span className="ml-2">Updating…</span>
-          </>
-        ) : (
-          "Update password"
-        )}
-      </button>
+      <AuthSubmit pending={isPending} idleLabel="Update password" pendingLabel="Updating…" />
     </form>
   );
 }
