@@ -37,11 +37,13 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-const LAYER_FILES = [...sourceFiles("lib/agents"), ...sourceFiles("app/(app)/insights/intelligence")];
+const CONSOLE_DIR = "app/(agency-console)";
+const PAGE = `${CONSOLE_DIR}/insights/intelligence/page.tsx`;
+const LAYER_FILES = [...sourceFiles("lib/agents"), ...sourceFiles(CONSOLE_DIR)];
 const importsOf = (source: string) => [...source.matchAll(/^\s*import\s+(type\s+)?[^;]*?from\s+"([^"]+)";/gm)].map((m) => ({ typeOnly: Boolean(m[1]), specifier: m[2] }));
 
 test("the layer has the files this test is guarding", () => {
-  for (const f of ["lib/agents/runtime.ts", "lib/agents/load.ts", "lib/agents/persistence.ts", "lib/agents/agents/chief-of-staff.ts", "app/(app)/insights/intelligence/page.tsx"]) assert.ok(LAYER_FILES.includes(f), f);
+  for (const f of ["lib/agents/runtime.ts", "lib/agents/load.ts", "lib/agents/persistence.ts", "lib/agents/agents/chief-of-staff.ts", "lib/agents/access.ts", PAGE, `${CONSOLE_DIR}/layout.tsx`]) assert.ok(LAYER_FILES.includes(f), f);
 });
 
 test("no agent-layer file can send a message, call an integration or use the service role", () => {
@@ -89,15 +91,25 @@ test("the loader reads only existing read functions, through the caller's client
   assert.match(read("lib/agents/load.ts"), /prospecting: \{ ok: true, data: \[\] \}/);
 });
 
-test("the console is agency-admin only and scoped to the verified membership's organization", () => {
-  const page = read("app/(app)/insights/intelligence/page.tsx");
-  const gate = page.indexOf("isAgencyAdmin(supabase)");
+test("the Command Center is agency-admin only, decided before any agent data is loaded, and scoped to the verified membership", () => {
+  const page = read(PAGE);
+  const gate = page.indexOf("resolveCommandCenterAccess(");
+  const denied = page.indexOf('access.kind === "denied"');
   const loadCall = page.indexOf("loadSpecialistInputs(");
-  assert.ok(gate > 0 && loadCall > gate, "the admin check runs before any agent data is loaded");
-  assert.match(page, /notFound\(\)/);
+  assert.ok(gate > 0 && denied > gate && loadCall > denied, "access is resolved and a denial returns before any agent data is loaded");
+  assert.match(page, /isAgencyAdmin: \(\) => isAgencyAdmin\(supabase\)/, "the existing is_agency_admin() check, not a new permission system");
+  assert.match(page, /if \(access\.kind === "denied"\) \{\s*return \([\s\S]*?<UnauthorizedState \/>[\s\S]*?\);\s*\}/, "contractors get the Agency surfaces' own denial");
   assert.match(page, /loadSpecialistInputs\(supabase, membership\.organizationId/);
-  assert.doesNotMatch(page, /searchParams|params\b/, "no organization id or option is taken from the URL");
+  // The only URL input is the drill-down, validated against the registry; no organization id or other option.
+  assert.deepEqual([...page.matchAll(/\(await searchParams\)\.(\w+)/g)].map((m) => m[1]), ["agent"]);
+  assert.match(page, /parseAgentView\(\(await searchParams\)\.agent\)/);
+  assert.doesNotMatch(page, /\bparams\b(?!\))/, "no dynamic route params");
   assert.match(page, /if \(agentRunPersistenceEnabled\(\)\)/);
+});
+
+test("the Command Center renders in the Agency shell, never the contractor shell", () => {
+  assert.equal(read(`${CONSOLE_DIR}/layout.tsx`).replace(/\/\*[\s\S]*?\*\//g, "").trim(), 'export { default } from "../agency/layout";');
+  assert.equal(fs.existsSync(path.join(ROOT, "app/(app)/insights/intelligence")), false, "no copy left under the contractor (app) shell");
 });
 
 test("the agent_runs migration has one copy and is additive, append-only and agency-admin scoped", () => {

@@ -34,10 +34,17 @@ test("the brief's example: callback failures first, then the 12 stale leads", as
   assert.match(briefing.recommendation, /I recommend you investigate the n8n callback failures first, then work the missed follow-ups\./);
   assert.match(briefing.recommendation, /wait for your approval; nothing runs on its own\./);
 
-  assert.deepEqual(briefing.needsAttention.map((i) => i.agent), ["qa_health", "sales"]);
+  assert.deepEqual(briefing.needsAttention.map((i) => i.title), ["12 missed follow-ups"], "system and revenue items live in their own sections");
   assert.equal(briefing.systemPriority?.agent, "qa_health");
   assert.equal(briefing.salesPriority?.title, "12 missed follow-ups");
-  assert.equal(briefing.market[0].basis, "inference", "the market note is an inference, and says so");
+  // Market notes stay in the Market drill-down; the default view is the business and the system.
+  assert.equal([...briefing.whatMattersNow, ...briefing.needsAttention, ...briefing.revenue, ...briefing.systemHealth].some((i) => i.agent === "market_intelligence"), false);
+  assert.deepEqual(briefing.whatMattersNow.map((i) => i.title), ["2 active n8n callback failures", "12 missed follow-ups", "Highest-value open item: Lead 4"]);
+  assert.deepEqual(briefing.revenue.map((i) => i.title), ["Highest-value open item: Lead 4"]);
+  // Evidence and links travel with every item.
+  const missed = briefing.needsAttention.find((i) => i.title === "12 missed follow-ups");
+  assert.equal(missed?.evidence[0].label, "Lead 1");
+  assert.equal(missed?.href, "/today");
   assert.ok(briefing.systemHealth.some((i) => i.agent === "engineering" && i.basis === "inference"));
 
   // Approvals: the retry and the engineering fix - never in next actions.
@@ -59,7 +66,7 @@ test("no invented information: every briefing item and action traces back to a s
   const { briefing, results } = await run(fx.exampleInputs());
   const findingKeys = new Set(results.flatMap((r) => r.findings.map((x) => `${r.agent}:${x.id}`)));
   const actionKeys = new Set(results.flatMap((r) => r.recommendations.map((x) => `${r.agent}:${x.id}`)));
-  for (const item of [...briefing.needsAttention, ...briefing.opportunities, ...briefing.systemHealth, ...briefing.sales, ...briefing.market]) assert.ok(findingKeys.has(item.key), item.key);
+  for (const item of [...briefing.whatMattersNow, ...briefing.needsAttention, ...briefing.trackprHandling, ...briefing.revenue, ...briefing.systemHealth, ...briefing.opportunities]) assert.ok(findingKeys.has(item.key), item.key);
   for (const action of [...briefing.nextActions, ...briefing.approvals]) assert.ok(actionKeys.has(action.key), action.key);
 });
 
@@ -68,6 +75,9 @@ test("quiet business: nothing needs you, sections are empty or status-only", asy
   assert.equal(briefing.recommendation, "Nothing needs you right now. No risks or opportunities stand out in what the agents could read.");
   assert.equal(briefing.needsAttention.length, 0);
   assert.equal(briefing.opportunities.length, 0);
+  assert.equal(briefing.whatMattersNow.length, 0);
+  assert.equal(briefing.trackprHandling.length, 0);
+  assert.equal(briefing.revenue.length, 0);
   assert.equal(briefing.mostImportant, null);
   assert.deepEqual(briefing.systemHealth.map((i) => i.title), ["Automation is running normally"]);
   assert.deepEqual(
@@ -81,7 +91,7 @@ test("a failed agent is reported in system health, never silently dropped; other
   inputs.sales = { ok: false, reason: "decision data unavailable" };
   const { briefing } = await run(inputs);
   assert.equal(briefing.agents.find((a) => a.agent === "sales")?.status, "failed");
-  assert.ok([...briefing.needsAttention, ...briefing.systemHealth].some((i) => i.key === "sales:failed"));
+  assert.ok(briefing.systemHealth.some((i) => i.key === "sales:failed"));
   assert.equal(briefing.mostImportant?.agent, "qa_health");
 });
 
@@ -97,7 +107,7 @@ test("malformed agent results are set aside unread and counted", () => {
   assert.equal(accepted.length, 1);
   assert.equal(rejected, 4);
   const briefing = buildBriefing([good, { totally: "wrong" }], context);
-  assert.ok(briefing.needsAttention.some((i) => i.key === "chief_of_staff:rejected"));
+  assert.ok(briefing.systemHealth.some((i) => i.key === "chief_of_staff:rejected"));
   assert.ok(briefing.needsAttention.some((i) => i.title === "Real finding"));
 });
 
@@ -110,9 +120,10 @@ test("priority ordering: severity first, then system before sales, then facts be
     ],
     context,
   );
-  assert.deepEqual(briefing.needsAttention.map((i) => i.title), ["Sales critical", "QA high", "Sales high"]);
+  assert.deepEqual(briefing.whatMattersNow.map((i) => i.title), ["Sales critical", "QA high", "Sales high"]);
+  assert.deepEqual(briefing.revenue.map((i) => i.title), ["Intel high", "Intel high inference"]);
   const all = buildBriefing([fx.validResult({ agent: "trackpr_intelligence", findings: [f({ id: "a", severity: "high", basis: "inference", title: "Inference" }), f({ id: "b", severity: "high", title: "Fact" })] })], context);
-  assert.deepEqual(all.needsAttention.map((i) => i.title), ["Fact", "Inference"]);
+  assert.deepEqual(all.revenue.map((i) => i.title), ["Fact", "Inference"]);
 });
 
 test("confidence handling: a low-confidence item ranks one level below its label", () => {
@@ -123,6 +134,7 @@ test("confidence handling: a low-confidence item ranks one level below its label
     context,
   );
   assert.equal(briefing.mostImportant?.title, "Solid high");
+  assert.deepEqual(briefing.systemHealth.map((i) => i.title), ["Solid high", "Shaky high"]);
   // A low-confidence medium drops below the needs-attention bar entirely.
   const weak = buildBriefing([fx.validResult({ findings: [f({ id: "w", severity: "medium", confidence: "low" })] })], context);
   assert.equal(weak.needsAttention.length, 0);
@@ -143,5 +155,38 @@ test("section limits hold", async () => {
     },
   };
   const { briefing } = await run(inputs);
-  assert.ok(briefing.needsAttention.length <= 3 && briefing.sales.length <= 3 && briefing.systemHealth.length <= 2 && briefing.market.length <= 2 && briefing.nextActions.length <= 3);
+  assert.ok(briefing.whatMattersNow.length <= 3 && briefing.needsAttention.length <= 6 && briefing.revenue.length <= 4 && briefing.trackprHandling.length <= 5 && briefing.systemHealth.length <= 3 && briefing.nextActions.length <= 4);
+});
+
+test("Trackpr is handling: handled items are their own section, never counted as needing attention", async () => {
+  const inputs = fx.quietInputs();
+  inputs.sales = { ok: true, data: { ...fx.emptySalesInput(), trackprHandling: [fx.salesItem({ key: "h1", actor: "trackpr", name: "Kim Ray", reasonCode: "estimate_awaiting_decision" }), fx.salesItem({ key: "h2", actor: "trackpr", name: "Lee Fox", reasonCode: "customer_awaiting_reply" })] } };
+  const { briefing } = await run(inputs);
+  assert.deepEqual(briefing.trackprHandling.map((i) => i.title), ["Trackpr is handling 2 items"]);
+  assert.deepEqual(briefing.trackprHandling[0].evidence.map((e) => e.label), ["Kim Ray", "Lee Fox"]);
+  assert.equal(briefing.needsAttention.length, 0);
+  assert.equal(briefing.whatMattersNow.length, 0);
+  assert.match(briefing.recommendation, /^Nothing needs you right now/);
+});
+
+test("Revenue: Trackpr Intelligence leaks and Sales money items, ranked", async () => {
+  const inputs = fx.quietInputs();
+  const intel = fx.emptyTrackprInput();
+  intel.invoices = { overdueValue: 1200, overdueCount: 2, outstandingValue: 3000 };
+  intel.estimates = { openValue: 4000, expiredValue: 0, recoverableValue: 4000 };
+  inputs.trackpr_intelligence = { ok: true, data: intel };
+  inputs.sales = { ok: true, data: { ...fx.emptySalesInput(), attention: [fx.salesItem({ key: "x", reasonCode: "invoice_overdue", tier: "committed_revenue_at_risk", value: 800 }), fx.salesItem({ key: "y", reasonCode: "lead_not_contacted" })] } };
+  const { briefing } = await run(inputs);
+  assert.deepEqual(briefing.revenue.map((i) => `${i.agent}:${i.category}`), ["sales:committed_revenue_at_risk", "trackpr_intelligence:collections", "sales:high_value", "trackpr_intelligence:estimates"]);
+  assert.equal(briefing.revenue.some((i) => i.category === "leads_to_pursue"), false, "responsiveness items are not revenue");
+});
+
+test("below the top priorities, each item appears in exactly one section", async () => {
+  const inputs = fx.exampleInputs();
+  const intel = fx.emptyTrackprInput();
+  intel.invoices = { overdueValue: 1200, overdueCount: 2, outstandingValue: 3000 };
+  inputs.trackpr_intelligence = { ok: true, data: intel };
+  const { briefing } = await run(inputs);
+  const keys = [...briefing.needsAttention, ...briefing.trackprHandling, ...briefing.revenue, ...briefing.systemHealth].map((i) => i.key);
+  assert.equal(new Set(keys).size, keys.length, keys.join(", "));
 });

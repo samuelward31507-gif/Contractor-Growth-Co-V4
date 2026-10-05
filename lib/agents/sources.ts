@@ -34,7 +34,7 @@ export function projectSalesInput(decisions: AssembledDecisions, prioritized: Pr
     exceptions: decisions.exceptions.map((item) => toSalesItem(item, values)),
     attention: decisions.attention.map((item) => toSalesItem(item, values)),
     opportunities: decisions.opportunities.map((item) => toSalesItem(item, values)),
-    trackprHandlingCount: decisions.trackprHandling.length,
+    trackprHandling: decisions.trackprHandling.map((item) => toSalesItem(item, values)),
   };
 }
 

@@ -36,8 +36,12 @@ export type Confidence = z.infer<typeof ConfidenceSchema>;
 export const FindingBasisSchema = z.enum(["fact", "inference"]);
 export type FindingBasis = z.infer<typeof FindingBasisSchema>;
 
-/** Whether a finding is a problem, an upside, or a plain status line. Decides which briefing section it can appear in. */
-export const FindingKindSchema = z.enum(["risk", "opportunity", "status"]);
+/**
+ * Whether a finding is a problem, an upside, a plain status line, or work
+ * Trackpr's own automation is already handling (no operator action yet).
+ * Decides which briefing section it can appear in.
+ */
+export const FindingKindSchema = z.enum(["risk", "opportunity", "status", "handled"]);
 export type FindingKind = z.infer<typeof FindingKindSchema>;
 
 /**

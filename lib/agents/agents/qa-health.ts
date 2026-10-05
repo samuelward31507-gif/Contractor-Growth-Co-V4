@@ -61,6 +61,13 @@ export const INCIDENT_NOUN: Record<IncidentCategory, [one: string, many: string]
   online_payment_reconciliation: ["payment to reconcile", "payments to reconcile"],
 };
 
+/** "Oct 5, 13:30 UTC" - stated in UTC so the operator never has to guess the zone. */
+function formatSeenAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }).format(date)} UTC`;
+}
+
 const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];
 
 export function analyzeQaHealth(input: QaHealthInput): AgentOutput {
@@ -123,7 +130,7 @@ export function analyzeQaHealth(input: QaHealthInput): AgentOutput {
       detail: `${INCIDENT_SENTENCE[category]} ${formatCount(occurrences)} ${plural(occurrences, "occurrence", "occurrences")} in total.`,
       evidence: [
         ...incidents.slice(0, 3).map((i) => ({ label: i.status === "acknowledged" ? "Acknowledged" : "Open", value: i.title.slice(0, 300) || category })),
-        ...(latest ? [{ label: "Last seen", value: latest }] : []),
+        ...(latest ? [{ label: "Last seen", value: formatSeenAt(latest) }] : []),
       ],
       href: "/automation-health",
       sources: [],

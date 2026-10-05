@@ -9,6 +9,8 @@ import {
   type AgentRunStatus,
   type AutonomyLevel,
   type Confidence,
+  type Evidence,
+  type SourceRef,
   type FindingBasis,
   type FindingKind,
   type Severity,
@@ -38,11 +40,17 @@ export type BriefingItem = {
   agent: AgentId;
   agentName: string;
   kind: FindingKind;
+  /** The specialist's own topic, e.g. "missed_follow_up", "n8n_callback_failed". */
+  category: string;
   basis: FindingBasis;
   severity: Severity;
   confidence: Confidence;
   title: string;
   detail: string;
+  /** The specialist's own evidence and sources, carried through unchanged. */
+  evidence: Evidence[];
+  sources: SourceRef[];
+  /** The Trackpr screen the finding is about. */
   href?: string;
 };
 
@@ -73,11 +81,18 @@ export type ChiefOfStaffBriefing = {
   biggestOpportunity: BriefingItem | null;
   salesPriority: BriefingItem | null;
   systemPriority: BriefingItem | null;
+  /** WHAT MATTERS NOW - the few most important issues and opportunities, across every agent. */
+  whatMattersNow: BriefingItem[];
+  /** NEEDS YOUR ATTENTION - risks that need an operator decision or action, other than the system and revenue items their own sections hold. */
   needsAttention: BriefingItem[];
-  opportunities: BriefingItem[];
+  /** TRACKPR IS HANDLING - work the automation already has in hand. */
+  trackprHandling: BriefingItem[];
+  /** REVENUE - pipeline leakage and revenue opportunities. */
+  revenue: BriefingItem[];
+  /** SYSTEM HEALTH - automation and system problems, then system status. */
   systemHealth: BriefingItem[];
-  sales: BriefingItem[];
-  market: BriefingItem[];
+  /** All opportunities, ranked (the source of biggestOpportunity). */
+  opportunities: BriefingItem[];
   /** Recommended next actions a person can take now through existing screens. */
   nextActions: BriefingAction[];
   /** Proposed actions that must not happen without an explicit yes. Nothing here is executed. */
@@ -85,7 +100,10 @@ export type ChiefOfStaffBriefing = {
   agents: AgentStatusLine[];
 };
 
-export const SECTION_LIMITS = { needsAttention: 3, opportunities: 3, systemHealth: 2, sales: 3, market: 2, nextActions: 3, approvals: 5 } as const;
+export const SECTION_LIMITS = { whatMattersNow: 3, needsAttention: 6, trackprHandling: 5, revenue: 4, systemHealth: 3, opportunities: 5, nextActions: 4, approvals: 5 } as const;
+
+/** Sales categories that are about money rather than responsiveness - they belong in Revenue too. */
+const SALES_REVENUE_CATEGORIES: ReadonlySet<string> = new Set(["committed_revenue_at_risk", "estimates_at_risk", "high_value", "growth"]);
 
 const DOMAIN_ORDER: AgentId[] = ["qa_health", "engineering", "sales", "trackpr_intelligence", "prospecting", "market_intelligence", "chief_of_staff"];
 const DOMAIN_PHRASE: Partial<Record<AgentId, string>> = { qa_health: "system reliability", engineering: "system reliability", sales: "sales follow-through", trackpr_intelligence: "revenue leakage" };
@@ -147,11 +165,11 @@ export function buildBriefing(results: unknown[], context: { traceId: string; no
     const agentName = AGENT_REGISTRY[result.agent].name;
     if (result.status === "failed") {
       // A failed agent is itself a system-health fact - never a silent gap.
-      items.push({ key: `${result.agent}:failed`, agent: result.agent, agentName, kind: "risk", basis: "fact", severity: "medium", confidence: "high", title: `${agentName} agent could not run`, detail: `${result.error ?? "Unknown error"}. Its area is not covered in this briefing.`, order: order++ });
+      items.push({ key: `${result.agent}:failed`, agent: result.agent, agentName, kind: "risk", category: "agent_failed", basis: "fact", severity: "medium", confidence: "high", title: `${agentName} agent could not run`, detail: `${result.error ?? "Unknown error"}. Its area is not covered in this briefing.`, evidence: [], sources: [], order: order++ });
       continue;
     }
     for (const finding of result.findings) {
-      items.push({ key: `${result.agent}:${finding.id}`, agent: result.agent, agentName, kind: finding.kind, basis: finding.basis, severity: finding.severity, confidence: finding.confidence, title: finding.title, detail: finding.detail, href: finding.href, order: order++ });
+      items.push({ key: `${result.agent}:${finding.id}`, agent: result.agent, agentName, kind: finding.kind, category: finding.category, basis: finding.basis, severity: finding.severity, confidence: finding.confidence, title: finding.title, detail: finding.detail, evidence: finding.evidence, sources: finding.sources, href: finding.href, order: order++ });
     }
     for (const recommendation of result.recommendations) {
       actions.push({
@@ -173,7 +191,7 @@ export function buildBriefing(results: unknown[], context: { traceId: string; no
     }
   }
   if (rejected > 0) {
-    items.push({ key: "chief_of_staff:rejected", agent: "chief_of_staff", agentName: AGENT_REGISTRY.chief_of_staff.name, kind: "risk", basis: "fact", severity: "medium", confidence: "high", title: `${formatCount(rejected)} agent ${plural(rejected, "result", "results")} failed validation`, detail: "Set aside unread. The briefing covers only results that matched the agent contract.", order: order++ });
+    items.push({ key: "chief_of_staff:rejected", agent: "chief_of_staff", agentName: AGENT_REGISTRY.chief_of_staff.name, kind: "risk", category: "invalid_result", basis: "fact", severity: "medium", confidence: "high", title: `${formatCount(rejected)} agent ${plural(rejected, "result", "results")} failed validation`, detail: "Set aside unread. The briefing covers only results that matched the agent contract.", evidence: [], sources: [], order: order++ });
   }
 
   items.sort(compareItems);
@@ -182,17 +200,24 @@ export function buildBriefing(results: unknown[], context: { traceId: string; no
   const top = (filter: (item: BriefingItem) => boolean, limit: number) => items.filter(filter).slice(0, limit).map(strip<BriefingItem>);
   const isSystem = (item: BriefingItem) => SYSTEM_AGENTS.has(item.agent) || item.key.endsWith(":failed") || item.agent === "chief_of_staff";
 
-  const needsAttention = top((item) => item.kind === "risk" && item.agent !== "engineering" && effectiveSeverityRank(item.severity, item.confidence) >= severityRank("medium"), SECTION_LIMITS.needsAttention);
+  const atLeastMedium = (item: BriefingItem) => effectiveSeverityRank(item.severity, item.confidence) >= severityRank("medium");
+  const isSystemItem = (item: BriefingItem) => isSystem(item);
+  const isRevenue = (item: BriefingItem) => item.kind !== "handled" && (item.agent === "trackpr_intelligence" || (item.agent === "sales" && SALES_REVENUE_CATEGORIES.has(item.category)));
+
+  // Engineering's diagnoses are hypotheses about System health items, so they explain those rather than headline on their own.
+  const whatMattersNow = top((item) => (item.kind === "risk" || item.kind === "opportunity") && item.agent !== "engineering" && atLeastMedium(item), SECTION_LIMITS.whatMattersNow);
+  // Below the top priorities each item lives in exactly one section: System health owns system items, Revenue owns money items, and Needs your attention holds the rest of the operator's decisions.
+  const needsAttention = top((item) => item.kind === "risk" && !isSystemItem(item) && !isRevenue(item) && atLeastMedium(item), SECTION_LIMITS.needsAttention);
+  const trackprHandling = top((item) => item.kind === "handled", SECTION_LIMITS.trackprHandling);
+  const revenue = top(isRevenue, SECTION_LIMITS.revenue);
   const opportunities = top((item) => item.kind === "opportunity", SECTION_LIMITS.opportunities);
-  const systemRisks = items.filter((item) => isSystem(item) && item.kind === "risk");
-  const systemHealth = (systemRisks.length > 0 ? systemRisks : items.filter((item) => item.agent === "qa_health")).slice(0, SECTION_LIMITS.systemHealth).map(strip<BriefingItem>);
-  const salesItems = items.filter((item) => item.agent === "sales");
-  const sales = [...salesItems.filter((i) => i.kind !== "status"), ...salesItems.filter((i) => i.kind === "status")].slice(0, SECTION_LIMITS.sales).map(strip<BriefingItem>);
-  const market = top((item) => item.agent === "market_intelligence", SECTION_LIMITS.market);
+  const systemRisks = items.filter((item) => isSystemItem(item) && item.kind === "risk");
+  const systemStatus = items.filter((item) => SYSTEM_AGENTS.has(item.agent) && item.kind === "status");
+  const systemHealth = [...systemRisks, ...systemStatus].slice(0, SECTION_LIMITS.systemHealth).map(strip<BriefingItem>);
 
   const biggestRisk = top((item) => item.kind === "risk", 1)[0] ?? null;
   const biggestOpportunity = opportunities[0] ?? null;
-  const salesPriority = sales.find((item) => item.kind !== "status") ?? null;
+  const salesPriority = top((item) => item.agent === "sales" && (item.kind === "risk" || item.kind === "opportunity"), 1)[0] ?? null;
   const systemPriority = systemRisks[0] ? strip(systemRisks[0]) : null;
   const mostImportant =
     biggestRisk && (!biggestOpportunity || effectiveSeverityRank(biggestRisk.severity, biggestRisk.confidence) >= effectiveSeverityRank(biggestOpportunity.severity, biggestOpportunity.confidence))
@@ -211,7 +236,7 @@ export function buildBriefing(results: unknown[], context: { traceId: string; no
 
   const recommendation = composeRecommendation({ accepted, items: items.map(strip<BriefingItem>), mostImportant, nextActions, approvals });
 
-  return { traceId: context.traceId, createdAt: context.now.toISOString(), recommendation, mostImportant, biggestRisk, biggestOpportunity, salesPriority, systemPriority, needsAttention, opportunities, systemHealth, sales, market, nextActions, approvals, agents };
+  return { traceId: context.traceId, createdAt: context.now.toISOString(), recommendation, mostImportant, biggestRisk, biggestOpportunity, salesPriority, systemPriority, whatMattersNow, needsAttention, trackprHandling, revenue, systemHealth, opportunities, nextActions, approvals, agents };
 }
 
 function composeRecommendation(input: { accepted: AgentResult[]; items: BriefingItem[]; mostImportant: BriefingItem | null; nextActions: BriefingAction[]; approvals: BriefingAction[] }): string {
@@ -243,11 +268,11 @@ function composeRecommendation(input: { accepted: AgentResult[]; items: Briefing
 /** The Chief of Staff's own AgentResult body - the briefing's items and actions, in rank order, so its run is traceable like any other. */
 export function chiefOfStaffOutput(briefing: ChiefOfStaffBriefing): AgentOutput {
   const seen = new Set<string>();
-  const items = [briefing.mostImportant, ...briefing.needsAttention, ...briefing.opportunities, ...briefing.systemHealth, ...briefing.sales, ...briefing.market].filter((item): item is BriefingItem => item !== null && !seen.has(item.key) && (seen.add(item.key), true));
+  const items = [briefing.mostImportant, ...briefing.whatMattersNow, ...briefing.needsAttention, ...briefing.trackprHandling, ...briefing.revenue, ...briefing.systemHealth, ...briefing.opportunities].filter((item): item is BriefingItem => item !== null && !seen.has(item.key) && (seen.add(item.key), true));
   return {
     status: "ok",
     summary: briefing.recommendation.slice(0, 1000),
-    findings: items.map((item) => ({ id: item.key.slice(0, 120), kind: item.kind, basis: item.basis, severity: item.severity, confidence: item.confidence, category: item.agent, title: item.title, detail: item.detail, href: item.href, evidence: [], sources: [] })),
+    findings: items.map((item) => ({ id: item.key.slice(0, 120), kind: item.kind, basis: item.basis, severity: item.severity, confidence: item.confidence, category: item.category, title: item.title, detail: item.detail, href: item.href, evidence: item.evidence, sources: item.sources })),
     recommendations: [...briefing.nextActions, ...briefing.approvals].map((action) => ({
       id: action.key.slice(0, 120),
       title: action.title,

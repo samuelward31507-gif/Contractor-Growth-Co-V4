@@ -53,18 +53,21 @@ test("sales: 12 stale leads become one missed-follow-up finding with the real co
   assert.equal(top?.href, "/people/p3");
 });
 
-test("sales: a missed reply is critical; escalations are critical; Trackpr-handled items are status only", () => {
+test("sales: a missed reply is critical; escalations are critical; Trackpr-handled items are listed as handled", () => {
   const out = valid(
     analyzeSales({
       exceptions: [fx.salesItem({ key: "e", reasonCode: "human_escalation", tier: null, name: "Sam", actionHref: "/conversations/c1" })],
       attention: [fx.salesItem({ key: "r", reasonCode: "customer_awaiting_reply", tier: "needs_reply", missedFollowUp: "reply" }), fx.salesItem({ key: "t", actor: "trackpr" })],
       opportunities: [],
-      trackprHandlingCount: 1,
+      trackprHandling: [fx.salesItem({ key: "t", actor: "trackpr", name: "Kim Ray", reasonCode: "estimate_awaiting_decision" })],
     }),
   );
   assert.equal(out.findings.find((f) => f.id === "human_escalation")?.severity, "critical");
   assert.equal(out.findings.find((f) => f.id === "missed_follow_up")?.severity, "critical");
-  assert.equal(out.findings.find((f) => f.id === "trackpr_handling")?.kind, "status");
+  const handled = out.findings.find((f) => f.id === "trackpr_handling");
+  assert.equal(handled?.kind, "handled");
+  assert.equal(handled?.title, "Trackpr is handling 1 item");
+  assert.deepEqual(handled?.evidence, [{ label: "Kim Ray", value: "estimate awaiting decision" }]);
   assert.ok(out.recommendations.every((r) => r.requiresApproval === false && r.actionKind !== "send_customer_message"), "sales never proposes sending in Phase 1");
 });
 

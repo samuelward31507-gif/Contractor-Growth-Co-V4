@@ -78,9 +78,24 @@ The briefing contains:
 
 Today's recommendation is the one sentence it writes itself, composed only from those items. A failed agent shows up as a system-health item, and so does a result that fails validation. Neither is silently dropped.
 
-## Console
+## Command Center
 
-`/insights/intelligence`, linked from the Agency Command Center sidebar ("Intelligence"). It's for agency admins only: `is_agency_admin()` is checked server-side, and everyone else gets a 404. It covers the operator's own verified organization only.
+`/insights/intelligence` is the operator's private Command Center: Agency sidebar → **Intelligence**. It is internal only and is never linked from contractor navigation.
+
+- **Shell.** The route lives in the `app/(agency-console)` route group, whose layout re-exports `app/agency/layout.tsx`. It renders in the Agency shell, never the contractor shell.
+- **Access.** `lib/agents/access.ts` decides access server-side, before any agent input is read:
+  1. Not signed in: redirect to `/login`.
+  2. Signed in but not an agency admin (every contractor): the Agency surfaces' own `UnauthorizedState`, and nothing is loaded. The check is the existing `is_agency_admin()` RPC via `isAgencyAdmin()`, and it fails closed.
+  3. Agency admin with no organization membership: redirect to `/onboarding`.
+  4. Otherwise access is granted, scoped to the operator's own verified organization through the request's RLS client.
+- **Default view: Chief of Staff.** One recommendation, then:
+  - **What matters now**: the top 3 items across every agent.
+  - **Needs your attention**: operator decisions.
+  - **System health**, **Revenue** and **Trackpr is handling**.
+  - **Recommended next actions** and **Waiting for your approval**.
+
+  Below the top 3, each item appears in one section only. Every item keeps its basis (Fact or Inference), confidence, evidence and sources, plus an "Open in Trackpr" link and a link to the specialist that produced it.
+- **Specialist drill-downs.** `?agent=<sales|trackpr_intelligence|qa_health|engineering|market_intelligence|prospecting>` is validated against the registry and is the page's only URL input. A drill-down shows the agent's purpose, data sources, run, every finding with full evidence, and every recommendation with its approval flag.
 
 ## Persistence (optional, off)
 

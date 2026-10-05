@@ -20,7 +20,7 @@ export function salesItem(overrides: Partial<SalesItem> = {}): SalesItem {
 }
 
 export function emptySalesInput(): SalesInput {
-  return { exceptions: [], attention: [], opportunities: [], trackprHandlingCount: 0 };
+  return { exceptions: [], attention: [], opportunities: [], trackprHandling: [] };
 }
 
 /** Twelve leads past their follow-up window - the brief's example. */

@@ -28,8 +28,8 @@ export type SalesInput = {
   exceptions: SalesItem[];
   attention: SalesItem[];
   opportunities: SalesItem[];
-  /** How many attention items Trackpr is still handling itself. */
-  trackprHandlingCount: number;
+  /** Attention items Trackpr's own automation still has pending - nothing for a person to do yet. */
+  trackprHandling: SalesItem[];
 };
 
 type Group = {
@@ -234,17 +234,18 @@ export function analyzeSales(input: SalesInput): AgentOutput {
     });
   }
 
-  if (input.trackprHandlingCount > 0) {
+  if (input.trackprHandling.length > 0) {
+    const n = input.trackprHandling.length;
     findings.push({
       id: "trackpr_handling",
-      kind: "status",
+      kind: "handled",
       basis: "fact",
       severity: "info",
       confidence: "high",
       category: "trackpr_handling",
-      title: `Trackpr is handling ${formatCount(input.trackprHandlingCount)} ${plural(input.trackprHandlingCount, "item", "items")}`,
-      detail: "Follow-ups and replies Trackpr's own automation still has pending. They need nothing from you yet.",
-      evidence: [],
+      title: `Trackpr is handling ${formatCount(n)} ${plural(n, "item", "items")}`,
+      detail: "Replies and follow-ups Trackpr's own automation still has pending. They need nothing from you unless they stall.",
+      evidence: input.trackprHandling.slice(0, 5).map((item) => ({ label: item.name, value: item.reasonCode.replaceAll("_", " ") })),
       href: "/today",
       sources: [],
     });
@@ -256,6 +257,6 @@ export function analyzeSales(input: SalesInput): AgentOutput {
     summary: humanCount === 0 ? "No sales work needs a person right now." : `${formatCount(humanCount)} sales ${plural(humanCount, "item needs", "items need")} a person.`,
     findings,
     recommendations,
-    metadata: { humanItems: humanCount, opportunities: input.opportunities.length, trackprHandling: input.trackprHandlingCount },
+    metadata: { humanItems: humanCount, opportunities: input.opportunities.length, trackprHandling: input.trackprHandling.length },
   };
 }
