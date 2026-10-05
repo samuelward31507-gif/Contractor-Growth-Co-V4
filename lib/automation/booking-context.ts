@@ -89,6 +89,7 @@ export async function getRecentBookingContext(supabase: SupabaseClient, organiza
     if (event.event_type === "customer.message.received") {
       const metadata = (execution.metadata ?? {}) as CheckAvailabilityMetadata;
       if (metadata.booking_action === "check_availability" && metadata.availability_status === "available" && metadata.offered_slots && metadata.offered_slots.length > 0) {
+        if (await isOfferClosedByBooking(supabase, organizationId, conversationId, metadata.offered_slots, execution.started_at)) return null;
         return {
           type: "offer",
           slots: metadata.offered_slots,
@@ -101,6 +102,7 @@ export async function getRecentBookingContext(supabase: SupabaseClient, organiza
     if (event.event_type === "appointment.availability_offered") {
       const metadata = (execution.metadata ?? {}) as CheckAvailabilityMetadata;
       if (metadata.offered_slots && metadata.offered_slots.length > 0) {
+        if (await isOfferClosedByBooking(supabase, organizationId, conversationId, metadata.offered_slots, execution.started_at)) return null;
         return {
           type: "offer",
           slots: metadata.offered_slots,
@@ -112,6 +114,44 @@ export async function getRecentBookingContext(supabase: SupabaseClient, organiza
   }
 
   return null;
+}
+
+/**
+ * An offer is closed once one of its slots has been booked: this
+ * conversation's contact has an appointment starting at one of the offered
+ * start times, written at or after the offer was made. Without this, a
+ * booked offer stayed the conversation's latest booking context, so a
+ * following "YES" was read as an ambiguous multi-slot selection instead of
+ * reaching the appointment-confirmation path.
+ *
+ * Derived from the appointments themselves rather than from the booking
+ * confirmation message, so it holds even when that message is gated, fails
+ * or is skipped. An offered slot was free when offered, so an appointment at
+ * one of those start times can only be the booking that consumed it.
+ */
+async function isOfferClosedByBooking(
+  supabase: SupabaseClient,
+  organizationId: string,
+  conversationId: string,
+  offeredSlots: { start_at: string; end_at: string }[],
+  offeredAt: string,
+): Promise<boolean> {
+  const { data: conversation } = await supabase.from("conversations").select("contact_id").eq("id", conversationId).eq("organization_id", organizationId).maybeSingle();
+  const contactId = (conversation?.contact_id as string | null | undefined) ?? null;
+  if (!contactId) return false;
+
+  const { data: booked } = await supabase
+    .from("appointments")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("contact_id", contactId)
+    .in(
+      "start_at",
+      offeredSlots.map((slot) => slot.start_at),
+    )
+    .gte("updated_at", offeredAt)
+    .limit(1);
+  return (booked?.length ?? 0) > 0;
 }
 
 /**
