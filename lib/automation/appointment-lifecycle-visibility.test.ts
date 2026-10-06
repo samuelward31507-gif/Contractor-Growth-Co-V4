@@ -34,6 +34,7 @@ const state = {
   sendResult: { ok: true, messageId: "msg-1", conversationId: "conv-1", providerMessageId: "SM1" } as Record<string, unknown>,
   completions: [] as Record<string, unknown>[],
   failures: 0,
+  failCalls: [] as { error: string; category: string }[],
   sends: 0,
 };
 
@@ -48,12 +49,14 @@ const executions = {
     state.completions.push(metadata);
     return { ok: true };
   },
-  failWorkflowExecution: async () => {
+  failWorkflowExecution: async (_c: unknown, _id: string, error: string, category: string) => {
     state.failures += 1;
+    state.failCalls.push({ error, category });
     return { ok: true };
   },
-  failWorkflowExecutionAsService: async () => {
+  failWorkflowExecutionAsService: async (_c: unknown, _id: string, error: string, category: string) => {
     state.failures += 1;
+    state.failCalls.push({ error, category });
     return { ok: true };
   },
 };
@@ -96,6 +99,7 @@ beforeEach(() => {
   state.sendResult = { ok: true, messageId: "msg-1", conversationId: "conv-1", providerMessageId: "SM1" };
   state.completions = [];
   state.failures = 0;
+  state.failCalls = [];
   state.sends = 0;
 });
 
@@ -118,14 +122,16 @@ for (const [label, emit] of [
     });
   }
 
-  test(`${label}: a provider send failure is visible on the execution (send_error)`, async () => {
-    state.gate = { allowed: true, contactId: "contact-1", conversationId: "conv-1", body: "Your appointment was cancelled." };
-    state.sendResult = { ok: false, error: "Twilio error 30003", messageId: "msg-1", conversationId: "conv-1" };
-    await quiet(() => emit("appointment.cancelled"));
-    assert.equal(state.completions[0]?.send_error, "Twilio error 30003");
-    assert.equal(state.completions[0]?.should_send, true);
-    assert.equal(state.sends, 1, "exactly one attempt - no retry send");
-  });
+  for (const type of ["appointment.cancelled", "appointment.rescheduled"]) {
+    test(`${label}: P0-B B0 - a provider send failure for ${type} FAILS the execution (sms_send_failed), never completes it as a success`, async () => {
+      state.gate = { allowed: true, contactId: "contact-1", conversationId: "conv-1", body: "Your appointment changed." };
+      state.sendResult = { ok: false, error: "Twilio error 30003", messageId: "msg-1", conversationId: "conv-1" };
+      await quiet(() => emit(type));
+      assert.deepEqual(state.failCalls, [{ error: "Twilio error 30003", category: "sms_send_failed" }]);
+      assert.equal(state.completions.length, 0, "not recorded as completed (which would derive outcome 'succeeded')");
+      assert.equal(state.sends, 1, "exactly one attempt - no retry send");
+    });
+  }
 
   test(`${label}: a successful send stays a plain success with its message id`, async () => {
     state.gate = { allowed: true, contactId: "contact-1", conversationId: "conv-1", body: "Your appointment was cancelled." };

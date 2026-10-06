@@ -32,7 +32,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const { createServiceRoleClient }: typeof import("@/lib/supabase/service") = require(path.join(REPO_ROOT, "lib/supabase/service.ts"));
-const { processNoShowDetection, NO_SHOW_GRACE_PERIOD_MS }: typeof import("./no-show-detection") = require(path.join(REPO_ROOT, "lib/automation/no-show-detection.ts"));
+const { processNoShowDetection, NO_SHOW_GRACE_PERIOD_MS, NO_SHOW_MAX_AGE_MS }: typeof import("./no-show-detection") = require(path.join(REPO_ROOT, "lib/automation/no-show-detection.ts"));
 const { syncOpportunities }: typeof import("@/lib/opportunities/detect") = require(path.join(REPO_ROOT, "lib/opportunities/detect.ts"));
 
 const service = createServiceRoleClient();
@@ -89,11 +89,14 @@ async function processNoShowDetectionTolerant(...args: Parameters<typeof process
 
 let slot = 0;
 function nextSlot(): { start_at: string; end_at: string } {
-  // Every fixture gets its own far-past, never-colliding hour so the
+  // Every fixture gets its own past, never-colliding 40-minute slot so the
   // idx_appointments_noshow_scan candidate set for one test is never
   // polluted by another test's appointment sharing the same instant.
+  // P0-B B0: slots sit inside the scan's 24-hour window (2h ago and older,
+  // a few hours back at most) - older appointments are deliberately never
+  // auto-marked (see the "older than 24 hours" test below).
   slot += 1;
-  const startAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000 - slot * 60 * 60 * 1000);
+  const startAt = new Date(Date.now() - 2 * 60 * 60 * 1000 - slot * 40 * 60 * 1000);
   const endAt = new Date(startAt.getTime() + 30 * 60 * 1000);
   return { start_at: startAt.toISOString(), end_at: endAt.toISOString() };
 }
@@ -189,7 +192,7 @@ test("17. RACE SAFETY: an appointment completed immediately before the scan runs
 });
 
 test("18/19. TIMEZONE: a Mountain-Time-equivalent appointment (absolute UTC instant) transitions at the correct grace-period boundary, independent of any timezone", async () => {
-  const endAtMdt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000 - NO_SHOW_GRACE_PERIOD_MS - 60_000).toISOString();
+  const endAtMdt = new Date(Date.now() - NO_SHOW_GRACE_PERIOD_MS - 60_000).toISOString();
   const appointmentId = await insertAppointment(organizationId, contactId, "scheduled", endAtMdt);
 
   await processNoShowDetectionTolerant(service);
@@ -220,6 +223,18 @@ test("21. repeated scheduler scans never duplicate downstream effects: running t
 
   const { data: events } = await service.from("automation_events").select("id").eq("organization_id", organizationId).eq("entity_id", appointmentId).eq("event_type", "appointment.no_show");
   assert.equal(events?.length, 1, "a second scan tick must never create a duplicate follow-up event for an appointment it already transitioned");
+});
+
+test("P0-B B0: a scheduled appointment that ended more than 24 hours ago is never auto-marked no_show and fires no follow-up", async () => {
+  const oldEnd = new Date(Date.now() - NO_SHOW_MAX_AGE_MS - 3 * 60 * 60 * 1000).toISOString();
+  const appointmentId = await insertAppointment(organizationId, contactId, "scheduled", oldEnd);
+
+  await processNoShowDetectionTolerant(service);
+
+  const { data: appointment } = await service.from("appointments").select("status").eq("id", appointmentId).single();
+  assert.equal(appointment?.status, "scheduled", "left for staff - never a stale reschedule text");
+  const { data: events } = await service.from("automation_events").select("id").eq("organization_id", organizationId).eq("entity_id", appointmentId);
+  assert.equal(events?.length, 0);
 });
 
 // ---------------------------------------------------------------------------

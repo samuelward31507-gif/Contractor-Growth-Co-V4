@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { isNoShowEligible, NO_SHOW_GRACE_PERIOD_MS }: typeof import("./no-show-detection") = require("./no-show-detection.ts");
+const { isNoShowEligible, NO_SHOW_GRACE_PERIOD_MS, NO_SHOW_MAX_AGE_MS }: typeof import("./no-show-detection") = require("./no-show-detection.ts");
 
 test("exactly at end_at: not yet eligible (0ms elapsed, well within the grace period)", () => {
   const now = new Date("2027-03-10T15:00:00.000Z");
@@ -91,4 +91,12 @@ test("server timezone differing from organization timezone never matters: isNoSh
   // defaulted one) - this assertion is about the parameter COUNT/shape
   // itself, not a behavioral check.
   assert.equal(isNoShowEligible.length, 1, "signature must be (appointment, now = default) only - no timezone parameter");
+});
+
+test("P0-B B0: an appointment that ended more than 24 hours ago is NOT auto-eligible (an un-closed old visit never becomes a stale no-show text)", () => {
+  const endAt = "2027-03-10T15:00:00.000Z";
+  assert.equal(NO_SHOW_MAX_AGE_MS, 24 * 60 * 60 * 1000);
+  assert.equal(isNoShowEligible({ end_at: endAt }, new Date(new Date(endAt).getTime() + NO_SHOW_MAX_AGE_MS)), true, "exactly 24h after the end: still caught (covers a scheduler outage)");
+  assert.equal(isNoShowEligible({ end_at: endAt }, new Date(new Date(endAt).getTime() + NO_SHOW_MAX_AGE_MS + 1)), false);
+  assert.equal(isNoShowEligible({ end_at: endAt }, new Date("2027-04-10T15:00:00.000Z")), false, "a month-old appointment is left for staff");
 });

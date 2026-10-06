@@ -43,11 +43,24 @@ const ELIGIBLE_STATUSES: AppointmentStatus[] = ["scheduled", "confirmed"];
 export const NO_SHOW_GRACE_PERIOD_MS = 60 * 60 * 1000;
 
 /**
+ * P0-B B0: the scan's lower bound. An appointment that ended more than this
+ * long ago is never auto-marked no_show (and so never triggers the no-show
+ * reschedule message): the scan runs every 15 minutes, so a real no-show is
+ * caught within about 1h15m of its end; a day covers a scheduler outage.
+ * Anything older is an appointment nobody closed out (most likely the
+ * customer was seen) - auto-marking it would text a stale "sorry we missed
+ * you" weeks later, and a backlog of them would go out as a burst. Staff
+ * can still mark an old appointment no_show by hand.
+ */
+export const NO_SHOW_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Pure eligibility check, extracted for direct unit testing - mirrors
  * isReminderDue's own established shape in appointment-reminders.ts.
  */
 export function isNoShowEligible(appointment: { end_at: string }, now: Date = new Date()): boolean {
-  return now.getTime() - new Date(appointment.end_at).getTime() > NO_SHOW_GRACE_PERIOD_MS;
+  const elapsed = now.getTime() - new Date(appointment.end_at).getTime();
+  return elapsed > NO_SHOW_GRACE_PERIOD_MS && elapsed <= NO_SHOW_MAX_AGE_MS;
 }
 
 type CandidateAppointment = { id: string; organization_id: string; end_at: string };
@@ -87,12 +100,14 @@ const MAX_CANDIDATE_ROWS = 200;
  */
 export async function processNoShowDetection(supabase: SupabaseClient, now: Date = new Date()): Promise<NoShowDetectionResult> {
   const cutoff = new Date(now.getTime() - NO_SHOW_GRACE_PERIOD_MS).toISOString();
+  const oldest = new Date(now.getTime() - NO_SHOW_MAX_AGE_MS).toISOString();
 
   const { data: rawCandidates, error: scanError } = await supabase
     .from("appointments")
     .select("id, organization_id, end_at")
     .in("status", ELIGIBLE_STATUSES)
     .lt("end_at", cutoff)
+    .gte("end_at", oldest)
     .order("end_at", { ascending: true })
     .limit(MAX_CANDIDATE_ROWS);
 

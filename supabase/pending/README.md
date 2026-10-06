@@ -418,3 +418,11 @@ Follow-Up Engine v1: `public.followups`, one row per (lead, stage) recording wha
 ### Status
 
 Applied to TEST (`trackpr-stripe-test`) on 2026-10-05 via the MCP `apply_migration` mechanism, recorded as ledger version `20261005232025 followups`. Verified: RLS enabled, policies `followups_select` (permissive SELECT) + `followups_payment_active` (restrictive ALL), authenticated holds SELECT only (no write privilege), anon nothing, 12 constraints, 4 indexes, updated_at trigger. Pending for Production.
+
+## start_workflow_execution_atomic_claim.sql (P0-B B0 - TEST only so far)
+
+`create or replace` of `public.start_workflow_execution` (previous body: `migrations/20260921160000_payment_gate_rpc_enforcement.sql`). The old body read the event's status, checked it was not processing/completed, then set it to `processing` with an UNCONDITIONAL update, so two concurrent starts of the same event (e.g. a staff retry and the automatic A2 retry) could both pass and both insert a `running` execution. The claim is now one conditional `update ... where status not in ('processing', 'completed')`; a caller that matches nothing raises the same "already being processed" / "already completed" errors. The attempt number is computed after the claim. Signature, SECURITY DEFINER, search_path, authorization, validation, error messages, attempt numbering, trigger_source and grants are unchanged. No DROP. `start_workflow_execution_atomic_claim_rollback.sql` restores the exact previous body (also no DROP). Validated with `scratch/validate-start-workflow-execution-atomic-claim.mjs`, which injects the competing claim between the status read and the claim: the pre-B0 body creates a second running execution, the B0 body refuses.
+
+### Status
+
+Applied to TEST (`trackpr-stripe-test`) on 2026-10-06 via the MCP `apply_migration` mechanism, recorded as ledger version `20261006224113 start_workflow_execution_atomic_claim`. Verified: the deployed body contains the conditional claim; SECURITY DEFINER, `search_path=public` and EXECUTE grants (authenticated, service_role, postgres) unchanged. Pending for Production.

@@ -22,6 +22,7 @@ import { cancelAppointmentAsService } from "@/lib/automation/appointments";
 import { getRecentBookingContext } from "@/lib/automation/booking-context";
 import { getAiSettings } from "@/lib/settings/queries";
 import { checkLifecycleEligibility } from "@/lib/automation/lifecycle-eligibility";
+import { checkInstantFollowupStillCurrent, INSTANT_FOLLOWUP_EVENT_TYPE } from "@/lib/automation/instant-followup-guard";
 import { formatAppointmentDate, formatAppointmentTime, formatAppointmentTimeRange } from "@/lib/appointments/format";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -295,6 +296,8 @@ type EmbeddedEvent = {
   entity_type: string | null;
   entity_id: string | null;
   payload: Record<string, unknown>;
+  /** P0-B B0: when the event was recorded - anchors the instant follow-up's staleness re-check. */
+  created_at?: string | null;
 };
 
 function normalizeEvent(value: EmbeddedEvent | EmbeddedEvent[] | null): EmbeddedEvent | null {
@@ -1008,7 +1011,7 @@ export async function POST(request: NextRequest) {
   const { data: execution, error: lookupError } = await service
     .from("workflow_executions")
     .select(
-      "id, status, workflow_name, automation_event_id, organization_id, automation_events(id, organization_id, event_type, entity_type, entity_id, payload)",
+      "id, status, workflow_name, automation_event_id, organization_id, automation_events(id, organization_id, event_type, entity_type, entity_id, payload, created_at)",
     )
     .eq("id", body.execution_id)
     .maybeSingle();
@@ -1422,6 +1425,42 @@ export async function POST(request: NextRequest) {
       { kind: "blocked", reason: gateResult.reason },
     );
     return NextResponse.json({ ok: true, sent: false, blockedReason: gateResult.reason });
+  }
+
+  // P0-B B0: the final staleness re-check for an Instant Lead Follow-Up
+  // draft, after the gate allowed it and immediately before sending - the
+  // draft may have arrived (or been retried) long after the lead moved
+  // forward. See lib/automation/instant-followup-guard.ts. A stale draft is a
+  // business block, recorded exactly like a gate block.
+  if (event.event_type === INSTANT_FOLLOWUP_EVENT_TYPE) {
+    const current = await checkInstantFollowupStillCurrent(service, {
+      organizationId: event.organization_id,
+      leadId,
+      contactId,
+      draftCreatedAt: event.created_at ?? null,
+    });
+    if (!current.eligible) {
+      const result = await completeWorkflowExecutionAsService(service, execution.id, {
+        should_send: false,
+        blocked_reason: current.reason,
+        blocked_detail: current.detail,
+        needs_human: aiResult.needs_human,
+        qualification_status: aiResult.qualification_status,
+        urgency: aiResult.urgency,
+        missing_information: aiResult.missing_information,
+        intent: aiResult.intent,
+        summary: aiResult.summary,
+      });
+      if (!result.ok) {
+        if (isAlreadyProcessedError(result.error)) {
+          return NextResponse.json({ ok: true, alreadyProcessed: true });
+        }
+        console.error("[automation] failed to complete execution", { executionId: execution.id, error: result.error });
+        await recordCallbackFailureSignal(service, event, execution.id, result.error);
+        return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, sent: false, blockedReason: current.reason });
+    }
   }
 
   // sendOutboundMessage is the single path every outbound SMS goes through:

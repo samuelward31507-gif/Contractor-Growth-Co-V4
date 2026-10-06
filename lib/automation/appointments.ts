@@ -568,6 +568,16 @@ export async function emitAppointmentLifecycleEvent(
       ? await sendAppointmentLifecycleMessage(eventResult.event.organization_id, appointmentId, eventType, executionResult.execution.id, sendSmsFn)
       : {};
 
+  // P0-B B0: a provider send failure is a FAILED execution (sms_send_failed
+  // incident; Today shows it as needing a person - this workflow is not
+  // automatically retried), never a "completed" one with send_error buried
+  // in its metadata.
+  if (typeof sendOutcome.send_error === "string") {
+    const failed = await failWorkflowExecution(supabase, executionResult.execution.id, sendOutcome.send_error, "sms_send_failed");
+    if (!failed.ok) console.error(`[automation] failed to record ${eventType} send failure`, { appointmentId, error: failed.error });
+    return;
+  }
+
   const completed = await completeWorkflowExecution(supabase, executionResult.execution.id, {
     lifecycle_only: true,
     appointment_id: appointmentId,
@@ -630,6 +640,16 @@ export async function emitAppointmentLifecycleEventAsService(
     eventType === "appointment.cancelled" || eventType === "appointment.rescheduled"
       ? await sendAppointmentLifecycleMessage(eventResult.event.organization_id, appointmentId, eventType, executionResult.execution.id, sendSmsFn)
       : {};
+
+  // P0-B B0: a provider send failure is a FAILED execution (sms_send_failed
+  // incident; Today shows it as needing a person - this workflow is not
+  // automatically retried), never a "completed" one with send_error buried
+  // in its metadata.
+  if (typeof sendOutcome.send_error === "string") {
+    const failed = await failWorkflowExecutionAsService(supabase, executionResult.execution.id, sendOutcome.send_error, "sms_send_failed");
+    if (!failed.ok) console.error(`[automation] failed to record ${eventType} send failure`, { appointmentId, error: failed.error });
+    return;
+  }
 
   const completed = await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, {
     lifecycle_only: true,
