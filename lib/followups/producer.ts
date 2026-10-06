@@ -2,13 +2,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAutomationEnabled } from "@/lib/automation/settings";
 import { FOLLOWUP_CADENCE_HOURS, touchDueAt } from "./config";
 import { FOLLOWUP_AUTOMATION_ID, FOLLOWUP_COLUMNS, transitionFollowup, type FollowupRow } from "./store";
+import { getObligationKindDescriptor, LEAD_NO_REPLY } from "./kinds";
 
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * P0 A4: the Follow-Up Engine's producers. They only record INTENT in
- * public.followups - they never send and never dispatch; the dispatcher in
- * engine.ts is the only thing that acts.
+ * P0 A4 -> P0-B B2.1: the producers. They only record INTENT (an obligation
+ * row in public.followups) - they never send and never dispatch; the
+ * dispatcher in engine.ts is the only thing that acts.
+ *
+ * ensureObligation is the generic producer. Until B2.3 widens the schema
+ * every obligation is lead-subject (followups.lead_id, unique (lead_id,
+ * stage)), so its input is still a lead.
  */
 
 export type EnsureFollowupResult =
@@ -27,16 +32,31 @@ export async function ensureLeadFollowup(
   service: SupabaseClient,
   input: { organizationId: string; leadId: string; now?: Date },
 ): Promise<EnsureFollowupResult> {
-  if (!(await getAutomationEnabled(service, input.organizationId, FOLLOWUP_AUTOMATION_ID))) return { outcome: "disabled" };
+  return ensureObligation(service, { stage: LEAD_NO_REPLY.stage, organizationId: input.organizationId, leadId: input.leadId, now: input.now });
+}
+
+/**
+ * The generic producer: records that Trackpr owes obligation `stage` about a
+ * lead. Default-off (the kind's catalog automation must be enabled). One row
+ * per (lead, stage) - a repeated call returns the existing row. The first
+ * touch is scheduled from the kind's cadence (config.ts).
+ */
+export async function ensureObligation(
+  service: SupabaseClient,
+  input: { stage: string; organizationId: string; leadId: string; now?: Date },
+): Promise<EnsureFollowupResult> {
+  const kind = getObligationKindDescriptor(input.stage);
+  if (!kind) return { outcome: "failed", error: `unregistered_obligation_kind:${input.stage}` };
+  if (!(await getAutomationEnabled(service, input.organizationId, kind.automationId))) return { outcome: "disabled" };
   const now = input.now ?? new Date();
 
   const { data: inserted, error } = await service
     .from("followups")
-    .insert({ organization_id: input.organizationId, lead_id: input.leadId, stage: "lead_no_reply", state: "pending", created_at: now.toISOString() })
+    .insert({ organization_id: input.organizationId, lead_id: input.leadId, stage: kind.stage, state: "pending", created_at: now.toISOString() })
     .select(FOLLOWUP_COLUMNS);
   if (error) {
     if (error.code === "23505") {
-      const { data: existing } = await service.from("followups").select(FOLLOWUP_COLUMNS).eq("lead_id", input.leadId).eq("stage", "lead_no_reply").maybeSingle();
+      const { data: existing } = await service.from("followups").select(FOLLOWUP_COLUMNS).eq("lead_id", input.leadId).eq("stage", kind.stage).maybeSingle();
       if (existing) return { outcome: "existing", followup: existing as FollowupRow };
     }
     return { outcome: "failed", error: error.message };

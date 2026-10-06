@@ -79,7 +79,12 @@ test("isKnown: only the listed values; null/undefined/other strings are unknown"
   assert.equal(S.isKnown(S.JOB_STATUS_VALUES, undefined), false);
 });
 
-test("B1 wires no consumer: nothing outside lib/lifecycle imports the canonical lifecycle model", () => {
+// P0-B B2.1: the obligation engine is the first (and only) sanctioned
+// consumer (its test wraps the snapshot loader to observe it); every other
+// import of the model is still refused.
+const SANCTIONED_CONSUMERS = new Set([path.join("lib", "followups", "engine.ts"), path.join("lib", "followups", "obligations.test.ts")]);
+
+test("B1 wires no consumer: nothing outside lib/lifecycle imports the canonical lifecycle model (except the sanctioned B2.1 engine)", () => {
   const MODEL = /lib\/lifecycle\/(stages|statuses|snapshot|snapshot-loader|derive)\b|from "\.\/(stages|statuses|snapshot|snapshot-loader|derive)"/;
   const offenders: string[] = [];
   const walk = (dir: string) => {
@@ -87,7 +92,7 @@ test("B1 wires no consumer: nothing outside lib/lifecycle imports the canonical 
       if (entry === "node_modules" || entry.startsWith(".")) continue;
       const relative = path.join(dir, entry);
       if (statSync(path.join(ROOT, relative)).isDirectory()) walk(relative);
-      else if (/\.(ts|tsx)$/.test(entry) && !relative.startsWith(path.join("lib", "lifecycle")) && MODEL.test(readFileSync(path.join(ROOT, relative), "utf8"))) offenders.push(relative);
+      else if (/\.(ts|tsx)$/.test(entry) && !relative.startsWith(path.join("lib", "lifecycle")) && !SANCTIONED_CONSUMERS.has(relative) && MODEL.test(readFileSync(path.join(ROOT, relative), "utf8"))) offenders.push(relative);
     }
   };
   for (const dir of ["app", "lib", "components"]) {
