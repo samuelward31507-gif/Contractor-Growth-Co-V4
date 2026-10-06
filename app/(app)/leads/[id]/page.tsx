@@ -46,11 +46,6 @@ import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointm
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
 import { LeadActions } from "./_components/lead-actions";
-import { FollowupRunNow } from "./_components/followup-run-now";
-import { isCustomerReplySimulationEnvironment } from "@/lib/messaging/simulate-customer-reply";
-import { FOLLOWUP_STATE_LABELS } from "@/lib/followups/format";
-import { touchCount, type FollowupStage } from "@/lib/followups/config";
-import type { FollowupState } from "@/lib/followups/state";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 const CHANNEL_LABEL = Object.fromEntries(CONVERSATION_CHANNELS.map((item) => [item.value, item.label]));
@@ -266,23 +261,6 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
             ? null
             : { label: "Follow up with customer", detail: "No appointment or estimate in motion yet.", href: "/leads", attention: true };
 
-  // P0 A4: the TEST-only follow-up panel - the same three conditions as
-  // Simulate Customer Reply (runFollowupNow re-checks them on every submit).
-  // Production deployments skip both reads.
-  const followupPanel =
-    isCustomerReplySimulationEnvironment() &&
-    (membership.role === "owner" || membership.role === "admin") &&
-    (await supabase.from("organizations").select("automation_mode").eq("id", membership.organizationId).maybeSingle()).data?.automation_mode === "test"
-      ? (
-          (await supabase
-            .from("followups")
-            .select("id, stage, state, next_action, next_action_at, attempt_count, paused_reason, exit_reason")
-            .eq("organization_id", membership.organizationId)
-            .eq("lead_id", lead.id)
-            .maybeSingle()).data as { id: string; stage: FollowupStage; state: FollowupState; next_action: string; next_action_at: string | null; attempt_count: number; paused_reason: string | null; exit_reason: string | null } | null
-        )
-      : null;
-
   return (
     <div className="flex flex-1 flex-col">
       {/*
@@ -349,22 +327,6 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
               View
             </Link>
           </div>
-        ) : null}
-
-        {followupPanel ? (
-          <FollowupRunNow
-            followupId={followupPanel.id}
-            stateLabel={FOLLOWUP_STATE_LABELS[followupPanel.state]}
-            touchesUsed={followupPanel.attempt_count}
-            touchesTotal={touchCount(followupPanel.stage)}
-            nextActionLabel={
-              followupPanel.state === "scheduled" && followupPanel.next_action_at
-                ? `Next touch ${formatRelativeTime(followupPanel.next_action_at)}.`
-                : null
-            }
-            reason={followupPanel.exit_reason ?? followupPanel.paused_reason}
-            canRun={followupPanel.state === "scheduled"}
-          />
         ) : null}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">

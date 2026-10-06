@@ -19,7 +19,7 @@ import { REVIEW_STATUS_LABELS, REFERRAL_STATUS_LABELS } from "@/lib/reviews-refe
 import { getLeadStageHistory } from "@/lib/automation/lead-stage-history";
 import { ACTIVE_APPOINTMENT_STATUSES, ACTIVE_ESTIMATE_STATUSES, ACTIVE_JOB_STATUSES } from "@/lib/automation/customer-reactivation";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
-import { formatCurrency } from "@/lib/dashboard/format";
+import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import { formatAppointmentDate, formatAppointmentTimeRange, STATUS_LABELS as APPOINTMENT_STATUS_LABELS } from "@/lib/appointments/format";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { STATUS_LABELS as LEAD_STATUS_LABELS } from "@/lib/leads/format";
@@ -34,6 +34,11 @@ import { primaryButtonAutoClass, secondaryButtonAutoClass } from "@/lib/ui/form"
 import { LEAD_STATUS_TONE } from "../../leads/_components/lead-status";
 import { ContactActions } from "../../contacts/[id]/_components/contact-actions";
 import { LeadActions } from "../../leads/[id]/_components/lead-actions";
+import { FollowupRunNow } from "../../leads/[id]/_components/followup-run-now";
+import { isCustomerReplySimulationEnvironment } from "@/lib/messaging/simulate-customer-reply";
+import { FOLLOWUP_STATE_LABELS } from "@/lib/followups/format";
+import { touchCount, type FollowupStage } from "@/lib/followups/config";
+import type { FollowupState } from "@/lib/followups/state";
 import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointments/_components/status";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
@@ -147,6 +152,25 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const openOpportunities = allOpenOpportunities.filter((opportunity) => opportunity.contactId === contact.id);
   const jobIds = jobs.map((job) => job.id);
+
+  // P0 A4: the TEST-only follow-up panel under each lead - the same three
+  // conditions as Simulate Customer Reply (runFollowupNow re-checks them on
+  // every submit). Production deployments skip both reads.
+  type FollowupPanelRow = { id: string; lead_id: string; stage: FollowupStage; state: FollowupState; next_action_at: string | null; attempt_count: number; paused_reason: string | null; exit_reason: string | null };
+  const followupByLeadId = new Map<string, FollowupPanelRow>();
+  if (
+    leads.length > 0 &&
+    isCustomerReplySimulationEnvironment() &&
+    (membership.role === "owner" || membership.role === "admin") &&
+    (await supabase.from("organizations").select("automation_mode").eq("id", membership.organizationId).maybeSingle()).data?.automation_mode === "test"
+  ) {
+    const { data: followupRows } = await supabase
+      .from("followups")
+      .select("id, lead_id, stage, state, next_action_at, attempt_count, paused_reason, exit_reason")
+      .eq("organization_id", membership.organizationId)
+      .in("lead_id", leads.map((lead) => lead.id));
+    for (const row of (followupRows ?? []) as FollowupPanelRow[]) followupByLeadId.set(row.lead_id, row);
+  }
 
   // One getLeadStageHistory call per lead (the same function
   // /leads/[id] already calls once) and one getMessages call per
@@ -390,6 +414,22 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                             edited (status, temperature, service, value) - its LeadActions now lives on
                             each lead row here instead, unchanged: Edit -> LeadDialog -> updateLead. */}
                         <LeadActions lead={lead} contacts={contacts} vertical={membership.vertical} />
+                        {(() => {
+                          const followup = followupByLeadId.get(lead.id);
+                          return followup ? (
+                            <div className="basis-full">
+                              <FollowupRunNow
+                                followupId={followup.id}
+                                stateLabel={FOLLOWUP_STATE_LABELS[followup.state]}
+                                touchesUsed={followup.attempt_count}
+                                touchesTotal={touchCount(followup.stage)}
+                                nextActionLabel={followup.state === "scheduled" && followup.next_action_at ? `Next touch ${formatRelativeTime(followup.next_action_at)}.` : null}
+                                reason={followup.exit_reason ?? followup.paused_reason}
+                                canRun={followup.state === "scheduled"}
+                              />
+                            </div>
+                          ) : null;
+                        })()}
                       </li>
                     ))}
                   </ul>

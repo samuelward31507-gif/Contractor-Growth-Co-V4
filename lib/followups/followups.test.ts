@@ -761,3 +761,17 @@ test("producer hook: lead.created records the follow-up intent only when enabled
   assert.equal(touchEvents().length, 0);
   assert.equal(calls.sends, 0);
 });
+
+test("the TEST-only panel is on the page lead links actually reach: /leads/:id redirects to the person page, so the panel lives there and Run now refreshes it", () => {
+  const config = readFileSync(path.join(process.cwd(), "next.config.ts"), "utf8");
+  assert.match(config, /source: "\/leads\/:id", destination: "\/customers\/:id\?from=lead"/, "if this redirect is ever removed, revisit where the panel lives");
+  const people = readFileSync(path.join(process.cwd(), "app/(app)/people/[id]/page.tsx"), "utf8");
+  assert.match(people, /import \{ FollowupRunNow \} from/);
+  assert.match(people, /<FollowupRunNow/);
+  assert.match(people, /isCustomerReplySimulationEnvironment\(\) &&\s+\(membership\.role === "owner" \|\| membership\.role === "admin"\) &&/);
+  assert.match(people, /automation_mode === "test"/);
+  const retired = readFileSync(path.join(process.cwd(), "app/(app)/leads/[id]/page.tsx"), "utf8");
+  assert.doesNotMatch(retired, /FollowupRunNow/, "never on the retired, unreachable lead page");
+  const actions = readFileSync(path.join(process.cwd(), "app/(app)/leads/actions.ts"), "utf8");
+  assert.match(actions, /revalidatePath\(`\/people\/\$\{lead\.contact_id as string\}`\)/);
+});

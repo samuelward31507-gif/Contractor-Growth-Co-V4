@@ -9,8 +9,9 @@ import { runFollowupNow, type RunFollowupNowState } from "../../actions";
 const initialState: RunFollowupNowState = {};
 
 /**
- * P0 A4: TEST-mode-only view of this lead's follow-up, rendered by the lead
- * page only on a non-production deployment, for an org owner/admin, while
+ * P0 A4: TEST-mode-only view of a lead's follow-up, rendered under the lead
+ * on its person page (app/(app)/people/[id]) only on a non-production
+ * deployment, for an org owner/admin, while
  * the organization is in TEST mode (runFollowupNow re-checks all three).
  * "Run now" runs the same dispatcher, with every check, just without
  * waiting for the due time.

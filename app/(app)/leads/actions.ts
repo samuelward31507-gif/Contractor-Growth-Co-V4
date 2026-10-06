@@ -334,6 +334,8 @@ export async function runFollowupNow(_prevState: RunFollowupNowState, formData: 
   if (!followup) return { error: "This follow-up could not be found." };
 
   const outcome = await dispatchFollowup(createServiceRoleClient(), followup.id as string, new Date(), { runNow: true });
-  revalidatePath(`/leads/${followup.lead_id as string}`);
+  // The panel lives on the lead's person page (/leads/:id only redirects there).
+  const { data: lead } = await supabase.from("leads").select("contact_id").eq("id", followup.lead_id as string).eq("organization_id", organizationId).maybeSingle();
+  if (lead?.contact_id) revalidatePath(`/people/${lead.contact_id as string}`);
   return { result: describeDispatchOutcome(outcome) };
 }
