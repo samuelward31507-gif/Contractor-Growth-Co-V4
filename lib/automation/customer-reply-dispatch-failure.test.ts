@@ -54,5 +54,5 @@ test("L2: the incident/notify block is positioned after the existing dispatch-fa
 
 test("L2 regression: retry remains intentionally unsafe for customer_reply_followup - SAFE_RETRY_AUTOMATION_IDS is unchanged, not silently widened by this fix", () => {
   const eligibilitySource = fs.readFileSync(path.join(REPO_ROOT, "lib/automation/retry-eligibility.ts"), "utf8");
-  assert.match(eligibilitySource, /SAFE_RETRY_AUTOMATION_IDS = new Set\(\["appointment-reminders", "estimate-followup", "instant-lead-followup"\]\)/);
+  assert.match(eligibilitySource, /SAFE_RETRY_AUTOMATION_IDS = new Set\(\["appointment-reminders", "estimate-followup", "instant-lead-followup", "lead-followup-sequence"\]\)/);
 });

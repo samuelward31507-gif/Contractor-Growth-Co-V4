@@ -361,6 +361,29 @@ export const AUTOMATION_CATALOG: AutomationDefinition[] = [
       "Execution recorded as completed",
     ],
   },
+  {
+    // P0 A4: the Follow-Up Engine (lib/followups). Off until an organization
+    // explicitly turns it on.
+    id: "lead-followup-sequence",
+    name: "Lead Follow-Up Sequence",
+    description: "Follows up with a new lead who hasn't replied - after 1 day, 3 days and 7 days, inside your business hours - and stops as soon as they reply, book, or the lead is closed. Composed directly by Trackpr.",
+    category: "Leads",
+    icon: BellRing,
+    kind: "scheduled",
+    trigger: "Scheduled - for each new lead, 1, 3 and 7 days after it arrives, until the customer replies",
+    eventTypes: ["followup.touch"],
+    workflowNames: ["lead_followup_touch"],
+    dispatch: "trackpr",
+    defaultEnabled: false,
+    steps: [
+      "A new lead gets one follow-up record when it arrives",
+      "Each touch is due 1, 3 and 7 days after the lead arrived; a touch due outside business hours waits for the next opening",
+      "Before each touch Trackpr re-checks that the customer hasn't replied, the lead is still open and current, and there is no active appointment, estimate or job",
+      "Safe AI Outbound gate re-verifies opt-out, conversation, automation pause and payment status before sending",
+      "A touch that fails to send is retried automatically; a touch more than 48 hours late is never sent",
+      "Stops after the third touch or as soon as the customer replies",
+    ],
+  },
 ];
 
 export function getAutomationDefinition(id: string): AutomationDefinition | null {

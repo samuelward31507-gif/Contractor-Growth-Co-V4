@@ -38,7 +38,10 @@ export type RetryRejectionReason =
  * verify against), is rejected here until a future phase enriches its
  * stored payload to match its real contract.
  */
-export const SAFE_RETRY_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followup", "instant-lead-followup"]);
+// P0 A4: lead-followup-sequence is trackpr-composed and re-reads its follow-up
+// and lead live on retry (retryFollowupTouch) - the same reasoning as
+// appointment-reminders/estimate-followup.
+export const SAFE_RETRY_AUTOMATION_IDS = new Set(["appointment-reminders", "estimate-followup", "instant-lead-followup", "lead-followup-sequence"]);
 
 /**
  * Workflows inside an allowlisted automation that are nonetheless NOT safe
@@ -66,6 +69,7 @@ export const AUTOMATIC_RETRY_POLICY: Readonly<Record<string, { maxAttempts: numb
   estimate_followup: { maxAttempts: 3 },
   estimate_expired_lifecycle: { maxAttempts: 3 },
   lead_created_followup: { maxAttempts: 3 },
+  lead_followup_touch: { maxAttempts: 3 },
 };
 
 /** Bounded exponential backoff after a failed attempt `attempt`: 5, 15, 45, then capped at 60 minutes. */

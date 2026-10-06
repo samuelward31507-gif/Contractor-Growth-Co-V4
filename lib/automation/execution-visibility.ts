@@ -122,6 +122,33 @@ export function buildAutomationAttentionItems(rows: ExecutionVisibilityRow[], su
 }
 
 /**
+ * P0 A4: one low-noise Today line for the Follow-Up Engine - a single count
+ * of leads Trackpr is actively following up with (never a row per lead), and
+ * nothing at all when there are none. Trackpr-owned work, like a retry.
+ */
+export function buildFollowupAttentionItem(activeFollowups: number): AttentionItem | null {
+  if (activeFollowups <= 0) return null;
+  return {
+    id: "followups-active",
+    kind: "automation_retrying",
+    title: "Lead Follow-Up Sequence",
+    detail: `Trackpr is following up with ${plural(activeFollowups, "lead", "leads")}.`,
+    value: null,
+    href: "/automations/lead-followup-sequence",
+  };
+}
+
+async function countActiveFollowups(supabase: SupabaseClient, organizationId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("followups")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .in("state", ["scheduled", "processing", "failed"]);
+  // A database without the followups table yields no item.
+  return error ? 0 : (count ?? 0);
+}
+
+/**
  * Today's read: running work, undecided/scheduled failures, and permanent
  * failures or person-blocked sends from the last NEEDS_YOU_WINDOW_DAYS.
  * Never throws - a database without the A2 columns (or any read error)
@@ -164,7 +191,9 @@ export async function loadAutomationAttention(supabase: SupabaseClient, organiza
       }
       for (const row of permanent) if ((latest.get(row.automation_event_id as string) ?? 0) > row.attempt) superseded.add(row.id);
     }
-    return buildAutomationAttentionItems(rows, superseded);
+    const followupItem = buildFollowupAttentionItem(await countActiveFollowups(supabase, organizationId));
+    const items = buildAutomationAttentionItems(rows, superseded);
+    return followupItem ? [...items, followupItem] : items;
   } catch (error) {
     console.error("[automation] Today automation read threw", { organizationId, error: error instanceof Error ? error.message : String(error) });
     return [];

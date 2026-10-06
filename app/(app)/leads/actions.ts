@@ -9,6 +9,11 @@ import { emitLeadCreatedFollowup } from "@/lib/automation/lead-followup";
 import { emitLeadLost } from "@/lib/automation/lead-lost";
 import { emitLeadStageChanged } from "@/lib/automation/lead-stage-history";
 import { convertLeadToMembership as runLeadToMembershipConversion } from "@/lib/memberships/conversion";
+import { createServiceRoleClient } from "@/lib/supabase/service";
+import { assertOrgAdmin } from "@/lib/automation/authorization";
+import { isCustomerReplySimulationEnvironment } from "@/lib/messaging/simulate-customer-reply";
+import { dispatchFollowup } from "@/lib/followups/engine";
+import { describeDispatchOutcome } from "@/lib/followups/format";
 
 export type LeadFormState = {
   error?: string;
@@ -294,4 +299,41 @@ export async function convertLeadToMembership(_prevState: ConvertLeadState, form
   revalidatePath(`/leads/${leadId}`);
   revalidatePath("/today");
   return { success: true, alreadyMember: result.alreadyMember };
+}
+
+export type RunFollowupNowState = { error?: string; result?: string };
+
+/**
+ * P0 A4: TEST-only "Run now" for a lead's follow-up. Runs the ONE dispatcher
+ * path (dispatchFollowup with runNow) - claim/lease, reply and lifecycle
+ * exits, dormancy, business-hours deferral, idempotent touch, outbound gate,
+ * A2 execution recording - only skipping the wait for the due time. Gated
+ * exactly like Simulate Customer Reply: a non-production deployment, an org
+ * owner/admin, and the organization in TEST mode (where the gate's
+ * organization_not_live check means nothing is ever sent). The service-role
+ * client is used only after those checks, because follow-up writes are
+ * server-side only.
+ */
+export async function runFollowupNow(_prevState: RunFollowupNowState, formData: FormData): Promise<RunFollowupNowState> {
+  if (!isCustomerReplySimulationEnvironment()) {
+    return { error: "Run now is only available on test deployments." };
+  }
+  const followupId = String(formData.get("followupId") ?? "");
+  if (!followupId) return { error: "Missing follow-up." };
+
+  const { supabase, organizationId } = await requireOrganization();
+  const admin = await assertOrgAdmin(supabase, organizationId);
+  if (!admin.ok) return { error: admin.error };
+
+  const { data: organization } = await supabase.from("organizations").select("automation_mode").eq("id", organizationId).maybeSingle();
+  if (organization?.automation_mode !== "test") {
+    return { error: "Run now is only available while automations are in TEST mode." };
+  }
+
+  const { data: followup } = await supabase.from("followups").select("id, lead_id").eq("id", followupId).eq("organization_id", organizationId).maybeSingle();
+  if (!followup) return { error: "This follow-up could not be found." };
+
+  const outcome = await dispatchFollowup(createServiceRoleClient(), followup.id as string, new Date(), { runNow: true });
+  revalidatePath(`/leads/${followup.lead_id as string}`);
+  return { result: describeDispatchOutcome(outcome) };
 }

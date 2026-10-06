@@ -4,6 +4,8 @@ import { startWorkflowExecution, startWorkflowExecutionAsService, SESSION_EXECUT
 import { retryAppointmentReminder } from "./appointment-reminders";
 import { retryEstimateWorkflow } from "./estimate-followups";
 import { redispatchToN8n } from "./n8n-retry";
+import { FOLLOWUP_WORKFLOW, retryFollowupTouch } from "@/lib/followups/engine";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 
 export type RetryOutcome =
   | { ok: true; dispatched: true; executionId: string; newExecutionId: string; automationId: string | null }
@@ -90,7 +92,10 @@ async function retryWithOps(
       ? await retryAppointmentReminder(supabase, event, newExecution.id, ops)
       : execution.workflowName === "estimate_followup" || execution.workflowName === "estimate_expired_lifecycle"
         ? await retryEstimateWorkflow(supabase, event, newExecution.id, execution.workflowName, ops)
-        : await redispatchToN8n(supabase, event, newExecution, ops);
+        : execution.workflowName === FOLLOWUP_WORKFLOW
+          ? // P0 A4: follow-up rows are written server-side only.
+            await retryFollowupTouch(supabase, event, newExecution.id, ops, ops === SERVICE_EXECUTION_OPS ? supabase : createServiceRoleClient())
+          : await redispatchToN8n(supabase, event, newExecution, ops);
 
   if (!dispatchResult.ok) {
     return {

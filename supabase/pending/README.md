@@ -410,3 +410,11 @@ One partial unique index, `leads_one_new_sms_intake_per_contact` on `public.lead
 ### Status
 
 Applied to TEST (`trackpr-stripe-test`) on 2026-10-05 via the MCP `apply_migration` mechanism, recorded as ledger version `20261005161633 lead_sms_intake_unique`; verified no existing rows conflicted. Pending for Production.
+
+## followups.sql (P0 A4 - TEST only so far)
+
+Follow-Up Engine v1: `public.followups`, one row per (lead, stage) recording what follow-up Trackpr owes a lead - `state` (pending / scheduled / processing / paused / completed / exited / failed), `waiting_on`, `next_action`, `next_action_at`, `attempt_count`, a dispatcher `lease_until`, `paused_reason` / `exit_reason`, `last_execution_id` (the existing workflow_executions row - no second execution model) and `reactivated_at`. It references the lead (no copied contact/lead data). Unique `(lead_id, stage)` makes the producer idempotent; partial index `idx_followups_due` serves the dispatcher. RLS: organization members may SELECT their own organization's rows (plus the payment-active RESTRICTIVE policy); authenticated has no INSERT/UPDATE/DELETE privilege - writes are server-side only (lib/followups/engine.ts, service role). No DROP in the forward script; `followups_rollback.sql` drops the table (run by a person). Validated with `scratch/validate-followups.mjs` (constraints, idempotent re-apply, RLS as role authenticated: cross-organization read/insert/update/delete refused, payment gate, anon, rollback).
+
+### Status
+
+Applied to TEST (`trackpr-stripe-test`) on 2026-10-05 via the MCP `apply_migration` mechanism, recorded as ledger version `20261005232025 followups`. Verified: RLS enabled, policies `followups_select` (permissive SELECT) + `followups_payment_active` (restrictive ALL), authenticated holds SELECT only (no write privilege), anon nothing, 12 constraints, 4 indexes, updated_at trigger. Pending for Production.

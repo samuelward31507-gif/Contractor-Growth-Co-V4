@@ -7,6 +7,7 @@ import { getScheduledAutomationLiveness } from "@/lib/automation-health/schedule
 import { evaluateScheduledAutomationDegradedAlert } from "@/lib/automation-health/scheduled-automation-alert";
 import { EXECUTION_TIMEOUT_MINUTES, failTimedOutExecutions } from "@/lib/automation/execution-timeout";
 import { classifyFailedExecutions, processDueRetries } from "@/lib/automation/execution-retry";
+import { dispatchDueFollowups } from "@/lib/followups/engine";
 
 /**
  * Read-only operational check for workflow_executions rows stuck in
@@ -76,6 +77,10 @@ export async function GET(request: NextRequest) {
   // as a staff retry - gate and all. See lib/automation/execution-retry.ts.
   const retryDecisions = await classifyFailedExecutions(service);
   const retries = await processDueRetries(service);
+
+  // P0 A4: the Follow-Up Engine's single dispatcher runs on this same tick
+  // (no new scheduler). Only follow-ups an organization enabled exist.
+  const followups = await dispatchDueFollowups(service);
 
   const { data: stuck, error } = await service
     .from("workflow_executions")
@@ -157,6 +162,8 @@ export async function GET(request: NextRequest) {
     retryDecisions: retryDecisions.decided,
     retriesStarted: retries.started,
     retriesStopped: retries.stopped,
+    followupsDispatched: followups.length,
+    followupOutcomes: followups.map((f) => f.outcome),
     failedExecutionCount: failedExecutionCount ?? 0,
     failedExecutionWindowHours: FAILED_EXECUTION_WINDOW_HOURS,
     activeCriticalIncidents: criticalIncidentCount ?? 0,

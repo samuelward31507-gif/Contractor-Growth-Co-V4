@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { createAutomationEventAsService } from "@/lib/automation/events";
 import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService } from "@/lib/automation/executions";
+import { reactivateLeadFollowup } from "@/lib/followups/producer";
 import { OPEN_LEAD_STATUSES, type LeadStatus, type LeadTemperature } from "./queries";
 
 /**
@@ -158,7 +159,12 @@ export async function recordLeadIntakeAsService(
     console.error("[leads][intake] failed to record lead.intake_received", { leadId: input.leadId, error: eventResult.error });
     return;
   }
-  if (eventResult.duplicate || eventResult.skipped) return;
+  if (eventResult.duplicate) return;
+  // P0 A4: fresh intent on an open lead reactivates its dormant follow-up (rescheduled, never sent late).
+  await reactivateLeadFollowup(supabase, { organizationId: input.organizationId, leadId: input.leadId }).catch((error: unknown) =>
+    console.error("[followups] reactivation failed", { leadId: input.leadId, error: error instanceof Error ? error.message : String(error) }),
+  );
+  if (eventResult.skipped) return;
 
   const execution = await startWorkflowExecutionAsService(supabase, eventResult.event.id, "lead_intake_received_lifecycle");
   if (!execution.ok) {

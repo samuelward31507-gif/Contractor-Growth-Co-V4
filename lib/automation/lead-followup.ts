@@ -10,6 +10,8 @@ import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 import type { LeadStatus, LeadTemperature } from "@/lib/leads/queries";
 import type { OrganizationVertical } from "@/lib/auth/organization";
+import { ensureLeadFollowup } from "@/lib/followups/producer";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 
 export const LEAD_CREATED_FOLLOWUP_WORKFLOW = "lead_created_followup";
 
@@ -69,6 +71,21 @@ async function emitLeadDispatchFailureSignal(
 export async function resolveOrganizationVertical(supabase: SupabaseClient, organizationId: string): Promise<OrganizationVertical> {
   const { data } = await supabase.from("organizations").select("vertical").eq("id", organizationId).maybeSingle();
   return data?.vertical === "gym" ? "gym" : "contractor";
+}
+
+/**
+ * P0 A4: the Follow-Up Engine's producer for a new lead - records the intent
+ * (one followups row) and nothing else; the dispatcher decides and sends.
+ * Best-effort and never throws: lead creation never depends on it. No-op
+ * unless the organization enabled lead-followup-sequence (default off).
+ */
+async function produceLeadFollowup(service: SupabaseClient | null, input: LeadCreatedInput): Promise<void> {
+  try {
+    const result = await ensureLeadFollowup(service ?? createServiceRoleClient(), { organizationId: input.organizationId, leadId: input.leadId });
+    if (result.outcome === "failed") console.error("[followups] failed to record lead follow-up", { leadId: input.leadId, error: result.error });
+  } catch (error) {
+    console.error("[followups] failed to record lead follow-up", { leadId: input.leadId, error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 export type LeadCreatedInput = {
@@ -146,6 +163,7 @@ export async function emitLeadCreatedFollowup(
     // would be duplicate work, not a retry.
     return;
   }
+  await produceLeadFollowup(null, input);
   if (eventResult.skipped) return;
 
   const executionResult = await startWorkflowExecution(
@@ -283,6 +301,7 @@ export async function emitLeadCreatedFollowupAsService(
   }
 
   if (eventResult.duplicate) return;
+  await produceLeadFollowup(supabase, input);
   if (eventResult.skipped) return;
 
   const executionResult = await startWorkflowExecutionAsService(

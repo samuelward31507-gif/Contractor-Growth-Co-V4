@@ -34,9 +34,10 @@ function fakeSettings(row: { enabled: boolean } | null) {
   } as unknown as SupabaseClient;
 }
 
-test("every existing automation still defaults ON - only invoice-reminders (Phase 3G-2b) opts out; unknown ids default ON", () => {
-  for (const definition of AUTOMATION_CATALOG) assert.equal(getAutomationDefaultEnabled(definition.id), definition.id !== "invoice-reminders", definition.id);
-  assert.deepEqual(AUTOMATION_CATALOG.filter((d) => d.defaultEnabled === false).map((d) => d.id), ["invoice-reminders"]);
+test("every existing automation still defaults ON - only invoice-reminders (Phase 3G-2b) and lead-followup-sequence (P0 A4) opt out; unknown ids default ON", () => {
+  const optOut = new Set(["invoice-reminders", "lead-followup-sequence"]);
+  for (const definition of AUTOMATION_CATALOG) assert.equal(getAutomationDefaultEnabled(definition.id), !optOut.has(definition.id), definition.id);
+  assert.deepEqual(AUTOMATION_CATALOG.filter((d) => d.defaultEnabled === false).map((d) => d.id), ["invoice-reminders", "lead-followup-sequence"]);
   assert.equal(getAutomationDefaultEnabled("not-a-real-automation"), true);
 });
 

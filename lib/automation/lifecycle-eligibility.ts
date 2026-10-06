@@ -22,6 +22,9 @@ import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
  *                              same contact-level rule customer reactivation
  *                              already applies, with the outbound gate's
  *                              own active-status sets
+ *   lead_closed                follow-up touches only (P0 A4): the lead is no
+ *                              longer open (won/lost/closed) - a no-reply
+ *                              follow-up only chases an open opportunity
  *   sms_intake_not_qualified   reactivation only: an 'sms_inbound' lead still
  *                              'new'. A1 creates one automatically for any
  *                              text from a contact with only closed history
@@ -34,9 +37,9 @@ import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
  * blocked_reason (outcome 'blocked') - never a failure, never an
  * escalation, never a message.
  */
-export type LeadReengagementAutomation = "lead.lost_nurture" | "lead.reactivation";
+export type LeadReengagementAutomation = "lead.lost_nurture" | "lead.reactivation" | "followup.touch";
 
-export type LifecycleBlockReason = "lead_contact_mismatch" | "lead_superseded" | "contact_active_engagement" | "sms_intake_not_qualified";
+export type LifecycleBlockReason = "lead_contact_mismatch" | "lead_closed" | "lead_superseded" | "contact_active_engagement" | "sms_intake_not_qualified";
 
 export type LifecycleLead = { id: string; contact_id: string | null; status: LeadStatus; source: string | null; created_at: string };
 
@@ -61,6 +64,9 @@ export function evaluateLifecycleEligibility(automation: LeadReengagementAutomat
   const { lead } = facts;
   if (!lead.contact_id || (facts.contactId !== null && facts.contactId !== lead.contact_id)) {
     return { eligible: false, reason: "lead_contact_mismatch", detail: "the lead does not belong to this contact" };
+  }
+  if (automation === "followup.touch" && !OPEN_LEAD_STATUSES.has(lead.status)) {
+    return { eligible: false, reason: "lead_closed", detail: `the lead is ${lead.status}` };
   }
   const superseded = OPEN_LEAD_STATUSES.has(lead.status)
     ? facts.otherOpenLeads.some((other) => new Date(other.created_at).getTime() > new Date(lead.created_at).getTime())
