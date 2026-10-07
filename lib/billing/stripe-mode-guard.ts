@@ -29,12 +29,26 @@ import Stripe from "stripe";
  *
  * The check runs on every call, not once at module load, so a key or
  * environment change is never masked by a cached client.
+ *
+ * Final Batch 4 (production operations hardening):
+ *   - the reverse mix is refused too: a TEST key in Vercel Production would
+ *     silently take fake payments (and, for billing, activate organizations
+ *     that never paid). It is allowed only with the explicit opt-in
+ *     STRIPE_ALLOW_TEST_MODE_IN_PRODUCTION=true (e.g. a deliberate
+ *     pre-launch production rehearsal);
+ *   - the subscription-billing key (STRIPE_SECRET_KEY) gets the same rules
+ *     in its own module (lib/billing/billing-key-guard.ts), so this payments
+ *     guard still never reads the billing key except to compare;
+ *   - a webhook event whose livemode differs from the key's mode is refused
+ *     (stripeEventModeMatches) - a webhook endpoint registered in the wrong
+ *     Stripe mode can never move real state. Webhook signing secrets carry
+ *     no mode of their own, so the event's livemode is the only signal.
  */
 
 export type StripeKeyMode = "test" | "live";
 
 export class StripeKeyGuardError extends Error {
-  readonly reason: "missing" | "unrecognized" | "same_as_billing_key" | "live_key_outside_vercel_production";
+  readonly reason: "missing" | "unrecognized" | "same_as_billing_key" | "live_key_outside_vercel_production" | "test_key_in_vercel_production";
 
   constructor(reason: StripeKeyGuardError["reason"], message: string) {
     super(message);
@@ -52,6 +66,20 @@ export function classifyStripeSecretKey(key: string | undefined | null): StripeK
 
 export function isVercelProduction(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.VERCEL === "1" && env.VERCEL_ENV === "production";
+}
+
+/** The explicit, documented opt-in for test-mode Stripe keys in Vercel Production. */
+export function allowsTestModeInProduction(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.STRIPE_ALLOW_TEST_MODE_IN_PRODUCTION === "true";
+}
+
+export function refuseTestKeyInProduction(variable: string, mode: StripeKeyMode, env: NodeJS.ProcessEnv): void {
+  if (mode === "test" && isVercelProduction(env) && !allowsTestModeInProduction(env)) {
+    throw new StripeKeyGuardError(
+      "test_key_in_vercel_production",
+      `Refusing to use a test-mode ${variable} in Vercel Production. Configure the live key, or set STRIPE_ALLOW_TEST_MODE_IN_PRODUCTION=true for a deliberate test-mode rehearsal.`,
+    );
+  }
 }
 
 /**
@@ -85,7 +113,13 @@ export function assertStripeKeyAllowedForPayments(env: NodeJS.ProcessEnv = proce
     );
   }
 
+  refuseTestKeyInProduction("STRIPE_CONNECT_SECRET_KEY", mode, env);
   return mode;
+}
+
+/** Final Batch 4: a webhook event may only act when its livemode matches the mode of the key that verifies it. */
+export function stripeEventModeMatches(eventLivemode: boolean | null | undefined, keyMode: StripeKeyMode): boolean {
+  return typeof eventLivemode === "boolean" && eventLivemode === (keyMode === "live");
 }
 
 let paymentsClient: { key: string; client: Stripe } | null = null;

@@ -2,6 +2,8 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { paymentsStripe, stripeErrorMessage, syncConnectAccountById } from "./connect";
+import { classifyStripeSecretKey, stripeEventModeMatches } from "@/lib/billing/stripe-mode-guard";
+import { reportOpsAlert } from "@/lib/ops/alert";
 import { recordOnlineInvoicePayment, recordOnlinePaymentFollowUp, type OnlinePaymentHooks } from "./online-payment";
 
 /**
@@ -88,6 +90,14 @@ export async function handleConnectWebhook(request: Request, deps: ConnectWebhoo
   } catch (error) {
     console.error("[payments][connect-webhook] signature verification failed", { error: error instanceof Error ? error.message : "unknown error" });
     return respond(400, { ok: false, outcome: "invalid_signature" });
+  }
+
+  // Final Batch 4: an event from the other Stripe mode never moves real
+  // state (see lib/billing/stripe-mode-guard.ts stripeEventModeMatches).
+  const keyMode = classifyStripeSecretKey((deps.env ?? process.env).STRIPE_CONNECT_SECRET_KEY);
+  if (keyMode && !stripeEventModeMatches(event.livemode, keyMode)) {
+    await reportOpsAlert({ severity: "critical", source: "stripe.connect_webhook", code: "stripe_event_mode_mismatch", message: "A Stripe Connect webhook event's mode does not match this deployment's key mode; it was refused.", context: { eventId: event.id, eventType: event.type, keyMode, eventLivemode: event.livemode } });
+    return respond(400, { ok: false, outcome: "mode_mismatch" });
   }
 
   const account = typeof event.account === "string" && event.account ? event.account : null;

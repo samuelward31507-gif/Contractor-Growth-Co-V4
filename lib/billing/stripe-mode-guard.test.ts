@@ -54,10 +54,14 @@ test("Vercel Production requires both VERCEL=1 and VERCEL_ENV=production", () =>
   assert.equal(isVercelProduction(env({})), false);
 });
 
-test("a test-mode key is allowed everywhere", () => {
-  for (const extra of [{}, { VERCEL: "1", VERCEL_ENV: "preview" }, { VERCEL: "1", VERCEL_ENV: "production" }, { NODE_ENV: "production" }]) {
+// Final Batch 4: a test key is allowed everywhere EXCEPT Vercel Production,
+// where it needs the explicit STRIPE_ALLOW_TEST_MODE_IN_PRODUCTION=true opt-in.
+test("a test-mode key is allowed everywhere outside Vercel Production", () => {
+  for (const extra of [{}, { VERCEL: "1", VERCEL_ENV: "preview" }, { VERCEL_ENV: "production" }, { NODE_ENV: "production" }]) {
     assert.equal(assertStripeKeyAllowedForPayments(env({ STRIPE_CONNECT_SECRET_KEY: TEST_KEY, ...extra })), "test");
   }
+  expectRefusal(() => assertStripeKeyAllowedForPayments(env({ STRIPE_CONNECT_SECRET_KEY: TEST_KEY, VERCEL: "1", VERCEL_ENV: "production" })), "test_key_in_vercel_production");
+  assert.equal(assertStripeKeyAllowedForPayments(env({ STRIPE_CONNECT_SECRET_KEY: TEST_KEY, VERCEL: "1", VERCEL_ENV: "production", STRIPE_ALLOW_TEST_MODE_IN_PRODUCTION: "true" })), "test");
 });
 
 test("a live key is refused locally, in tests, and in Vercel Preview", () => {

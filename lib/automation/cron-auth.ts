@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
+import { reportOpsAlert } from "@/lib/ops/alert";
 
 /**
  * The single authorization gate every scheduled-automation HTTP endpoint
@@ -26,7 +27,13 @@ import type { NextRequest } from "next/server";
  */
 export function isAuthorizedCronRequest(request: NextRequest): boolean {
   const configuredSecret = process.env.CRON_SECRET;
-  if (!configuredSecret) return false;
+  if (!configuredSecret) {
+    // Final Batch 4: still fails closed, but no longer silently - without
+    // CRON_SECRET every scheduled route refuses every call. Log only (this
+    // runs on every scheduler call); never includes any header value.
+    void reportOpsAlert({ severity: "critical", source: "automation.cron_auth", code: "cron_secret_missing", message: "CRON_SECRET is not configured - every scheduled automation call is being refused." });
+    return false;
+  }
 
   const authHeader = request.headers.get("authorization");
   if (!authHeader) return false;

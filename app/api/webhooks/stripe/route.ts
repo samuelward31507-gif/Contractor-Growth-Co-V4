@@ -3,6 +3,8 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getStripeClient } from "@/lib/billing/stripe";
+import { assertStripeKeyAllowedForBilling, stripeEventModeMatches } from "@/lib/billing/billing-key-guard";
+import { reportOpsAlert } from "@/lib/ops/alert";
 import { activateOrganizationPayment, suspendOrganizationPayment, cancelOrganizationPayment } from "@/lib/billing/activation";
 import { isTrackprSubscriptionCheckout } from "@/lib/billing/subscription-checkout";
 
@@ -260,6 +262,16 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[billing][webhook] signature verification failed", { error: error instanceof Error ? error.message : "unknown error" });
     return NextResponse.json({ ok: false, error: "Invalid signature." }, { status: 401 });
+  }
+
+  // Final Batch 4: an event from the other Stripe mode (a test-mode endpoint
+  // pointed at production, or the reverse) never moves real state. Refused
+  // with a non-2xx so the misconfiguration stays visible in Stripe's
+  // delivery log; nothing is read from the event beyond its id/type.
+  const keyMode = assertStripeKeyAllowedForBilling(process.env);
+  if (!stripeEventModeMatches(event.livemode, keyMode)) {
+    await reportOpsAlert({ severity: "critical", source: "stripe.billing_webhook", code: "stripe_event_mode_mismatch", message: "A Stripe billing webhook event's mode does not match this deployment's key mode; it was refused.", context: { eventId: event.id, eventType: event.type, keyMode, eventLivemode: event.livemode } });
+    return NextResponse.json({ ok: false, error: "Stripe mode mismatch." }, { status: 400 });
   }
 
   const service = createServiceRoleClient();

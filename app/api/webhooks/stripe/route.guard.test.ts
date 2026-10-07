@@ -80,7 +80,7 @@ function checkoutCompleted(options: { mode?: string | null; account?: string | n
     subscription: options.subscription ?? null,
   };
   if (options.mode !== undefined) session.mode = options.mode;
-  const event: Record<string, unknown> = { id: `evt_guard_${Math.random()}`, object: "event", type: "checkout.session.completed", data: { object: session } };
+  const event: Record<string, unknown> = { id: `evt_guard_${Math.random()}`, object: "event", livemode: false, type: "checkout.session.completed", data: { object: session } };
   if (options.account) event.account = options.account;
   return JSON.stringify(event);
 }
@@ -157,7 +157,7 @@ test("unchanged: a bad signature is still rejected with 401 before anything else
 });
 
 test("unchanged: subscription lifecycle events still move payment_status exactly as before", async () => {
-  const payload = JSON.stringify({ id: "evt_guard_sub", object: "event", type: "customer.subscription.updated", data: { object: { id: "sub_guard", object: "subscription", status: "past_due", metadata: { organization_id: ORG } } } });
+  const payload = JSON.stringify({ id: "evt_guard_sub", object: "event", livemode: false, type: "customer.subscription.updated", data: { object: { id: "sub_guard", object: "subscription", status: "past_due", metadata: { organization_id: ORG } } } });
   const response = await POST(signed(payload) as never);
   assert.equal(response.status, 200);
   const writes = organizationWrites();
@@ -165,13 +165,13 @@ test("unchanged: subscription lifecycle events still move payment_status exactly
   assert.deepEqual(writes[0].body, { payment_status: "suspended" });
 
   requests.length = 0;
-  const deleted = JSON.stringify({ id: "evt_guard_del", object: "event", type: "customer.subscription.deleted", data: { object: { id: "sub_guard", object: "subscription", status: "canceled", metadata: { organization_id: ORG } } } });
+  const deleted = JSON.stringify({ id: "evt_guard_del", object: "event", livemode: false, type: "customer.subscription.deleted", data: { object: { id: "sub_guard", object: "subscription", status: "canceled", metadata: { organization_id: ORG } } } });
   assert.equal((await POST(signed(deleted) as never)).status, 200);
   assert.deepEqual(organizationWrites()[0].body, { payment_status: "cancelled" });
 });
 
 test("unchanged: a subscription checkout with no resolvable organization is acknowledged and changes nothing", async () => {
-  const payload = JSON.stringify({ id: "evt_guard_noorg", object: "event", type: "checkout.session.completed", data: { object: { id: "cs_noorg", object: "checkout.session", mode: "subscription", client_reference_id: null, metadata: {} } } });
+  const payload = JSON.stringify({ id: "evt_guard_noorg", object: "event", livemode: false, type: "checkout.session.completed", data: { object: { id: "cs_noorg", object: "checkout.session", mode: "subscription", client_reference_id: null, metadata: {} } } });
   const response = await POST(signed(payload) as never);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: false, reason: "missing_organization_id" });
@@ -179,7 +179,7 @@ test("unchanged: a subscription checkout with no resolvable organization is ackn
 });
 
 test("unchanged: unrelated event types are acknowledged and ignored", async () => {
-  const payload = JSON.stringify({ id: "evt_guard_other", object: "event", type: "customer.updated", data: { object: { id: "cus_guard", object: "customer" } } });
+  const payload = JSON.stringify({ id: "evt_guard_other", object: "event", livemode: false, type: "customer.updated", data: { object: { id: "cus_guard", object: "customer" } } });
   const response = await POST(signed(payload) as never);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true, ignored: "customer.updated" });
@@ -193,4 +193,13 @@ test("structural: the guard runs before any organization is resolved or activate
   assert.ok(guardAt > 0, "guard present in the checkout branch");
   assert.ok(guardAt < branch.indexOf("client_reference_id"), "guard precedes organization resolution");
   assert.ok(guardAt < branch.indexOf("activateOrganizationPayment("), "guard precedes activation");
+});
+
+// Final Batch 4: an event from the other Stripe mode never moves real state.
+test("a LIVE-mode event on this TEST-key deployment is refused (400) and writes nothing", async () => {
+  const payload = JSON.stringify({ id: "evt_guard_live", object: "event", livemode: true, type: "checkout.session.completed", data: { object: { id: "cs_live", object: "checkout.session", mode: "subscription", client_reference_id: ORG, metadata: { organization_id: ORG } } } });
+  const response = await POST(signed(payload) as never);
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { ok: false, error: "Stripe mode mismatch." });
+  assert.equal(organizationWrites().length, 0);
 });

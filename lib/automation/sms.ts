@@ -1,4 +1,5 @@
 import Twilio from "twilio";
+import { resolveAppBaseUrlFromEnv } from "@/lib/config/app-url";
 
 export type SendSmsInput = {
   organizationId: string;
@@ -21,38 +22,16 @@ export const E164_PATTERN = /^\+[1-9]\d{1,14}$/;
 
 const STATUS_CALLBACK_PATH = "/api/webhooks/sms/status";
 
-// The single canonical production URL. `VERCEL_PROJECT_PRODUCTION_URL` is
-// NOT reliably exposed to every Vercel Function (it depends on a project-level
-// "Automatically expose System Environment Variables" setting) - a real
-// 2026-09-21 production incident proved it absent at runtime here, which
-// silently fell through to a request-header-based fallback that produced
-// `http://localhost:3000` in a live Supabase confirmation email. `VERCEL_ENV`,
-// by contrast, is unconditionally injected by Vercel on every request, so
-// gating on it is the one deterministic, production-safe signal available.
-const PRODUCTION_APP_URL = "https://contractor-growth-co-v4.vercel.app";
-
 /**
  * Resolves Trackpr's own stable, public base URL - never a temporary
- * per-deployment preview URL, and never a guess. In production this is
- * always the hardcoded canonical URL above, regardless of any other env
- * var's availability. Outside production, `APP_BASE_URL` is an explicit
- * opt-in override (e.g. for a custom preview domain), checked first, then
- * `VERCEL_PROJECT_PRODUCTION_URL` where it happens to be exposed. Returns
- * null (not a guess) when none apply, e.g. running locally with no .env
- * override; callers must treat that as "not configured yet", the same
- * graceful-degradation shape sendSms() already uses for missing Twilio
- * credentials.
+ * per-deployment preview URL, and never a guess. Final Batch 4: the rules
+ * now live in lib/config/app-url.ts (one place; production can name its
+ * canonical domain with APP_CANONICAL_URL, and otherwise keeps the
+ * hard-coded fail-safe this function always returned). Unchanged contract:
+ * null means "not configured yet" and callers degrade gracefully.
  */
 export function resolveAppBaseUrl(): string | null {
-  if (process.env.VERCEL_ENV === "production") return PRODUCTION_APP_URL;
-
-  const explicit = process.env.APP_BASE_URL;
-  if (explicit) return explicit.replace(/\/+$/, "");
-
-  const vercelProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  if (vercelProductionUrl) return `https://${vercelProductionUrl}`;
-
-  return null;
+  return resolveAppBaseUrlFromEnv(process.env);
 }
 
 export type TwilioCreateMessageParams = { to: string; from: string; body: string; statusCallback?: string };

@@ -8,6 +8,8 @@ import { evaluateScheduledAutomationDegradedAlert } from "@/lib/automation-healt
 import { EXECUTION_TIMEOUT_MINUTES, failTimedOutExecutions } from "@/lib/automation/execution-timeout";
 import { classifyFailedExecutions, processDueRetries } from "@/lib/automation/execution-retry";
 import { dispatchDueFollowups } from "@/lib/followups/engine";
+import { runTickPhase } from "@/lib/automation-health/tick-phase";
+import { reportOpsAlert } from "@/lib/ops/alert";
 
 /**
  * Read-only operational check for workflow_executions rows stuck in
@@ -35,6 +37,14 @@ import { dispatchDueFollowups } from "@/lib/followups/engine";
  * invocation is also logged to automation_health_check_runs (a global
  * heartbeat, not per-organization - see that table's own migration comment)
  * so "is Trackpr's own health-check job even running" is answerable.
+ *
+ * Final Batch 4: each phase runs isolated (runTickPhase) - one phase
+ * throwing no longer silently aborts every phase after it. A failed phase is
+ * a structured ops alert, the response is HTTP 500 with the failed phases
+ * listed, and NO heartbeat row is written for that tick: the heartbeat means
+ * "a complete tick ran", so a phase that keeps failing still turns the
+ * heartbeat stale and the scheduler watchdog still catches it. A heartbeat
+ * insert that fails is reported too, rather than ignored.
  */
 const STUCK_THRESHOLD_MINUTES = 30;
 const MAX_ROWS = 100;
@@ -70,17 +80,25 @@ export async function GET(request: NextRequest) {
   // so their events become failed/retryable instead of 'processing'
   // forever. Their earlier workflow_stuck incidents are then auto-resolved
   // below by resolve_stale_stuck_incidents, since they have left 'running'.
-  const timeout = await failTimedOutExecutions(service);
+  const phaseFailures: string[] = [];
+  const phase = async <T,>(name: string, run: () => Promise<T>, fallback: T): Promise<T> => {
+    const result = await runTickPhase(name, run);
+    if (result.ok) return result.value;
+    phaseFailures.push(name);
+    return fallback;
+  };
+
+  const timeout = await phase("execution_timeout", () => failTimedOutExecutions(service), { timedOut: [], errors: 0 });
 
   // P0 A2: every failed execution (including the timeouts just failed) gets
   // one durable retry decision, then due retries run through the same path
   // as a staff retry - gate and all. See lib/automation/execution-retry.ts.
-  const retryDecisions = await classifyFailedExecutions(service);
-  const retries = await processDueRetries(service);
+  const retryDecisions = await phase("retry_classification", () => classifyFailedExecutions(service), { decided: [], errors: 0 });
+  const retries = await phase("retry_processing", () => processDueRetries(service), { started: [], stopped: [], errors: 0 });
 
   // P0 A4: the Follow-Up Engine's single dispatcher runs on this same tick
   // (no new scheduler). Only follow-ups an organization enabled exist.
-  const followups = await dispatchDueFollowups(service);
+  const followups = await phase("followup_dispatch", () => dispatchDueFollowups(service), [] as Awaited<ReturnType<typeof dispatchDueFollowups>>);
 
   const { data: stuck, error } = await service
     .from("workflow_executions")
@@ -91,28 +109,31 @@ export async function GET(request: NextRequest) {
     .limit(MAX_ROWS);
 
   if (error) {
-    return NextResponse.json({ ok: false, error: "Could not query workflow executions." }, { status: 500 });
+    await reportOpsAlert({ severity: "critical", source: "automation.health", code: "health_tick_stuck_scan_failed", message: "The health tick could not read workflow executions; no heartbeat was recorded." });
+    return NextResponse.json({ ok: false, error: "Could not query workflow executions.", failedPhases: [...phaseFailures, "stuck_scan"] }, { status: 500 });
   }
 
   // One incident signal per stuck row - collapses correctly across repeated
   // ticks (fingerprint context is the execution id), never floods.
   let incidentsOpened = 0;
-  for (const row of stuck) {
-    const automation = getAutomationForWorkflowName(row.workflow_name);
-    const incident = await recordAutomationHealthSignal(service, {
-      organizationId: row.organization_id,
-      category: "workflow_stuck",
-      severity: "warning",
-      fingerprintContext: row.id,
-      title: `${automation?.name ?? row.workflow_name} execution stuck`,
-      description: `Running for over ${STUCK_THRESHOLD_MINUTES} minutes with no callback.`,
-      automationId: automation?.id ?? null,
-      workflowExecutionId: row.id,
-    });
-    if (incident && incident.occurrenceCount === 1) incidentsOpened += 1;
-  }
+  await phase("stuck_incidents", async () => {
+    for (const row of stuck) {
+      const automation = getAutomationForWorkflowName(row.workflow_name);
+      const incident = await recordAutomationHealthSignal(service, {
+        organizationId: row.organization_id,
+        category: "workflow_stuck",
+        severity: "warning",
+        fingerprintContext: row.id,
+        title: `${automation?.name ?? row.workflow_name} execution stuck`,
+        description: `Running for over ${STUCK_THRESHOLD_MINUTES} minutes with no callback.`,
+        automationId: automation?.id ?? null,
+        workflowExecutionId: row.id,
+      });
+      if (incident && incident.occurrenceCount === 1) incidentsOpened += 1;
+    }
+  }, undefined);
 
-  const { data: resolvedCount } = await service.rpc("resolve_stale_stuck_incidents");
+  const resolvedCount = await phase("stuck_incident_resolution", async () => (await service.rpc("resolve_stale_stuck_incidents")).data, null);
   const incidentsResolved = typeof resolvedCount === "number" ? resolvedCount : 0;
 
   // Pass 5A: evaluates each of the 5 scheduled (cron-dependent) automations'
@@ -123,7 +144,7 @@ export async function GET(request: NextRequest) {
   // reflected on the very next read with no separate resolution step. See
   // lib/automation-health/scheduled-automation-liveness.ts's own header
   // comment for the full reasoning.
-  const scheduledLiveness = await getScheduledAutomationLiveness(service);
+  const scheduledLiveness = await phase("scheduled_liveness", () => getScheduledAutomationLiveness(service), [] as Awaited<ReturnType<typeof getScheduledAutomationLiveness>>);
   const staleScheduledAutomations = scheduledLiveness.filter((liveness) => liveness.state === "stale");
 
   // Pass 5C Batch 7, Item 2: fans the one, already-computed, global stale
@@ -132,7 +153,9 @@ export async function GET(request: NextRequest) {
   // for the full dedup/recovery reasoning. Best-effort by construction
   // (recordAutomationHealthSignal/notifyFounder never throw) - a failure
   // here must never fail this health-check tick's own reporting.
-  await evaluateScheduledAutomationDegradedAlert(service, staleScheduledAutomations.length > 0);
+  if (!phaseFailures.includes("scheduled_liveness")) {
+    await phase("scheduled_degraded_alert", () => evaluateScheduledAutomationDegradedAlert(service, staleScheduledAutomations.length > 0), undefined);
+  }
 
   const [{ count: failedExecutionCount }, { count: criticalIncidentCount }, { count: warningIncidentCount }] = await Promise.all([
     service.from("workflow_executions").select("id", { count: "exact", head: true }).eq("status", "failed").gte("started_at", failedSinceIso),
@@ -140,18 +163,29 @@ export async function GET(request: NextRequest) {
     service.from("automation_incidents").select("id", { count: "exact", head: true }).eq("severity", "warning").in("status", ["open", "acknowledged"]),
   ]);
 
-  await service.from("automation_health_check_runs").insert({
-    stuck_count: stuck.length,
-    incidents_opened: incidentsOpened,
-    incidents_resolved: incidentsResolved,
-  });
+  // Final Batch 4: the heartbeat records a COMPLETE tick only (see header).
+  let heartbeatRecorded = false;
+  if (phaseFailures.length === 0) {
+    const { error: heartbeatError } = await service.from("automation_health_check_runs").insert({
+      stuck_count: stuck.length,
+      incidents_opened: incidentsOpened,
+      incidents_resolved: incidentsResolved,
+    });
+    heartbeatRecorded = !heartbeatError;
+    if (heartbeatError) {
+      await reportOpsAlert({ severity: "critical", source: "automation.health", code: "health_heartbeat_write_failed", message: "The health tick ran but could not record its heartbeat; the scheduler watchdog will report it as stale." });
+    }
+  }
 
   const overall =
     (criticalIncidentCount ?? 0) > 0 ? "unhealthy" : (warningIncidentCount ?? 0) > 0 || stuck.length > 0 || staleScheduledAutomations.length > 0 ? "degraded" : "healthy";
 
+  const tickOk = phaseFailures.length === 0 && heartbeatRecorded;
   return NextResponse.json({
-    ok: true,
-    status: overall,
+    ok: tickOk,
+    status: tickOk ? overall : "degraded",
+    failedPhases: phaseFailures,
+    heartbeatRecorded,
     timestamp: new Date().toISOString(),
     thresholdMinutes: STUCK_THRESHOLD_MINUTES,
     stuckCount: stuck.length,
@@ -179,5 +213,5 @@ export async function GET(request: NextRequest) {
     providerStatus: process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER ? "configured" : "not_configured",
     n8nStatus: process.env.N8N_BASE_URL && process.env.N8N_WEBHOOK_SECRET ? "configured" : "not_configured",
     database: "available",
-  });
+  }, { status: tickOk ? 200 : 500 });
 }

@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
+import { canonicalSiteUrl } from "@/lib/config/app-url";
 
-const SITE_URL = "https://contractor-growth-co-v4.vercel.app";
+const SITE_URL = canonicalSiteUrl();
 
 /**
  * Only the real public marketing routes - the authenticated Trackpr app

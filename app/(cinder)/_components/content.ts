@@ -8,8 +8,10 @@
  * integrations are claimed anywhere on the site.
  */
 import { CONTACT_EMAIL } from "@/lib/site/contact";
+import { canonicalSiteUrl } from "@/lib/config/app-url";
 
-export const SITE_URL = "https://contractor-growth-co-v4.vercel.app";
+/** Final Batch 4: the production canonical URL (APP_CANONICAL_URL, else the default) - lib/config/app-url.ts. */
+export const SITE_URL = canonicalSiteUrl();
 export const TRACKPR_HREF = "/trackpr";
 export const TRACKPR_DEMO_HREF = "/demo";
 /** Product access for existing Trackpr users - the application's own sign-in page. */
