@@ -51,3 +51,22 @@ Tests:
 
 - `followups.test.ts`: A4, unchanged.
 - `obligations.test.ts`: B2.1. It covers the registry, the producer path, snapshot ordering and fail-closed behaviour, and A4 parity characterization.
+
+## Shared touch runtime (P0-B B2.4)
+
+Every Trackpr-composed touch, persisted or derived, now runs the same universal steps. They take a kind's identity and policy values only, and never branch on kind names.
+
+| Step | Where |
+|---|---|
+| `verifyLifecycle` | `engine.ts`. The B1 snapshot for the subject contact, scoped by organization and contact, as of now, then derived. A failed read means nothing may act. |
+| `claimTouch` | `engine.ts`. Records the touch's idempotency key, then starts the execution through B0's atomic start. |
+| `executeTouch` | `engine.ts`. Outbound gate → send → record on the execution (the A2 contract). It holds the only send call; the A4 suite pins that call to this file. |
+
+Two drivers feed those steps:
+
+- **Persisted:** this file's dispatcher. It handles the row lease, deferral, dormancy and state, and is unchanged.
+- **Derived:** `lib/automation/touch-runtime.ts` (`runDerivedTouch`). It runs a fixed pipeline: kill switch → payment (policy) → still due → soft claim → B1 verification → still owed → stale policy → claim → compose → gate → send → record.
+
+Each kind plugs in through a `DerivedTouchAdapter`: pure functions of the work item (subject, legacy key, due check, due time, still-owed check, payload, message, gate options, result ids) plus policy values.
+
+The first derived kind is customer reactivation (`CUSTOMER_REACTIVATION_ADAPTER`). Its existing scan is still its producer. Tests: `lib/automation/touch-runtime.test.ts`.

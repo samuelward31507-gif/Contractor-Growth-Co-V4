@@ -1,14 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAutomationEventAsService } from "./events";
-import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
-import { evaluateOutboundGate } from "./outbound-gate";
-import { sendOutboundMessage } from "@/lib/messaging/outbound";
-import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
+import { runDerivedTouch, type DerivedTouchAdapter } from "./touch-runtime";
 import { getAutomationEnabled, getAutomationConfigByOrganization, readCustomerReactivationConfig, type CustomerReactivationConfig } from "./settings";
 import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
-import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouch } from "./late-touch";
+import { enabledPerOrganization } from "./late-touch";
 
 export const CUSTOMER_REACTIVATION_WORKFLOW = "customer_reactivation_followup";
 
@@ -150,6 +146,70 @@ export async function processCustomerReactivation(
   return { candidates: candidates.length, outcomes };
 }
 
+type ReactivationItem = { job: CandidateJob; config: CustomerReactivationConfig };
+type ReactivationFacts = { contact: ReactivationContact; title: string };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * P0-B B2.4: customer reactivation's kind adapter for the shared touch
+ * runtime (lib/automation/touch-runtime.ts). Every value below is this
+ * automation's existing behavior, unchanged: one touch per (contact, latest
+ * completed job) under the legacy key customer.reactivation:<contact>:<job>,
+ * anchored on the job's completed_at + the organization's inactivity_days,
+ * the organization payment check, the "no recent active opportunity / open
+ * conversation / job still completed / contact exists" checks in their
+ * original order, the 48-hour overdue rule, the deterministic Trackpr-composed
+ * message, and the gate's job + business-hours options (no automation-enabled
+ * re-check at the gate, as before). It is not retried by A2.
+ */
+export const CUSTOMER_REACTIVATION_ADAPTER: DerivedTouchAdapter<ReactivationItem, ReactivationFacts> = {
+  identity: { automationId: "customer-reactivation", eventType: "customer.reactivation", workflowName: CUSTOMER_REACTIVATION_WORKFLOW },
+  policy: { requiresActivePayment: true, stale: "record_overdue", gateChecksAutomationEnabled: false, senderType: "ai" },
+  subject: ({ job }) => ({ organizationId: job.organization_id, contactId: job.contact_id, leadId: null, entityType: "job", entityId: job.id }),
+  idempotencyKey: ({ job }) => `customer.reactivation:${job.contact_id}:${job.id}`,
+  isDue: ({ job, config }, now) => isReactivationDue(job.completed_at, config, now),
+  dueAt: ({ job, config }) => ({ anchorMs: new Date(job.completed_at).getTime(), delayMs: config.inactivity_days * DAY_MS }),
+  stillOwed: async (supabase, { job }) => {
+    const contactId = job.contact_id;
+    const organizationId = job.organization_id;
+
+    // "No recent active opportunity" (requirement): a past customer with an
+    // open lead, an active appointment, an active estimate, or another active
+    // job right now is already being engaged through that channel - a
+    // reactivation ping would be redundant, not helpful.
+    const [{ data: openLead }, { data: activeAppointment }, { data: activeEstimate }, { data: activeJob }] = await Promise.all([
+      supabase.from("leads").select("id, status").eq("contact_id", contactId).eq("organization_id", organizationId).limit(20),
+      supabase.from("appointments").select("id").eq("contact_id", contactId).eq("organization_id", organizationId).in("status", ACTIVE_APPOINTMENT_STATUSES).limit(1).maybeSingle(),
+      supabase.from("estimates").select("id").eq("contact_id", contactId).eq("organization_id", organizationId).in("status", ACTIVE_ESTIMATE_STATUSES).limit(1).maybeSingle(),
+      supabase.from("jobs").select("id").eq("contact_id", contactId).eq("organization_id", organizationId).in("status", ACTIVE_JOB_STATUSES).limit(1).maybeSingle(),
+    ]);
+    const hasOpenLead = ((openLead ?? []) as { id: string; status: LeadStatus }[]).some((lead) => OPEN_LEAD_STATUSES.has(lead.status));
+    if (hasOpenLead || activeAppointment || activeEstimate || activeJob) return { owed: false, reason: "active_engagement" };
+
+    // "No recent active conversation" (Part 12 safety checklist): an already
+    // -open conversation means this contact is currently mid-thread with the
+    // business for some other reason - never interject an unrelated
+    // reactivation ping into it.
+    const { data: openConversation } = await supabase.from("conversations").select("id").eq("organization_id", organizationId).eq("contact_id", contactId).eq("status", "open").maybeSingle();
+    if (openConversation) return { owed: false, reason: "has_open_conversation" };
+
+    // Re-check live state immediately before dispatch: the job could have
+    // been reopened/edited during the queries above.
+    const { data: freshJob } = await supabase.from("jobs").select("id, status, title").eq("id", job.id).eq("organization_id", organizationId).maybeSingle();
+    if (!freshJob || freshJob.status !== "completed") return { owed: false, reason: "job_not_completed" };
+
+    const { data: contact } = await supabase.from("contacts").select("id, organization_id, first_name, phone, sms_opt_out").eq("id", contactId).eq("organization_id", organizationId).maybeSingle();
+    if (!contact) return { owed: false, reason: "no_contact" };
+
+    return { owed: true, facts: { contact: contact as ReactivationContact, title: freshJob.title as string } };
+  },
+  payload: ({ job }, facts) => ({ contact_id: job.contact_id, job_id: job.id, job_title: facts.title }),
+  compose: ({ job }, facts) => composeReactivationBody(facts.contact, { ...job, title: facts.title }),
+  gateOptions: ({ job, config }) => ({ jobId: job.id, jobEligibleStatuses: ["completed"], respectBusinessHours: config.respect_business_hours }),
+  resultMetadata: ({ job }) => ({ job_id: job.id }),
+};
+
 async function processOneCustomer(
   supabase: SupabaseClient,
   job: CandidateJob,
@@ -159,224 +219,21 @@ async function processOneCustomer(
   isEnabled: (organizationId: string) => Promise<boolean> = (organizationId) => getAutomationEnabled(supabase, organizationId, "customer-reactivation"),
 ): Promise<CustomerReactivationOutcome> {
   const contactId = job.contact_id;
-  const organizationId = job.organization_id;
-
-  // Checked first, before any further query cost - mirrors
-  // processOneLead's identical ordering rationale.
-  if (!(await isEnabled(organizationId))) {
-    return { contactId, outcome: "skipped_disabled" };
+  const result = await runDerivedTouch(supabase, CUSTOMER_REACTIVATION_ADAPTER, { job, config }, now, { isEnabled, sendSmsFn });
+  switch (result.status) {
+    case "sent":
+      return { contactId, outcome: "sent", messageId: result.messageId };
+    case "blocked":
+      return { contactId, outcome: "blocked", reason: result.reason };
+    case "failed":
+      return { contactId, outcome: "failed", error: result.error };
+    case "lifecycle_failed":
+      return { contactId, outcome: "failed", error: `lifecycle_snapshot_failed: ${result.error}` };
+    case "subject_missing":
+      return { contactId, outcome: "no_contact" };
+    case "not_owed":
+      return { contactId, outcome: result.reason as "active_engagement" | "has_open_conversation" | "job_not_completed" | "no_contact" };
+    default:
+      return { contactId, outcome: result.status };
   }
-
-  // Customer Reactivation Safety (Part 12): evaluateOutboundGate itself
-  // never checks organizations.payment_status (it only checks automation_mode
-  // and automation_paused) - a gap shared by every scheduled automation in
-  // this codebase, not something specific to this one. Rather than silently
-  // change that shared, heavily-relied-on gate's behavior for every existing
-  // automation as a side effect of this task, this automation adds its own
-  // explicit, narrow payment check up front - an org whose payment lapsed
-  // must never receive a new outbound campaign message, full stop.
-  const { data: organizationRow } = await supabase.from("organizations").select("payment_status").eq("id", organizationId).maybeSingle();
-  if (organizationRow?.payment_status !== "active") {
-    return { contactId, outcome: "payment_inactive" };
-  }
-
-  if (!isReactivationDue(job.completed_at, config, now)) {
-    return { contactId, outcome: "not_due" };
-  }
-
-  const idempotencyKey = `customer.reactivation:${contactId}:${job.id}`;
-
-  // Fast-path duplicate check - an optimization only; the real, race-proof
-  // guarantee remains createAutomationEventAsService's own idempotency-key
-  // unique index below, exactly like every other scheduled automation in
-  // this codebase.
-  const { data: existingEvent } = await supabase
-    .from("automation_events")
-    .select("id")
-    .eq("organization_id", organizationId)
-    .eq("idempotency_key", idempotencyKey)
-    .maybeSingle();
-
-  if (existingEvent) {
-    return { contactId, outcome: "skipped_duplicate" };
-  }
-
-  // "No recent active opportunity" (requirement): a past customer with an
-  // open lead, an active appointment, an active estimate, or another active
-  // job right now is already being engaged through that channel - a
-  // reactivation ping would be redundant, not helpful.
-  const [{ data: openLead }, { data: activeAppointment }, { data: activeEstimate }, { data: activeJob }] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("id, status")
-      .eq("contact_id", contactId)
-      .eq("organization_id", organizationId)
-      .limit(20),
-    supabase
-      .from("appointments")
-      .select("id")
-      .eq("contact_id", contactId)
-      .eq("organization_id", organizationId)
-      .in("status", ACTIVE_APPOINTMENT_STATUSES)
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("estimates")
-      .select("id")
-      .eq("contact_id", contactId)
-      .eq("organization_id", organizationId)
-      .in("status", ACTIVE_ESTIMATE_STATUSES)
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("jobs")
-      .select("id")
-      .eq("contact_id", contactId)
-      .eq("organization_id", organizationId)
-      .in("status", ACTIVE_JOB_STATUSES)
-      .limit(1)
-      .maybeSingle(),
-  ]);
-
-  const hasOpenLead = ((openLead ?? []) as { id: string; status: LeadStatus }[]).some((lead) => OPEN_LEAD_STATUSES.has(lead.status));
-  if (hasOpenLead || activeAppointment || activeEstimate || activeJob) {
-    return { contactId, outcome: "active_engagement" };
-  }
-
-  // "No recent active conversation" (Part 12 safety checklist): an already
-  // -open conversation means this contact is currently mid-thread with the
-  // business for some other reason - never interject an unrelated
-  // reactivation ping into it. findOrCreateOpenConversation below would
-  // otherwise silently reuse that same thread.
-  const { data: openConversation } = await supabase
-    .from("conversations")
-    .select("id")
-    .eq("organization_id", organizationId)
-    .eq("contact_id", contactId)
-    .eq("status", "open")
-    .maybeSingle();
-
-  if (openConversation) {
-    return { contactId, outcome: "has_open_conversation" };
-  }
-
-  // Step 9 (mirroring processOneLead's identical "re-check live state
-  // immediately before dispatch" principle): the job could have been
-  // reopened/edited during the queries above.
-  const { data: freshJob } = await supabase
-    .from("jobs")
-    .select("id, status, title")
-    .eq("id", job.id)
-    .eq("organization_id", organizationId)
-    .maybeSingle();
-
-  if (!freshJob || freshJob.status !== "completed") {
-    return { contactId, outcome: "job_not_completed" };
-  }
-
-  const { data: contact } = await supabase
-    .from("contacts")
-    .select("id, organization_id, first_name, phone, sms_opt_out")
-    .eq("id", contactId)
-    .eq("organization_id", organizationId)
-    .maybeSingle();
-
-  if (!contact) {
-    return { contactId, outcome: "no_contact" };
-  }
-
-  // Phase 3 (W2, K5 rule): more than 48 hours past the inactivity threshold - recorded as not sent, never sent
-  // late. Checked before any conversation is created or the outbound gate runs, so removing the old 1,000-job
-  // cap can never turn into a message to every long-dormant customer at once.
-  const lateHours = hoursPastDue(now.getTime(), new Date(job.completed_at).getTime(), config.inactivity_days * 24 * 60 * 60 * 1000);
-  if (isTouchOverdue(lateHours)) {
-    const overdue = await recordOverdueTouch(supabase, {
-      organizationId,
-      eventType: "customer.reactivation",
-      entityType: "job",
-      entityId: job.id,
-      payload: { contact_id: contactId, job_id: job.id, job_title: freshJob.title },
-      idempotencyKey,
-      workflowName: CUSTOMER_REACTIVATION_WORKFLOW,
-      lateHours,
-    });
-    return { contactId, ...overdue };
-  }
-
-  const eventResult = await createAutomationEventAsService(supabase, organizationId, {
-    eventType: "customer.reactivation",
-    entityType: "job",
-    entityId: job.id,
-    payload: { contact_id: contactId, job_id: job.id, job_title: freshJob.title },
-    idempotencyKey,
-  });
-
-  if (!eventResult.ok) {
-    return { contactId, outcome: "failed", error: eventResult.error };
-  }
-  if (eventResult.duplicate) {
-    return { contactId, outcome: "skipped_duplicate" };
-  }
-  if (eventResult.skipped) {
-    return { contactId, outcome: "skipped_disabled" };
-  }
-
-  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, CUSTOMER_REACTIVATION_WORKFLOW);
-  if (!executionResult.ok) {
-    return { contactId, outcome: "failed", error: executionResult.error };
-  }
-  const executionId = executionResult.execution.id;
-
-  const conversation = await findOrCreateOpenConversation(supabase, organizationId, contactId, "sms");
-  const conversationId = conversation?.id ?? null;
-
-  const body = composeReactivationBody(contact as ReactivationContact, { ...job, title: freshJob.title });
-
-  const gateResult = await evaluateOutboundGate(supabase, {
-    organizationId,
-    executionId,
-    contactId,
-    conversationId,
-    leadId: null,
-    aiResult: { should_send: true, response_message: body, needs_human: false },
-    jobId: job.id,
-    jobEligibleStatuses: ["completed"],
-    respectBusinessHours: config.respect_business_hours,
-  });
-
-  if (!gateResult.allowed) {
-    await completeWorkflowExecutionAsService(supabase, executionId, {
-      should_send: false,
-      blocked_reason: gateResult.reason,
-      blocked_detail: gateResult.detail ?? null,
-      job_id: job.id,
-    });
-    return { contactId, outcome: "blocked", reason: gateResult.reason };
-  }
-
-  const sendResult = await sendOutboundMessage(supabase, {
-    organizationId,
-    contactId: gateResult.contactId,
-    conversationId: gateResult.conversationId,
-    channel: "sms",
-    body: gateResult.body,
-    senderType: "ai",
-    workflowExecutionId: executionId,
-    sendSmsFn,
-  });
-
-  if (!sendResult.ok) {
-    await failWorkflowExecutionAsService(supabase, executionId, sendResult.error, "sms_send_failed");
-    return { contactId, outcome: "failed", error: sendResult.error };
-  }
-
-  await completeWorkflowExecutionAsService(supabase, executionId, {
-    should_send: true,
-    message_id: sendResult.messageId,
-    conversation_id: sendResult.conversationId,
-    provider_message_id: sendResult.providerMessageId,
-    job_id: job.id,
-  });
-
-  return { contactId, outcome: "sent", messageId: sendResult.messageId };
 }

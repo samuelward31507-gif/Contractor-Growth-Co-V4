@@ -179,6 +179,120 @@ export function registeredObligationKinds(): ObligationKind[] {
   return [getObligationKind(LEAD_NO_REPLY.stage)!];
 }
 
+// ----------------------------------------------------- shared touch runtime
+//
+// P0-B B2.4: the universal steps of every touch - a persisted obligation
+// (the dispatcher below) or derived work (lib/automation/touch-runtime.ts).
+// They take a kind's identity and policy VALUES only and never branch on
+// which kind is running. The one outbound send site lives here.
+
+/** The catalog identity a touch is recorded under. */
+export type TouchIdentity = { automationId: string; eventType: string; workflowName: string };
+
+export type LifecycleVerification = { failed: false; snapshot: LifecycleSnapshot | null; lifecycle: LifecycleResult | null } | { failed: true; error: string };
+
+/**
+ * Universal lifecycle verification: the subject contact's B1 snapshot
+ * (scoped to organization + contact, as of now), derived. `failed` = the
+ * read failed and nothing may act on it. No contact = nothing to load.
+ */
+export async function verifyLifecycle(service: SupabaseClient, organizationId: string, contactId: string | null, now: Date): Promise<LifecycleVerification> {
+  if (!contactId) return { failed: false, snapshot: null, lifecycle: null };
+  const loaded = await loadLifecycleSnapshot(service, organizationId, contactId, { asOf: now });
+  if (loaded.failed) return { failed: true, error: loaded.error };
+  return { failed: false, snapshot: loaded.snapshot, lifecycle: deriveLifecycleStage(loaded.snapshot) };
+}
+
+export type TouchClaim = { status: "claimed"; executionId: string } | { status: "error"; error: string } | { status: "skipped" } | { status: "duplicate" } | { status: "start_failed"; error: string };
+
+/**
+ * The touch's claim: its idempotency key (the automation event - automation
+ * enabled + organization pause are enforced there), then B0's atomic
+ * execution start. A duplicate key means the touch was already used.
+ */
+export async function claimTouch(
+  service: SupabaseClient,
+  kind: TouchIdentity,
+  organizationId: string,
+  touch: { entityType: string; entityId: string; payload: Record<string, unknown>; idempotencyKey: string },
+): Promise<TouchClaim> {
+  const eventResult = await createAutomationEventAsService(service, organizationId, {
+    eventType: kind.eventType,
+    entityType: touch.entityType,
+    entityId: touch.entityId,
+    payload: touch.payload,
+    idempotencyKey: touch.idempotencyKey,
+  });
+  if (!eventResult.ok) return { status: "error", error: eventResult.error };
+  if (eventResult.skipped) return { status: "skipped" };
+  if (eventResult.duplicate) return { status: "duplicate" };
+  const execution = await startWorkflowExecutionAsService(service, eventResult.event.id, kind.workflowName);
+  if (!execution.ok) return { status: "start_failed", error: execution.error };
+  return { status: "claimed", executionId: execution.execution.id };
+}
+
+/** The gate inputs a kind may supply; the runtime owns the rest (organization, execution, contact, conversation, lead, message). */
+export type KindGateOptions = Omit<OutboundGateInput, "organizationId" | "executionId" | "contactId" | "conversationId" | "leadId" | "aiResult" | "automationEnabled">;
+
+/** One Trackpr-composed send, already composed by the kind. */
+export type TouchSend = {
+  organizationId: string;
+  contactId: string | null;
+  /** The gate's lead and the conversation's lead link; null for a non-lead subject. */
+  leadId: string | null;
+  body: string;
+  gateOptions: KindGateOptions;
+  /** Policy value: the automation whose enabled state the gate re-checks, or null for a kind whose gate call never carried it. */
+  gateAutomationId: string | null;
+  senderType: "ai" | "system";
+  /** The kind's ids, recorded on the execution's result. */
+  resultMetadata: Record<string, unknown>;
+};
+
+export type TouchResult = { kind: "sent"; messageId: string } | { kind: "blocked"; reason: OutboundGateDenialReason } | { kind: "failed"; error: string };
+
+/** The shared Trackpr-composed executor: outbound gate, then send, recorded on the execution via `ops` (the A2 contract). */
+export async function executeTouch(
+  supabase: SupabaseClient,
+  input: TouchSend,
+  executionId: string,
+  ops: ExecutionOps,
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+): Promise<TouchResult> {
+  const conversation = input.contactId ? await findOrCreateOpenConversation(supabase, input.organizationId, input.contactId, "sms", input.leadId) : null;
+  const automationEnabled = input.gateAutomationId ? await getAutomationEnabled(supabase, input.organizationId, input.gateAutomationId) : null;
+  const gate = await evaluateOutboundGate(supabase, {
+    organizationId: input.organizationId,
+    executionId,
+    contactId: input.contactId,
+    conversationId: conversation?.id ?? null,
+    leadId: input.leadId,
+    aiResult: { should_send: true, response_message: input.body, needs_human: false },
+    ...input.gateOptions,
+    ...(automationEnabled === null ? {} : { automationEnabled }),
+  });
+  if (!gate.allowed) {
+    await ops.complete(supabase, executionId, { should_send: false, blocked_reason: gate.reason, blocked_detail: gate.detail ?? null, ...input.resultMetadata });
+    return { kind: "blocked", reason: gate.reason };
+  }
+  const sent = await sendOutboundMessage(supabase, {
+    organizationId: input.organizationId,
+    contactId: gate.contactId,
+    conversationId: gate.conversationId,
+    channel: "sms",
+    body: gate.body,
+    senderType: input.senderType,
+    workflowExecutionId: executionId,
+    sendSmsFn,
+  });
+  if (!sent.ok) {
+    await ops.fail(supabase, executionId, sent.error, "sms_send_failed");
+    return { kind: "failed", error: sent.error };
+  }
+  await ops.complete(supabase, executionId, { should_send: true, message_id: sent.messageId, conversation_id: sent.conversationId, provider_message_id: sent.providerMessageId, ...input.resultMetadata });
+  return { kind: "sent", messageId: sent.messageId };
+}
+
 // --------------------------------------------------------------- dispatcher
 
 /** The first moment at or after `from` inside business hours (15-minute steps, up to 8 days), or null if the week has no opening. */
@@ -261,12 +375,9 @@ async function claimObligation(service: SupabaseClient, id: string, now: Date, r
   return won ? { claimed: won, kind } : { claimed: null };
 }
 
-/** The subject contact's B1 lifecycle facts. `failed` = the read failed and nothing may act on it. */
-async function loadLifecycle(service: SupabaseClient, row: FollowupRow, subject: ObligationSubject, now: Date): Promise<{ failed: false; snapshot: LifecycleSnapshot | null; lifecycle: LifecycleResult | null } | { failed: true; error: string }> {
-  if (!subject.contactId) return { failed: false, snapshot: null, lifecycle: null };
-  const loaded = await loadLifecycleSnapshot(service, row.organization_id, subject.contactId, { asOf: now });
-  if (loaded.failed) return { failed: true, error: loaded.error };
-  return { failed: false, snapshot: loaded.snapshot, lifecycle: deriveLifecycleStage(loaded.snapshot) };
+/** The subject contact's B1 lifecycle facts for a persisted obligation (the shared verifyLifecycle). */
+async function loadLifecycle(service: SupabaseClient, row: FollowupRow, subject: ObligationSubject, now: Date): Promise<LifecycleVerification> {
+  return verifyLifecycle(service, row.organization_id, subject.contactId, now);
 }
 
 export async function dispatchObligation(service: SupabaseClient, id: string, now: Date = new Date(), options: DispatchOptions = {}): Promise<DispatchOutcome> {
@@ -321,83 +432,47 @@ export async function dispatchObligation(service: SupabaseClient, id: string, no
   }
 
   const touch = row.attempt_count + 1;
-  const eventResult = await createAutomationEventAsService(service, row.organization_id, {
-    eventType: kind.eventType,
+  const recorded = await claimTouch(service, kind, row.organization_id, {
     entityType: kind.subjectType,
     entityId: row.lead_id,
     payload: { followup_id: row.id, lead_id: row.lead_id, contact_id: subject.contactId, stage: row.stage, touch },
     idempotencyKey: kind.touchKey(row.id, touch),
   });
-  if (!eventResult.ok) {
+  if (recorded.status === "error") {
     await release("scheduled", { next_action_at: row.next_action_at ?? now.toISOString() });
-    return { followupId: id, outcome: "error", error: eventResult.error };
+    return { followupId: id, outcome: "error", error: recorded.error };
   }
-  if (eventResult.skipped) {
+  if (recorded.status === "skipped") {
     // Automation disabled or organization automation paused since it was scheduled: hold, unconsumed.
     await release("scheduled", { next_action_at: row.next_action_at ?? now.toISOString() });
     return { followupId: id, outcome: "skipped_disabled" };
   }
-  if (eventResult.duplicate) {
+  if (recorded.status === "duplicate") {
     // This touch was already recorded (an earlier claim crashed after recording it) - never send it twice.
     await advance(row, touch, null, now, release);
     return { followupId: id, outcome: "blocked", touch, reason: "duplicate_touch" };
   }
-
-  const execution = await startWorkflowExecutionAsService(service, eventResult.event.id, kind.workflowName);
-  if (!execution.ok) {
+  if (recorded.status === "start_failed") {
     await release("failed", { waiting_on: "none", next_action: "human_review" });
-    return { followupId: id, outcome: "failed", touch, error: execution.error };
+    return { followupId: id, outcome: "failed", touch, error: recorded.error };
   }
 
-  const result = await sendTouch(service, kind, { organizationId: row.organization_id, leadId: row.lead_id, contactId: subject.contactId, followupId: row.id, touch }, execution.execution.id, SERVICE_EXECUTION_OPS, options.sendSmsFn);
-  return recordTouchResult(kind, row, touch, execution.execution.id, result, now, release);
+  const result = await executeTouch(service, obligationTouchSend(kind, { organizationId: row.organization_id, leadId: row.lead_id, contactId: subject.contactId, followupId: row.id, touch }), recorded.executionId, SERVICE_EXECUTION_OPS, options.sendSmsFn);
+  return recordTouchResult(kind, row, touch, recorded.executionId, result, now, release);
 }
 
-export type TouchResult = { kind: "sent"; messageId: string } | { kind: "blocked"; reason: OutboundGateDenialReason } | { kind: "failed"; error: string };
-
-/** The shared Trackpr-composed executor: outbound gate, then send, recorded on the execution via `ops` (the A2 contract). */
-async function sendTouch(
-  supabase: SupabaseClient,
-  kind: ObligationKind,
-  input: { organizationId: string; leadId: string; contactId: string | null; followupId: string; touch: number },
-  executionId: string,
-  ops: ExecutionOps,
-  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
-): Promise<TouchResult> {
-  const conversation = input.contactId ? await findOrCreateOpenConversation(supabase, input.organizationId, input.contactId, "sms", input.leadId) : null;
-  const body = kind.compose(input.touch);
-  const automationEnabled = await getAutomationEnabled(supabase, input.organizationId, kind.automationId);
-  const gate = await evaluateOutboundGate(supabase, {
+/** A persisted obligation's touch, in the shared executor's terms: the kind's message, gate options and result ids. */
+function obligationTouchSend(kind: ObligationKind, input: { organizationId: string; leadId: string; contactId: string | null; followupId: string; touch: number }): TouchSend {
+  return {
     organizationId: input.organizationId,
-    executionId,
     contactId: input.contactId,
-    conversationId: conversation?.id ?? null,
     leadId: input.leadId,
-    aiResult: { should_send: true, response_message: body, needs_human: false },
-    ...kind.gateOptions,
-    automationEnabled,
-  });
-  const meta = { followup_id: input.followupId, lead_id: input.leadId, touch: input.touch };
-  if (!gate.allowed) {
-    await ops.complete(supabase, executionId, { should_send: false, blocked_reason: gate.reason, blocked_detail: gate.detail ?? null, ...meta });
-    return { kind: "blocked", reason: gate.reason };
-  }
-  const sent = await sendOutboundMessage(supabase, {
-    organizationId: input.organizationId,
-    contactId: gate.contactId,
-    conversationId: gate.conversationId,
-    channel: "sms",
-    body: gate.body,
+    body: kind.compose(input.touch),
+    gateOptions: kind.gateOptions,
+    gateAutomationId: kind.automationId,
     senderType: "ai",
-    workflowExecutionId: executionId,
-    sendSmsFn,
-  });
-  if (!sent.ok) {
-    await ops.fail(supabase, executionId, sent.error, "sms_send_failed");
-    return { kind: "failed", error: sent.error };
-  }
-  await ops.complete(supabase, executionId, { should_send: true, message_id: sent.messageId, conversation_id: sent.conversationId, provider_message_id: sent.providerMessageId, ...meta });
-  return { kind: "sent", messageId: sent.messageId };
+    resultMetadata: { followup_id: input.followupId, lead_id: input.leadId, touch: input.touch },
+  };
 }
 
 type Release = (to: FollowupState, fields: Fields) => Promise<FollowupRow | null>;
@@ -490,7 +565,7 @@ export async function retryObligationTouch(
     return { ok: true };
   }
 
-  const result = await sendTouch(supabase, kind, { organizationId: row.organization_id, leadId: row.lead_id, contactId: subject!.contactId, followupId, touch }, executionId, ops, sendSmsFn);
+  const result = await executeTouch(supabase, obligationTouchSend(kind, { organizationId: row.organization_id, leadId: row.lead_id, contactId: subject!.contactId, followupId, touch }), executionId, ops, sendSmsFn);
   if (result.kind === "failed") {
     await service.from("followups").update({ last_execution_id: executionId }).eq("id", followupId).eq("state", "failed");
     return { ok: false, error: result.error };
