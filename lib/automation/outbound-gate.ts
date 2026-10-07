@@ -9,6 +9,7 @@ import type { LeadStatus } from "@/lib/leads/queries";
 import { calendarDateInTimeZone, formatMoney } from "@/lib/invoices/domain";
 import { daysOverdue, reminderStageFor, type InvoiceReminderStage } from "@/lib/invoices/reminder-stages";
 import { isWithinQuietHoursFloor } from "./send-window";
+import { LEAD_SMS_CONSENT_BLOCKING } from "@/lib/leads/sms-consent";
 
 const MAX_MESSAGE_LENGTH = 1600;
 
@@ -177,6 +178,7 @@ export type OutboundGateDenialReason =
   | "invoice_stage_ineligible"
   | "lead_status_ineligible"
   | "lead_has_active_engagement"
+  | "lead_sms_consent_missing"
   | "outside_business_hours"
   | "outside_quiet_hours"
   | "automation_disabled"
@@ -402,15 +404,23 @@ export async function evaluateOutboundGate(
   // re-enables AI using the exact same toggle they already have today.
   if (conversation.ai_enabled === false) return deny("conversation_ai_disabled");
 
+  // Final Batch 2: a lead the public lead-capture form created without
+  // affirmative SMS consent (leads.sms_consent 'declined' / 'not_provided' -
+  // see lib/leads/sms-consent.ts and supabase/pending/lead_sms_consent.sql)
+  // never receives an automated text. Checked on the lead the send is about,
+  // or - for a send that names no lead - the conversation's current lead.
+  // null (every lead not captured by the form) is unrestricted, exactly as
+  // before. Independent of contacts.sms_opt_out (STOP/START), checked above.
   if (input.leadId) {
     const { data: lead } = await supabase
       .from("leads")
-      .select("id, organization_id, contact_id, status")
+      .select("id, organization_id, contact_id, status, sms_consent")
       .eq("id", input.leadId)
       .maybeSingle();
 
     if (!lead) return deny("lead_not_found");
     if (lead.organization_id !== input.organizationId) return deny("lead_wrong_organization");
+    if (LEAD_SMS_CONSENT_BLOCKING.has(lead.sms_consent as string)) return deny("lead_sms_consent_missing", `lead sms_consent is ${lead.sms_consent}`);
     // P0 A1: a conversation is the customer's thread and may span several
     // of that customer's leads over time (conversations.lead_id is only its
     // current opportunity), so the lead must belong to the SAME CONTACT as
@@ -457,6 +467,16 @@ export async function evaluateOutboundGate(
       if (activeEstimate) return deny("lead_has_active_engagement", "lead has an active estimate");
       if (activeJob) return deny("lead_has_active_engagement", "lead has an active job");
     }
+  } else if (conversation.lead_id) {
+    const { data: currentLead, error: currentLeadError } = await supabase
+      .from("leads")
+      .select("sms_consent")
+      .eq("id", conversation.lead_id)
+      .eq("organization_id", input.organizationId)
+      .maybeSingle();
+    // Fails closed: an unreadable consent state is never treated as consent.
+    if (currentLeadError) return deny("lead_sms_consent_missing", "lead sms_consent unreadable");
+    if (LEAD_SMS_CONSENT_BLOCKING.has(currentLead?.sms_consent as string)) return deny("lead_sms_consent_missing", `lead sms_consent is ${currentLead?.sms_consent}`);
   }
 
   if (!execution) return deny("execution_not_found");

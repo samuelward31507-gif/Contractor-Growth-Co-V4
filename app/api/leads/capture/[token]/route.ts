@@ -4,6 +4,9 @@ import { resolveOrCreateContact } from "@/lib/contacts/resolve";
 import { emitLeadCreatedFollowupAsService } from "@/lib/automation/lead-followup";
 import { emitLeadStageChangedAsService } from "@/lib/automation/lead-stage-history";
 import { resolveLeadForIntake, recordLeadIntakeAsService, hasRecentLeadIntake } from "@/lib/leads/intake";
+import { checkAndRecordIntakeRequest, intakeSourceIp } from "@/lib/leads/intake-rate-limit";
+import { MAX_CONSENT_TEXT_LENGTH, applySmsConsentToExistingLead, leadSmsConsentFor, parseSmsConsent, recordSmsConsentEvidence } from "@/lib/leads/sms-consent";
+import { normalizePhoneForIdentity } from "@/lib/contacts/identity";
 
 const MAX_SHORT_FIELD_LENGTH = 200;
 const MAX_MESSAGE_LENGTH = 2000;
@@ -23,9 +26,23 @@ const DUPLICATE_WINDOW_MINUTES = 10;
  * an obvious flood, not to meter ordinary usage. Uses only the leads table
  * this route already queries for its own duplicate check - no new table, no
  * schema change, no Redis/external service.
+ *
+ * Final Batch 2: this check now fails CLOSED, and per-source, per-phone and
+ * organization-wide request limits were added (lib/leads/intake-rate-limit.ts).
  */
 const RATE_LIMIT_WINDOW_MINUTES = 10;
 const RATE_LIMIT_MAX_LEADS_PER_WINDOW = 20;
+
+/**
+ * Final Batch 2: the shape every real token has (48 lowercase hex characters
+ * from the column default, or a rotated one - see
+ * app/(app)/settings/lead-capture/actions.ts), kept permissive enough to
+ * never reject a valid token. Anything else is refused before any query.
+ */
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{10,128}$/;
+
+const RATE_LIMITED = { ok: false, error: "Too many submissions. Please try again shortly." } as const;
+const TEMPORARILY_UNAVAILABLE = { ok: false, error: "Lead capture is temporarily unavailable. Please try again shortly." } as const;
 
 /**
  * First-Client Lead Capture V1: the missing connection between an external
@@ -54,23 +71,32 @@ const RATE_LIMIT_MAX_LEADS_PER_WINDOW = 20;
  * contractor to receive a lead safely. Trackpr 2.0, Phase 4C (P2 #8) added a
  * simple, org-wide, database-backed rate limit (see
  * RATE_LIMIT_MAX_LEADS_PER_WINDOW below) - this is deliberately a coarse
- * flood guard, not a precise per-source/per-IP throttle, and never blocks on
- * its own query failing (fails open).
+ * flood guard. Final Batch 2 added per-source/per-phone limits and made
+ * every limit fail CLOSED (503) when it cannot be evaluated, plus SMS
+ * consent (`sms_consent`, `sms_consent_text` - see lib/leads/sms-consent.ts):
+ * the lead is always created, but automated SMS about a lead this route
+ * creates goes out only with an affirmative `sms_consent`.
+ *
+ * The token is a credential: it is never logged or echoed in any response.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  if (!token || token.length < 10) {
+  if (!token || !TOKEN_PATTERN.test(token)) {
     return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
   }
 
   const service = createServiceRoleClient();
 
-  const { data: organization } = await service
+  const { data: organization, error: organizationError } = await service
     .from("organizations")
     .select("id")
     .eq("lead_intake_token", token)
     .maybeSingle();
 
+  if (organizationError) {
+    console.error("[lead-capture] organization lookup failed", { error: organizationError.message });
+    return NextResponse.json(TEMPORARILY_UNAVAILABLE, { status: 503 });
+  }
   if (!organization) {
     return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
   }
@@ -79,10 +105,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // Trackpr 2.0, Phase 4C (P2 #8): checked before any body parsing or
   // contact/lead creation, so a flood never gets far enough to create
   // contacts even when the submissions themselves would otherwise be
-  // rejected downstream. Fails OPEN (never blocks) on a query error - for a
-  // public lead-capture endpoint, silently under-enforcing an abuse control
-  // during a transient database hiccup is far safer than dropping a real
-  // contractor's real lead because a rate-limit check itself broke.
+  // rejected downstream. Final Batch 2: fails CLOSED (503, the sender can
+  // retry) when the count cannot be read - an abuse control that cannot be
+  // evaluated must not wave a flood through.
   const rateLimitWindowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000).toISOString();
   const { count: recentLeadCount, error: rateLimitCheckError } = await service
     .from("leads")
@@ -90,11 +115,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .eq("organization_id", organizationId)
     .gte("created_at", rateLimitWindowStart);
 
-  if (rateLimitCheckError) {
-    console.error("[lead-capture] rate-limit check failed - failing open", { organizationId, error: rateLimitCheckError.message });
-  } else if ((recentLeadCount ?? 0) >= RATE_LIMIT_MAX_LEADS_PER_WINDOW) {
+  if (rateLimitCheckError || typeof recentLeadCount !== "number") {
+    console.error("[lead-capture] rate-limit check failed - failing closed", { organizationId, error: rateLimitCheckError?.message ?? "no count" });
+    return NextResponse.json(TEMPORARILY_UNAVAILABLE, { status: 503 });
+  }
+  if (recentLeadCount >= RATE_LIMIT_MAX_LEADS_PER_WINDOW) {
     console.error("[lead-capture] rate limit exceeded", { organizationId, recentLeadCount });
-    return NextResponse.json({ ok: false, error: "Too many submissions. Please try again shortly." }, { status: 429 });
+    return NextResponse.json(RATE_LIMITED, { status: 429 });
   }
 
   let raw: unknown;
@@ -144,6 +171,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: false, error: "At least one of phone or email is required." }, { status: 400 });
   }
 
+  const sourceLimit = await checkAndRecordIntakeRequest(service, {
+    organizationId,
+    sourceIp: intakeSourceIp(request.headers),
+    phone: phone ? (normalizePhoneForIdentity(phone) ?? phone) : null,
+  });
+  if (!sourceLimit.ok) {
+    if (sourceLimit.status === 429) {
+      console.error("[lead-capture] source rate limit exceeded", { organizationId, scope: sourceLimit.scope });
+      return NextResponse.json(RATE_LIMITED, { status: 429 });
+    }
+    console.error("[lead-capture] source rate limit could not be evaluated - failing closed", { organizationId });
+    return NextResponse.json(TEMPORARILY_UNAVAILABLE, { status: 503 });
+  }
+
+  const smsConsent = parseSmsConsent(body.sms_consent);
+  const smsConsentText = shortString(body.sms_consent_text, MAX_CONSENT_TEXT_LENGTH);
+
   const contactResult = await resolveOrCreateContact(service, {
     organizationId,
     firstName,
@@ -167,6 +211,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const contactId = contactResult.contact.id;
 
+  // Final Batch 2: SMS consent (lib/leads/sms-consent.ts). A lead this
+  // submission creates carries its consent state in the same insert - only an
+  // affirmative answer lets automated SMS go out about it (the outbound gate
+  // enforces it). A submission attached to an existing lead applies an
+  // explicit answer to that lead and leaves it unchanged otherwise.
+  const consentEvidence = (leadId: string) =>
+    recordSmsConsentEvidence(service, { organizationId, leadId, contactId, choice: smsConsent, disclosureText: smsConsentText, source: source ?? "lead_capture_api" });
+  const applyConsentToExisting = async (leadId: string) => {
+    const applied = await applySmsConsentToExistingLead(service, { organizationId, leadId, choice: smsConsent });
+    if (applied.ok) await consentEvidence(leadId);
+    return applied.ok;
+  };
+  const CONSENT_FAILED = { ok: false, error: "Could not process this lead. Please try again." } as const;
+
   // Duplicate-submission guard: a retried webhook delivery or a double
   // form-submit within a short window is not a new opportunity. This is
   // intentionally a simple, existing-schema-only check (no new idempotency
@@ -184,6 +242,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .maybeSingle();
 
   if (recentLead) {
+    if (!(await applyConsentToExisting(recentLead.id as string))) return NextResponse.json(CONSENT_FAILED, { status: 500 });
     return NextResponse.json({ ok: true, duplicate: true, leadId: recentLead.id, contactId });
   }
 
@@ -193,13 +252,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // parallel lead; a contact with no open lead (new, or only closed leads)
   // gets a new lead, and the contact's SMS conversation is pointed at it.
   const leadSource = source ?? "lead_capture_api";
-  const intake = await resolveLeadForIntake(service, { organizationId, contactId, source: leadSource, service: serviceField, temperature: "cold" });
+  const intake = await resolveLeadForIntake(service, { organizationId, contactId, source: leadSource, service: serviceField, temperature: "cold", smsConsent: leadSmsConsentFor(smsConsent) });
   if (!intake.ok) {
     console.error("[lead-capture] failed to create lead", { organizationId, contactId, error: intake.error });
     return NextResponse.json({ ok: false, error: "Could not create this lead. Please try again." }, { status: 500 });
   }
 
   if (!intake.created) {
+    if (!(await applyConsentToExisting(intake.leadId))) return NextResponse.json(CONSENT_FAILED, { status: 500 });
     // A redelivery of an intake already attached to this lead within the
     // same duplicate window is not another intake.
     if (await hasRecentLeadIntake(service, organizationId, intake.leadId, duplicateWindowStart)) {
@@ -217,6 +277,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const lead = { id: intake.leadId };
+  await consentEvidence(lead.id);
 
   await emitLeadStageChangedAsService(service, organizationId, { leadId: lead.id, previousStatus: null, newStatus: "new", source: "automation" });
 

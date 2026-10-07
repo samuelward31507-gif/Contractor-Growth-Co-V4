@@ -201,7 +201,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
           <SettingsGroup label="Communications & Notifications">
             <SmsSummarySection smsPhoneNumber={smsPhoneNumber} />
-            <LeadCaptureSection intakeUrl={leadIntakeUrl} />
+            <LeadCaptureSection intakeUrl={leadIntakeUrl} canRotate={canEdit} />
             <NotificationSettingsSection settings={notificationSettings} canEdit={canEdit} />
           </SettingsGroup>
 

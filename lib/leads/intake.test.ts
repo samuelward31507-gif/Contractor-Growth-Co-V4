@@ -44,6 +44,16 @@ const calls = {
   founder: 0,
 };
 
+/** Final Batch 2: fault injection - "table:op" (op: insert | update | count | select) -> how many calls fail. */
+let faults: Record<string, number> = {};
+/** Final Batch 2: what is_org_admin answers for the signed-in user. */
+let isOrgAdmin = true;
+/** Reads a plain column or a jsonb `column->>key` path, like PostgREST. */
+const readColumn = (row: Row, column: string) => {
+  const [base, key] = column.split("->>");
+  return key === undefined ? row[base] : (row[base] as Row | undefined)?.[key];
+};
+
 class Query {
   private filters: ((row: Row) => boolean)[] = [];
   private updateValues: Row | null = null;
@@ -56,7 +66,7 @@ class Query {
     this.table = table;
   }
   select(_columns?: string, options?: { head?: boolean }) { this.head = !!options?.head; return this; }
-  eq(column: string, value: unknown) { this.filters.push((row) => row[column] === value); return this; }
+  eq(column: string, value: unknown) { this.filters.push((row) => readColumn(row, column) === value); return this; }
   in(column: string, values: unknown[]) { this.filters.push((row) => values.includes(row[column])); return this; }
   is(column: string, value: unknown) { this.filters.push((row) => (row[column] ?? null) === value); return this; }
   gte(column: string, value: string) { this.filters.push((row) => String(row[column]) >= value); return this; }
@@ -69,6 +79,11 @@ class Query {
   then<T>(resolve: (value: { data: unknown; error: unknown; count?: number }) => T, reject?: (reason: unknown) => T) { return this.run(false).then(resolve, reject); }
   private async run(single: boolean): Promise<{ data: unknown; error: unknown; count?: number }> {
     const rows = (store[this.table] ??= []);
+    const op = this.insertRows ? "insert" : this.updateValues ? "update" : this.head ? "count" : "select";
+    if ((faults[`${this.table}:${op}`] ?? 0) > 0) {
+      faults[`${this.table}:${op}`] -= 1;
+      return { data: null, error: { code: "57014", message: "injected failure" }, count: undefined };
+    }
     if (this.insertRows) {
       const inserted: Row[] = [];
       for (const raw of this.insertRows) {
@@ -113,7 +128,7 @@ class Query {
     return { data: single ? (matched[0] ?? null) : matched, error: null, count: matched.length };
   }
 }
-const db = { from: (table: string) => new Query(table), rpc: async () => ({ data: null, error: null }), auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) } };
+const db = { from: (table: string) => new Query(table), rpc: async (name: string) => (name === "is_org_admin" ? { data: isOrgAdmin, error: null } : { data: null, error: null }), auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) } };
 
 // In-memory automation events/executions with the real idempotency-key contract.
 const createEvent = async (_s: unknown, organizationId: string | Row, maybeInput?: Row) => {
@@ -199,6 +214,8 @@ mock.module(lib("lib/automation/jobs.ts"), { namedExports: { emitJobLifecycleEve
 mock.module(lib("lib/automation/post-job-followup.ts"), { namedExports: { emitPostJobFollowup: async () => undefined } });
 
 process.env.TWILIO_AUTH_TOKEN = "test-only-not-a-real-token";
+// Final Batch 2: the intake rate limit keys its source/phone hashes with this; unset, the capture route fails closed.
+process.env.SUPABASE_SERVICE_ROLE_KEY ??= "test-only-not-a-real-key";
 const { resolveLeadForIntake } = await import(lib("lib/leads/intake.ts"));
 const { evaluateOutboundGate } = await import(lib("lib/automation/outbound-gate.ts"));
 const { POST: captureLead } = await import(lib("app/api/leads/capture/[token]/route.ts"));
@@ -220,6 +237,8 @@ beforeEach(() => {
     referral_requests: [],
   };
   ids = 0;
+  faults = {};
+  isOrgAdmin = true;
   clock = Date.UTC(2026, 9, 5, 12, 0, 0);
   mock.timers.reset();
   mock.timers.enable({ apis: ["Date"], now: clock });
@@ -269,11 +288,15 @@ async function gateFor(contactId: string, conversationId: string, leadId: string
   });
 }
 
-const webForm = (body: Row) =>
-  captureLead(
-    new Request(`https://preview.example/api/leads/capture/${TOKEN}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) as never,
-    { params: Promise.resolve({ token: TOKEN }) },
+const webForm = (body: Row, options: { token?: string; ip?: string } = {}) => {
+  const token = options.token ?? TOKEN;
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (options.ip) headers["x-vercel-forwarded-for"] = options.ip;
+  return captureLead(
+    new Request(`https://preview.example/api/leads/capture/${token}`, { method: "POST", headers, body: JSON.stringify(body) }) as never,
+    { params: Promise.resolve({ token }) },
   ) as Promise<Response>;
+};
 const FORM = { first_name: "Riley", last_name: "Test", phone: PHONE, service: "Roof inspection", source: "website" };
 
 const sms = (body: string, sid: string, from = PHONE) => {
@@ -402,7 +425,7 @@ test("helper: repeated calls are idempotent (one lead, one conversation)", async
 // ===========================================================================
 
 test("web form 1: new contact -> contact, lead, conversation pointing at it, first response passes the gate", async () => {
-  const response = await webForm(FORM);
+  const response = await webForm({ ...FORM, sms_consent: true }) /* Final Batch 2: automated texts need affirmative consent */;
   const json = await response.json();
   assert.equal(response.status, 201);
 
@@ -444,7 +467,7 @@ test("web form 3: returning contact with only a CLOSED lead -> new lead, pointer
   store.messages!.push({ id: "hist-1", conversation_id: conversation.id, direction: "inbound", body: "old thread" });
   advanceMinutes(60);
 
-  const response = await webForm(FORM);
+  const response = await webForm({ ...FORM, sms_consent: true }) /* Final Batch 2: automated texts need affirmative consent */;
   const json = await response.json();
 
   assert.equal(response.status, 201);
@@ -694,4 +717,283 @@ test("A3 concurrency: after the first SMS lead is closed, a later text creates a
   const third = await resolveLeadForIntake(db as never, { organizationId: ORG, contactId: contact.id, source: "sms_inbound" });
   assert.equal(third.ok && third.leadId, second.ok && second.leadId, "an open (qualified) lead is reused, never duplicated");
   assert.equal(openLeads(contact.id as string).length, 1);
+});
+
+// ===========================================================================
+// Final Batch 2: SMS consent on the web form (real route, real gate)
+// ===========================================================================
+
+const consentRows = () => (store.audit_log ?? []).filter((r) => r.action === "sms_consent_recorded");
+const DISCLOSURE = "I agree to receive texts from QA Fixture Roofing about my request. Reply STOP to opt out.";
+const leadById = (id: string) => leads().find((l) => l.id === id)!;
+
+/** The real gate for the new lead's own first automated text (the instant follow-up's exact inputs). */
+async function firstTextGate(json: { leadId: string; contactId: string }) {
+  return gateFor(json.contactId, conversationOf(json.contactId).id as string, json.leadId);
+}
+/** The real gate for a send that names no lead (e.g. an appointment/estimate message) into the contact's thread. */
+async function threadGate(contactId: string) {
+  const execution = { id: `exec-${++ids}`, organization_id: ORG, status: "running" };
+  store.workflow_executions!.push(execution);
+  return evaluateOutboundGate(db as never, {
+    organizationId: ORG,
+    executionId: execution.id,
+    contactId,
+    conversationId: conversationOf(contactId).id,
+    leadId: null,
+    aiResult: { should_send: true, response_message: "Your appointment is tomorrow at 9am.", needs_human: false },
+  });
+}
+const denial = (gate: Row) => ({ allowed: gate.allowed, reason: gate.reason });
+const CONSENT_DENIED = { allowed: false, reason: "lead_sms_consent_missing" };
+
+test("consent 1 (true): lead created with sms_consent 'granted', evidence recorded with the disclosure, the first automated text passes the gate", async () => {
+  const response = await webForm({ ...FORM, sms_consent: true, sms_consent_text: DISCLOSURE });
+  const json = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(leadById(json.leadId).sms_consent, "granted");
+  assert.equal(calls.leadCreated.length, 1, "the instant follow-up starts through the existing canonical path");
+  const contact = contactByPhone(PHONE);
+  assert.equal(contact.sms_opt_out, false);
+  assert.deepEqual(
+    consentRows().map((r) => ({ entity: r.entity_id, type: r.entity_type, user: r.user_id, meta: r.metadata })),
+    [{ entity: json.leadId, type: "lead", user: null, meta: { consent: "granted", channel: "sms", capture_method: "web_form", contact_id: contact.id, source: "website", disclosure_text: DISCLOSURE } }],
+  );
+  assert.equal((await firstTextGate(json)).allowed, true);
+  assert.equal((await threadGate(json.contactId)).allowed, true);
+});
+
+for (const [label, value, state] of [
+  ["false", false, "declined"],
+  ["\"no\"", "no", "declined"],
+  ["missing", undefined, "not_provided"],
+  ["unrecognized ('maybe')", "maybe", "not_provided"],
+  ["empty", "", "not_provided"],
+  ["null", null, "not_provided"],
+] as const) {
+  test(`consent 2 (${label}): lead IS created (state '${state}') but no automated SMS can pass the gate; no STOP is manufactured`, async () => {
+    const response = await webForm(value === undefined ? FORM : { ...FORM, sms_consent: value });
+    const json = await response.json();
+    assert.equal(response.status, 201, "the lead is always captured");
+    assert.equal(leads().length, 1);
+    assert.equal(leadById(json.leadId).sms_consent, state);
+    assert.equal(contactByPhone(PHONE).sms_opt_out, false, "no consent is not an opt-out");
+    // The instant follow-up (lead-scoped), and any send into the thread that names no lead, are refused before the sender.
+    assert.deepEqual(denial(await firstTextGate(json)), CONSENT_DENIED);
+    assert.deepEqual(denial(await threadGate(json.contactId)), CONSENT_DENIED);
+    assert.equal(calls.sends, 0);
+    assert.equal(consentRows().length, state === "declined" ? 1 : 0, "evidence only for an explicit answer - never manufactured");
+  });
+}
+
+test("consent 3: STOP stays authoritative - a later form with sms_consent=true never clears it", async () => {
+  const contact = addContact(PHONE, { sms_opt_out: true });
+  const json = await (await webForm({ ...FORM, sms_consent: "yes" })).json();
+  assert.equal(leadById(json.leadId).sms_consent, "granted");
+  assert.equal(contact.sms_opt_out, true, "only an inbound START restores texting");
+  assert.deepEqual(denial(await firstTextGate(json)), { allowed: false, reason: "contact_opted_out" });
+});
+
+test("consent 4: STOP/START unchanged - on a consented lead STOP blocks, START restores", async () => {
+  const json = await (await webForm({ ...FORM, sms_consent: true })).json();
+  const contact = contactByPhone(PHONE);
+  await sms("STOP", "SM-stop-1");
+  assert.equal(contact.sms_opt_out, true);
+  assert.deepEqual(denial(await firstTextGate(json)), { allowed: false, reason: "contact_opted_out" });
+  await sms("START", "SM-start-1");
+  assert.equal(contact.sms_opt_out, false);
+  assert.equal((await firstTextGate(json)).allowed, true);
+  assert.equal(leadById(json.leadId).sms_consent, "granted", "STOP/START never touch the consent state");
+});
+
+test("consent 5: 'no consent' and 'opted out' stay distinct - START does not create consent, STOP/START leave a no-consent lead blocked", async () => {
+  const json = await (await webForm(FORM)).json();
+  const contact = contactByPhone(PHONE);
+  await sms("STOP", "SM-stop-2");
+  await sms("START", "SM-start-2");
+  assert.equal(contact.sms_opt_out, false);
+  assert.equal(leadById(json.leadId).sms_consent, "not_provided");
+  assert.deepEqual(denial(await firstTextGate(json)), CONSENT_DENIED);
+});
+
+test("consent 6: existing/other leads are never retroactively non-consented - a manual or SMS-intake lead (null) is unaffected", async () => {
+  const contact = addContact();
+  const lead = addLead(contact.id as string, "new", "sms_inbound");
+  const conversation = addConversation(contact.id as string, lead.id);
+  assert.equal((lead as Row).sms_consent, undefined);
+  assert.equal((await gateFor(contact.id as string, conversation.id, lead.id)).allowed, true);
+  // An inbound SMS lead created by the real intake carries no consent state either.
+  await sms("Hi, need a quote", "SM-new-number", "+15557770999");
+  const smsLead = leads().find((l) => l.contact_id === contactByPhone("+15557770999").id)!;
+  assert.equal(smsLead.sms_consent ?? null, null);
+});
+
+test("consent 7: a returning contact's open lead - an explicit answer is applied to it, no answer leaves it unchanged", async () => {
+  const contact = addContact();
+  const lead = addLead(contact.id as string, "new");
+  addConversation(contact.id as string, lead.id);
+  await webForm(FORM);
+  assert.equal((lead as Row).sms_consent, undefined, "missing consent never downgrades an existing lead");
+  advanceMinutes(11);
+  await webForm({ ...FORM, sms_consent: false });
+  assert.equal((lead as Row).sms_consent, "declined");
+  advanceMinutes(11);
+  await webForm({ ...FORM, sms_consent: true });
+  assert.equal((lead as Row).sms_consent, "granted");
+  assert.equal(leads().length, 1, "no duplicate lead");
+});
+
+test("consent 8: a duplicate resubmission that adds consent upgrades the lead it was deduplicated to", async () => {
+  const first = await (await webForm(FORM)).json();
+  assert.equal(leadById(first.leadId).sms_consent, "not_provided");
+  const second = await (await webForm({ ...FORM, sms_consent: true })).json();
+  assert.equal(second.duplicate, true);
+  assert.equal(leadById(first.leadId).sms_consent, "granted");
+  assert.equal((await firstTextGate(first)).allowed, true);
+});
+
+test("consent 9: a decline that cannot be recorded on an existing lead fails the request (500) rather than report success", async () => {
+  const contact = addContact();
+  const lead = addLead(contact.id as string, "new");
+  addConversation(contact.id as string, lead.id);
+  faults["leads:update"] = 1;
+  assert.equal((await webForm({ ...FORM, sms_consent: false })).status, 500);
+});
+
+test("consent 10: the gate fails closed when the thread's lead consent cannot be read", async () => {
+  const json = await (await webForm({ ...FORM, sms_consent: true })).json();
+  faults["leads:select"] = 1;
+  assert.deepEqual(denial(await threadGate(json.contactId)), CONSENT_DENIED);
+});
+
+// ===========================================================================
+// Final Batch 2: rate limiting on the real route (fails closed)
+// ===========================================================================
+
+const contactCount = () => store.contacts!.length;
+
+test("rate 1: the org-wide new-lead count failing now fails CLOSED (503) - nothing is created", async () => {
+  faults["leads:count"] = 1;
+  const response = await webForm(FORM, { ip: "203.0.113.7" });
+  assert.equal(response.status, 503);
+  assert.equal(contactCount(), 0);
+  assert.equal(leads().length, 0);
+});
+
+test("rate 2: the source limit's own storage failing fails CLOSED (503) - nothing is created", async () => {
+  faults["audit_log:count"] = 1;
+  assert.equal((await webForm(FORM, { ip: "203.0.113.7" })).status, 503);
+  faults["audit_log:insert"] = 1;
+  assert.equal((await webForm(FORM, { ip: "203.0.113.7" })).status, 503);
+  assert.equal(contactCount(), 0);
+});
+
+test("rate 3: one source over its limit is refused (429) before any contact/lead work; a different source is unaffected", async () => {
+  for (let i = 0; i < 10; i++) {
+    const response = await webForm({ ...FORM, phone: `+1555888${String(i).padStart(4, "0")}` }, { ip: "203.0.113.7" });
+    assert.ok(response.status === 201, `request ${i + 1} allowed`);
+  }
+  const before = contactCount();
+  const blocked = await webForm({ ...FORM, phone: "+15558889999" }, { ip: "203.0.113.7" });
+  assert.equal(blocked.status, 429);
+  assert.deepEqual(await blocked.json(), { ok: false, error: "Too many submissions. Please try again shortly." });
+  assert.equal(contactCount(), before, "a refused request creates nothing");
+  assert.equal((await webForm({ ...FORM, phone: "+15558889998" }, { ip: "198.51.100.20" })).status, 201);
+});
+
+// ===========================================================================
+// Final Batch 2: intake token validation + rotation
+// ===========================================================================
+
+const { rotateLeadIntakeToken } = await import(lib("app/(app)/settings/lead-capture/actions.ts"));
+
+test("token 1: a malformed token is refused (404) before any database read; a well-formed unknown token is 404", async () => {
+  for (const bad of ["short", "has space here!", "../../etc/passwd", "x".repeat(129)]) {
+    faults["organizations:select"] = 1; // would make a lookup 503 - proves no lookup happens
+    assert.equal((await webForm(FORM, { token: bad })).status, 404, bad);
+    faults = {};
+  }
+  assert.equal((await webForm(FORM, { token: "0".repeat(48) })).status, 404);
+  assert.equal(contactCount(), 0);
+});
+
+test("token 2: an organization lookup failure fails closed (503), never a guess", async () => {
+  faults["organizations:select"] = 1;
+  assert.equal((await webForm(FORM)).status, 503);
+});
+
+test("token 3: owner/admin rotation - new random token; old token stops working, new one works; token never returned, audited without it, never logged", async () => {
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => logged.push(JSON.stringify(args));
+  let result: Row;
+  try {
+    assert.equal((await webForm(FORM)).status, 201, "the existing token works until a deliberate rotation");
+    result = await rotateLeadIntakeToken();
+  } finally {
+    console.error = original;
+  }
+  const rotated = store.organizations![0].lead_intake_token as string;
+  assert.deepEqual(result, { success: true, auditWarning: undefined }, "the response carries no token");
+  assert.match(rotated, /^[0-9a-f]{48}$/);
+  assert.notEqual(rotated, TOKEN);
+  assert.equal((await webForm({ ...FORM, phone: "+15557770002" }, { token: TOKEN })).status, 404, "the old token no longer resolves");
+  assert.equal((await webForm({ ...FORM, phone: "+15557770003" }, { token: rotated })).status, 201, "the new token works");
+  const audit = (store.audit_log ?? []).filter((r) => r.action === "organization_lead_intake_token_rotated");
+  assert.deepEqual(audit.map((r) => ({ org: r.organization_id, user: r.user_id, meta: r.metadata })), [{ org: ORG, user: "user-1", meta: {} }]);
+  const everything = JSON.stringify({ logged, audit: store.audit_log });
+  assert.ok(!everything.includes(rotated) && !everything.includes(TOKEN), "neither token is logged or audited");
+  // Each rotation draws fresh randomness.
+  await rotateLeadIntakeToken();
+  const second = store.organizations![0].lead_intake_token as string;
+  assert.match(second, /^[0-9a-f]{48}$/);
+  assert.notEqual(second, rotated);
+});
+
+test("token 4: a non-admin cannot rotate - refused, token unchanged, nothing audited", async () => {
+  isOrgAdmin = false;
+  const result = await rotateLeadIntakeToken();
+  assert.deepEqual(result, { error: "You must be an owner or admin of this organization." });
+  assert.equal(store.organizations![0].lead_intake_token, TOKEN);
+  assert.equal((store.audit_log ?? []).length, 0);
+  assert.equal((await webForm(FORM)).status, 201, "the existing token keeps working");
+});
+
+test("token 5: a rotation whose update errors or affects no row (RLS refused) reports an error, not success", async () => {
+  faults["organizations:update"] = 1;
+  assert.deepEqual(await rotateLeadIntakeToken(), { error: "We couldn't rotate your intake URL. Please try again." });
+  assert.equal(store.organizations![0].lead_intake_token, TOKEN);
+  // Zero rows matched (what RLS does to an update it refuses) is not success either.
+  store.organizations![0].id = "org-hidden-by-rls";
+  try {
+    assert.deepEqual(await rotateLeadIntakeToken(), { error: "We couldn't rotate your intake URL. Please try again." });
+  } finally {
+    store.organizations![0].id = ORG;
+  }
+  assert.equal(store.organizations![0].lead_intake_token, TOKEN);
+  assert.equal((store.audit_log ?? []).length, 0);
+});
+
+test("token 6: no capture response ever echoes the token", async () => {
+  for (const response of [await webForm(FORM), await webForm(FORM), await webForm(FORM, { token: "0".repeat(48) })]) {
+    assert.ok(!(await response.text()).includes(TOKEN));
+  }
+});
+
+test("token 7: a rotation whose audit write fails still rotates, warns, and logs neither token", async () => {
+  faults["audit_log:insert"] = 1;
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => logged.push(JSON.stringify(args));
+  let result: Row;
+  try {
+    result = await rotateLeadIntakeToken();
+  } finally {
+    console.error = original;
+  }
+  const rotated = store.organizations![0].lead_intake_token as string;
+  assert.notEqual(rotated, TOKEN);
+  assert.deepEqual(result, { success: true, auditWarning: "The intake URL was rotated, but the audit record could not be saved." });
+  assert.ok(logged.length > 0, "the audit failure is logged");
+  assert.ok(logged.every((line) => !line.includes(rotated) && !line.includes(TOKEN)));
 });

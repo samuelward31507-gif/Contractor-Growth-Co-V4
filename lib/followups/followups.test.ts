@@ -43,7 +43,7 @@ let store: Record<string, Row[]> = {};
 let ids = 0;
 let clock = T0;
 const calls = { sends: 0, signals: [] as Row[], n8n: 0 };
-const control = { sendOk: true, admin: true, hours: [] as Row[] };
+const control = { sendOk: true, admin: true, hours: [] as Row[], providerOptOut: false };
 
 function deriveOutcome(row: Row) {
   const metadata = (row.metadata ?? {}) as Row;
@@ -179,6 +179,11 @@ mock.module(lib("lib/messaging/outbound.ts"), {
     sendOutboundMessage: async (_s: unknown, input: Row) => {
       calls.sends += 1;
       store.messages!.push({ id: uuid(), organization_id: input.organizationId, conversation_id: input.conversationId, workflow_execution_id: input.workflowExecutionId, direction: "outbound", created_at: clock.toISOString() });
+      // Final Batch 2: the real sender's Twilio 21610 contract - opt-out persisted, recipientOptedOut flagged.
+      if (control.providerOptOut) {
+        store.contacts!.find((c) => c.id === input.contactId)!.sms_opt_out = true;
+        return { ok: false, error: "Recipient has opted out of SMS.", messageId: "m", conversationId: input.conversationId, recipientOptedOut: true, optOutPersisted: true };
+      }
       return control.sendOk ? { ok: true, messageId: "m", conversationId: input.conversationId, providerMessageId: "SM" } : { ok: false, error: "Twilio error 30003", messageId: null, conversationId: null };
     },
   },
@@ -243,6 +248,7 @@ beforeEach(() => {
   control.sendOk = true;
   control.admin = true;
   control.hours = [];
+  control.providerOptOut = false;
 });
 
 type Entity = Row & { id: string };
@@ -798,4 +804,38 @@ test("the TEST-only panel is on the page lead links actually reach: /leads/:id r
   assert.doesNotMatch(retired, /FollowupRunNow/, "never on the retired, unreachable lead page");
   const actions = readFileSync(path.join(process.cwd(), "app/(app)/leads/actions.ts"), "utf8");
   assert.match(actions, /revalidatePath\(`\/people\/\$\{lead\.contact_id as string\}`\)/);
+});
+
+test("Final Batch 2: a provider-reported opt-out (Twilio 21610) records the touch as blocked contact_opted_out - never failed, never retried", async () => {
+  const { followup } = await newFollowup();
+  control.providerOptOut = true;
+  clock = at(24);
+  const outcome = await dispatchFollowup(db as never, followup.id, clock);
+  // The A4 dispatcher's existing handling of an opt-out block: the sequence exits.
+  assert.deepEqual(outcome, { followupId: followup.id, outcome: "exited", reason: "contact_opted_out" });
+  assert.equal(fu(followup.id).state, "exited");
+  const [execution] = touchExecutions();
+  assert.equal(execution.status, "completed");
+  assert.equal(execution.outcome, "blocked");
+  assert.equal((execution.metadata as Row).blocked_reason, "contact_opted_out");
+  assert.equal(calls.signals.length, 0, "no failure incident");
+  await classifyFailedExecutions(db as never, clock);
+  assert.equal(execution.retry_state ?? null, null, "a completed execution is never classified for retry");
+  assert.equal(await processDueRetries(db as never, new Date(clock.getTime() + 2 * HOUR)).then((r: { started: unknown[] }) => r.started.length), 0);
+  assert.equal(calls.sends, 1, "one attempt only");
+});
+
+test("Final Batch 2: a public-form lead without affirmative SMS consent gets no A4 follow-up text (real gate: lead_sms_consent_missing); a consented one does", async () => {
+  for (const state of ["not_provided", "declined"]) {
+    const { followup } = await newFollowup({ sms_consent: state });
+    clock = at(24);
+    const outcome = await dispatchFollowup(db as never, followup.id, clock);
+    assert.deepEqual(outcome, { followupId: followup.id, outcome: "blocked", touch: 1, reason: "lead_sms_consent_missing" }, state);
+    clock = T0;
+  }
+  assert.equal(calls.sends, 0, "never reaches the sender");
+  const { followup } = await newFollowup({ sms_consent: "granted" });
+  clock = at(24);
+  assert.equal((await dispatchFollowup(db as never, followup.id, clock)).outcome, "sent");
+  assert.equal(calls.sends, 1);
 });

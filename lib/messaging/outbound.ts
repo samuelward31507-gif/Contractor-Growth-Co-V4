@@ -2,6 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { findOrCreateOpenConversation, type ConversationChannel, type MessageSenderType } from "@/lib/conversations/queries";
 import { sendSms, type SendSmsInput, type SendSmsResult } from "@/lib/automation/sms";
 import { createServiceRoleClient } from "@/lib/supabase/service";
+import { writeSmsOptOut } from "@/lib/messaging/opt-out";
+
+/**
+ * Final Batch 2: Twilio's "attempt to send to unsubscribed recipient" - the
+ * carrier/Twilio already holds a STOP for this number. Twilio rejects the
+ * create call with this code, so it is only ever seen here, synchronously.
+ */
+export const TWILIO_UNSUBSCRIBED_RECIPIENT_CODE = "21610";
 
 export type SendOutboundMessageInput = {
   organizationId: string;
@@ -39,6 +47,16 @@ export type SendOutboundMessageResult =
        * execution on it.
        */
       duplicateInProgress?: true;
+      /**
+       * Final Batch 2: set only when the provider refused because the
+       * recipient has opted out (Twilio 21610). The opt-out has been
+       * persisted to contacts.sms_opt_out (when possible - see
+       * optOutPersisted), so every later automated send is blocked by the
+       * gate. A permanent, business outcome - never a transient send failure
+       * to retry.
+       */
+      recipientOptedOut?: true;
+      optOutPersisted?: boolean;
     };
 
 /**
@@ -163,6 +181,23 @@ export async function sendOutboundMessage(
   const sendFn = input.sendSmsFn ?? sendSms;
   const result = await sendFn({ organizationId: input.organizationId, to: destination, body: input.body });
 
+  if (!result.ok && result.providerErrorCode === TWILIO_UNSUBSCRIBED_RECIPIENT_CODE) {
+    await recordProviderOutcome(queued.id, input.organizationId, {
+      status: "failed",
+      status_reason: "Recipient has opted out of SMS (provider reported STOP).",
+      provider_error_code: TWILIO_UNSUBSCRIBED_RECIPIENT_CODE,
+    });
+    const optOutPersisted = await persistProviderOptOut(input.organizationId, input.contactId);
+    return {
+      ok: false,
+      error: "Recipient has opted out of SMS.",
+      messageId: queued.id,
+      conversationId: conversation.id,
+      recipientOptedOut: true,
+      optOutPersisted,
+    };
+  }
+
   if (!result.ok) {
     await recordProviderOutcome(queued.id, input.organizationId, {
       status: "failed",
@@ -175,6 +210,25 @@ export async function sendOutboundMessage(
   await recordProviderOutcome(queued.id, input.organizationId, { status: "sent", provider_message_id: result.providerMessageId });
 
   return { ok: true, messageId: queued.id, conversationId: conversation.id, providerMessageId: result.providerMessageId };
+}
+
+/**
+ * Final Batch 2: mirrors an inbound STOP for a recipient the provider says
+ * has opted out (21610). Service role, like the inbound STOP webhook: the
+ * caller may be a user session, and contacts.sms_opt_out is the one flag
+ * every gate reads. Writing true over true is a no-op, so this is idempotent;
+ * writeSmsOptOut retries once and never throws. Never logs the phone number.
+ */
+async function persistProviderOptOut(organizationId: string, contactId: string): Promise<boolean> {
+  try {
+    const write = await writeSmsOptOut(createServiceRoleClient(), contactId, true);
+    if (write.ok) return true;
+    console.error("[messaging] failed to persist provider-reported opt-out", { organizationId, contactId, code: write.failure.code });
+    return false;
+  } catch (error) {
+    console.error("[messaging] failed to persist provider-reported opt-out", { organizationId, contactId, error: error instanceof Error ? error.message : "unknown error" });
+    return false;
+  }
 }
 
 /**

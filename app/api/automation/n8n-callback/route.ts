@@ -1728,6 +1728,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, alreadyProcessed: true });
   }
 
+  // Final Batch 2: the provider reported the recipient opted out (Twilio
+  // 21610; sendOutboundMessage has persisted the opt-out). A business block,
+  // recorded exactly like the gate's own contact_opted_out - never a failed
+  // execution, which would be retryable.
+  if (!sendResult.ok && sendResult.recipientOptedOut) {
+    const result = await completeWorkflowExecutionAsService(service, execution.id, {
+      should_send: false,
+      blocked_reason: "contact_opted_out",
+      blocked_detail: "provider_opt_out",
+      needs_human: aiResult.needs_human,
+      qualification_status: aiResult.qualification_status,
+      urgency: aiResult.urgency,
+      missing_information: aiResult.missing_information,
+      intent: aiResult.intent,
+      summary: aiResult.summary,
+    });
+    if (!result.ok) {
+      if (isAlreadyProcessedError(result.error)) {
+        return NextResponse.json({ ok: true, alreadyProcessed: true });
+      }
+      console.error("[automation] failed to complete execution", { executionId: execution.id, error: result.error });
+      await recordCallbackFailureSignal(service, event, execution.id, result.error);
+      return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
+    }
+    await recordReviewReferralOutcomeIfApplicable(
+      service,
+      { eventType: event.event_type, organizationId: event.organization_id, jobId, contactId, conversationId, reviewUrl, executionId: execution.id },
+      { kind: "blocked", reason: "contact_opted_out" },
+    );
+    return NextResponse.json({ ok: true, sent: false, blockedReason: "contact_opted_out" });
+  }
+
   if (!sendResult.ok) {
     // The execution must clearly reflect that delivery could not complete;
     // it must never be marked completed as if the customer-facing message

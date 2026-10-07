@@ -38,7 +38,7 @@ let ids = 0;
 let clock = T0;
 const hooks: { beforeRun?: (table: string, eqs: Row, write: boolean) => void } = {};
 const calls = { sends: 0, signals: [] as Row[], n8n: 0 };
-const control = { sendOk: true, admin: true, hours: [] as Row[], startLoses: false, snapshotFails: false, confirmationWriteFails: false };
+const control = { sendOk: true, admin: true, hours: [] as Row[], startLoses: false, snapshotFails: false, confirmationWriteFails: false, providerOptOut: false };
 const trace: string[] = [];
 
 function deriveOutcome(row: Row) {
@@ -190,6 +190,11 @@ mock.module(lib("lib/messaging/outbound.ts"), {
       calls.sends += 1;
       trace.push("send");
       store.messages!.push({ id: uuid(), organization_id: input.organizationId, conversation_id: input.conversationId, workflow_execution_id: input.workflowExecutionId, direction: "outbound", body: input.body, sender_type: input.senderType, created_at: clock.toISOString() });
+      // Final Batch 2: the real sender's Twilio 21610 contract - opt-out persisted, recipientOptedOut flagged.
+      if (control.providerOptOut) {
+        store.contacts!.find((c) => c.id === input.contactId)!.sms_opt_out = true;
+        return { ok: false, error: "Recipient has opted out of SMS.", messageId: "m", conversationId: input.conversationId, recipientOptedOut: true, optOutPersisted: true };
+      }
       return control.sendOk ? { ok: true, messageId: "m", conversationId: input.conversationId, providerMessageId: "SM" } : { ok: false, error: "Twilio error 30003", messageId: null, conversationId: null };
     },
   },
@@ -255,7 +260,7 @@ beforeEach(() => {
   ids = 100;
   clock = T0;
   calls.sends = 0; calls.signals = []; calls.n8n = 0;
-  control.sendOk = true; control.admin = true; control.hours = []; control.startLoses = false; control.snapshotFails = false; control.confirmationWriteFails = false;
+  control.sendOk = true; control.admin = true; control.hours = []; control.startLoses = false; control.snapshotFails = false; control.confirmationWriteFails = false; control.providerOptOut = false;
   trace.length = 0;
   hooks.beforeRun = (table, eqs, write) => {
     if (table === SNAPSHOT_MARKER) trace.push("snapshot");
@@ -547,4 +552,24 @@ test("12. Run Now (the real admin action) records the reminder under trigger 'ma
   assert.ok(event, "the Run Now action ran the reminder scan");
   assert.deepEqual(starts.filter((s) => s.p_automation_event_id === event.id), [{ p_automation_event_id: event.id, p_workflow_name: "appointment_reminder", p_metadata: {}, p_trigger_source: "manual" }]);
   assert.equal(touchExecutions().find((e) => e.automation_event_id === event.id)!.trigger_source, "manual");
+});
+
+test("Final Batch 2: Twilio 21610 on an appointment reminder (an A2 auto-retried workflow) - opt-out persisted, recorded blocked, never scheduled for retry, no further send", async () => {
+  const a = appt();
+  control.providerOptOut = true;
+  const outcomes = (await run()) as Outcomes;
+  control.providerOptOut = false;
+  assert.equal(outcomes.outcomes.find((o) => o.appointmentId === a.id)!.outcome, "blocked");
+  assert.equal(store.contacts![0].sms_opt_out, true, "1-2. the provider opt-out is persisted");
+  const [execution] = touchExecutions();
+  assert.deepEqual({ status: execution.status, outcome: execution.outcome, reason: (execution.metadata as Row).blocked_reason }, { status: "completed", outcome: "blocked", reason: "contact_opted_out" }, "3. classified as an opt-out block");
+  // 4. The automatic retry policy is evaluated - and finds nothing to retry.
+  const classified = await classifyFailedExecutions(db as never, T0);
+  assert.deepEqual(classified.decided, []);
+  const due = await processDueRetries(db as never, new Date(T0.getTime() + 48 * HOUR));
+  assert.equal(due.started.length, 0);
+  // 5. A later scan for the same appointment sends nothing.
+  await run();
+  assert.equal(calls.sends, 1, "the 21610 attempt is the only one");
+  assert.equal(touchExecutions().length, 1);
 });

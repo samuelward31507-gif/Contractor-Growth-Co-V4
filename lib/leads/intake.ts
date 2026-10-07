@@ -36,6 +36,13 @@ export type LeadIntakeInput = {
   source: string;
   service?: string | null;
   temperature?: LeadTemperature;
+  /**
+   * Final Batch 2: leads.sms_consent for a newly created lead - set only by the
+   * public lead-capture route (lib/leads/sms-consent.ts). Omitted by every
+   * other path, which leaves the column null (unchanged behavior). Written in
+   * the same insert, so the lead never exists without it.
+   */
+  smsConsent?: "granted" | "declined" | "not_provided";
 };
 
 export type LeadIntakeResult =
@@ -96,6 +103,7 @@ export async function resolveLeadForIntake(supabase: SupabaseClient, input: Lead
         service: input.service ?? null,
         status: "new",
         temperature: input.temperature ?? "cold",
+        ...(input.smsConsent ? { sms_consent: input.smsConsent } : {}),
       })
       .select("id")
       .single();

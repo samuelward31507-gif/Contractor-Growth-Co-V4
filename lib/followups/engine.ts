@@ -389,6 +389,12 @@ export async function executeTouch(
   });
   // The owner of this execution's send records it - never fail the execution from here (P0-B B2.8a, HIGH-1).
   if (!sent.ok && sent.duplicateInProgress) return { kind: "duplicate_in_progress" };
+  // Final Batch 2: the provider reported the recipient opted out (Twilio 21610) - a business block, recorded
+  // like the gate's own contact_opted_out, never a failed (and so retryable) execution.
+  if (!sent.ok && sent.recipientOptedOut) {
+    await ops.complete(supabase, executionId, { ...blockedOutcome(record, "contact_opted_out", "provider_opt_out"), ...input.auditFields });
+    return { kind: "blocked", reason: "contact_opted_out" };
+  }
   if (!sent.ok) {
     // A minimal record never carries the provider's error text - not on the execution, not in the result.
     const error = record.shape === "full" ? sent.error : record.failureMessage;

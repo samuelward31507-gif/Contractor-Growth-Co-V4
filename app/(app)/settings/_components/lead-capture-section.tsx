@@ -1,16 +1,19 @@
 import { Inbox } from "lucide-react";
 import { Badge } from "@/lib/ui/badge";
 import { detailLabelClass, detailValueClass, metaClass, subsectionTitleClass } from "@/lib/ui/typography";
+import { DEFAULT_SMS_CONSENT_DISCLOSURE } from "@/lib/leads/sms-consent";
+import { RotateIntakeTokenForm } from "./rotate-intake-token-form";
 
 /**
  * First-Client Lead Capture V1: the read-only display of the URL a
  * contractor's own lead source (website contact form, lead-gen platform
  * webhook, Zapier/Make, etc.) should POST to. Mirrors SmsSummarySection's
  * exact shape (read-only info block, Badge, no new UI pattern) - this
- * feature has no configuration to change here, only a value to copy, so
- * there is no form/action needed.
+ * feature has no configuration to change here, only a value to copy. Final
+ * Batch 2 added the owner/admin-only "Rotate intake URL" control
+ * (canRotate) and documents the optional SMS consent fields.
  */
-export function LeadCaptureSection({ intakeUrl }: { intakeUrl: string | null }) {
+export function LeadCaptureSection({ intakeUrl, canRotate = false }: { intakeUrl: string | null; canRotate?: boolean }) {
   return (
     <section>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -41,6 +44,13 @@ export function LeadCaptureSection({ intakeUrl }: { intakeUrl: string | null }) 
           <Inbox className="mr-1 inline h-3.5 w-3.5 align-text-bottom" aria-hidden />
           Keep this URL private — anyone with it can create leads in your account.
         </p>
+        <p className={`mt-2 ${metaClass}`}>
+          SMS consent: send <code>sms_consent</code> (<code>true</code> only if the person ticked a texting checkbox) and{" "}
+          <code>sms_consent_text</code> (the exact wording your form showed). Every lead is captured, but Trackpr texts a
+          new lead automatically only when <code>sms_consent</code> is <code>true</code> — without it, the lead waits for
+          you on Today. Example wording to adapt: “{DEFAULT_SMS_CONSENT_DISCLOSURE}”
+        </p>
+        {intakeUrl && canRotate ? <RotateIntakeTokenForm /> : null}
       </div>
     </section>
   );

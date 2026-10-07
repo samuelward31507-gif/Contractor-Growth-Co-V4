@@ -426,3 +426,11 @@ Applied to TEST (`trackpr-stripe-test`) on 2026-10-05 via the MCP `apply_migrati
 ### Status
 
 Applied to TEST (`trackpr-stripe-test`) on 2026-10-06 via the MCP `apply_migration` mechanism, recorded as ledger version `20261006224113 start_workflow_execution_atomic_claim`. Verified: the deployed body contains the conditional claim; SECURITY DEFINER, `search_path=public` and EXECUTE grants (authenticated, service_role, postgres) unchanged. Pending for Production.
+
+## lead_sms_consent.sql (Final Batch 2 - not applied anywhere)
+
+One nullable column, `public.leads.sms_consent` (`null` | `granted` | `declined` | `not_provided`, check constraint `leads_sms_consent_check`, no default, no backfill). The public lead-capture route (`app/api/leads/capture/[token]/route.ts`) writes it in the same insert that creates the lead; every other path and every existing row stays `null` (behavior unchanged). `evaluateOutboundGate` denies an automated send (`lead_sms_consent_missing`) when the lead it is about - `leadId`, otherwise the conversation's current lead - is `declined` or `not_provided`. It is deliberately separate from `contacts.sms_opt_out` (STOP/START), which is never written from the form. The file's header explains why `audit_log` cannot carry this state. `lead_sms_consent_rollback.sql` drops the constraint and column (run by a person - it contains DROP). Validated with `scratch/validate-lead-sms-consent.mjs` (idempotent apply, existing rows null, accepted/refused values, rollback).
+
+### Status
+
+Not applied to TEST or Production. Apply to an environment BEFORE deploying the Batch 2 code there: the gate reads the column and fails closed (blocks lead-scoped automated SMS) where it is missing, and the capture route's lead insert would fail.
