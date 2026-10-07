@@ -8,7 +8,7 @@ import { getAiSettings, getBusinessHours } from "@/lib/settings/queries";
 import { getOpenOpportunitiesResult, type OpenOpportunitiesResult } from "@/lib/opportunities/queries";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
 import { WAITING_EVIDENCE_FILTER } from "@/lib/conversations/waiting";
-import { WAITING_REPLY_CAP, firstUnansweredInboundAt, type DecisionContext, type WaitingConversationState } from "./actor";
+import { firstUnansweredInboundAt, type DecisionContext, type WaitingConversationState } from "./actor";
 
 /**
  * Phase 2-3: the reads behind "who acts" - a small, fixed number of batched
@@ -58,7 +58,7 @@ type WaitingConversationRow = {
   messages: { created_at: string; direction: "inbound" | "outbound"; status: string | null }[] | null;
 };
 
-/** One batched read for every waiting conversation (at most WAITING_REPLY_CAP of them - the dashboard SQL returns no more): its AI flag, its contact's opt-out, and its newest messages. */
+/** One batched read for every waiting conversation passed in (Today: at most WAITING_REPLY_CAP - the dashboard SQL returns no more; Person/Inbox: their own waiting set): its AI flag, its contact's opt-out, and its newest messages. */
 async function readWaitingConversations(supabase: SupabaseClient, organizationId: string, conversationIds: string[]): Promise<Map<string, WaitingConversationState>> {
   const { data, error } = await supabase
     .from("conversations")
@@ -167,7 +167,8 @@ export function estimateFollowupWindowMsFromSettings(settings: OrganizationAutom
  * items getDashboardSqlData already loaded: the waiting conversations come
  * from them, never from a second detection pass. The AI settings, business
  * hours and conversation reads only happen when there is a waiting
- * conversation the grace period could apply to.
+ * conversation the grace period could apply to - which, since the Batch 3
+ * consistency fix, is every waiting conversation passed in.
  */
 export async function getDecisionContext(
   supabase: SupabaseClient,
@@ -176,14 +177,18 @@ export async function getDecisionContext(
 ): Promise<DecisionContext> {
   const now = input.now ?? Date.now();
   const waitingIds = [...new Set(input.attentionItems.filter((item) => item.kind === "awaiting_reply" && item.conversationId).map((item) => item.conversationId as string))];
-  const waitingCapReached = waitingIds.length >= WAITING_REPLY_CAP;
-  const graceCandidates = waitingCapReached ? [] : waitingIds;
-
-  // Phase 2-11 (G3): the waiting conversations are read even when the cap is
-  // reached (still at most the 5 the SQL returns), so a reply waiting 4h or
-  // more can be shown as a missed follow-up. The actor rules are unchanged:
-  // at the cap every waiting item is still human (resolveSignalActor checks
-  // waitingCapReached first), and the AI-settings read stays grace-only.
+  // Batch 3 consistency fix: who replies to a waiting conversation is
+  // decided by that conversation alone - its own AI flag, opt-out and first
+  // unanswered message, against the organization's AI, reply automation
+  // and hours - never by how many other conversations happen to be waiting.
+  // The old C5 rule (5 or more waiting -> every one human) made Today, which
+  // sees the dashboard SQL's capped list, disagree with Person and Inbox,
+  // which see one conversation or their own list. Every waiting conversation
+  // passed in is read and graded the same way on every surface; the
+  // dashboard SQL still returns at most WAITING_REPLY_CAP of them, so Today's
+  // list stays bounded. resolveSignalActor (actor.ts) is unchanged - it
+  // still honours waitingCapReached for any caller that sets it.
+  const graceCandidates = waitingIds;
   const settingsRead = getOrganizationAutomationSettings(supabase, organizationId);
   const [organizationState, settings, aiSettings, waitingConversations, [estimateContactAiDisabled, latestOutboundMsByContact]] = await Promise.all([
     getOrganizationAutomationState(supabase, organizationId),
@@ -206,7 +211,7 @@ export async function getDecisionContext(
     inboundReplyEnabled: automationEnabled(settings, "inbound-customer-reply"),
     estimateFollowupEnabled: automationEnabled(settings, "estimate-followup"),
     inboundReplyWithinHours,
-    waitingCapReached,
+    waitingCapReached: false,
     waitingConversations,
     estimateContactAiDisabled,
     latestOutboundMsByContact,

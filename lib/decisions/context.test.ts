@@ -109,17 +109,19 @@ test("waiting conversations: ONE batched conversations read by id, newest 20 mes
   assert.equal(context.aiSettingsEnabled, true);
 });
 
-// Phase 2-11 (G3): at the cap the conversations are now read too (still at most 5, still one batched read) so a
-// reply waiting 4h or more can be shown as a missed follow-up. Actor rules are unchanged: no AI-settings read,
-// and every waiting item stays human.
-test("C5 (revised by Phase 2-11): with 5 waiting conversations the cap is reached - every one human, no AI settings read; their timestamps are read in ONE batched read", async () => {
-  const fake = fakeClient();
+// Batch 3 consistency fix (supersedes C5 / Phase 2-11 G3's cap rule): the number of waiting conversations never
+// decides who replies. Five (or more) waiting conversations are each graded on their own state - one batched read,
+// one AI-settings read - so Today, Person and Inbox give one conversation the same actor
+// (lib/decisions/actor-consistency.test.ts proves the cross-surface invariant end to end).
+test("Batch 3: 5 waiting conversations no longer trip a cap - every one is graded on its own state; one batched conversations read, one AI settings read", async () => {
+  const fake = fakeClient({ ai_settings: { data: { ai_enabled: true }, error: null } });
   const context = await getDecisionContext(fake.client, "org-1", { attentionItems: ["a", "b", "c", "d", "e"].map(waitingItem), timeZone: "UTC", now: NOW });
-  assert.equal(context.waitingCapReached, true);
-  assert.deepEqual(fake.tables().sort(), [...SHARED_READS, "conversations"].sort());
+  assert.equal(context.waitingCapReached, false, "list size never forces the contractor");
+  assert.deepEqual(fake.tables().sort(), [...SHARED_READS, "ai_settings", "conversations"].sort());
   const [read] = fake.reads.filter((r) => r.table === "conversations");
   assert.deepEqual(read.inIds, ["a", "b", "c", "d", "e"]);
-  assert.equal(fake.reads.filter((r) => r.table === "ai_settings").length, 0);
+  assert.equal(fake.reads.filter((r) => r.table === "ai_settings").length, 1);
+  assert.equal(context.aiSettingsEnabled, true);
 });
 
 test("a failed conversations read leaves no conversation state - every waiting item stays human", async () => {

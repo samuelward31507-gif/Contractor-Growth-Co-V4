@@ -1,18 +1,19 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAiSettings } from "@/lib/settings/queries";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
-import { WAITING_REPLY_CAP, type DecisionContext } from "./actor";
+import type { DecisionContext } from "./actor";
 import { getDecisionContext } from "./context";
 import { waitingIdsAsAttentionItems } from "./presentation";
 
 /**
  * Batch 3 (core daily loop): the DecisionContext for People, Person and
- * Inbox - Today's own getDecisionContext, unchanged, fed the canonical
- * waiting conversation ids instead of Today's attention items (capped the
- * way the dashboard SQL caps them, so the actor answers match Today's).
+ * Inbox - Today's own getDecisionContext, fed the canonical waiting
+ * conversation ids instead of Today's attention items. Every waiting
+ * conversation is graded on its own state, exactly as Today grades the ones
+ * it lists, so a conversation's actor is the same on every surface.
  *
- * getDecisionContext reads ai_settings only when a waiting conversation is
- * inside its grace window - all it needs for Today. The Inbox also has to
+ * getDecisionContext reads ai_settings only when there is a waiting
+ * conversation - all it needs for Today. The Inbox also has to
  * say whether Trackpr would answer an already-answered conversation's next
  * message, so the same getAiSettings read is made here when it was skipped.
  * Read-only; no rule lives here.
@@ -22,7 +23,7 @@ export async function getSurfaceDecisionContext(
   organizationId: string,
   input: { waitingConversationIds: Iterable<string>; timeZone: string | null; now?: number },
 ): Promise<DecisionContext> {
-  const attentionItems = waitingIdsAsAttentionItems(input.waitingConversationIds, WAITING_REPLY_CAP);
+  const attentionItems = waitingIdsAsAttentionItems(input.waitingConversationIds);
   const [context, aiSettings] = await Promise.all([
     getDecisionContext(supabase, organizationId, { attentionItems, timeZone: input.timeZone, now: input.now }),
     getAiSettings(supabase, organizationId).catch(() => null),

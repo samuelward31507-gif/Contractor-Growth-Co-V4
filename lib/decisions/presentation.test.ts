@@ -167,9 +167,10 @@ test("cross-page: one waiting conversation - Today, Person and Inbox agree on wh
   }
 });
 
-test("off Today, the waiting ids feed Today's own context read, capped exactly as the dashboard SQL caps them", () => {
-  assert.deepEqual(waitingIdsAsAttentionItems(["a", "b"], 5).map((item) => [item.kind, item.conversationId]), [["awaiting_reply", "a"], ["awaiting_reply", "b"]]);
-  assert.equal(waitingIdsAsAttentionItems(["a", "b", "c", "d", "e", "f", "g"], 5).length, 5, "at the cap getDecisionContext marks every wait as the contractor's");
+test("off Today, every waiting id feeds Today's own context read - never a capped slice, so list position can't change an actor", () => {
+  assert.deepEqual(waitingIdsAsAttentionItems(["a", "b", "a"]).map((item) => [item.kind, item.conversationId]), [["awaiting_reply", "a"], ["awaiting_reply", "b"]]);
+  assert.equal(waitingIdsAsAttentionItems(["a", "b", "c", "d", "e", "f", "g"]).length, 7, "all seven graded on their own state");
+  assert.doesNotMatch(read("lib/decisions/context.ts"), /waitingIds\.length >= WAITING_REPLY_CAP/, "the list-size cap no longer decides the actor");
   const surface = read("lib/decisions/surface-context.ts");
   assert.match(surface, /getDecisionContext\(supabase, organizationId, \{ attentionItems, timeZone: input\.timeZone, now: input\.now \}\)/, "the one context reader, unchanged");
   assert.doesNotMatch(read("lib/decisions/presentation.ts"), /from "@\/lib\/lifecycle\//, "presentation never imports the canonical lifecycle model");

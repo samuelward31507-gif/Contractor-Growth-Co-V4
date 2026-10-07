@@ -36,13 +36,13 @@ export function ownerForDecision(item: Pick<DecisionItem, "actor">): ActorOwner 
 /**
  * getDecisionContext reads its waiting conversations from Today's attention
  * items. Off Today, the same read is fed the canonical waiting ids
- * (lib/conversations/waiting.ts) as awaiting_reply items - at most the cap
- * the dashboard SQL itself returns, so a surface with WAITING_REPLY_CAP or
- * more waiting conversations treats every one of them as the contractor's,
- * exactly as Today does.
+ * (lib/conversations/waiting.ts) as awaiting_reply items - every one of
+ * them, never a capped slice: a conversation's actor depends only on its
+ * own state (Batch 3 consistency fix), so no conversation may fall back to
+ * "the contractor's" just because it sits past some list position.
  */
-export function waitingIdsAsAttentionItems(waitingIds: Iterable<string>, cap: number): AttentionItem[] {
-  return [...waitingIds].slice(0, cap).map((conversationId) => ({ id: `waiting:${conversationId}`, kind: "awaiting_reply", conversationId }) as AttentionItem);
+export function waitingIdsAsAttentionItems(waitingIds: Iterable<string>): AttentionItem[] {
+  return [...new Set(waitingIds)].map((conversationId) => ({ id: `waiting:${conversationId}`, kind: "awaiting_reply", conversationId }) as AttentionItem);
 }
 
 // ---------------------------------------------------------------------------
