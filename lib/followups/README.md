@@ -248,3 +248,27 @@ A valid needs-human draft is a recorded `blocked needs_human` (conversation lock
 **Known:** n8n still posts the old `ai_result` shape to an old URL in this phase. Those callbacks for these two kinds are rejected (400) until n8n moves to the strict draft contract.
 
 **Tests:** `app/api/automation/n8n-callback/handoff-callback.test.ts` 1–16 and `lib/automation/lifecycle-eligibility.test.ts`.
+
+### TEST-only Run now for nurture and reactivation (P0-B B2.8f)
+
+**Purpose:** run one lead's lost-lead nurture or lead reactivation touch end to end in TEST without `CRON_SECRET`, without waiting days for the cadence, and without editing rows.
+
+**Entry points:**
+- `runLeadNurtureNow` (`lib/automation/lead-nurture.ts`) and `runLeadReactivationNow` (`lib/automation/lead-reactivation.ts`) each take one organization and one lead. They never scan.
+- Each runs the scheduled scan's own per-lead step with `{ runNow: true }`.
+- The only thing skipped is the cadence wait. When the cadence says nothing is due, Run now picks the next touch:
+  - touch 1;
+  - touch 2 only once touch 1's event has finished (completed or failed).
+- That touch is marked `schedule.runNow`, which the adapter's `isDue` accepts. Scheduled runs never set it.
+- Everything else is unchanged: enabled, status, conversation and inbound rules, the 48-hour rule, A3, the claim (kill switch, B1, still owed, the same `lead.lost_nurture:<lead>:<n>` / `lead.reactivation:<lead>:<n>` key, B0 marked `n8n_draft`), the n8n hand-off, the strict callback, `resumeClaimedTouch` and the outbound gate.
+
+**Server action:** `runLeadTouchNow` (`app/(app)/leads/actions.ts`) is gated exactly like A4's `runFollowupNow`:
+- a non-production deployment (`isCustomerReplySimulationEnvironment`);
+- an org owner or admin;
+- the organization in TEST mode.
+
+The organization always comes from the session, and the lead must belong to it. In TEST mode the gate denies `organization_not_live`, so nothing is ever sent.
+
+**UI:** a "Run nurture now" / "Run reactivation now" control under each lost or eligible lead on the person page, shown only under the same three conditions.
+
+**Tests:** `app/(app)/leads/run-lead-touch-now.test.ts`.

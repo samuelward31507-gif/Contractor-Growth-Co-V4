@@ -339,3 +339,68 @@ export async function runFollowupNow(_prevState: RunFollowupNowState, formData: 
   if (lead?.contact_id) revalidatePath(`/people/${lead.contact_id as string}`);
   return { result: describeDispatchOutcome(outcome) };
 }
+
+export type RunLeadTouchNowStatus = "started" | "blocked" | "already_processed" | "not_owed" | "not_found" | "forbidden" | "invalid_environment" | "failed";
+export type RunLeadTouchNowState = { status?: RunLeadTouchNowStatus; error?: string; result?: string };
+
+/** The two n8n-drafted touches a TEST-only Run now can evaluate (lib/automation/lead-nurture.ts, lead-reactivation.ts). */
+const RUN_LEAD_TOUCH_NOW_AUTOMATIONS = ["lost-lead-nurture", "lead-reactivation"] as const;
+
+/**
+ * P0-B B2.8f: TEST-only "Run now" for a lead's lost-lead nurture or lead
+ * reactivation touch. Gated exactly like runFollowupNow above: a
+ * non-production deployment, an org owner/admin, and the organization in
+ * TEST mode (where the gate's organization_not_live check means nothing is
+ * ever sent). The organization comes from the session, never the form, and
+ * the lead must be that organization's. It then runs that ONE lead through
+ * the producer's own per-lead step - every check, the same key, the claim
+ * and the n8n hand-off - skipping only the cadence wait; the draft returns
+ * through the normal strict callback and the outbound gate.
+ */
+export async function runLeadTouchNow(_prevState: RunLeadTouchNowState, formData: FormData): Promise<RunLeadTouchNowState> {
+  if (!isCustomerReplySimulationEnvironment()) {
+    return { status: "invalid_environment", error: "Run now is only available on test deployments." };
+  }
+  const automation = String(formData.get("automation") ?? "");
+  const leadId = String(formData.get("leadId") ?? "");
+  if (!(RUN_LEAD_TOUCH_NOW_AUTOMATIONS as readonly string[]).includes(automation)) return { status: "not_found", error: "Unknown automation." };
+  if (!leadId) return { status: "not_found", error: "Missing lead." };
+
+  const { supabase, organizationId } = await requireOrganization();
+  const admin = await assertOrgAdmin(supabase, organizationId);
+  if (!admin.ok) return { status: "forbidden", error: admin.error };
+
+  const { data: organization } = await supabase.from("organizations").select("automation_mode").eq("id", organizationId).maybeSingle();
+  if (organization?.automation_mode !== "test") {
+    return { status: "forbidden", error: "Run now is only available while automations are in TEST mode." };
+  }
+
+  const { data: lead } = await supabase.from("leads").select("id, contact_id").eq("id", leadId).eq("organization_id", organizationId).maybeSingle();
+  if (!lead) return { status: "not_found", error: "This lead could not be found." };
+
+  // Loaded only here, so this file's other actions keep their import graph.
+  const service = createServiceRoleClient();
+  const outcome =
+    automation === "lost-lead-nurture"
+      ? await (await import("@/lib/automation/lead-nurture")).runLeadNurtureNow(service, organizationId, leadId)
+      : await (await import("@/lib/automation/lead-reactivation")).runLeadReactivationNow(service, organizationId, leadId);
+  if (lead.contact_id) revalidatePath(`/people/${lead.contact_id as string}`);
+  return describeLeadTouchNow(outcome);
+}
+
+function describeLeadTouchNow(outcome: { outcome: string; occurrence?: number; executionId?: string; reason?: string; error?: string }): RunLeadTouchNowState {
+  switch (outcome.outcome) {
+    case "dispatched":
+      return { status: "started", result: `Touch ${outcome.occurrence} handed to n8n for a draft (execution ${outcome.executionId}). Trackpr re-checks everything when the draft returns; nothing is sent while the organization is in TEST mode.` };
+    case "skipped_duplicate":
+      return { status: "already_processed", result: "This touch was already processed - nothing new was started." };
+    case "blocked":
+      return { status: "blocked", result: `Touch recorded as blocked (${outcome.reason}).` };
+    case "failed":
+      return { status: "failed", error: `The touch failed (${outcome.error}).` };
+    case "not_found":
+      return { status: "not_found", error: "This lead could not be found." };
+    default:
+      return { status: "not_owed", result: `Nothing to run (${outcome.reason ?? outcome.outcome}).` };
+  }
+}

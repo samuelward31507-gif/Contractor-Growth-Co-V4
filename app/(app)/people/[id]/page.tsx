@@ -35,6 +35,7 @@ import { LEAD_STATUS_TONE } from "../../leads/_components/lead-status";
 import { ContactActions } from "../../contacts/[id]/_components/contact-actions";
 import { LeadActions } from "../../leads/[id]/_components/lead-actions";
 import { FollowupRunNow } from "../../leads/[id]/_components/followup-run-now";
+import { LeadTouchRunNow } from "../../leads/[id]/_components/lead-touch-run-now";
 import { isCustomerReplySimulationEnvironment } from "@/lib/messaging/simulate-customer-reply";
 import { FOLLOWUP_STATE_LABELS } from "@/lib/followups/format";
 import { touchCount, type FollowupStage } from "@/lib/followups/config";
@@ -158,12 +159,13 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
   // every submit). Production deployments skip both reads.
   type FollowupPanelRow = { id: string; lead_id: string; stage: FollowupStage; state: FollowupState; next_action_at: string | null; attempt_count: number; paused_reason: string | null; exit_reason: string | null };
   const followupByLeadId = new Map<string, FollowupPanelRow>();
-  if (
+  // P0-B B2.8f: the same three conditions also show the TEST-only nurture/reactivation Run now under each lead.
+  const testRunNowAvailable =
     leads.length > 0 &&
     isCustomerReplySimulationEnvironment() &&
     (membership.role === "owner" || membership.role === "admin") &&
-    (await supabase.from("organizations").select("automation_mode").eq("id", membership.organizationId).maybeSingle()).data?.automation_mode === "test"
-  ) {
+    (await supabase.from("organizations").select("automation_mode").eq("id", membership.organizationId).maybeSingle()).data?.automation_mode === "test";
+  if (testRunNowAvailable) {
     const { data: followupRows } = await supabase
       .from("followups")
       .select("id, lead_id, stage, state, next_action_at, attempt_count, paused_reason, exit_reason")
@@ -430,6 +432,11 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                             </div>
                           ) : null;
                         })()}
+                        {testRunNowAvailable && (lead.status === "lost" || lead.status === "new" || lead.status === "contacted" || lead.status === "qualified") ? (
+                          <div className="basis-full">
+                            <LeadTouchRunNow leadId={lead.id} automation={lead.status === "lost" ? "lost-lead-nurture" : "lead-reactivation"} />
+                          </div>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

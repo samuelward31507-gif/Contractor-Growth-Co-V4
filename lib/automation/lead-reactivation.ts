@@ -61,7 +61,8 @@ export type ReactivationTouchItem = {
   contactId: string | null;
   occurrence: 1 | 2;
   conversationId: string | null;
-  schedule: { lastInboundAtMs: number; config: LeadReactivationConfig } | null;
+  /** `runNow`: the TEST-only Run now (runLeadReactivationNow) chose this touch before its cadence wait ended - the only check it skips. */
+  schedule: { lastInboundAtMs: number; config: LeadReactivationConfig; runNow?: true } | null;
 };
 type ReactivationTouchFacts = { lead: Lead };
 
@@ -88,7 +89,7 @@ export const LEAD_REACTIVATION_ADAPTER: DerivedTouchAdapter<ReactivationTouchIte
   },
   subject: reactivationSubject,
   idempotencyKey: ({ leadId, occurrence }) => `${LEAD_REACTIVATION_EVENT_TYPE}:${leadId}:${occurrence}`,
-  isDue: ({ schedule, occurrence }, now) => schedule !== null && computeReactivationOccurrence(now.getTime() - schedule.lastInboundAtMs, schedule.config) === occurrence,
+  isDue: ({ schedule, occurrence }, now) => schedule !== null && (schedule.runNow === true || computeReactivationOccurrence(now.getTime() - schedule.lastInboundAtMs, schedule.config) === occurrence),
   dueAt: ({ schedule, occurrence }) => ({ anchorMs: schedule?.lastInboundAtMs ?? 0, delayMs: schedule ? (occurrence === 2 ? schedule.config.touch_2_days : schedule.config.touch_1_days) * 24 * 60 * 60 * 1000 : 0 }),
   stillOwed: async (service, { organizationId, leadId, contactId }) => {
     const lead = await getLead(service, organizationId, leadId);
@@ -237,6 +238,7 @@ async function processOneLead(
   now: Date,
   config: LeadReactivationConfig,
   isEnabled: (organizationId: string) => Promise<boolean>,
+  options: { runNow?: boolean } = {},
 ): Promise<ReactivationOutcome> {
   const leadId = lead.id;
   const organizationId = lead.organization_id;
@@ -309,7 +311,11 @@ async function processOneLead(
   // this elapsed value, which is what makes touch 2 correctly wait a fresh
   // touch_2_days from that new reply rather than firing on the original
   // clock.
-  const occurrence = computeReactivationOccurrence(elapsed, config);
+  const due = computeReactivationOccurrence(elapsed, config);
+  // P0-B B2.8f (TEST-only Run now): the touch the cadence says is due, else the next one (see
+  // runNowOccurrence) - early. Only the cadence wait is skipped; every check below still runs.
+  const runNow = options.runNow ? await runNowOccurrence(supabase, organizationId, leadId, due) : null;
+  const occurrence = runNow?.occurrence ?? due;
 
   if (!occurrence) {
     return { leadId, outcome: "not_due" };
@@ -419,7 +425,7 @@ async function processOneLead(
   // the key's soft claim, B1, still owed, then the key + B0 start marked for a draft hand-off. The
   // dispatch itself is deferred exactly as before; its failure fails the execution as before.
   const contactId = lead.contact_id;
-  const item: ReactivationTouchItem = { organizationId, leadId, contactId, occurrence, conversationId: openConversation.id, schedule: { lastInboundAtMs: new Date(lastInbound.created_at).getTime(), config } };
+  const item: ReactivationTouchItem = { organizationId, leadId, contactId, occurrence, conversationId: openConversation.id, schedule: { lastInboundAtMs: new Date(lastInbound.created_at).getTime(), config, ...(runNow?.early ? { runNow: true as const } : {}) } };
   const result = await claimAndHandOffTouch(supabase, LEAD_REACTIVATION_ADAPTER, item, now, { isEnabled }, async ({ eventId, executionId }) => {
     const [aiSettings, businessProfile, contact] = await Promise.all([
       getAiSettings(supabase, organizationId),
@@ -497,4 +503,36 @@ async function processOneLead(
   });
 
   return reactivationOutcomeOf(leadId, occurrence, result);
+}
+
+/**
+ * P0-B B2.8f: the touch a TEST-only Run now evaluates - the due one; else touch 1; touch 2 only once touch 1
+ * has finished (completed or failed). While touch 1 is still in flight it stays touch 1, so a second click
+ * meets touch 1's own key (already processed) instead of starting touch 2 at the same moment.
+ */
+async function runNowOccurrence(supabase: SupabaseClient, organizationId: string, leadId: string, due: 1 | 2 | null): Promise<{ occurrence: 1 | 2; early: boolean }> {
+  if (due === 2) return { occurrence: 2, early: false };
+  const { data: touch1 } = await supabase.from("automation_events").select("id, status").eq("organization_id", organizationId).eq("idempotency_key", `${LEAD_REACTIVATION_EVENT_TYPE}:${leadId}:1`).maybeSingle();
+  if (!touch1 || (touch1.status !== "completed" && touch1.status !== "failed")) return { occurrence: 1, early: due === null };
+  return { occurrence: 2, early: true };
+}
+
+/**
+ * P0-B B2.8f: TEST-only Run now for ONE lead of ONE organization - never a
+ * scan. The same per-lead step the scheduled scan runs (enabled, a contact,
+ * this lead's own open SMS conversation, inbound history, the key's
+ * fast-path duplicate check, active engagement, an eligible status, the
+ * 48-hour rule, A3, the claim through claimAndHandOffTouch: kill switch, B1,
+ * still owed, the key and B0, the n8n hand-off) - only the wait since the
+ * last inbound reply is skipped. Everything after the hand-off is the normal
+ * runtime. Only the TEST-only server action calls this (app/(app)/leads/actions.ts).
+ */
+export async function runLeadReactivationNow(supabase: SupabaseClient, organizationId: string, leadId: string, now: Date = new Date()): Promise<ReactivationOutcome | { leadId: string; outcome: "not_found" }> {
+  const { data: lead } = await supabase.from("leads").select("id, organization_id, contact_id, service, source, ai_summary, status").eq("organization_id", organizationId).eq("id", leadId).maybeSingle();
+  if (!lead) return { leadId, outcome: "not_found" };
+  if (!ELIGIBLE_LEAD_STATUSES.includes(lead.status as LeadStatus)) return { leadId, outcome: "not_eligible_status" };
+  const configByOrg = await getAutomationConfigByOrganization(supabase, LEAD_REACTIVATION_AUTOMATION_ID);
+  const config = readLeadReactivationConfig(configByOrg.get(organizationId) ?? null);
+  const isEnabled = enabledPerOrganization((id) => getAutomationEnabled(supabase, id, LEAD_REACTIVATION_AUTOMATION_ID));
+  return processOneLead(supabase, lead as CandidateLead, now, config, isEnabled, { runNow: true });
 }

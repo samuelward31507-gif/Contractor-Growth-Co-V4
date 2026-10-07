@@ -48,7 +48,8 @@ export type NurtureTouchItem = {
   contactId: string | null;
   occurrence: 1 | 2;
   conversationId: string | null;
-  schedule: { lostAtMs: number; config: LostLeadNurtureConfig } | null;
+  /** `runNow`: the TEST-only Run now (runLeadNurtureNow) chose this touch before its cadence wait ended - the only check it skips. */
+  schedule: { lostAtMs: number; config: LostLeadNurtureConfig; runNow?: true } | null;
 };
 type NurtureTouchFacts = { lead: Lead };
 
@@ -77,7 +78,7 @@ export const LOST_LEAD_NURTURE_ADAPTER: DerivedTouchAdapter<NurtureTouchItem, Nu
   },
   subject: nurtureSubject,
   idempotencyKey: ({ leadId, occurrence }) => `${LEAD_LOST_NURTURE_EVENT_TYPE}:${leadId}:${occurrence}`,
-  isDue: ({ schedule, occurrence }, now) => schedule !== null && computeNurtureOccurrence(now.getTime() - schedule.lostAtMs, schedule.config) === occurrence,
+  isDue: ({ schedule, occurrence }, now) => schedule !== null && (schedule.runNow === true || computeNurtureOccurrence(now.getTime() - schedule.lostAtMs, schedule.config) === occurrence),
   dueAt: ({ schedule, occurrence }) => ({ anchorMs: schedule?.lostAtMs ?? 0, delayMs: schedule ? (occurrence === 2 ? schedule.config.touch_2_days : schedule.config.touch_1_days) * 24 * 60 * 60 * 1000 : 0 }),
   stillOwed: async (service, { organizationId, leadId, contactId }) => {
     const lead = await getLead(service, organizationId, leadId);
@@ -216,6 +217,7 @@ async function processOneLead(
   now: Date,
   config: LostLeadNurtureConfig,
   isEnabled: (organizationId: string) => Promise<boolean>,
+  options: { runNow?: boolean } = {},
 ): Promise<NurtureOutcome> {
   const leadId = lostEvent.entity_id;
   const organizationId = lostEvent.organization_id;
@@ -238,7 +240,11 @@ async function processOneLead(
   const lostAt = new Date(lostEvent.created_at).getTime();
   const elapsed = now.getTime() - lostAt;
 
-  const occurrence = computeNurtureOccurrence(elapsed, config);
+  const due = computeNurtureOccurrence(elapsed, config);
+  // P0-B B2.8f (TEST-only Run now): the touch the cadence says is due, else the next one (see
+  // runNowOccurrence) - early. Only the cadence wait is skipped; every check below still runs.
+  const runNow = options.runNow ? await runNowOccurrence(supabase, organizationId, leadId, due) : null;
+  const occurrence = runNow?.occurrence ?? due;
 
   if (!occurrence) {
     return { leadId, outcome: "not_due" };
@@ -311,7 +317,7 @@ async function processOneLead(
   // P0-B B2.8c: the claim and the hand-off run the shared touch runtime - kill switch (cached), due,
   // the key's soft claim, B1, still owed, then the key + B0 start marked for a draft hand-off. The
   // dispatch itself is deferred exactly as before; its failure fails the execution as before.
-  const item: NurtureTouchItem = { organizationId, leadId, contactId: lead.contact_id, occurrence, conversationId, schedule: { lostAtMs: lostAt, config } };
+  const item: NurtureTouchItem = { organizationId, leadId, contactId: lead.contact_id, occurrence, conversationId, schedule: { lostAtMs: lostAt, config, ...(runNow?.early ? { runNow: true as const } : {}) } };
   const result = await claimAndHandOffTouch(supabase, LOST_LEAD_NURTURE_ADAPTER, item, now, { isEnabled }, async ({ eventId, executionId }) => {
     const [aiSettings, businessProfile] = await Promise.all([
       getAiSettings(supabase, organizationId),
@@ -380,4 +386,44 @@ async function processOneLead(
   });
 
   return nurtureOutcomeOf(leadId, occurrence, result);
+}
+
+/**
+ * P0-B B2.8f: the touch a TEST-only Run now evaluates - the due one; else touch 1; touch 2 only once touch 1
+ * has finished (completed or failed). While touch 1 is still in flight it stays touch 1, so a second click
+ * meets touch 1's own key (already processed) instead of starting touch 2 at the same moment.
+ */
+async function runNowOccurrence(supabase: SupabaseClient, organizationId: string, leadId: string, due: 1 | 2 | null): Promise<{ occurrence: 1 | 2; early: boolean }> {
+  if (due === 2) return { occurrence: 2, early: false };
+  const { data: touch1 } = await supabase.from("automation_events").select("id, status").eq("organization_id", organizationId).eq("idempotency_key", `${LEAD_LOST_NURTURE_EVENT_TYPE}:${leadId}:1`).maybeSingle();
+  if (!touch1 || (touch1.status !== "completed" && touch1.status !== "failed")) return { occurrence: 1, early: due === null };
+  return { occurrence: 2, early: true };
+}
+
+/**
+ * P0-B B2.8f: TEST-only Run now for ONE lead of ONE organization - never a
+ * scan. The same per-lead step the scheduled scan runs (enabled, still lost,
+ * the 48-hour rule, A3, the claim through claimAndHandOffTouch: kill switch,
+ * B1, still owed, the key and B0, the n8n hand-off) - only the cadence wait
+ * is skipped. Everything after the hand-off is the normal runtime: the
+ * strict callback, resumeClaimedTouch and the outbound gate. Only the
+ * TEST-only server action calls this (app/(app)/leads/actions.ts).
+ */
+export async function runLeadNurtureNow(supabase: SupabaseClient, organizationId: string, leadId: string, now: Date = new Date()): Promise<NurtureOutcome | { leadId: string; outcome: "not_found" }> {
+  const lead = await getLead(supabase, organizationId, leadId);
+  if (!lead) return { leadId, outcome: "not_found" };
+  const { data: lostEvent } = await supabase
+    .from("automation_events")
+    .select("id, organization_id, entity_id, created_at")
+    .eq("organization_id", organizationId)
+    .eq("event_type", "lead.lost")
+    .eq("entity_id", leadId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!lostEvent) return { leadId, outcome: "not_lost" };
+  const configByOrg = await getAutomationConfigByOrganization(supabase, LOST_LEAD_NURTURE_AUTOMATION_ID);
+  const config = readLostLeadNurtureConfig(configByOrg.get(organizationId) ?? null);
+  const isEnabled = enabledPerOrganization((id) => getAutomationEnabled(supabase, id, LOST_LEAD_NURTURE_AUTOMATION_ID));
+  return processOneLead(supabase, lostEvent as LostEventRow, now, config, isEnabled, { runNow: true });
 }
