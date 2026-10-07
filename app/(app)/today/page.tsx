@@ -24,8 +24,8 @@ import { AddLeadButton } from "../leads/_components/add-lead-button";
 import { OpportunitiesList } from "../opportunities/_components/opportunities-list";
 import { TodayViewTabs, type TodayView } from "./_components/today-view-tabs";
 import { ScrollToAnchorOnLoad } from "./_components/scroll-to-anchor-on-load";
-import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, handlingLine, hourInTimeZone, pipelineStages, todayEyebrow, todayFigures } from "./_components/dashboard-model";
-import { AttentionPanel, DashboardSection, PipelineFlow, SectionLink, ShowAllLink, TodayActivity, TodayKpis } from "./_components/dashboard-sections";
+import { attentionLine, conversationsWaitingCount, greetingForHour, handledLine, hourInTimeZone, pipelineStages, todayEyebrow, todayFigures } from "./_components/dashboard-model";
+import { AttentionPanel, DashboardSection, HappeningToday, PipelineFlow, SectionLink, ShowAllLink, TodayActivity, TodayKpis, TrackprHandling } from "./_components/dashboard-sections";
 
 function normalizeView(value: string | undefined): TodayView {
   return value === "by-type" ? "by-type" : "priority";
@@ -244,31 +244,24 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         </div>
       </header>
 
-      {/* Act I - what happened: the KPI row (today's figures, plus the one
-          money-owed figure for a contractor). Its follow-ups render as
-          "Today's activity" in the work column below. */}
-      <DashboardSection id="today" title="What happened today" hideTitle>
-        <TodayKpis figures={kpis} />
-      </DashboardSection>
-
-      {/* Final redesign: one responsive grid. Source order is the approved
-          act order (and the mobile stacking order); at lg+ the work column
-          (where the work stands, opportunities, today's activity) sits
-          left and Act II takes the narrow right column as the page's one
-          dark focal panel. The trailing 1fr row absorbs the panel's extra
-          height, so the left cards stack tightly instead of spreading. */}
-      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] lg:grid-rows-[auto_auto_auto_1fr] lg:items-start xl:grid-cols-[minmax(0,1fr)_440px]">
-        {/* Act II - what needs attention. */}
+      {/* Batch 3 (core daily loop): Today answers "what needs me?" first.
+          One responsive grid; source order is the priority order (and the
+          mobile stacking order): Needs you, Happening today, Trackpr is
+          handling, Opportunities, Recent progress, then where the work
+          stands. At lg+ Needs you takes the narrow right column as the
+          page's one dark focal panel; everything else stacks on the left. */}
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] lg:items-start xl:grid-cols-[minmax(0,1fr)_440px]">
+        {/* Act II - what needs you. */}
         <AttentionPanel
           id="needs-attention"
           count={totalNeedingAttention}
-          className="lg:col-start-2 lg:row-span-4 lg:row-start-1"
+          className="lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1"
           footer={hiddenCount > 0 ? <ShowAllLink href="/today?all=1" count={totalNeedingAttention} inverse /> : null}
         >
           {totalNeedingAttention === 0 ? (
             <div className="rounded-lg bg-dark-fill px-5 py-10 text-center inset-ring inset-ring-dark-line">
               <p className="text-sm font-medium text-on-dark">You&apos;re all caught up.</p>
-              <p className="mt-1 text-[13px] text-on-dark-3">Anything new that needs you will appear here first.</p>
+              <p className="mt-1 text-[13px] text-on-dark-3">Trackpr is handling everything it can. We&apos;ll let you know when something needs you.</p>
             </div>
           ) : (
             <ul className="space-y-2">
@@ -286,53 +279,55 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
           )}
         </AttentionPanel>
 
-        {/* Act III - what opportunity exists. */}
-        <DashboardSection
-          id="opportunities"
-          title="Opportunities"
-          variant="card"
-          className={`lg:col-start-1 ${showPipeline ? "lg:row-start-2" : "lg:row-start-1"}`}
-          action={<TodayViewTabs active={view} opportunityCount={openOpportunities.length} />}
-        >
-          <ScrollToAnchorOnLoad id="opportunities" />
-          {view === "priority" ? (
-            <div className="border-t border-line">
-              {opportunityQueue.length === 0 ? (
-                <div className="px-5 py-8 text-center">
-                  <p className="text-sm font-medium text-ink">Nothing else to pursue right now.</p>
-                  <p className="mt-1 text-[13px] text-ink-3">Customers to win back and reviews or referrals to ask for will appear here.</p>
-                </div>
-              ) : (
-                <ul className="divide-y divide-line">
-                  {visibleOpportunityQueue.map((item) => (
-                    <li key={item.key}>
-                      <DecisionRow item={item} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {opportunityQueue.length > visibleOpportunityQueue.length ? <ShowAllLink href="/today?view=by-type#opportunities" count={openOpportunities.length} /> : null}
-            </div>
-          ) : (
-            <div className="border-t border-line px-4 py-4 sm:px-5 sm:py-5">
-              <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
-            </div>
-          )}
-        </DashboardSection>
+        <div className="flex min-w-0 flex-col gap-4 sm:gap-5 lg:col-start-1 lg:row-start-1">
+          <HappeningToday appointments={dailyBriefing.appointmentsToday} timeZone={timeZone ?? null} />
 
-        {showPipeline ? (
-          <DashboardSection id="pipeline" title="Where the work stands" variant="card" className="lg:col-start-1 lg:row-start-1" action={<SectionLink href="/money">Open Money</SectionLink>}>
-            <PipelineFlow stages={workStages} />
+          <TrackprHandling items={decisions.trackprHandling} handled={handledLine(aiHandled.aiMetrics)} />
+
+          {/* Act III - what opportunity exists. */}
+          <DashboardSection id="opportunities" title="Opportunities" variant="card" action={<TodayViewTabs active={view} opportunityCount={openOpportunities.length} />}>
+            <ScrollToAnchorOnLoad id="opportunities" />
+            {view === "priority" ? (
+              <div className="border-t border-line">
+                {opportunityQueue.length === 0 ? (
+                  <div className="px-5 py-8 text-center">
+                    <p className="text-sm font-medium text-ink">Nothing else to pursue right now.</p>
+                    <p className="mt-1 text-[13px] text-ink-3">Customers to win back and reviews or referrals to ask for will appear here.</p>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-line">
+                    {visibleOpportunityQueue.map((item) => (
+                      <li key={item.key}>
+                        <DecisionRow item={item} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {opportunityQueue.length > visibleOpportunityQueue.length ? <ShowAllLink href="/today?view=by-type#opportunities" count={openOpportunities.length} /> : null}
+              </div>
+            ) : (
+              <div className="border-t border-line px-4 py-4 sm:px-5 sm:py-5">
+                <OpportunitiesList opportunities={openOpportunities} failed={opportunitiesResult.failed} />
+              </div>
+            )}
           </DashboardSection>
-        ) : null}
 
-        <TodayActivity
-          briefing={dailyBriefing}
-          handled={handledLine(aiHandled.aiMetrics)}
-          handling={handlingLine(decisions.trackprHandling.length)}
-          className={`lg:col-start-1 ${showPipeline ? "lg:row-start-3" : "lg:row-start-2"}`}
-        />
+          <TodayActivity briefing={dailyBriefing} />
+
+          {showPipeline ? (
+            <DashboardSection id="pipeline" title="Where the work stands" variant="card" action={<SectionLink href="/money">Open Money</SectionLink>}>
+              <PipelineFlow stages={workStages} />
+            </DashboardSection>
+          ) : null}
+        </div>
       </div>
+
+      {/* Act I - today at a glance: the KPI row (today's figures, plus the
+          one money-owed figure for a contractor). Batch 3: below the work,
+          so nothing outranks what needs you. */}
+      <DashboardSection id="today" title="Today at a glance">
+        <TodayKpis figures={kpis} />
+      </DashboardSection>
     </PageContainer>
   );
 }

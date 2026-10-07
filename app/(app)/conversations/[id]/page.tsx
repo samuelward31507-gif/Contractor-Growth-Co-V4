@@ -16,6 +16,9 @@ import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { getReviewRequestsForJobs } from "@/lib/reviews-referrals/queries";
 import { contactLifecycleFromCanonical } from "@/lib/customers/lifecycle-stage";
 import { derivePersonLifecycle, findPersonNextStep } from "@/lib/people/next-step";
+import { presentConversationOwner, presentNextStep } from "@/lib/decisions/presentation";
+import { getEstimateContactReach, getSurfaceDecisionContext } from "@/lib/decisions/surface-context";
+import { OwnerChip } from "@/lib/ui/owner-chip";
 import { loadLifecyclePolicy } from "@/lib/people/lifecycle-policy";
 import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contacts/open-lead-value";
@@ -110,11 +113,18 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
   // review_requests are read after contactJobs resolves (needs its own job
   // ids to scope to), the same staged-fetch shape /people/[id]/page.tsx
   // already uses for its own reviewRequests/referralRequests.
-  const reviewRequests = await getReviewRequestsForJobs(
-    supabase,
-    membership.organizationId,
-    contactJobs.map((job) => job.id),
-  );
+  // Batch 3 (core daily loop): Today's own decision context and estimate
+  // reachability, read alongside the review requests - who is on this
+  // conversation and who acts next (lib/decisions/presentation.ts).
+  const [reviewRequests, actorContext, estimateReach] = await Promise.all([
+    getReviewRequestsForJobs(
+      supabase,
+      membership.organizationId,
+      contactJobs.map((job) => job.id),
+    ),
+    getSurfaceDecisionContext(supabase, membership.organizationId, { waitingConversationIds: waiting.ids, timeZone: timeZone ?? null }),
+    getEstimateContactReach(supabase, membership.organizationId),
+  ]);
 
   const relevantAppointment = pickRelevantAppointment(contactAppointments);
   const contactName = conversation.contact ? contactDisplayName(conversation.contact) : "No contact";
@@ -151,6 +161,20 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     person && personLifecycle
       ? findPersonNextStep({ ...person, conversations: [conversation], waitingConversationIds: waiting.ids, timeZone, jobsEnabled: membership.vertical === "contractor", lifecycle: personLifecycle })
       : null;
+  const nextView =
+    person && personLifecycle
+      ? presentNextStep(nextStep, personLifecycle, {
+          contactId: person.contactId,
+          contactPhone: estimateReach.get(person.contactId)?.phone ?? conversation.contact?.phone ?? null,
+          contactSmsOptOut: estimateReach.get(person.contactId)?.smsOptOut ?? smsOptOut,
+          conversations: [conversation],
+          waitingConversationIds: waiting.ids,
+          estimates: contactEstimates,
+          context: actorContext,
+        })
+      : null;
+  // Who this conversation is with right now - the same rule the Inbox list uses.
+  const ownerView = presentConversationOwner(conversation, waiting.ids, actorContext);
 
   // Phase 1B-4: the one invoice worth showing next to the thread - an open
   // balance first (sent, then partially paid), else the most recent live
@@ -209,7 +233,12 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-ink-3">{CHANNEL_LABELS[conversation.channel]}</span>
             <ConversationStatusBadge status={conversation.status} />
-            {conversation.ai_enabled ? <Badge tone="info">AI enabled</Badge> : null}
+            {ownerView.owner ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-ink-2">
+                <OwnerChip owner={ownerView.owner} urgent={ownerView.needsYou} />
+                {ownerView.label}
+              </span>
+            ) : null}
             {smsOptOut ? <Badge tone="warning">Opted out</Badge> : null}
           </div>
         </div>
@@ -245,7 +274,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
               today={today}
               lifecycleStage={lifecycleStage}
               openLeadValueDisplay={openLeadCount > 0 ? openLeadValueDisplay : null}
-              nextStep={nextStep}
+              nextStep={nextView}
               smsOptOut={smsOptOut}
               automationActivity={automationActivity}
               timeZone={timeZone}
@@ -262,7 +291,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
             today={today}
             lifecycleStage={lifecycleStage}
             openLeadValueDisplay={openLeadCount > 0 ? openLeadValueDisplay : null}
-            nextStep={nextStep}
+            nextStep={nextView}
             smsOptOut={smsOptOut}
             automationActivity={automationActivity}
             timeZone={timeZone}

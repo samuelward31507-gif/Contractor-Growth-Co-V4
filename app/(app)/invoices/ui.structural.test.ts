@@ -154,7 +154,9 @@ test("People and Inbox show invoice number, status, balance due and overdue to m
   assert.match(peoplePage, /invoices: invoicesByContactId\.get\(contact\.id\) \?\? \[\]/);
   assert.match(personPage, /getContactInvoices\(supabase, membership\.organizationId, id\)/);
   // Final Batch 3: the next step is the canonical-lifecycle resolver, still fed this person's invoices and timezone.
-  assert.match(personPage, /findPersonNextStep\(\{\n\s+contactId: contact\.id,[\s\S]*?\n\s+invoices,\n[\s\S]*?\n\s+timeZone,\n/);
+  // Batch 3: the same rows (invoices included) feed one derived lifecycle and the resolver, with the timezone.
+  assert.match(personPage, /const personRows = \{ contactId: contact\.id, leads, appointments, estimates, jobs, invoices,/);
+  assert.match(personPage, /findPersonNextStep\(\{\n\s+\.\.\.personRows,[\s\S]*?\n\s+timeZone,\n/);
   assert.match(personPage, /formatInvoiceNumber\(invoice\.number\)/);
   assert.match(personPage, /INVOICE_STATUS_LABELS\[invoice\.status\]/);
   assert.match(personPage, /formatMoney\(invoice\.balance_due\)/);

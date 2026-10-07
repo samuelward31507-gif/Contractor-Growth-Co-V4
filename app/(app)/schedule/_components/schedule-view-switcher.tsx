@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { segmentedItemClass, segmentedTrackClass } from "@/lib/ui/segmented";
 
-export type ScheduleViewOption = "day" | "week" | "month" | "list";
+export type ScheduleViewOption = "agenda" | "day" | "week" | "month" | "list";
 
+// Batch 3: Agenda (today and next) is Schedule's default; the calendar grids and the full list stay one tap away.
 const OPTIONS: { value: ScheduleViewOption; label: string }[] = [
+  { value: "agenda", label: "Agenda" },
   { value: "day", label: "Day" },
   { value: "week", label: "Week" },
   { value: "month", label: "Month" },

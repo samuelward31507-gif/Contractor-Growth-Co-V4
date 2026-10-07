@@ -10,7 +10,10 @@ import { getConversations } from "@/lib/conversations/queries";
 import { getInvoices } from "@/lib/invoices/queries";
 import { contactLifecycleFromCanonical, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
 import { summarizeOpenLeadValue } from "@/lib/contacts/open-lead-value";
-import { derivePersonLifecycle, findPersonNextStep, type NextStep } from "@/lib/people/next-step";
+import { derivePersonLifecycle, findPersonNextStep } from "@/lib/people/next-step";
+import { presentNextStep, type NextStepView } from "@/lib/decisions/presentation";
+import { getEstimateContactReach, getSurfaceDecisionContext } from "@/lib/decisions/surface-context";
+import { getOpenOpportunitiesResult } from "@/lib/opportunities/queries";
 import { loadLifecyclePolicy } from "@/lib/people/lifecycle-policy";
 import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import Link from "next/link";
@@ -138,6 +141,14 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     // Final Batch 3: one policy for every row's canonical lifecycle.
     loadLifecyclePolicy(supabase, membership.organizationId),
   ]);
+  // Batch 3 (core daily loop): who acts on each row's next step - the actor
+  // model's own rules (lib/decisions/presentation.ts), with Today's own
+  // decision context and the request-cached open opportunities it reads.
+  const [actorContext, openOpportunities, estimateReach] = await Promise.all([
+    getSurfaceDecisionContext(supabase, membership.organizationId, { waitingConversationIds: waiting.ids, timeZone: timeZone ?? null }),
+    getOpenOpportunitiesResult(supabase, membership.organizationId),
+    getEstimateContactReach(supabase, membership.organizationId),
+  ]);
 
   const temperatureByContactId = new Map<string, LeadTemperature>();
   const leadsByContactId = groupByContactId(leads);
@@ -172,7 +183,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   // lifecycle per person (lib/lifecycle via lib/people/next-step.ts), so they
   // can never disagree and a stale lead status never outranks newer records.
   const valueByContactId = new Map<string, ReturnType<typeof summarizeOpenLeadValue>>();
-  const nextStepByContactId = new Map<string, NextStep | null>();
+  const nextStepByContactId = new Map<string, NextStepView | null>();
   const lifecycleByContactId = new Map<string, ContactLifecycleStage>();
   for (const contact of allContacts) {
     valueByContactId.set(contact.id, summarizeOpenLeadValue(leadsByContactId.get(contact.id) ?? []));
@@ -188,15 +199,26 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     };
     const lifecycle = derivePersonLifecycle(person);
     lifecycleByContactId.set(contact.id, contactLifecycleFromCanonical(lifecycle));
+    const personConversations = conversationsByContactId.get(contact.id) ?? [];
+    const step = findPersonNextStep({
+      ...person,
+      conversations: personConversations,
+      waitingConversationIds: waiting.ids,
+      timeZone,
+      jobsEnabled: membership.vertical === "contractor",
+      lifecycle,
+    });
     nextStepByContactId.set(
       contact.id,
-      findPersonNextStep({
-        ...person,
-        conversations: conversationsByContactId.get(contact.id) ?? [],
+      presentNextStep(step, lifecycle, {
+        contactId: contact.id,
+        contactPhone: estimateReach.get(contact.id)?.phone ?? contact.phone,
+        contactSmsOptOut: estimateReach.get(contact.id)?.smsOptOut ?? null,
+        conversations: personConversations,
         waitingConversationIds: waiting.ids,
-        timeZone,
-        jobsEnabled: membership.vertical === "contractor",
-        lifecycle,
+        estimates: person.estimates,
+        openOpportunities: openOpportunities.data,
+        context: actorContext,
       }),
     );
   }

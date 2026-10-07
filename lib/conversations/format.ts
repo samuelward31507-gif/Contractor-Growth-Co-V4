@@ -24,16 +24,18 @@ export const STATUS_DOT_CLASS: Record<ConversationStatus, string> = {
 // Labels for who authored a message. There is no per-user identity on
 // messages (no user_id column), so a staff-authored message is always
 // generically "You" - that's what the schema actually supports.
+// Batch 3: an AI-sent message is Trackpr talking for the business - named
+// as such ("Trackpr"), never as the machinery behind it ("AI").
 export const SENDER_LABELS: Record<MessageSenderType, string> = {
   customer: "Customer",
-  ai: "AI",
+  ai: "Trackpr",
   user: "You",
   system: "System",
 };
 
 export const SENDER_INITIALS: Record<MessageSenderType, string> = {
   customer: "C",
-  ai: "AI",
+  ai: "T",
   user: "Y",
   system: "S",
 };

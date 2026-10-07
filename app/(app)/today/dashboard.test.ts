@@ -85,12 +85,14 @@ test("Trackpr handled: one line from the customer-facing AI count, nothing claim
 const SUMMARY = { hot_lead_count: 2, quotes_out_count: 3, ready_to_schedule_count: 1, won_not_finished_count: 4, outstanding_count: 1, not_yet_invoiced_count: 2, not_yet_invoiced_unknown_count: 0 };
 const VALUES = { openLeads: "$10", quotesOut: "$20", readyToSchedule: "$30", inProgress: "$40", readyToInvoice: "$45.00", outstanding: "$50.00" };
 
-test("Phase 2-3c: 'Trackpr is handling N automatically' - only when N > 0, from decisions.trackprHandling, linking to /automations, just above the unchanged 'Trackpr handled' row", () => {
-  assert.equal(model.handlingLine(0), null, "no row when Trackpr is handling nothing");
-  assert.equal(model.handlingLine(1), "Trackpr is handling 1 automatically");
+test("Batch 3: 'Trackpr is handling' lists the assembler's own trackprHandling items as outcomes, above the unchanged 'Trackpr handled' line", () => {
+  assert.equal(model.handlingLine(0), null, "the count line helper still answers null for nothing");
   assert.equal(model.handlingLine(3), "Trackpr is handling 3 automatically");
-  assert.match(PAGE, /handling=\{handlingLine\(decisions\.trackprHandling\.length\)\}/, "N is the assembler's own trackprHandling - never a second calculation");
-  assert.match(SECTIONS, /\.\.\.\(handling \? \[\{ key: "handling", icon: Workflow, text: handling, href: TRACKPR_HREF, action: "Open Trackpr" \}\] : \[\]\),\s*\{ key: "handled", icon: Workflow, text: handled, href: TRACKPR_HREF, action: "Open Trackpr" \},/, "the same row pattern, immediately before the existing handled row, which is unchanged");
+  assert.match(PAGE, /<TrackprHandling items=\{decisions\.trackprHandling\} handled=\{handledLine\(aiHandled\.aiMetrics\)\} \/>/, "the items are the assembler's own trackprHandling - never a second calculation");
+  assert.match(SECTIONS, /\{items\.map\(\(item\) => \([\s\S]*?<OwnerChip owner="trackpr" \/>[\s\S]*?\{trackprHandlingSentence\(item\)\}/, "each item says Trackpr owns it, in outcome words");
+  assert.match(SECTIONS, /<SectionLink href=\{TRACKPR_HREF\}>Open Trackpr<\/SectionLink>/);
+  assert.match(SECTIONS, /<span className="min-w-0 flex-1 text-\[13px\] text-ink-2">\{handled\}<\/span>/, "what Trackpr already handled today stays, last");
+  assert.doesNotMatch(SECTIONS, /workflow|automation execution|AI agent/i, "no machinery words");
 });
 
 test("where the work stands: six current-state stages, each linking to the page and filter that owns it", () => {
@@ -116,8 +118,8 @@ test("Unpaid is the one money-owed figure; anything past due is its secondary de
 // 2. Page structure
 // ---------------------------------------------------------------------------
 
-test("hierarchy: the three acts - what happened, what needs attention, what opportunity exists (opportunities, then where the work stands) - nothing historical", () => {
-  const order = ["id=\"today\"", "id=\"needs-attention\"", "id=\"opportunities\"", "id=\"pipeline\""].map((marker) => PAGE.indexOf(marker));
+test("hierarchy (Batch 3): what needs you, happening today, what Trackpr is handling, opportunities, recent progress, where the work stands - then today at a glance - nothing historical", () => {
+  const order = ["id=\"needs-attention\"", "<HappeningToday", "<TrackprHandling", "id=\"opportunities\"", "<TodayActivity", "id=\"pipeline\"", "id=\"today\""].map((marker) => PAGE.indexOf(marker));
   assert.ok(order.every((index) => index > 0), `every section is present: ${order}`);
   assert.deepEqual([...order].sort((a, b) => a - b), order, "sections appear in the approved order (also the mobile stacking order)");
   assert.match(PAGE, /<h1 className=\{pageTitleClass\}>\{greeting\}<\/h1>/);

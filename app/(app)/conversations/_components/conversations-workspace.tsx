@@ -10,6 +10,8 @@ import {
   type ConversationWithLastMessage,
 } from "@/lib/conversations/queries";
 import { PageHeader } from "@/lib/ui/page-header";
+import { segmentedItemClass, segmentedTrackClass } from "@/lib/ui/segmented";
+import type { ConversationOwnerView } from "@/lib/decisions/presentation";
 import { ConversationsList } from "./conversations-list";
 import { ConversationsSummary } from "./conversations-summary";
 import { ConversationsToolbar } from "./conversations-toolbar";
@@ -25,12 +27,15 @@ export function ConversationsWorkspace({
   conversations,
   summary,
   waitingConversationIds,
+  ownerById,
   children,
 }: {
   conversations: ConversationWithLastMessage[];
   summary: ConversationSummary;
   /** Phase 3 (W1): ids from the canonical waiting helper - a plain array, since a Set does not cross the server/client boundary. */
   waitingConversationIds: string[];
+  /** Batch 3: who each conversation is with right now (presentConversationOwner), keyed by id. */
+  ownerById: Record<string, ConversationOwnerView>;
   children: ReactNode;
 }) {
   const waitingIds = useMemo(() => new Set(waitingConversationIds), [waitingConversationIds]);
@@ -39,10 +44,16 @@ export function ConversationsWorkspace({
   const [channel, setChannel] = useState<ConversationChannel | "all">("all");
   const [status, setStatus] = useState<ConversationStatus | "all">("all");
 
-  const filtered = useMemo(
-    () => filterConversations(conversations, { query, channel, status }),
-    [conversations, query, channel, status],
-  );
+  // Batch 3: "Who needs me?" first - the Inbox opens on the conversations
+  // waiting for the contractor's reply; "All" keeps every conversation,
+  // with the ones that need you on top.
+  const [inboxView, setInboxView] = useState<"needs-you" | "all">("needs-you");
+  const needsYouCount = useMemo(() => conversations.filter((conversation) => ownerById[conversation.id]?.needsYou).length, [conversations, ownerById]);
+  const filtered = useMemo(() => {
+    const matching = filterConversations(conversations, { query, channel, status });
+    if (inboxView === "needs-you") return matching.filter((conversation) => ownerById[conversation.id]?.needsYou);
+    return [...matching].sort((a, b) => Number(Boolean(ownerById[b.id]?.needsYou)) - Number(Boolean(ownerById[a.id]?.needsYou)));
+  }, [conversations, query, channel, status, inboxView, ownerById]);
   const hasActiveFilters = Boolean(query.trim()) || channel !== "all" || status !== "all";
 
   return (
@@ -64,7 +75,7 @@ export function ConversationsWorkspace({
           no use for; the thread itself is the dominant surface once one is
           open, matching the workspace's own three-pane intent. */}
       <div className={activeId ? "hidden" : "block"}>
-        <PageHeader eyebrow="Conversations" title="Inbox" description="Every customer conversation in one place, organized by activity." />
+        <PageHeader eyebrow="Inbox" title="Inbox" description="Who needs you - and every conversation Trackpr is handling for you." />
         {/* Final visual acceptance pass: measured on a real small-phone
             viewport (390-530px), this summary block alone was over 300px
             tall, leaving the actual list+thread workspace below it only
@@ -88,6 +99,20 @@ export function ConversationsWorkspace({
               activeId ? "hidden" : "flex w-full"
             }`}
           >
+            <div className="shrink-0 pt-4 lg:px-4">
+              <div className={segmentedTrackClass} role="group" aria-label="Inbox view">
+                {(
+                  [
+                    ["needs-you", `Needs you${needsYouCount > 0 ? ` (${needsYouCount})` : ""}`],
+                    ["all", "All conversations"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button key={value} type="button" aria-pressed={inboxView === value} onClick={() => setInboxView(value)} className={segmentedItemClass(inboxView === value)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="shrink-0 py-4 lg:px-4">
               <ConversationsToolbar
                 query={query}
@@ -105,7 +130,15 @@ export function ConversationsWorkspace({
               />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <ConversationsList conversations={filtered} hasActiveFilters={hasActiveFilters} activeId={activeId} waitingIds={waitingIds} />
+              <ConversationsList
+                conversations={filtered}
+                hasActiveFilters={hasActiveFilters}
+                activeId={activeId}
+                waitingIds={waitingIds}
+                ownerById={ownerById}
+                needsYouView={inboxView === "needs-you"}
+                onShowAll={() => setInboxView("all")}
+              />
             </div>
           </div>
 
