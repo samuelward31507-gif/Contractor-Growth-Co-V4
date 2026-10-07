@@ -127,6 +127,7 @@ function nurtureOutcomeOf(leadId: string, occurrence: 1 | 2, result: HandOffResu
     case "unavailable":
       if (result.reason === "skipped_disabled") return { leadId, outcome: "skipped_disabled" };
       if (result.reason === "not_due") return { leadId, outcome: "not_due" };
+      if (result.reason === "quiet_hours") return { leadId, outcome: "quiet_hours" };
       if (result.reason === "not_owed" && result.detail === "lead_not_lost") return { leadId, outcome: "not_lost" };
       return { leadId, outcome: "not_owed", reason: result.detail ?? result.reason };
     case "failed":
@@ -145,6 +146,8 @@ export type NurtureOutcome =
   | { leadId: string; outcome: "dispatched"; occurrence: 1 | 2; executionId: string }
   | { leadId: string; outcome: "not_lost" }
   | { leadId: string; outcome: "not_due" }
+  /** Final Batch 1: inside the quiet-hours floor; nothing recorded - a later run inside the window hands it off. */
+  | { leadId: string; outcome: "quiet_hours" }
   | { leadId: string; outcome: "skipped_duplicate" }
   | { leadId: string; outcome: "skipped_disabled" }
   | { leadId: string; outcome: "blocked"; reason: "followup_overdue" | LifecycleBlockReason | "contact_not_found" }

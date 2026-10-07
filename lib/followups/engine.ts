@@ -8,6 +8,7 @@ import { getAutomationEnabled } from "@/lib/automation/settings";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { getBusinessHours, getOrganizationTimezone, type BusinessHour } from "@/lib/settings/queries";
+import { isWithinQuietHoursFloor, nextAllowedSendTime, sendTimeZone } from "@/lib/automation/send-window";
 import type { LeadStatus } from "@/lib/leads/queries";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import { loadLifecycleSnapshot, SNAPSHOT_MESSAGE_LIMIT } from "@/lib/lifecycle/snapshot-loader";
@@ -525,9 +526,11 @@ export async function dispatchObligation(service: SupabaseClient, id: string, no
     return { followupId: id, outcome: "paused", reason: "dormant" };
   }
 
-  // Business hours: defer to the next opening; the touch is not consumed.
+  // Business hours and the quiet-hours floor (lib/automation/send-window.ts): defer to the next moment both
+  // allow; the touch is not consumed.
   const [hours, timeZone] = await Promise.all([getBusinessHours(service, row.organization_id), getOrganizationTimezone(service, row.organization_id)]);
-  const opening = nextBusinessOpening(now, timeZone ?? "UTC", hours);
+  const zone = sendTimeZone(timeZone);
+  const opening = nextAllowedSendTime(now, (at) => isWithinQuietHoursFloor(at, zone) && isWithinBusinessHours(at, zone, hours));
   if (!opening) {
     await release("paused", { paused_reason: "no_business_hours", waiting_on: "business", next_action: "human_review" });
     return { followupId: id, outcome: "paused", reason: "no_business_hours" };

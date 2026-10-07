@@ -87,7 +87,7 @@ mock.module(lib("lib/reviews-referrals/tracking.ts"), {
   namedExports: { recordRequestResponses: record("recordRequestResponses", undefined), classifyAndEscalateReviewReply: record("classifyAndEscalateReviewReply", undefined) },
 });
 mock.module(lib("lib/automation/estimate-reply.ts"), { namedExports: { classifyAndProcessEstimateReply: record("classifyAndProcessEstimateReply", undefined) } });
-mock.module(lib("lib/automation/booking-reply.ts"), { namedExports: { classifyAndProcessBookingReply: record("classifyAndProcessBookingReply", false) } });
+mock.module(lib("lib/automation/booking-reply.ts"), { namedExports: { classifyAndProcessBookingReply: record("classifyAndProcessBookingReply", false), handleBareCancelAppointmentReply: record("handleBareCancelAppointmentReply", false) } });
 
 const { POST } = await import(lib("app/api/webhooks/sms/inbound/route.ts"));
 const { NextRequest } = await import("next/server");

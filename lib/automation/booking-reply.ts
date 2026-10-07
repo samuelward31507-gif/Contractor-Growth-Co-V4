@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "./events";
 import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
-import { evaluateOutboundGate } from "./outbound-gate";
+import { evaluateAutomatedActionPreconditions, evaluateOutboundGate } from "./outbound-gate";
+import { getAutomationEnabled } from "./settings";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { recordAutomationHealthSignal } from "../automation-health/service";
 import { notifyFounder } from "@/lib/notifications/founder";
@@ -651,17 +652,29 @@ export async function classifyAndProcessBookingReply(
   messageBody: string,
   sendSmsFn?: SendSmsFn,
 ): Promise<boolean> {
+  // Final Batch 1: every action below changes an appointment before any message exists, so the automated-action
+  // safeguards run first (automation on, live, paid, not paused, not human-locked, not opted out, inside the
+  // quiet-hours floor). Refused: this handler does nothing and the reply continues down the normal, gated
+  // customer-reply path.
+  let allowed: boolean | null = null;
+  const actionsAllowed = async () => {
+    allowed ??= (await bookingReplyPreconditions(supabase, organizationId, contactId, conversationId)).allowed;
+    return allowed;
+  };
+
   const intent = classifyBookingReplyIntent(messageBody);
   if (intent === "cancel") {
+    if (!(await actionsAllowed())) return false;
     return handleCancelIntent(supabase, organizationId, contactId, leadId, conversationId, sendSmsFn);
   }
   if (intent === "reschedule") {
+    if (!(await actionsAllowed())) return false;
     return handleRescheduleIntent(supabase, organizationId, contactId, leadId, conversationId, sendSmsFn);
   }
 
   const context = await getRecentBookingContext(supabase, organizationId, conversationId);
 
-  if (context && context.type === "offer") {
+  if (context && context.type === "offer" && (await actionsAllowed())) {
     const timezone = await getOrganizationTimezone(supabase, organizationId);
     const resolution = resolveSlotSelection(messageBody, context.slots, timezone);
 
@@ -687,8 +700,56 @@ export async function classifyAndProcessBookingReply(
   // The natural-language form is only trusted when no booking context is
   // open at all (see classifyNaturalConfirmationIntent).
   if (classifyConfirmationIntent(messageBody) || (context === null && classifyNaturalConfirmationIntent(messageBody))) {
+    if (!(await actionsAllowed())) return false;
     return handleConfirmationIntent(supabase, organizationId, contactId, leadId, conversationId, sendSmsFn);
   }
 
   return false;
+}
+
+/** The inbound-customer-reply automation owns Trackpr's booking-reply handling. */
+const CUSTOMER_REPLY_AUTOMATION_ID = "inbound-customer-reply";
+
+async function bookingReplyPreconditions(supabase: SupabaseClient, organizationId: string, contactId: string, conversationId: string, ignoreOptOut = false) {
+  const automationEnabled = await getAutomationEnabled(supabase, organizationId, CUSTOMER_REPLY_AUTOMATION_ID);
+  return evaluateAutomatedActionPreconditions(supabase, { organizationId, conversationId, contactId, automationEnabled, ignoreOptOut });
+}
+
+/** Workflows whose messages are about an upcoming appointment (a reminder, the booking/confirmation, a reschedule). */
+const APPOINTMENT_MESSAGE_WORKFLOWS: ReadonlySet<string> = new Set(["appointment_reminder", "appointment_created_followup", "appointment_booking", "appointment_reschedule", "appointment_confirmation_ack"]);
+
+/**
+ * Final Batch 1: a bare CANCEL is a carrier opt-out keyword - the inbound webhook has already recorded the opt-out
+ * (the carrier enforces it too), and that is unchanged. When the same CANCEL answers an appointment message (the
+ * newest message Trackpr sent in this thread is about an upcoming appointment, and the customer has one), it is
+ * also the customer cancelling that appointment: it enters the same cancellation handling as "please cancel my
+ * appointment" (one upcoming appointment is cancelled; none or several escalate to a human). Every other
+ * automated-action safeguard still applies; only the opt-out it just recorded does not refuse it. Returns true when
+ * it was handled as an appointment cancellation.
+ */
+export async function handleBareCancelAppointmentReply(
+  supabase: SupabaseClient,
+  organizationId: string,
+  contactId: string,
+  leadId: string | null,
+  conversationId: string,
+  sendSmsFn?: SendSmsFn,
+): Promise<boolean> {
+  const { data: lastSent } = await supabase
+    .from("messages")
+    .select("workflow_execution_id")
+    .eq("organization_id", organizationId)
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    .in("status", ["sent", "delivered"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!lastSent?.workflow_execution_id) return false;
+  const { data: execution } = await supabase.from("workflow_executions").select("workflow_name").eq("id", lastSent.workflow_execution_id).eq("organization_id", organizationId).maybeSingle();
+  if (!execution || !APPOINTMENT_MESSAGE_WORKFLOWS.has(execution.workflow_name as string)) return false;
+  const upcoming = await findUpcomingAppointments(supabase, organizationId, contactId);
+  if (upcoming.length === 0) return false;
+  if (!(await bookingReplyPreconditions(supabase, organizationId, contactId, conversationId, true)).allowed) return false;
+  return handleCancelIntent(supabase, organizationId, contactId, leadId, conversationId, sendSmsFn);
 }

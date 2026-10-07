@@ -8,6 +8,8 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { assertOrgAdmin } from "@/lib/automation/authorization";
 import { isCustomerReplySimulationEnvironment, simulateInboundCustomerReply, validateSimulatedReply } from "@/lib/messaging/simulate-customer-reply";
 import { CONVERSATION_STATUSES, type ConversationStatus } from "@/lib/conversations/queries";
+import { evaluateStaffOutboundGate, type OutboundGateDenialReason } from "@/lib/automation/outbound-gate";
+import { sendOutboundMessage } from "@/lib/messaging/outbound";
 
 export type ConversationActionState = {
   error?: string;
@@ -128,14 +130,36 @@ export async function setConversationAiEnabled(
   return {};
 }
 
+/** Plain-English reasons for the inbox composer - never a provider error or an internal code. */
+const STAFF_SEND_DENIAL_MESSAGES: Partial<Record<OutboundGateDenialReason, string>> = {
+  missing_response_message: "Enter a message before sending.",
+  response_message_too_long: "This message is too long for a text. Please shorten it.",
+  conversation_not_found: "This conversation could not be found.",
+  conversation_wrong_organization: "This conversation could not be found.",
+  conversation_not_sms: "This conversation isn't a text conversation.",
+  conversation_not_open: "This conversation is closed. Reopen it to send a text.",
+  missing_contact_id: "This conversation has no customer to text.",
+  contact_not_found: "This conversation has no customer to text.",
+  contact_opted_out: "This customer has opted out of texts (STOP), so Trackpr can't text them.",
+  invalid_destination: "This customer's phone number isn't a valid mobile number.",
+  organization_not_live: "Texting customers is off while your account is in test mode.",
+  organization_payment_inactive: "Texting is paused until your Trackpr subscription is active.",
+};
+
+/** A repeat of the same text within this window is treated as a double submit, not a second message. */
+const STAFF_SEND_DUPLICATE_WINDOW_MS = 60 * 1000;
+
 /**
- * Logs a manually-written message on the conversation history. This is a
- * CRM record only - it is never actually transmitted through SMS, email, or
- * any other channel, so it is always stored as sender_type "user" with no
- * provider_message_id. The UI must make this distinction explicit to the
- * contractor; this action never pretends the message was delivered.
+ * Final Batch 1: the contractor's own reply from the inbox, sent as a real
+ * SMS through the one canonical outbound path - evaluateStaffOutboundGate
+ * (live mode, payment, opt-out, destination, an open SMS thread of this
+ * organization), then sendOutboundMessage (opt-out re-check, the message
+ * row, the provider, its recorded result). Stored as sender_type "user", so
+ * a sent reply ends the conversation's wait like any reply. The
+ * organization comes from the session; nothing is sent for a conversation
+ * outside it.
  */
-export async function createMessage(
+export async function sendConversationMessage(
   _prevState: MessageFormState,
   formData: FormData,
 ): Promise<MessageFormState> {
@@ -147,7 +171,7 @@ export async function createMessage(
   }
 
   if (!body) {
-    return { error: "Enter a message before logging it." };
+    return { error: "Enter a message before sending." };
   }
 
   const { supabase, organizationId } = await requireOrganization();
@@ -157,21 +181,46 @@ export async function createMessage(
     return { error: "This conversation could not be found." };
   }
 
-  const { error } = await supabase.from("messages").insert({
-    organization_id: organizationId,
-    conversation_id: conversationId,
-    direction: "outbound",
-    sender_type: "user",
-    body,
-    status: "logged",
-  });
-
-  if (error) {
-    return { error: "We couldn't log this message. Please try again." };
+  const gate = await evaluateStaffOutboundGate(supabase, { organizationId, conversationId, body });
+  if (!gate.allowed) {
+    return { error: STAFF_SEND_DENIAL_MESSAGES[gate.reason] ?? "This text can't be sent right now." };
   }
+
+  // A double submit (two clicks, a retried request) of the same text is one message.
+  const { data: recentDuplicate } = await supabase
+    .from("messages")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    .eq("sender_type", "user")
+    .eq("body", gate.body)
+    .in("status", ["queued", "sent", "delivered"])
+    .gte("created_at", new Date(Date.now() - STAFF_SEND_DUPLICATE_WINDOW_MS).toISOString())
+    .limit(1)
+    .maybeSingle();
+  if (recentDuplicate) {
+    return { success: true };
+  }
+
+  const result = await sendOutboundMessage(supabase, {
+    organizationId,
+    contactId: gate.contactId,
+    conversationId: gate.conversationId,
+    body: gate.body,
+    senderType: "user",
+  });
 
   revalidatePath(`/conversations/${conversationId}`);
   revalidatePath("/conversations");
+
+  if (!result.ok) {
+    return {
+      error: result.messageId
+        ? "The text couldn't be delivered. It's shown in the conversation as not sent."
+        : "We couldn't send this text. Please try again.",
+    };
+  }
   return { success: true };
 }
 

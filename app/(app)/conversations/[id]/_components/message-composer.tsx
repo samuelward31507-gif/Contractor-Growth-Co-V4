@@ -1,26 +1,21 @@
 "use client";
 
 import { useActionState, useEffect, useId, useRef } from "react";
-import { NotebookPen } from "lucide-react";
-import { errorBannerClass, inputClass, secondaryButtonAutoClass } from "@/lib/ui/form";
-import { createMessage, type MessageFormState } from "../../actions";
+import { MessageSquare } from "lucide-react";
+import { errorBannerClass, inputClass, primaryButtonAutoClass } from "@/lib/ui/form";
+import { sendConversationMessage, type MessageFormState } from "../../actions";
 
 const initialState: MessageFormState = {};
 
 /**
- * There is no real send capability here - createMessage (app/(app)/
- * conversations/actions.ts) always stores this as an internal
- * sender_type "user" / status "logged" record and never transmits
- * anything through SMS, email, or any other channel (that only happens
- * through the automation pipeline). The UI is framed to match that reality
- * rather than reading as an outbound-SMS composer: an explicit "Internal
- * note" label with a notebook icon leads the field (not just fine print
- * underneath), and the submit button uses the secondary (not primary/
- * filled) button tier so it doesn't visually compete with, or get mistaken
- * for, a "send to customer" action.
+ * Final Batch 1: the contractor's reply box. sendConversationMessage
+ * (app/(app)/conversations/actions.ts) sends it to the customer as a real
+ * text through Trackpr's one outbound path (opt-out, live mode, payment and
+ * the provider result all apply), from the business's number, and it shows
+ * in this thread like any other message.
  */
 export function MessageComposer({ conversationId }: { conversationId: string }) {
-  const [state, formAction, isPending] = useActionState(createMessage, initialState);
+  const [state, formAction, isPending] = useActionState(sendConversationMessage, initialState);
   const formRef = useRef<HTMLFormElement>(null);
   const fieldId = useId();
 
@@ -36,24 +31,22 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
       <form ref={formRef} action={formAction} className="space-y-2">
         <input type="hidden" name="conversationId" value={conversationId} />
         <label htmlFor={fieldId} className="flex items-center gap-1.5 text-xs font-medium text-ink-3">
-          <NotebookPen className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          Internal note
+          <MessageSquare className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          Text the customer
         </label>
         <textarea
           id={fieldId}
           name="body"
           rows={2}
           required
-          placeholder="Add a note to this conversation's history…"
+          maxLength={1600}
+          placeholder="Write a text message…"
           className={`${inputClass} resize-none`}
         />
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-ink-3">
-            This adds an internal record to the conversation history. It is not sent to the
-            customer through SMS, email, or any other channel.
-          </p>
-          <button type="submit" disabled={isPending} className={`shrink-0 ${secondaryButtonAutoClass}`}>
-            {isPending ? "Logging…" : "Log Note"}
+          <p className="text-xs text-ink-3">Sent to the customer as a text message from your business number.</p>
+          <button type="submit" disabled={isPending} className={`shrink-0 ${primaryButtonAutoClass}`}>
+            {isPending ? "Sending…" : "Send text"}
           </button>
         </div>
       </form>

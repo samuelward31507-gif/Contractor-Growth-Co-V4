@@ -169,7 +169,7 @@ mock.module(lib("lib/automation/customer-reply.ts"), {
   },
 });
 mock.module(lib("lib/automation/estimate-reply.ts"), { namedExports: { classifyAndProcessEstimateReply: async () => undefined } });
-mock.module(lib("lib/automation/booking-reply.ts"), { namedExports: { classifyAndProcessBookingReply: async () => false } });
+mock.module(lib("lib/automation/booking-reply.ts"), { namedExports: { classifyAndProcessBookingReply: async () => false, handleBareCancelAppointmentReply: async () => false } });
 mock.module(lib("lib/reviews-referrals/tracking.ts"), { namedExports: { recordRequestResponses: async () => undefined, classifyAndEscalateReviewReply: async () => undefined } });
 mock.module(lib("lib/messaging/outbound.ts"), {
   namedExports: {

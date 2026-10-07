@@ -140,6 +140,7 @@ function reactivationOutcomeOf(leadId: string, occurrence: 1 | 2, result: HandOf
     case "unavailable":
       if (result.reason === "skipped_disabled") return { leadId, outcome: "skipped_disabled" };
       if (result.reason === "not_due") return { leadId, outcome: "not_due" };
+      if (result.reason === "quiet_hours") return { leadId, outcome: "quiet_hours" };
       if (result.reason === "not_owed" && (result.detail === "not_eligible_status" || result.detail === "no_open_conversation" || result.detail === "no_contact")) return { leadId, outcome: result.detail };
       return { leadId, outcome: "not_owed", reason: result.detail ?? result.reason };
     case "failed":
@@ -163,6 +164,8 @@ export type ReactivationOutcome =
   | { leadId: string; outcome: "no_open_conversation" }
   | { leadId: string; outcome: "no_inbound_history" }
   | { leadId: string; outcome: "not_due" }
+  /** Final Batch 1: inside the quiet-hours floor; nothing recorded - a later run inside the window hands it off. */
+  | { leadId: string; outcome: "quiet_hours" }
   | { leadId: string; outcome: "skipped_duplicate" }
   | { leadId: string; outcome: "skipped_disabled" }
   | { leadId: string; outcome: "active_engagement" }

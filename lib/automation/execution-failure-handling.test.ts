@@ -121,9 +121,12 @@ mock.module(lib("lib/automation/outbound-gate.ts"), {
       calls.gate += 1;
       return { allowed: false, reason: "organization_not_live" };
     },
+    // Final Batch 1: the automated-action safeguards are covered in lib/automation/communication-core.test.ts; here they pass.
+    evaluateAutomatedActionPreconditions: async () => ({ allowed: true }),
   },
 });
-mock.module(lib("lib/settings/queries.ts"), { namedExports: { getAiSettings: async () => ({ ai_enabled: true }) } });
+const realSettings = await import(lib("lib/settings/queries.ts"));
+mock.module(lib("lib/settings/queries.ts"), { namedExports: { ...realSettings, getAiSettings: async () => ({ ai_enabled: true }) } });
 mock.module(lib("lib/scheduling/booking.ts"), {
   namedExports: { getAvailableBookingSlots: async () => ({ status: "available", slots: [] }), bookAppointment: async () => ({ success: false }), rescheduleAppointment: async () => ({ success: false }) },
 });
@@ -203,10 +206,14 @@ beforeEach(() => {
 const conversation = () => store.conversations![0]!;
 
 // ---------------------------------------------------------------------------
-// Change 2: AI/model failure -> FAILED execution, never an escalation
+// Change 2: AI/model failure -> FAILED execution (never a completed AI
+// decision). Final Batch 1: on a customer reply the customer is waiting, so the
+// conversation is also locked for a human and escalated - the dispatch-failure
+// safety net - instead of being left unanswered. Still no AI interaction and
+// no send.
 // ---------------------------------------------------------------------------
 
-test("model: null -> execution failed, event failed (retryable), no AI lock, no escalation, no AI interaction, no send", async () => {
+test("model: null -> execution failed, event failed (retryable), no AI interaction, no send; the waiting customer's conversation is locked and escalated once", async () => {
   const { execution, event } = seed();
   const response = await callback(AI_FAILURE);
   const json = await response.json();
@@ -216,11 +223,11 @@ test("model: null -> execution failed, event failed (retryable), no AI lock, no 
   assert.equal(execution.status, "failed");
   assert.match(String(execution.error_message), /^ai_model_failure:/);
   assert.equal(event.status, "failed", "the parent event is failed, so start_workflow_execution can retry it");
-  assert.equal(conversation().ai_enabled, true, "the conversation is NOT locked by an outage");
-  assert.deepEqual(calls.signals, ["workflow_failed"], "a workflow failure incident, never human_escalation_requested");
-  assert.deepEqual(calls.founder, [], "no ai_escalation notification");
-  assert.equal(store.ai_interactions!.length, 0);
-  assert.equal(calls.gate + calls.sends, 0);
+  assert.equal(conversation().ai_enabled, false, "the customer is not left waiting: locked for a human");
+  assert.deepEqual(calls.signals, ["workflow_failed", "human_escalation_requested"], "the failure incident plus the human escalation");
+  assert.deepEqual(calls.founder, ["ai_escalation"]);
+  assert.equal(store.ai_interactions!.length, 0, "no AI interaction - this was not an AI decision");
+  assert.equal(calls.gate + calls.sends, 0, "no fallback message");
 });
 
 test("missing ai_result and ai_result: null -> execution failed the same way", async () => {
@@ -232,8 +239,8 @@ test("missing ai_result and ai_result: null -> execution failed the same way", a
     assert.equal(execution.status, "failed");
     assert.match(String(execution.error_message), /^ai_result_missing:/);
     assert.equal(event.status, "failed");
-    assert.equal(conversation().ai_enabled, true);
-    assert.deepEqual(calls.founder, []);
+    assert.equal(conversation().ai_enabled, false);
+    assert.deepEqual(calls.founder, ["ai_escalation"]);
     assert.equal(calls.sends, 0);
   }
 });
@@ -265,9 +272,9 @@ test("duplicate/late callbacks after an AI failure are idempotent no-ops (even a
   assert.equal(execution.status, "failed");
   assert.equal(execution.error_message, failedMessage);
   assert.equal(event.status, "failed");
-  assert.equal(conversation().ai_enabled, true);
-  assert.deepEqual(calls.signals, ["workflow_failed"], "exactly one failure incident");
-  assert.deepEqual(calls.founder, []);
+  assert.equal(conversation().ai_enabled, false);
+  assert.deepEqual(calls.signals, ["workflow_failed", "human_escalation_requested"], "exactly one failure incident and one escalation");
+  assert.deepEqual(calls.founder, ["ai_escalation"], "escalated once");
   assert.equal(calls.gate + calls.sends, 0);
 });
 
@@ -294,7 +301,7 @@ test("describeAiResultFailure: only a missing result or a null model is a failur
 // Change 3: stuck running executions are timed out
 // ---------------------------------------------------------------------------
 
-test("an execution running past the timeout is failed; its event becomes failed/retryable; nothing is sent", async () => {
+test("an execution running past the timeout is failed; its event becomes failed/retryable; nothing is sent; a timed-out customer reply is escalated to a human", async () => {
   const { execution, event } = seed(minutesAgo(EXECUTION_TIMEOUT_MINUTES + 5));
   const result = await failTimedOutExecutions(service as never, NOW);
 
@@ -303,7 +310,10 @@ test("an execution running past the timeout is failed; its event becomes failed/
   assert.equal(execution.status, "failed");
   assert.match(String(execution.error_message), /^execution_timeout:/);
   assert.equal(event.status, "failed");
-  assert.deepEqual(calls.signals, ["workflow_failed"]);
+  // Final Batch 1: the customer never got an answer - locked and escalated, like a dispatch or AI failure.
+  assert.deepEqual(calls.signals, ["workflow_failed", "human_escalation_requested"]);
+  assert.equal(conversation().ai_enabled, false);
+  assert.deepEqual(calls.founder, ["ai_escalation"]);
   assert.equal(calls.gate + calls.sends, 0);
 });
 
@@ -326,7 +336,8 @@ test("timeout processing is idempotent: a second tick fails nothing and records 
 
   assert.deepEqual(second, { timedOut: [], errors: 0 });
   assert.equal(execution.status, "failed");
-  assert.deepEqual(calls.signals, ["workflow_failed"], "one failure incident only");
+  assert.deepEqual(calls.signals, ["workflow_failed", "human_escalation_requested"], "one failure incident and one escalation only");
+  assert.deepEqual(calls.founder, ["ai_escalation"]);
 });
 
 test("a late n8n callback after the timeout is ignored: no AI processing, no lock, no duplicate send", async () => {
@@ -340,7 +351,8 @@ test("a late n8n callback after the timeout is ignored: no AI processing, no loc
   assert.equal(event.status, "failed");
   assert.equal(calls.gate + calls.sends, 0);
   assert.equal(store.ai_interactions!.length, 0);
-  assert.equal(conversation().ai_enabled, true);
+  assert.equal(conversation().ai_enabled, false, "locked by the timeout's escalation - the late callback changed nothing");
+  assert.deepEqual(calls.founder, ["ai_escalation"], "escalated once, by the timeout");
 });
 
 test("an execution a callback settles first is not counted as timed out", async () => {

@@ -46,9 +46,11 @@ test("an already-confirmed appointment's reminder asks for nothing", () => {
   assert.doesNotMatch(body, /CONFIRM/);
 });
 
-test("compliance unchanged: bare YES is still a START keyword, CONFIRM is not a compliance keyword", () => {
-  assert.equal(matchSmsKeyword("YES"), "start");
-  assert.equal(matchSmsKeyword("yes"), "start");
+test("Final Batch 1: a bare YES is an ordinary reply (not START); START/UNSTOP still are; CONFIRM is not a compliance keyword", () => {
+  assert.equal(matchSmsKeyword("YES"), null);
+  assert.equal(matchSmsKeyword("yes"), null);
+  assert.equal(matchSmsKeyword("START"), "start");
+  assert.equal(matchSmsKeyword("unstop"), "start");
   assert.equal(matchSmsKeyword("CONFIRM"), null);
   assert.equal(matchSmsKeyword("confirm"), null);
 });

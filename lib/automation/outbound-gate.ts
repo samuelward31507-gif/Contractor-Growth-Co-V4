@@ -8,6 +8,7 @@ import type { JobStatus } from "@/lib/jobs/queries";
 import type { LeadStatus } from "@/lib/leads/queries";
 import { calendarDateInTimeZone, formatMoney } from "@/lib/invoices/domain";
 import { daysOverdue, reminderStageFor, type InvoiceReminderStage } from "@/lib/invoices/reminder-stages";
+import { isWithinQuietHoursFloor } from "./send-window";
 
 const MAX_MESSAGE_LENGTH = 1600;
 
@@ -177,6 +178,7 @@ export type OutboundGateDenialReason =
   | "lead_status_ineligible"
   | "lead_has_active_engagement"
   | "outside_business_hours"
+  | "outside_quiet_hours"
   | "automation_disabled"
   | "invalid_destination";
 
@@ -547,6 +549,17 @@ export async function evaluateOutboundGate(
     }
   }
 
+  // Final Batch 1: the hard quiet-hours floor (lib/automation/send-window.ts).
+  // Unconditional - every automated customer-facing send, whatever its
+  // trigger (event, schedule, retry, manual run), and whether or not the
+  // automation's own business-hours setting is on. Checked after every other
+  // rule, so it never hides a more specific denial reason; read fresh on
+  // every call. Only a missing/unusable timezone falls back to UTC.
+  const floorTimeZone = await getOrganizationTimezone(supabase, input.organizationId);
+  if (!isWithinQuietHoursFloor(new Date(), floorTimeZone)) {
+    return deny("outside_quiet_hours");
+  }
+
   // Automation Configuration V2.2: runs last, after every other check above
   // has already passed - this can only ever additionally narrow an
   // otherwise-allowed send, never bypass opt-out, content safety,
@@ -563,4 +576,106 @@ export async function evaluateOutboundGate(
   }
 
   return { allowed: true, contactId: input.contactId, conversationId: input.conversationId, body };
+}
+
+export type StaffOutboundGateResult =
+  | { allowed: true; contactId: string; conversationId: string; body: string }
+  | { allowed: false; reason: OutboundGateDenialReason };
+
+/**
+ * Final Batch 1: the gate for a message a person writes in the inbox
+ * (app/(app)/conversations/actions.ts sendConversationMessage). Same
+ * authority, same denial reasons, same fresh reads as evaluateOutboundGate,
+ * but only the rules that apply to a human's own reply:
+ *
+ * - kept: live mode (a TEST organization never reaches a customer), active
+ *   payment, the contact's opt-out, a valid destination, and the
+ *   conversation being this organization's open SMS thread with that
+ *   contact; the 1600-character limit;
+ * - not applied, because they govern automation only: automation_paused
+ *   and per-automation switches, the conversation's AI lock (a human
+ *   taking over is exactly what that lock asks for), the AI content filter
+ *   (a contractor may quote a price), needs_human, execution checks, and the
+ *   automated quiet-hours floor and business hours (a person decides when
+ *   to text).
+ *
+ * The send itself still goes through sendOutboundMessage, which re-checks
+ * the opt-out and records the provider's result.
+ */
+export async function evaluateStaffOutboundGate(
+  supabase: SupabaseClient,
+  input: { organizationId: string; conversationId: string; body: string },
+): Promise<StaffOutboundGateResult> {
+  const body = input.body.trim();
+  if (!body) return { allowed: false, reason: "missing_response_message" };
+  if (body.length > MAX_MESSAGE_LENGTH) return { allowed: false, reason: "response_message_too_long" };
+
+  const [{ data: conversation }, { data: organization }, { data: paymentRow, error: paymentError }] = await Promise.all([
+    supabase.from("conversations").select("id, organization_id, contact_id, channel, status").eq("id", input.conversationId).maybeSingle(),
+    supabase.from("organizations").select("automation_mode").eq("id", input.organizationId).maybeSingle(),
+    supabase.from("organizations").select("payment_status").eq("id", input.organizationId).maybeSingle(),
+  ]);
+
+  if (!conversation) return { allowed: false, reason: "conversation_not_found" };
+  if (conversation.organization_id !== input.organizationId) return { allowed: false, reason: "conversation_wrong_organization" };
+  if (conversation.channel !== "sms") return { allowed: false, reason: "conversation_not_sms" };
+  if (conversation.status !== "open") return { allowed: false, reason: "conversation_not_open" };
+  if (!conversation.contact_id) return { allowed: false, reason: "missing_contact_id" };
+
+  if (organization?.automation_mode !== "live") return { allowed: false, reason: "organization_not_live" };
+  if (paymentError || paymentRow?.payment_status !== "active") return { allowed: false, reason: "organization_payment_inactive" };
+
+  const { data: contact } = await supabase.from("contacts").select("id, organization_id, sms_opt_out, phone, phone_normalized").eq("id", conversation.contact_id).maybeSingle();
+  if (!contact || contact.organization_id !== input.organizationId) return { allowed: false, reason: "contact_not_found" };
+  if (contact.sms_opt_out) return { allowed: false, reason: "contact_opted_out" };
+  const destination = contact.phone_normalized ?? contact.phone;
+  if (!destination || !E164_PATTERN.test(destination.trim())) return { allowed: false, reason: "invalid_destination" };
+
+  return { allowed: true, contactId: conversation.contact_id as string, conversationId: conversation.id as string, body };
+}
+
+export type AutomatedActionPreconditions = { allowed: true } | { allowed: false; reason: OutboundGateDenialReason };
+
+/**
+ * Final Batch 1: the safeguards an automated, customer-driven action must pass
+ * BEFORE it changes anything - an AI booking intent (n8n callback
+ * handleBookingIntent) or Trackpr's own booking-reply handling (book,
+ * reschedule, cancel, confirm from an SMS reply). Those actions create or
+ * change appointments before any message exists, so the send gate alone
+ * (which still checks every message they produce) came too late. Same
+ * reasons and fresh reads as evaluateOutboundGate:
+ *
+ * the automation enabled, live mode, active payment, not paused, the
+ * conversation this organization's and not locked for a human (ai_enabled),
+ * the contact this organization's and not opted out, and the quiet-hours
+ * floor (lib/automation/send-window.ts). `ignoreOptOut` exists for one case
+ * only: a bare CANCEL replying to an appointment message, where the opt-out
+ * is the message itself and the cancellation is what the customer asked for.
+ */
+export async function evaluateAutomatedActionPreconditions(
+  supabase: SupabaseClient,
+  input: { organizationId: string; conversationId: string; contactId: string; automationEnabled?: boolean; ignoreOptOut?: boolean },
+): Promise<AutomatedActionPreconditions> {
+  if (input.automationEnabled === false) return { allowed: false, reason: "automation_disabled" };
+
+  const [{ data: organization }, { data: paymentRow, error: paymentError }, { data: pauseRow, error: pauseError }, { data: conversation }, { data: contact }] = await Promise.all([
+    supabase.from("organizations").select("automation_mode").eq("id", input.organizationId).maybeSingle(),
+    supabase.from("organizations").select("payment_status").eq("id", input.organizationId).maybeSingle(),
+    supabase.from("organizations").select("automation_paused").eq("id", input.organizationId).maybeSingle(),
+    supabase.from("conversations").select("id, organization_id, contact_id, ai_enabled").eq("id", input.conversationId).maybeSingle(),
+    supabase.from("contacts").select("id, organization_id, sms_opt_out").eq("id", input.contactId).maybeSingle(),
+  ]);
+
+  if (organization?.automation_mode !== "live") return { allowed: false, reason: "organization_not_live" };
+  if (paymentError || paymentRow?.payment_status !== "active") return { allowed: false, reason: "organization_payment_inactive" };
+  if (pauseError || pauseRow?.automation_paused) return { allowed: false, reason: "organization_automation_paused" };
+  if (!conversation || conversation.organization_id !== input.organizationId) return { allowed: false, reason: "conversation_not_found" };
+  if (conversation.contact_id !== input.contactId) return { allowed: false, reason: "conversation_contact_mismatch" };
+  if (conversation.ai_enabled === false) return { allowed: false, reason: "conversation_ai_disabled" };
+  if (!contact || contact.organization_id !== input.organizationId) return { allowed: false, reason: "contact_not_found" };
+  if (contact.sms_opt_out && !input.ignoreOptOut) return { allowed: false, reason: "contact_opted_out" };
+
+  const timeZone = await getOrganizationTimezone(supabase, input.organizationId);
+  if (!isWithinQuietHoursFloor(new Date(), timeZone)) return { allowed: false, reason: "outside_quiet_hours" };
+  return { allowed: true };
 }

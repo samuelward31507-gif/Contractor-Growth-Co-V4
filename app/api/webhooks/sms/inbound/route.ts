@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
-import { matchSmsKeyword } from "@/lib/messaging/keywords";
+import { isBareCancel, matchSmsKeyword } from "@/lib/messaging/keywords";
+import { handleBareCancelAppointmentReply } from "@/lib/automation/booking-reply";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
 import { buildHelpResponseMessage } from "@/lib/messaging/help-response";
 import { isValidTwilioSignature } from "@/lib/messaging/twilio-signature";
@@ -224,6 +225,17 @@ export async function POST(request: NextRequest) {
       body,
       providerMessageId: messageSid,
     });
+  } else if (!insertError && keyword === "stop" && isBareCancel(body)) {
+    // Final Batch 1: the opt-out above is recorded (and enforced by the
+    // carrier) exactly as before. A bare CANCEL that answers an appointment
+    // message is also the customer cancelling that appointment - the same
+    // cancellation handling as "please cancel my appointment". No other STOP
+    // word, and no CANCEL outside an appointment reply, does anything more.
+    try {
+      await handleBareCancelAppointmentReply(service, organization.id, contact.id, null, conversation.id);
+    } catch (error) {
+      console.error("[sms][inbound] appointment cancellation after CANCEL failed", { organizationId: organization.id, error: error instanceof Error ? error.message : "unknown" });
+    }
   } else if (!insertError && keyword === "help") {
     // Deterministic, non-AI reply. Goes through the same sendOutboundMessage()
     // every other outbound send uses - so it still respects opt-out

@@ -216,6 +216,9 @@ async function sendStage(service: SupabaseClient, organization: EligibleOrganiza
       return { ...base, outcome: "duplicate" };
     case "skipped_disabled":
       return { ...base, outcome: "skipped_disabled" };
+    case "quiet_hours":
+      // Final Batch 1: the quiet-hours floor - this kind's own 09:00-18:00 window already sits inside it.
+      return { ...base, outcome: "outside_hours" };
     default:
       // Unreachable under this kind's policy (no payment check, always due and owed, record_blocked missing subject); never a success.
       return { ...base, outcome: "failed", reason: `unexpected_touch_status:${result.status}` };

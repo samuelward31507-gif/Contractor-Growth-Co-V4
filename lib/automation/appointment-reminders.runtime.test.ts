@@ -392,7 +392,12 @@ test("5. cancellation and reschedule: cancelled/completed/no-show are never cand
   const firstKey = touchEvents()[0].idempotency_key;
   Object.assign(moved, { start_at: inHours(100), end_at: inHours(101), updated_at: inHours(2) });
   assert.deepEqual(((await run(new Date(T0.getTime() + 3 * HOUR))) as Outcomes).outcomes, [], "the old reminder is obsolete: not due for the new time yet");
-  const second = (await run(new Date(T0.getTime() + 80 * HOUR))) as Outcomes;
+  // Final Batch 1: T0 + 80h is 23:00 UTC - inside the quiet-hours floor the due reminder is held, nothing recorded,
+  // and the first run of the morning (08:00) sends it under the same new key.
+  const held = (await run(new Date(T0.getTime() + 80 * HOUR))) as Outcomes;
+  assert.deepEqual(held.outcomes, [{ appointmentId: moved.id, outcome: "quiet_hours" }]);
+  assert.equal(touchEvents().length, 1, "held: no event, no key used");
+  const second = (await run(new Date(T0.getTime() + 89 * HOUR))) as Outcomes;
   assert.equal(second.outcomes[0].outcome, "sent");
   assert.deepEqual(touchEvents().map((e) => e.idempotency_key), [firstKey, `appointment.reminder:${moved.id}:${inHours(100)}`]);
   // Rescheduled inside the window with short notice: the stability guard holds it back.

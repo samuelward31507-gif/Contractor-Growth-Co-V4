@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "@/lib/automation/executions";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
-import { evaluateOutboundGate } from "@/lib/automation/outbound-gate";
+import { evaluateAutomatedActionPreconditions, evaluateOutboundGate } from "@/lib/automation/outbound-gate";
 import { getAutomationForEventType } from "@/lib/automation/catalog";
 import {
   getAutomationConfig,
@@ -1255,6 +1255,22 @@ export async function POST(request: NextRequest) {
       await recordCallbackFailureSignal(service, event, execution.id, failed.error);
       return NextResponse.json({ ok: false, error: failed.error }, { status: 500 });
     }
+    // Final Batch 1: a customer is waiting on this one. The run stays a
+    // failure (no AI record, no fallback message), but the conversation is
+    // locked for a human and escalated - the same safety net a dispatch
+    // failure already gets - instead of sitting unanswered.
+    const failedConversationId = typeof event.payload?.conversation_id === "string" ? (event.payload.conversation_id as string) : null;
+    if (event.event_type === "customer.message.received" && failedConversationId) {
+      const { escalateUnansweredCustomerReply } = await import("@/lib/automation/customer-reply");
+      await escalateUnansweredCustomerReply(service, {
+        organizationId: event.organization_id,
+        conversationId: failedConversationId,
+        contactId: typeof event.payload?.contact_id === "string" ? (event.payload.contact_id as string) : null,
+        leadId: typeof event.payload?.lead_id === "string" ? (event.payload.lead_id as string) : null,
+        executionId: execution.id,
+        cause: "AI failure",
+      });
+    }
     return NextResponse.json({ ok: true, failed: true });
   }
 
@@ -1500,7 +1516,45 @@ export async function POST(request: NextRequest) {
     // only once per execution, for the same reason every other branch in
     // this aiResult block does (the running-status guard at the top of this
     // function).
-    if (aiResult.booking_intent && aiResult.booking_intent.action !== "none") {
+    if (aiResult.booking_intent && aiResult.booking_intent.action !== "none" && !aiResult.needs_human) {
+      // Final Batch 1: a booking action changes an appointment before any
+      // message exists, so it first passes the automated-action safeguards
+      // (automation on, live, paid, not paused, not human-locked, not opted
+      // out, inside the quiet-hours floor). Refused: nothing is booked,
+      // changed or sent, and the run completes as blocked with the reason. A
+      // result that also asks for a human never acts (it falls through to
+      // the gate, which refuses needs_human).
+      const bookingPreconditions =
+        contactId && conversationId
+          ? await evaluateAutomatedActionPreconditions(service, {
+              organizationId: event.organization_id,
+              conversationId,
+              contactId,
+              automationEnabled: await automationEnabledFor(service, event.organization_id, event.event_type),
+            })
+          : { allowed: false as const, reason: "missing_conversation_id" as const };
+      if (!bookingPreconditions.allowed) {
+        const result = await completeWorkflowExecutionAsService(service, execution.id, {
+          should_send: false,
+          booking_action: aiResult.booking_intent.action,
+          blocked_reason: bookingPreconditions.reason,
+          needs_human: aiResult.needs_human,
+          qualification_status: aiResult.qualification_status,
+          urgency: aiResult.urgency,
+          missing_information: aiResult.missing_information,
+          intent: aiResult.intent,
+          summary: aiResult.summary,
+        });
+        if (!result.ok) {
+          if (isAlreadyProcessedError(result.error)) {
+            return NextResponse.json({ ok: true, alreadyProcessed: true });
+          }
+          console.error("[automation] failed to complete execution", { executionId: execution.id, error: result.error });
+          await recordCallbackFailureSignal(service, event, execution.id, result.error);
+          return NextResponse.json({ ok: false, error: "Could not record the automation result." }, { status: 500 });
+        }
+        return NextResponse.json({ ok: true, sent: false, blockedReason: bookingPreconditions.reason });
+      }
       return handleBookingIntent(service, {
         organizationId: event.organization_id,
         executionId: execution.id,

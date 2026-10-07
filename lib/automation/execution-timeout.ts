@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { failWorkflowExecutionAsService } from "@/lib/automation/executions";
 
+/** lib/automation/customer-reply.ts's workflow name (not imported: that module pulls in the n8n dispatch). */
+const CUSTOMER_REPLY_FOLLOWUP_WORKFLOW = "customer_reply_followup";
+
 /**
  * Stuck-execution timeout. Every dispatched execution is expected to be
  * completed or failed by its callback within minutes; one still 'running'
@@ -66,7 +69,30 @@ export async function failTimedOutExecutions(service: SupabaseClient, now: Date 
     // this call actually failed.
     if (failed.execution.status === "failed" && failed.execution.error_message?.startsWith("execution_timeout:")) {
       result.timedOut.push({ id: row.id, organization_id: row.organization_id, workflow_name: row.workflow_name });
+      // Final Batch 1: a customer reply that never got an AI result is a customer left unanswered - lock the
+      // conversation for a human and escalate it (lib/automation/customer-reply.ts), like a dispatch failure.
+      if (row.workflow_name === CUSTOMER_REPLY_FOLLOWUP_WORKFLOW) await escalateTimedOutCustomerReply(service, row.id, row.organization_id);
     }
   }
   return result;
+}
+
+async function escalateTimedOutCustomerReply(service: SupabaseClient, executionId: string, organizationId: string): Promise<void> {
+  try {
+    const { data } = await service.from("workflow_executions").select("automation_events(payload)").eq("id", executionId).maybeSingle();
+    const embedded = (data as { automation_events: { payload: Record<string, unknown> | null } | { payload: Record<string, unknown> | null }[] | null } | null)?.automation_events;
+    const payload = (Array.isArray(embedded) ? embedded[0]?.payload : embedded?.payload) ?? {};
+    if (typeof payload.conversation_id !== "string") return;
+    const { escalateUnansweredCustomerReply } = await import("@/lib/automation/customer-reply");
+    await escalateUnansweredCustomerReply(service, {
+      organizationId,
+      conversationId: payload.conversation_id,
+      contactId: typeof payload.contact_id === "string" ? payload.contact_id : null,
+      leadId: typeof payload.lead_id === "string" ? payload.lead_id : null,
+      executionId,
+      cause: "no AI result",
+    });
+  } catch (error) {
+    console.error("[automation] failed to escalate a timed-out customer reply", { executionId, error: error instanceof Error ? error.message : String(error) });
+  }
 }

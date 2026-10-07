@@ -471,7 +471,31 @@ test("15/16. outside business hours: deferred to the next opening, attempt NOT c
   assert.equal(touchExecutions().length, 0, "deferral is not a failure or a block");
 
   clock = new Date("2026-11-09T09:00:00.000Z");
-  assert.equal((await dispatchFollowup(db as never, followup.id, clock)).outcome, "sent", "a weekend deferral is not mistaken for dormancy");
+  // The gate's own business-hours check reads the process clock (in production the same real clock the
+  // dispatcher uses) - set it to the dispatcher's moment, not the suite's pinned 18:00 UTC.
+  mock.timers.enable({ apis: ["Date"], now: clock });
+  try {
+    assert.equal((await dispatchFollowup(db as never, followup.id, clock)).outcome, "sent", "a weekend deferral is not mistaken for dormancy");
+  } finally {
+    mock.timers.reset();
+  }
+  assert.equal(fu(followup.id).attempt_count, 1);
+});
+
+test("15c. Final Batch 1: the quiet-hours floor defers a due touch overnight even with no business hours configured - not consumed, nothing recorded - and it sends at 08:00", async () => {
+  control.hours = [];
+  // Created Monday 22:30 UTC -> first touch due Tuesday 22:30 UTC, inside the floor (UTC organization).
+  clock = new Date("2026-11-02T22:30:00.000Z");
+  const { followup } = await newFollowup();
+  clock = new Date("2026-11-03T22:30:00.000Z");
+  const outcome = await dispatchFollowup(db as never, followup.id, clock);
+  assert.deepEqual(outcome, { followupId: followup.id, outcome: "deferred", until: "2026-11-04T08:00:00.000Z" });
+  assert.equal(fu(followup.id).attempt_count, 0);
+  assert.equal(touchEvents().length, 0, "the touch's key is not used up");
+  assert.equal(touchExecutions().length, 0);
+
+  clock = new Date("2026-11-04T08:00:00.000Z");
+  assert.equal((await dispatchFollowup(db as never, followup.id, clock)).outcome, "sent");
   assert.equal(fu(followup.id).attempt_count, 1);
 });
 

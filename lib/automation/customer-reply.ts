@@ -252,39 +252,64 @@ export async function emitCustomerReplyFollowup(
       // out of further automated AI turns and tell a human, reusing the
       // exact `ai_enabled` conditional-guard idempotency this codebase
       // already relies on everywhere else for this lock.
-      const { data: lockedRow, error: lockError } = await supabase
-        .from("conversations")
-        .update({ ai_enabled: false })
-        .eq("id", input.conversationId)
-        .eq("organization_id", input.organizationId)
-        .eq("ai_enabled", true)
-        .select("id")
-        .maybeSingle();
-
-      if (lockError) {
-        console.error("[automation] failed to lock conversation after a customer-reply dispatch failure", { executionId, error: lockError.message });
-      } else if (lockedRow) {
-        // Same durable, dashboard-visible, resolvable escalation record
-        // HANDOFF-01 already gives a genuine AI needs_human verdict -
-        // "the AI never even ran" deserves the identical contractor-facing
-        // safety net as "the AI ran and asked for help."
-        await recordAutomationHealthSignal(supabase, {
-          organizationId: input.organizationId,
-          category: "human_escalation_requested",
-          severity: "warning",
-          fingerprintContext: input.conversationId,
-          title: "AI escalated a conversation to a human",
-          description: "The AI could not process a customer reply (dispatch failure) and needs a human to respond.",
-          workflowExecutionId: executionId,
-          metadata: { conversationId: input.conversationId, contactId: input.contactId, leadId: input.leadId },
-        });
-        await notifyFounder(supabase, {
-          organizationId: input.organizationId,
-          kind: "ai_escalation",
-          summary: "The AI could not process a customer reply and needs a human to respond.",
-          detailPath: `/conversations/${input.conversationId}`,
-        });
-      }
+      await escalateUnansweredCustomerReply(supabase, {
+        organizationId: input.organizationId,
+        conversationId: input.conversationId,
+        contactId: input.contactId,
+        leadId: input.leadId,
+        executionId,
+        cause: "dispatch failure",
+      });
     }
   });
+}
+
+/**
+ * Final Batch 1 (shared since the L2 lead-leak fix): a customer's message the
+ * AI reply path could not answer - the dispatch failed, the model failed, or
+ * no result ever came back - must never sit unanswered by both the AI and a
+ * person. Locks the conversation out of further automated AI turns
+ * (conversations.ai_enabled, the existing human-handoff lock) and records
+ * the human-escalation incident (Today's "Needs a human") plus the owner's
+ * ai_escalation notice. Nothing is sent to the customer. Idempotent: the
+ * conditional lock only changes a conversation that is still unlocked, and
+ * only that change escalates - a repeat (or an already-locked conversation)
+ * records nothing new.
+ */
+export async function escalateUnansweredCustomerReply(
+  supabase: SupabaseClient,
+  input: { organizationId: string; conversationId: string; contactId: string | null; leadId: string | null; executionId: string; cause: "dispatch failure" | "AI failure" | "no AI result" },
+): Promise<{ escalated: boolean }> {
+  const { data: lockedRow, error: lockError } = await supabase
+    .from("conversations")
+    .update({ ai_enabled: false })
+    .eq("id", input.conversationId)
+    .eq("organization_id", input.organizationId)
+    .eq("ai_enabled", true)
+    .select("id")
+    .maybeSingle();
+
+  if (lockError) {
+    console.error("[automation] failed to lock conversation after an unanswered customer reply", { executionId: input.executionId, cause: input.cause, error: lockError.message });
+    return { escalated: false };
+  }
+  if (!lockedRow) return { escalated: false };
+
+  await recordAutomationHealthSignal(supabase, {
+    organizationId: input.organizationId,
+    category: "human_escalation_requested",
+    severity: "warning",
+    fingerprintContext: input.conversationId,
+    title: "AI escalated a conversation to a human",
+    description: `The AI could not process a customer reply (${input.cause}) and needs a human to respond.`,
+    workflowExecutionId: input.executionId,
+    metadata: { conversationId: input.conversationId, contactId: input.contactId, leadId: input.leadId },
+  });
+  await notifyFounder(supabase, {
+    organizationId: input.organizationId,
+    kind: "ai_escalation",
+    summary: "The AI could not process a customer reply and needs a human to respond.",
+    detailPath: `/conversations/${input.conversationId}`,
+  });
+  return { escalated: true };
 }

@@ -953,3 +953,29 @@ test("Phase 2-10 (B7): an existing open review row with the old job amount is re
   assert.deepEqual([row.status, row.estimated_value, row.value_basis], ["open", null, null]);
   assert.equal(tables.opportunities.filter((r) => r.type === "completed_job_no_review_request").length, 1);
 });
+
+// ---------------------------------------------------------------------------
+// Final Batch 1: the new-lead owner alert - a genuinely new lead with no
+// recorded contact reaches Today's attention list 15 minutes after it arrives
+// (it used to take 24 hours), once per lead, and never once contacted.
+// ---------------------------------------------------------------------------
+
+const MINUTES_AGO = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
+
+test("Final Batch 1: a new lead with no contact is on Today after 15 minutes (not 24 hours), once per lead; still in flight before that; gone once contacted or replied", async () => {
+  assert.deepEqual((await uncontactedIds(uncontactedFixture({}, {}, { created_at: MINUTES_AGO(5) }))).ids, [], "5 minutes: the instant reply may still be on its way");
+  assert.deepEqual((await uncontactedIds(uncontactedFixture({}, {}, { created_at: MINUTES_AGO(16) }))).ids, ["lead-1"], "16 minutes: the owner's");
+  assert.deepEqual((await uncontactedIds(uncontactedFixture({}, {}, { created_at: MINUTES_AGO(60 * 30) }))).ids, ["lead-1"], "older leads are unchanged");
+
+  const twoLeads = uncontactedFixture({}, {}, { created_at: MINUTES_AGO(20) });
+  twoLeads.leads.push({ ...twoLeads.leads[0], id: "lead-2", created_at: MINUTES_AGO(40) });
+  const { ids } = await uncontactedIds(twoLeads);
+  assert.deepEqual([...ids].sort(), ["lead-1", "lead-2"], "one candidate per lead - never a duplicate");
+
+  const contacted = uncontactedFixture({}, {}, { created_at: MINUTES_AGO(20) });
+  addMessage(contacted, { id: "conv-1" }, { direction: "outbound", status: "sent", created_at: MINUTES_AGO(19) });
+  assert.deepEqual((await uncontactedIds(contacted)).ids, [], "the AI (or a person) reached them: no alert");
+
+  const qualified = uncontactedFixture({}, {}, { created_at: MINUTES_AGO(20), status: "qualified" });
+  assert.deepEqual((await uncontactedIds(qualified)).ids, [], "only genuinely new leads - no alert on any other lead change");
+});

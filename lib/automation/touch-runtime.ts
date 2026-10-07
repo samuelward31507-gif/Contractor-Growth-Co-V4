@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isWithinQuietHoursFloor } from "./send-window";
 import {
   auditFieldViolation,
   auditRecordViolation,
@@ -159,6 +160,8 @@ export type DerivedTouchResult =
   | { status: "skipped_disabled" }
   | { status: "payment_inactive" }
   | { status: "not_due" }
+  /** Final Batch 1: inside the quiet-hours floor; nothing recorded - the next run inside the window claims it. */
+  | { status: "quiet_hours" }
   | { status: "skipped_duplicate" }
   | { status: "subject_missing" }
   | { status: "lifecycle_failed"; error: string }
@@ -219,6 +222,12 @@ async function claimDerivedTouch<Item, Facts>(
   }
 
   if (!adapter.isDue(item, now)) return { claimed: false, result: { status: "not_due" } };
+
+  // Final Batch 1: never claim a touch inside the quiet-hours floor (lib/automation/send-window.ts) - the gate
+  // would only block it after the claim and use up its key. Nothing is recorded; the next scheduled tick
+  // inside the window claims it.
+  const { data: organizationZone } = await service.from("organizations").select("timezone").eq("id", organizationId).maybeSingle();
+  if (!isWithinQuietHoursFloor(now, (organizationZone?.timezone as string | null | undefined) ?? null)) return { claimed: false, result: { status: "quiet_hours" } };
 
   const auditFields = adapter.auditFields(item);
   const violation = auditFieldViolation(auditFields);
@@ -492,7 +501,7 @@ export type HandOffResult =
   /** A business decision, recorded (stale, known-missing subject). */
   | { status: "blocked"; reason: string }
   /** Not this run's to claim; nothing recorded. */
-  | { status: "unavailable"; reason: "skipped_disabled" | "payment_inactive" | "not_due" | "subject_missing" | "not_owed"; detail: string | null }
+  | { status: "unavailable"; reason: "skipped_disabled" | "payment_inactive" | "not_due" | "quiet_hours" | "subject_missing" | "not_owed"; detail: string | null }
   /** A technical failure. `recorded`: the claimed execution was failed (the hand-off itself failed). */
   | { status: "failed"; error: string; recorded: boolean };
 
@@ -507,6 +516,7 @@ function handOffResultOf(result: DerivedTouchResult): HandOffResult {
     case "skipped_disabled":
     case "payment_inactive":
     case "not_due":
+    case "quiet_hours":
     case "subject_missing":
       return { status: "unavailable", reason: result.status, detail: null };
     case "not_owed":

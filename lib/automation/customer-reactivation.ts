@@ -37,6 +37,8 @@ export type CustomerReactivationOutcome =
   | { contactId: string; outcome: "sent"; messageId: string }
   | { contactId: string; outcome: "blocked"; reason: string }
   | { contactId: string; outcome: "not_due" }
+  /** Final Batch 1: inside the quiet-hours floor; nothing recorded - a later run inside the window sends it. */
+  | { contactId: string; outcome: "quiet_hours" }
   | { contactId: string; outcome: "skipped_duplicate" }
   | { contactId: string; outcome: "skipped_disabled" }
   | { contactId: string; outcome: "payment_inactive" }

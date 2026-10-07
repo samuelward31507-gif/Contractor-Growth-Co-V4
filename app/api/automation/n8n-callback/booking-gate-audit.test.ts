@@ -58,6 +58,8 @@ mock.module(lib("lib/automation/outbound-gate.ts"), {
       state.gateBody = input.aiResult.response_message;
       return state.gate;
     },
+    // Final Batch 1: the automated-action safeguards are covered in lib/automation/communication-core.test.ts; here they pass.
+    evaluateAutomatedActionPreconditions: async () => ({ allowed: true }),
   },
 });
 mock.module(lib("lib/scheduling/booking.ts"), {

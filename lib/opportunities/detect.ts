@@ -813,17 +813,19 @@ async function detectCancelledAppointmentsWithoutRebooking(supabase: SupabaseCli
 // ---------------------------------------------------------------------------
 
 /**
- * Long enough to absorb the after()-deferred n8n dispatch, n8n's own
- * processing time, and the existing 30-minute stuck-execution window
- * (app/api/automation/health/route.ts's STUCK_THRESHOLD_MINUTES) without
- * ever flagging a lead that's merely still in flight - but short of the
- * multi-day cadences used elsewhere (lead-reactivation's 7/21-day touches,
- * lost-lead-nurture's 7/21-day touches), since instant-lead-followup is
- * meant to fire within seconds, not days. A genuinely new number, not
- * derived from an existing constant - documented as a product decision by
- * the Pass 5C Batch 2 audit, not an audit-derived fact.
+ * Final Batch 1 (new-lead owner alert): how long a genuinely new lead may go
+ * without any recorded contact before it is the owner's - on Today's
+ * attention list ("Never contacted", action "call"). The instant AI reply
+ * normally lands within seconds to a minute and resolves the lead before
+ * this, so the alert fires only when it did not happen (organization in
+ * test mode or paused, the quiet-hours floor, AI or n8n down, a blocked
+ * send) - the speed-to-lead safety net, at speed-to-lead time rather than a
+ * day later (it was 24 hours). It is still this one detector: one
+ * opportunity per lead (dedup and dismissal unchanged), status 'new' only,
+ * never the onboarding test lead, and gone the moment the customer is
+ * contacted or replies - no notification on any other lead change.
  */
-const UNCONTACTED_LEAD_AGE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+export const UNCONTACTED_LEAD_AGE_THRESHOLD_MS = 15 * 60 * 1000;
 
 /** messages.status values that actually prove the customer's carrier accepted or delivered the message - 'queued' (Twilio hasn't responded yet) and 'failed'/'undelivered' (attempted, never reached) are deliberately excluded, matching the Pass 5C Batch 2 audit's evidence hierarchy exactly: an attempt is not contact. */
 const SUCCESSFUL_OUTBOUND_STATUSES = SUCCESSFUL_OUTBOUND_STATUS_SET;

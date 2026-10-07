@@ -57,6 +57,8 @@ export type FollowupOutcome =
   | { estimateId: string; outcome: "skipped_duplicate" }
   | { estimateId: string; outcome: "skipped_disabled" }
   | { estimateId: string; outcome: "not_due" }
+  /** Final Batch 1: inside the quiet-hours floor; nothing recorded - a later run inside the window sends it. */
+  | { estimateId: string; outcome: "quiet_hours" }
   | { estimateId: string; outcome: "failed"; error: string };
 
 export type FollowupRunResult = {
@@ -237,6 +239,7 @@ async function processOneEstimate(
     case "skipped_duplicate":
     case "skipped_disabled":
     case "not_due":
+    case "quiet_hours":
       return { estimateId, outcome: result.status };
     default:
       // Unreachable under this kind's policy (no payment check, record_blocked missing subject, always owed); never a success.

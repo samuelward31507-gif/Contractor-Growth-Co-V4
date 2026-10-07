@@ -37,6 +37,8 @@ export type ReminderOutcome =
   | { appointmentId: string; outcome: "blocked"; reason: string }
   | { appointmentId: string; outcome: "skipped_duplicate" }
   | { appointmentId: string; outcome: "skipped_disabled" }
+  /** Final Batch 1: inside the quiet-hours floor; nothing recorded - a later run inside the window sends it. */
+  | { appointmentId: string; outcome: "quiet_hours" }
   | { appointmentId: string; outcome: "failed"; error: string };
 
 export type ReminderRunResult = {
@@ -273,6 +275,7 @@ async function processOneReminder(
       return { appointmentId, outcome: "failed", error: `lifecycle_snapshot_failed: ${result.error}` };
     case "skipped_duplicate":
     case "skipped_disabled":
+    case "quiet_hours":
       return { appointmentId, outcome: result.status };
     default:
       // Unreachable for a scanned candidate under this kind's policy (due at the same instant, no payment check, record_blocked missing subject, always owed); never a success.

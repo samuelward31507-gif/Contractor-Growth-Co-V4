@@ -113,7 +113,13 @@ mock.module(lib("lib/automation/executions.ts"), {
     failWorkflowExecution: failExecution,
   },
 });
-mock.module(lib("lib/automation/outbound-gate.ts"), { namedExports: { evaluateOutboundGate: async () => ({ allowed: false, reason: "organization_not_live" }) } });
+mock.module(lib("lib/automation/outbound-gate.ts"), {
+  namedExports: {
+    evaluateOutboundGate: async () => ({ allowed: false, reason: "organization_not_live" }),
+    // Final Batch 1: the automated-action safeguards are covered in lib/automation/communication-core.test.ts; here they pass.
+    evaluateAutomatedActionPreconditions: async () => ({ allowed: true }),
+  },
+});
 mock.module(lib("lib/messaging/outbound.ts"), {
   namedExports: {
     sendOutboundMessage: async () => {
