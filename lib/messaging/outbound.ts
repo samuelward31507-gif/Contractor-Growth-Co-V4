@@ -25,7 +25,21 @@ export type SendOutboundMessageInput = {
 
 export type SendOutboundMessageResult =
   | { ok: true; messageId: string; conversationId: string; providerMessageId: string }
-  | { ok: false; error: string; messageId: string | null; conversationId: string | null };
+  | {
+      ok: false;
+      error: string;
+      messageId: string | null;
+      conversationId: string | null;
+      /**
+       * P0-B B2.8a: set only when the outbound unique index
+       * (messages.workflow_execution_id, direction 'outbound') rejected this
+       * insert because another request for the SAME execution already owns
+       * its send (its row exists and is not yet 'sent'). Not a send failure:
+       * the owner records the outcome - a caller must never fail the
+       * execution on it.
+       */
+      duplicateInProgress?: true;
+    };
 
 /**
  * The single path every outbound SMS send must go through, whatever
@@ -139,6 +153,7 @@ export async function sendOutboundMessage(
           error: "This workflow execution already has an outbound message in progress.",
           messageId: existing.id,
           conversationId: conversation.id,
+          duplicateInProgress: true,
         };
       }
     }

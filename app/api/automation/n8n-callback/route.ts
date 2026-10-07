@@ -1477,6 +1477,15 @@ export async function POST(request: NextRequest) {
     workflowExecutionId: execution.id,
   });
 
+  // P0-B B2.8a (HIGH-1): a concurrent duplicate callback for this execution
+  // lost the outbound unique index to the request that owns the send (its
+  // message row is still queued). That is not a send failure: the owner
+  // completes or fails the execution itself. Failing it here would mark a
+  // delivered message as failed and make the execution retryable.
+  if (!sendResult.ok && sendResult.duplicateInProgress) {
+    return NextResponse.json({ ok: true, alreadyProcessed: true });
+  }
+
   if (!sendResult.ok) {
     // The execution must clearly reflect that delivery could not complete;
     // it must never be marked completed as if the customer-facing message

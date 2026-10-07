@@ -37,7 +37,7 @@ let ids = 0;
 let clock = T0;
 const hooks: { beforeRun?: (table: string, eqs: Row, write: boolean) => void } = {};
 const calls = { sends: 0, signals: [] as Row[], n8n: 0 };
-const control = { sendOk: true, admin: true, hours: [] as Row[], startLoses: false, snapshotFails: false };
+const control = { sendOk: true, admin: true, hours: [] as Row[], startLoses: false, snapshotFails: false, sendHeld: Promise.resolve() as Promise<void> };
 const trace: string[] = [];
 const snapshotArgs: Row[] = [];
 
@@ -192,9 +192,15 @@ mock.module(lib("lib/automation-health/service.ts"), {
 mock.module(lib("lib/messaging/outbound.ts"), {
   namedExports: {
     sendOutboundMessage: async (_s: unknown, input: Row) => {
+      // The outbound unique index (one outbound message per execution): a second request for the same execution loses (P0-B B2.8a).
+      const owner = store.messages!.find((m) => m.direction === "outbound" && m.workflow_execution_id === input.workflowExecutionId && input.workflowExecutionId);
+      if (owner && owner.status !== "sent") return { ok: false, error: "This workflow execution already has an outbound message in progress.", messageId: owner.id, conversationId: input.conversationId, duplicateInProgress: true };
       calls.sends += 1;
       trace.push("send");
-      store.messages!.push({ id: uuid(), organization_id: input.organizationId, conversation_id: input.conversationId, workflow_execution_id: input.workflowExecutionId, direction: "outbound", body: input.body, sender_type: input.senderType, created_at: clock.toISOString() });
+      const message: Row = { id: uuid(), organization_id: input.organizationId, conversation_id: input.conversationId, workflow_execution_id: input.workflowExecutionId, direction: "outbound", body: input.body, sender_type: input.senderType, status: "queued", created_at: clock.toISOString() };
+      store.messages!.push(message);
+      await control.sendHeld;
+      message.status = control.sendOk ? "sent" : "failed";
       return control.sendOk ? { ok: true, messageId: "m", conversationId: input.conversationId, providerMessageId: "SM" } : { ok: false, error: "Twilio error 30003", messageId: null, conversationId: null };
     },
   },
@@ -235,7 +241,7 @@ const SNAPSHOT_MARKER_TABLE = "opportunities";
 
 process.env.VERCEL_ENV = "preview";
 const { processCustomerReactivation, CUSTOMER_REACTIVATION_ADAPTER } = await import(lib("lib/automation/customer-reactivation.ts"));
-const { runDerivedTouch, retryDerivedTouch } = await import(lib("lib/automation/touch-runtime.ts"));
+const { runDerivedTouch, retryDerivedTouch, claimAndHandOffTouch, resumeClaimedTouch, DRAFT_HANDOFF_METADATA } = await import(lib("lib/automation/touch-runtime.ts"));
 const { auditFieldViolation, executeTouch, RUNTIME_OUTCOME_FIELDS } = await import(lib("lib/followups/engine.ts"));
 const { SERVICE_EXECUTION_OPS, startWorkflowExecutionAsService } = await import(lib("lib/automation/executions.ts"));
 const { classifyFailedExecutions } = await import(lib("lib/automation/execution-retry.ts"));
@@ -264,7 +270,7 @@ beforeEach(() => {
   ids = 100;
   clock = T0;
   calls.sends = 0; calls.signals = []; calls.n8n = 0;
-  control.sendOk = true; control.admin = true; control.hours = []; control.startLoses = false; control.snapshotFails = false;
+  control.sendOk = true; control.admin = true; control.hours = []; control.startLoses = false; control.snapshotFails = false; control.sendHeld = Promise.resolve();
   hooks.beforeRun = undefined;
   trace.length = 0;
   snapshotArgs.length = 0;
@@ -951,4 +957,221 @@ test("30. the shared retry entry applies the same claimed verification: blocked 
   const retried = store.workflow_executions!.find((e) => e.id === verified.executionId)!;
   assert.equal(retried.outcome, "succeeded");
   assert.match(String(store.messages!.find((m) => m.workflow_execution_id === verified.executionId)!.body), /Hey Retry, .* with Live title\./);
+});
+
+// ===========================================================================
+// P0-B B2.8a: the draft hand-off contract - claimAndHandOffTouch (steps 1-8,
+// then the kind's hand-off) and resumeClaimedTouch (re-validation, then
+// B1 -> still owed -> claimed verification -> gate -> send -> record, with
+// the draft as the body). Exercised through the REAL customer-reactivation
+// adapter; no kind uses the contract yet.
+// ===========================================================================
+
+const handOffRequests: Row[] = [];
+const okHandOff = async (request: Row) => {
+  handOffRequests.push(request);
+  trace.push("handOff");
+  return { ok: true as const };
+};
+const handOff = (adapter: unknown, job: Row, fn: (request: Row) => Promise<{ ok: true } | { ok: false; error: string }> = okHandOff, now: Date = T0, enabled = true) =>
+  claimAndHandOffTouch(db as never, adapter as never, { job, config }, now, {
+    isEnabled: async () => {
+      trace.push("isEnabled");
+      return enabled;
+    },
+  }, fn as never) as Promise<Row>;
+type Claimed = { executionId: string; eventId: string };
+const resume = (adapter: unknown, job: Row, claimed: Claimed, draft: unknown, overrides: Row = {}) =>
+  resumeClaimedTouch(db as never, adapter as never, { executionId: claimed.executionId, eventId: claimed.eventId, organizationId: ORG, automationId: "customer-reactivation", item: { job, config }, draft, ...overrides } as never, T0) as Promise<Row>;
+const DRAFT = { body: "Hi Riley - it's QA Fixture Roofing. It's been a while since your roof repair; anything we can help with?", needsHuman: false };
+async function handedOff(job: Row = addJob()): Promise<Claimed & { job: Row }> {
+  const result = await handOff(probe(), job);
+  assert.equal(result.status, "handed_off", JSON.stringify(result));
+  return { executionId: result.executionId as string, eventId: result.eventId as string, job };
+}
+const executionById = (id: string) => store.workflow_executions!.find((e) => e.id === id)!;
+
+test("31. hand-off: steps 1-8 then the hand-off - kill switch, B1 before the claim, the touch's own key + B0 start marked n8n_draft; nothing composed, gated or sent; the execution stays running", async () => {
+  handOffRequests.length = 0;
+  const job = addJob();
+  const { result, starts } = await captureStarts(() => handOff(probe(), job));
+  const [event] = events();
+  const [execution] = executions();
+  assert.deepEqual(result, { status: "handed_off", executionId: execution.id, eventId: event.id });
+  assert.equal(event.idempotency_key, `customer.reactivation:${CONTACT}:${job.id}`);
+  assert.deepEqual(starts, [{ p_automation_event_id: event.id, p_workflow_name: "customer_reactivation_followup", p_metadata: { handoff: "n8n_draft" }, p_trigger_source: "event" }]);
+  assert.deepEqual(DRAFT_HANDOFF_METADATA, { handoff: "n8n_draft" });
+  assert.deepEqual(traced(["isEnabled", "snapshot", "stillOwed", "event", "start", "handOff"]), ["isEnabled", "snapshot", "stillOwed", "event", "start", "handOff"]);
+  assert.ok(!trace.includes("compose") && !trace.includes("gateOptions") && !trace.includes("verifyClaimed") && !trace.includes("send"));
+  assert.deepEqual(handOffRequests, [{ organizationId: ORG, automationId: "customer-reactivation", workflowName: "customer_reactivation_followup", eventId: event.id, executionId: execution.id }], "identifiers only");
+  assert.equal(execution.status, "running");
+  assert.equal(calls.sends, 0);
+});
+
+test("32. hand-off results are distinct: unavailable (nothing recorded), already_processed, blocked (recorded), failed (unrecorded, or recorded when the hand-off itself failed)", async () => {
+  const disabled = await handOff(probe(), addJob(), okHandOff, T0, false);
+  assert.deepEqual(disabled, { status: "unavailable", reason: "skipped_disabled", detail: null });
+  assert.deepEqual(await handOff(probe({ isDue: () => false }), addJob({ contact_id: OTHER_CONTACT })), { status: "unavailable", reason: "not_due", detail: null });
+  assert.deepEqual(await handOff(probe({ stillOwed: async () => ({ owed: false, reason: "customer_active" }) }), addJob({ contact_id: OTHER_CONTACT })), { status: "unavailable", reason: "not_owed", detail: "customer_active" });
+  assert.equal(events().length, 0, "nothing recorded for an unavailable touch");
+
+  const once = addJob();
+  await handOff(probe(), once);
+  assert.deepEqual(await handOff(probe(), once), { status: "already_processed" }, "the key is used: never a second claim");
+
+  const late = addJob({ contact_id: OTHER_CONTACT, completed_at: daysAgo(400) });
+  const stale = await handOff(probe({ policy: { stale: { mode: "record_blocked", audit: "audit_fields" } } }), late);
+  assert.deepEqual(stale, { status: "blocked", reason: "followup_overdue" });
+  assert.equal(executionFor(late.id).status, "completed", "a blocked touch is recorded");
+
+  resetForLegacy();
+  control.snapshotFails = true;
+  const unknown = await handOff(probe(), addJob());
+  assert.equal(unknown.status, "failed");
+  assert.equal(unknown.recorded, false);
+  assert.match(String(unknown.error), /^lifecycle_snapshot_failed: /);
+  assert.equal(events().length, 0, "B1 fails closed before the claim");
+  control.snapshotFails = false;
+
+  control.startLoses = true;
+  const refused = await quiet(() => handOff(probe(), addJob()));
+  assert.deepEqual({ status: refused.status, recorded: refused.recorded }, { status: "failed", recorded: false });
+  control.startLoses = false;
+
+  resetForLegacy();
+  const broken = addJob();
+  const dispatchFailed = await handOff(probe(), broken, async () => ({ ok: false, error: "Could not reach the automation orchestrator." }));
+  assert.deepEqual(dispatchFailed, { status: "failed", error: "draft_handoff_failed: Could not reach the automation orchestrator.", recorded: true });
+  const failed = executionFor(broken.id);
+  assert.deepEqual({ status: failed.status, error: failed.error_message }, { status: "failed", error: "draft_handoff_failed: Could not reach the automation orchestrator." });
+  assert.ok(calls.signals.some((signal) => signal.category === "n8n_dispatch_failed"));
+  const thrower = addJob({ contact_id: OTHER_CONTACT });
+  const threw = await handOff(probe(), thrower, async () => {
+    throw new Error("socket hang up");
+  });
+  assert.deepEqual(threw, { status: "failed", error: "draft_handoff_failed: socket hang up", recorded: true });
+  assert.equal(calls.sends, 0);
+});
+
+test("33. resume: the draft returns - B1 again, still owed, claimed verification, the REAL gate, the send, the full record; the kind's compose is never called; the draft is the body", async () => {
+  const claimed = await handedOff();
+  trace.length = 0;
+  const result = await resume(probe(), claimed.job, claimed, DRAFT);
+  assert.deepEqual(result, { status: "sent", messageId: "m" });
+  assert.deepEqual(traced(["snapshot", "stillOwed", "verifyClaimed", "compose", "gateOptions", "send"]), ["snapshot", "stillOwed", "verifyClaimed", "gateOptions", "send"]);
+  const [message] = outbound();
+  assert.equal(message.body, DRAFT.body);
+  assert.equal(message.workflow_execution_id, claimed.executionId);
+  const execution = executionById(claimed.executionId);
+  assert.equal(execution.status, "completed");
+  assert.deepEqual(execution.metadata, { should_send: true, message_id: "m", conversation_id: message.conversation_id, provider_message_id: "SM", job_id: claimed.job.id });
+  assert.equal(store.conversations!.find((c) => c.id === message.conversation_id)!.contact_id, CONTACT, "the recipient is the subject's verified contact");
+  assert.deepEqual(await resume(probe(), claimed.job, claimed, DRAFT), { status: "already_processed" }, "a replayed draft does nothing");
+  assert.equal(calls.sends, 1);
+});
+
+test("34. resume rejects anything that is not a handed-off execution Trackpr owns - unknown, cross-organization, wrong event/workflow/automation/subject, never handed off - with nothing recorded or sent", async () => {
+  const claimed = await handedOff();
+  const other = addJob({ contact_id: OTHER_CONTACT });
+  const reject = async (label: string, run: () => Promise<Row>, reason: string) => {
+    const before = JSON.stringify(store.workflow_executions);
+    assert.deepEqual(await run(), { status: "rejected", reason }, label);
+    assert.equal(JSON.stringify(store.workflow_executions), before, `${label}: nothing recorded`);
+  };
+  await reject("unknown execution", () => resume(probe(), claimed.job, { ...claimed, executionId: "00000000-0000-4000-8000-999999999999" }, DRAFT), "execution_not_found");
+  await reject("organization in the request", () => resume(probe(), claimed.job, claimed, DRAFT, { organizationId: OTHER_ORG }), "organization_mismatch");
+  executionById(claimed.executionId).organization_id = OTHER_ORG;
+  await reject("execution of another organization", () => resume(probe(), claimed.job, claimed, DRAFT), "organization_mismatch");
+  executionById(claimed.executionId).organization_id = ORG;
+  await reject("another event", () => resume(probe(), claimed.job, { ...claimed, eventId: "00000000-0000-4000-8000-999999999998" }, DRAFT), "event_mismatch");
+  await reject("another automation", () => resume(probe(), claimed.job, claimed, DRAFT, { automationId: "lead-reactivation" }), "automation_mismatch");
+  await reject("another subject", () => resume(probe(), other, claimed, DRAFT), "subject_mismatch");
+  executionById(claimed.executionId).workflow_name = "lead_reactivation_followup";
+  await reject("another workflow", () => resume(probe(), claimed.job, claimed, DRAFT), "workflow_mismatch");
+  executionById(claimed.executionId).workflow_name = "customer_reactivation_followup";
+  // A running execution that was never handed off (e.g. A2's retry execution) can never be resumed with a draft.
+  const plain = addJob({ contact_id: OTHER_CONTACT, completed_at: daysAgo(182) });
+  const event = await failedTouch(plain);
+  const retryExecution = await a2StartsRetry(event.id as string);
+  await reject("never handed off", () => resume(probe(), plain, { executionId: retryExecution, eventId: event.id as string }, DRAFT), "not_handed_off");
+  assert.deepEqual(outbound().filter((m) => m.workflow_execution_id === claimed.executionId || m.workflow_execution_id === retryExecution), [], "nothing sent for either");
+});
+
+test("35. resume: a declined or needs-human draft is recorded as blocked; a malformed draft fails the execution - never sent", async () => {
+  const declined = await handedOff();
+  assert.deepEqual(await resume(probe(), declined.job, declined, { body: null, needsHuman: false }), { status: "blocked", reason: "draft_declined" });
+  assert.deepEqual(executionById(declined.executionId).metadata, { should_send: false, blocked_reason: "draft_declined", blocked_detail: null, job_id: declined.job.id });
+  const human = await handedOff(addJob({ contact_id: OTHER_CONTACT }));
+  assert.deepEqual(await resume(probe(), human.job, human, { body: "Sure!", needsHuman: true }), { status: "blocked", reason: "needs_human" });
+  for (const [label, draft] of [["empty", { body: "  ", needsHuman: false }], ["too long", { body: "x".repeat(1601), needsHuman: false }], ["no flag", { body: "Hi" }], ["missing", null]] as const) {
+    resetForLegacy();
+    const bad = await handedOff();
+    const result = await resume(probe(), bad.job, bad, draft);
+    assert.equal(result.status, "failed", label);
+    assert.match(String(result.error), /^draft_invalid: /, label);
+    assert.equal(executionById(bad.executionId).status, "failed", label);
+  }
+  assert.equal(calls.sends, 0);
+});
+
+test("36. resume re-verifies after the draft: B1 failure fails the execution, no longer owed and a blocked claimed verification are recorded blocked, the gate still decides - never sent", async () => {
+  const unknown = await handedOff();
+  control.snapshotFails = true;
+  assert.deepEqual(await resume(probe(), unknown.job, unknown, DRAFT), { status: "failed", error: "lifecycle_snapshot_failed" });
+  assert.match(String(executionById(unknown.executionId).error_message), /^lifecycle_snapshot_failed: /);
+  control.snapshotFails = false;
+
+  const moved = await handedOff(addJob({ contact_id: OTHER_CONTACT }));
+  assert.deepEqual(await resume(probe({ stillOwed: async () => ({ owed: false, reason: "customer_active" }) }), moved.job, moved, DRAFT), { status: "blocked", reason: "customer_active" });
+  resetForLegacy();
+  const verified = await handedOff();
+  assert.deepEqual(await resume(probe({ verifyClaimed: verifiedAs({ verdict: "blocked", reason: "probe_blocked" }) }), verified.job, verified, DRAFT), { status: "blocked", reason: "probe_blocked" });
+  const gated = await handedOff(addJob({ contact_id: OTHER_CONTACT }));
+  store.contacts![1].sms_opt_out = true;
+  assert.deepEqual(await resume(probe(), gated.job, gated, DRAFT), { status: "blocked", reason: "contact_opted_out" });
+  assert.equal(calls.sends, 0);
+});
+
+test("37. the draft can never choose the recipient, authorize the send or steer retry: extra fields are inert - the gate still decides and the subject's contact is the recipient", async () => {
+  const claimed = await handedOff();
+  store.contacts![0].sms_opt_out = true;
+  const smuggled = { ...DRAFT, sendAuthorized: true, gatePassed: true, contactId: OTHER_CONTACT, recipient: "+15550000000", retry: { after: "1m" } };
+  assert.deepEqual(await resume(probe(), claimed.job, claimed, smuggled), { status: "blocked", reason: "contact_opted_out" }, "an 'authorized' draft is still gated");
+  store.contacts![0].sms_opt_out = false;
+  store.conversations = []; // the gated attempt opened one; customer reactivation's still-owed would refuse a contact mid-conversation
+  const second = await handedOff(addJob({ contact_id: CONTACT, completed_at: daysAgo(182) }));
+  assert.deepEqual(await resume(probe(), second.job, second, smuggled), { status: "sent", messageId: "m" });
+  const message = outbound().find((m) => m.workflow_execution_id === second.executionId)!;
+  assert.equal(store.conversations!.find((c) => c.id === message.conversation_id)!.contact_id, CONTACT, "never the draft's contact");
+  // A failed resume is A2's to classify by its own policy - the draft has no say.
+  const failing = await handedOff(addJob({ contact_id: OTHER_CONTACT }));
+  await resume(probe(), failing.job, failing, { ...smuggled, body: "" });
+  assert.equal(executionById(failing.executionId).status, "failed");
+  await classifyFailedExecutions(db as never, T0);
+  assert.equal(executionById(failing.executionId).retry_state, "not_retryable");
+  assert.equal(AUTOMATIC_RETRY_POLICY["customer_reactivation_followup"], undefined);
+});
+
+test("38. concurrent duplicate resumes: one owns the send, the other is already_processed - the execution is never failed, one message, completed", async () => {
+  const claimed = await handedOff();
+  let release: () => void = () => undefined;
+  control.sendHeld = new Promise((resolve) => (release = resolve));
+  const first = resume(probe(), claimed.job, claimed, DRAFT);
+  const second = resume(probe(), claimed.job, claimed, DRAFT);
+  const loser = await Promise.race([first, second]);
+  assert.deepEqual(loser, { status: "already_processed" });
+  assert.equal(executionById(claimed.executionId).status, "running", "the loser never failed the owner's execution");
+  release();
+  const results = await Promise.all([first, second]);
+  assert.deepEqual(results.map((r) => r.status).sort(), ["already_processed", "sent"]);
+  assert.equal(executionById(claimed.executionId).status, "completed");
+  assert.equal(outbound().length, 1);
+  assert.equal(calls.sends, 1);
+});
+
+test("39. the existing kinds' runs never hand off: runDerivedTouch starts executions with {} and composes itself", async () => {
+  const job = addJob();
+  const { starts } = await captureStarts(() => derived(probe(), job));
+  assert.deepEqual(starts.map((s) => s.p_metadata), [{}]);
+  assert.ok(trace.includes("compose"));
 });

@@ -229,7 +229,7 @@ export async function verifyLifecycle(service: SupabaseClient, organizationId: s
   return { failed: false, snapshot: loaded.snapshot, lifecycle: deriveLifecycleStage(loaded.snapshot) };
 }
 
-export type TouchClaim = { status: "claimed"; executionId: string } | { status: "error"; error: string } | { status: "skipped" } | { status: "duplicate" } | { status: "start_failed"; error: string };
+export type TouchClaim = { status: "claimed"; executionId: string; eventId: string } | { status: "error"; error: string } | { status: "skipped" } | { status: "duplicate" } | { status: "start_failed"; error: string };
 
 /**
  * The touch's claim: its idempotency key (the automation event - automation
@@ -242,6 +242,8 @@ export async function claimTouch(
   organizationId: string,
   touch: { entityType: string; entityId: string; payload: Record<string, unknown>; idempotencyKey: string },
   context: ExecutionContext = EVENT_EXECUTION_CONTEXT,
+  /** P0-B B2.8a: the started execution's metadata - only a draft hand-off marks it (DRAFT_HANDOFF_METADATA); every other claim starts with {}. */
+  startMetadata: Record<string, unknown> = {},
 ): Promise<TouchClaim> {
   const eventResult = await createAutomationEventAsService(service, organizationId, {
     eventType: kind.eventType,
@@ -253,9 +255,9 @@ export async function claimTouch(
   if (!eventResult.ok) return { status: "error", error: eventResult.error };
   if (eventResult.skipped) return { status: "skipped" };
   if (eventResult.duplicate) return { status: "duplicate" };
-  const execution = await startWorkflowExecutionAsService(service, eventResult.event.id, kind.workflowName, {}, context.triggerSource);
+  const execution = await startWorkflowExecutionAsService(service, eventResult.event.id, kind.workflowName, startMetadata, context.triggerSource);
   if (!execution.ok) return { status: "start_failed", error: execution.error };
-  return { status: "claimed", executionId: execution.execution.id };
+  return { status: "claimed", executionId: execution.execution.id, eventId: eventResult.event.id };
 }
 
 /**
@@ -335,7 +337,14 @@ export type TouchSend = {
   auditRecord: AuditRecordPolicy;
 };
 
-export type TouchResult = { kind: "sent"; messageId: string } | { kind: "blocked"; reason: OutboundGateDenialReason } | { kind: "failed"; error: string };
+/**
+ * "duplicate_in_progress" (P0-B B2.8a): the outbound unique index refused this
+ * send because another request for the SAME execution already owns it. Not a
+ * failure and nothing is recorded here - the owner records the outcome.
+ * Unreachable for a touch whose execution this run claimed alone; reachable
+ * only when two requests resume one handed-off execution.
+ */
+export type TouchResult = { kind: "sent"; messageId: string } | { kind: "blocked"; reason: OutboundGateDenialReason } | { kind: "failed"; error: string } | { kind: "duplicate_in_progress" };
 
 /** The shared Trackpr-composed executor: outbound gate, then send, recorded on the execution via `ops` (the A2 contract). */
 export async function executeTouch(
@@ -377,6 +386,8 @@ export async function executeTouch(
     workflowExecutionId: executionId,
     sendSmsFn,
   });
+  // The owner of this execution's send records it - never fail the execution from here (P0-B B2.8a, HIGH-1).
+  if (!sent.ok && sent.duplicateInProgress) return { kind: "duplicate_in_progress" };
   if (!sent.ok) {
     // A minimal record never carries the provider's error text - not on the execution, not in the result.
     const error = record.shape === "full" ? sent.error : record.failureMessage;
@@ -574,6 +585,12 @@ function obligationTouchSend(kind: ObligationKind, input: { organizationId: stri
 type Release = (to: FollowupState, fields: Fields) => Promise<FollowupRow | null>;
 
 async function recordTouchResult(kind: ObligationKind, row: FollowupRow, touch: number, executionId: string, result: TouchResult, now: Date, release: Release): Promise<DispatchOutcome> {
+  if (result.kind === "duplicate_in_progress") {
+    // P0-B B2.8a: unreachable here (this run claimed the execution alone). Were it reached, another request owns the
+    // touch's send: the touch is used, exactly like an already-recorded touch - never sent twice.
+    await advance(row, touch, executionId, now, release);
+    return { followupId: row.id, outcome: "blocked", touch, reason: "duplicate_touch" };
+  }
   if (result.kind === "failed") {
     // A2 owns the retry of the failed execution (retryFollowupTouch advances us).
     await release("failed", { last_execution_id: executionId, waiting_on: "none", next_action: "retry" });

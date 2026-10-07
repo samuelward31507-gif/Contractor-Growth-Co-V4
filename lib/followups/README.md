@@ -178,3 +178,50 @@ Invoice reminders are the fourth derived kind (`INVOICE_REMINDER_ADAPTER` in `li
 **Tests:**
 - `lib/automation/invoice-reminders.runtime.test.ts`: the real gate and B1.
 - `lib/automation/invoice-reminders.test.ts`: producer rules, wording, route, and the behavioural single-send-spine check.
+
+### n8n executor foundation (P0-B B2.8a)
+
+**HIGH-1 fix (duplicate n8n callback).**
+- **The bug:** two concurrent deliveries of the same callback both pass the gate. The outbound unique index (`messages.workflow_execution_id`, outbound) admits one send. The loser's `sendOutboundMessage` reported "already has an outbound message in progress", and the callback treated that as `sms_send_failed`. That failed the execution the winner was still sending, and A2 could then retry `lead_created_followup` and send again.
+- **The fix:**
+  - `sendOutboundMessage` now marks that result `duplicateInProgress: true`. It is set only when the index rejects the insert and the owner's row is not yet `sent`.
+  - The callback answers that case as `alreadyProcessed` and never fails the execution. The owner records the outcome, including a genuine provider failure.
+  - `executeTouch` returns `{ kind: "duplicate_in_progress" }` for the same case, records nothing, and never fails.
+- **Unchanged:** the database index is still the guarantee.
+- **Test:** `app/api/automation/n8n-callback/duplicate-callback.test.ts`.
+
+**The draft hand-off contract** (`lib/automation/touch-runtime.ts`). It is unused by every existing kind. It splits the same derived pipeline at the claim.
+
+`claimAndHandOffTouch` handles the claim and hand-off:
+1. Runs steps 1–8: kill switch, payment, due, soft claim, B1, still owed, stale, then the claim (key + B0 start). The execution starts with `DRAFT_HANDOFF_METADATA` (`{ handoff: "n8n_draft" }`).
+2. Calls the kind's hand-off (the n8n dispatch) with identifiers only.
+3. Returns one of five distinct results:
+   - `handed_off`
+   - `already_processed`
+   - `blocked` (recorded)
+   - `unavailable` (nothing recorded)
+   - `failed` (`recorded` says whether the claimed execution was failed; a failed hand-off is `draft_handoff_failed: …`, category `n8n_dispatch_failed`)
+
+`resumeClaimedTouch` handles the returned draft:
+1. **Re-validation:** Trackpr re-reads the execution and its event, and checks the organization, event, workflow, automation, the subject's key and the hand-off marker.
+   - Any mismatch is `rejected`, and nothing is recorded.
+   - A non-running execution is `already_processed`.
+2. **Draft checks:**
+   - a declined draft (null body) is recorded as `blocked` `draft_declined`;
+   - a needs-human draft is recorded as `blocked` `needs_human`;
+   - a malformed draft fails the execution (`draft_invalid: …`).
+3. **The spine:** B1 → still owed → `verifyClaimed` → gate → send → record. This is the same post-claim spine `runDerivedTouch` and `retryDerivedTouch` now share; the draft is the body and the kind's `compose` is not called. A concurrent duplicate resume is `already_processed`.
+
+**The draft is never an authorization.** The runtime's `TouchDraft` is `{ body, needsHuman }`. The n8n wire contract (`lib/automation/n8n.ts` `validateN8nDraftCallback`) is strict and allowlist-only:
+- `execution_id`, `event_id`, `organization_id`, `automation_id`;
+- `draft { body, needs_human, classification, model, usage }`.
+
+Any other field is rejected, never ignored. That includes:
+- recipient or contact
+- send authorization or gate result
+- lifecycle, payment or automation state
+- retry or timing
+
+**Out of this phase:** the new contract carries no authentication change and no HMAC.
+
+**Tests:** `lib/automation/touch-runtime.test.ts` 31–39 and `lib/automation/n8n-draft.test.ts`.
