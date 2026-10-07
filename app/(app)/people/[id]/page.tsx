@@ -268,7 +268,7 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
       <DetailHeader
         eyebrow="Contact"
         backHref="/people"
-        backLabel="Back to Contacts"
+        backLabel="Back to People"
         avatar={
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-inset text-base font-medium text-ink-2 inset-ring inset-ring-line">
             {contactInitials(contact)}

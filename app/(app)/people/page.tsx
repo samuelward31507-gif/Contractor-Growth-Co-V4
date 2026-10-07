@@ -22,6 +22,7 @@ import { TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { PeopleEmptyState } from "./_components/people-empty-state";
 import { PeopleSearch } from "./_components/people-search";
 import { PeopleTable } from "./_components/people-table";
+import { PeopleViews } from "./_components/people-views";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 import { filterPeople, type PeopleView } from "@/lib/people/filter";
 import { AddLeadButton } from "@/app/(app)/leads/_components/add-lead-button";
@@ -210,7 +211,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
         // Trackpr 2.0 (step 2G): the title follows the nav entry that lands
         // here - Leads is everyone with an open lead (Final Batch 3: every
         // temperature, not only hot), Contacts (Members for a gym) is everyone.
-        title={leadsView ? "Leads" : getTerminology(membership.vertical).contactsLabel}
+        title={leadsView ? "Leads" : getTerminology(membership.vertical).peopleLabel}
         description={leadsView ? "Everyone with an open lead - hot, warm and cold." : "Everyone your business is currently working with or has worked with."}
         badge={
           allContacts.length > 0 ? (
@@ -233,6 +234,8 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
           </div>
         }
       />
+
+      <PeopleViews active={leadsView ? "leads" : "all"} everyoneLabel={membership.vertical === "gym" ? "All members" : "Everyone"} />
 
       {leadsView ? (
         <nav aria-label="Lead temperature" className="flex flex-wrap items-center gap-2 text-sm text-ink-3">

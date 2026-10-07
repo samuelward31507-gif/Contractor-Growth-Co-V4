@@ -1,6 +1,8 @@
 import type { OrganizationVertical } from "@/lib/auth/organization";
 
 export type VerticalTerminology = {
+  /** Batch 2: the People destination's name (sidebar, page title) - "People", or the vertical's own word. */
+  peopleLabel: string;
   contactsLabel: string;
   contactSingular: string;
 };
@@ -21,8 +23,9 @@ const TERMINOLOGY: Record<OrganizationVertical, VerticalTerminology> = {
   // hot-lead view of the same list). Nothing outside nav-items.ts reads
   // contactsLabel (verified directly - this dictionary has exactly one
   // consumer), so this is a navigation label change only.
-  contractor: { contactsLabel: "Contacts", contactSingular: "contact" },
-  gym: { contactsLabel: "Members", contactSingular: "member" },
+  // Batch 2: navigation names the destination (People), not the record type.
+  contractor: { peopleLabel: "People", contactsLabel: "Contacts", contactSingular: "contact" },
+  gym: { peopleLabel: "Members", contactsLabel: "Members", contactSingular: "member" },
 };
 
 export function getTerminology(vertical: OrganizationVertical): VerticalTerminology {

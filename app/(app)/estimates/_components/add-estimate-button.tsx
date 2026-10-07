@@ -27,7 +27,15 @@ export function AddEstimateButton({ contacts, leads }: { contacts: Contact[]; le
 
   function close() {
     setOpen(false);
-    if (searchParams.get("new") === "estimate") router.replace(pathname);
+    if (searchParams.get("new") === "estimate") {
+      // Batch 2: this dialog now opens on /money?browse=estimates - drop only
+      // the one-shot params, never the view the visitor is on.
+      const rest = new URLSearchParams(searchParams.toString());
+      rest.delete("new");
+      rest.delete("contactId");
+      const query = rest.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    }
   }
 
   if (contacts.length === 0) {

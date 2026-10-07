@@ -24,7 +24,10 @@ import { JobsEmptyState } from "../jobs/_components/jobs-empty-state";
 import { JobsSummary } from "../jobs/_components/jobs-summary";
 import { JobsTable } from "../jobs/_components/jobs-table";
 import { JobsToolbar } from "../jobs/_components/jobs-toolbar";
-import { MoneyTabs, type MoneyTab } from "./_components/money-tabs";
+import { MoneyTabs, normalizeBrowse, type MoneyTab } from "./_components/money-tabs";
+import { PaymentsTable } from "./_components/payments-table";
+import { ReviewReferralSummaryRow } from "../jobs/_components/review-referral-summary";
+import { getReviewRequestsResult, getReferralRequestsResult, summarizeReviewRequests, summarizeReferralRequests } from "@/lib/reviews-referrals/queries";
 import { getInvoicesResult, getCustomerPaymentsResult } from "@/lib/invoices/queries";
 import { filterInvoices, summarizeInvoiceMoney } from "@/lib/invoices/summary";
 import { calendarDateInTimeZone, INVOICE_STATUSES, type InvoiceStatus } from "@/lib/invoices/domain";
@@ -48,17 +51,12 @@ function totalsLine(entries: MoneyEntry[]): string {
 /** Final redesign: the page eyebrow names the view you are on. */
 const MONEY_EYEBROW: Record<MoneyTab, string> = {
   money: "Money · Overview",
-  invoices: "Money · Invoices",
   estimates: "Money · Estimates",
   jobs: "Money · Jobs",
+  invoices: "Money · Invoices",
+  payments: "Money · Payments",
 };
 
-function normalizeBrowse(value: string | undefined): MoneyTab {
-  if (value === "estimates") return "estimates";
-  if (value === "jobs") return "jobs";
-  if (value === "invoices") return "invoices";
-  return "money";
-}
 
 function normalizeInvoiceStatus(value: string | undefined): InvoiceStatus | "all" | "overdue" {
   if (value === "overdue") return "overdue";
@@ -76,7 +74,7 @@ function normalizeJobStatus(value: string | undefined): JobStatus | "all" {
 /**
  * IA consolidation pass: Money absorbs Work in full - the curated "Money"
  * view (Quotes out / Ready to schedule / Won not finished) is still the
- * default, but "All estimates"/"All jobs" (MoneyTabs) now reuse Work's own
+ * default, but the Estimates/Jobs tabs (MoneyTabs) now reuse Work's own
  * EstimatesTable/JobsTable/toolbars/summaries/Add buttons/empty states
  * verbatim, so nothing Work could do - browsing every estimate or job
  * regardless of status, searching, filtering, creating a new one - is lost
@@ -92,7 +90,7 @@ function normalizeJobStatus(value: string | undefined): JobStatus | "all" {
  */
 export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
   const params = await searchParams;
-  const browse = normalizeBrowse(typeof params.browse === "string" ? params.browse : undefined);
+  const browse = normalizeBrowse(typeof params.browse === "string" ? params.browse : typeof params.view === "string" ? params.view : undefined);
   const query = typeof params.q === "string" ? params.q : "";
   const estimateStatus = normalizeEstimateStatus(typeof params.status === "string" ? params.status : undefined);
   const jobStatus = normalizeJobStatus(typeof params.status === "string" ? params.status : undefined);
@@ -120,10 +118,16 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
     getCustomerPaymentsResult(supabase, membership.organizationId),
     getOrganizationTimezone(supabase, membership.organizationId),
   ]);
+  // Batch 2: the review & referral summary row the standalone Jobs page
+  // carried moves here with it - read only when the Jobs view is open.
+  const [reviewRequestsResult, referralRequestsResult] =
+    browse === "jobs" ? await Promise.all([getReviewRequestsResult(supabase, membership.organizationId), getReferralRequestsResult(supabase, membership.organizationId)]) : [null, null];
   const allEstimates = estimatesResult.data;
   const allJobs = jobsResult.data;
   const allInvoices = invoicesResult.data;
-  const failed = estimatesResult.failed || jobsResult.failed || invoicesResult.failed || paymentsResult.failed;
+  const failed = estimatesResult.failed || jobsResult.failed || invoicesResult.failed || paymentsResult.failed || Boolean(reviewRequestsResult?.failed) || Boolean(referralRequestsResult?.failed);
+  const reviewReferralSummary =
+    reviewRequestsResult && referralRequestsResult ? { ...summarizeReviewRequests(reviewRequestsResult.data), ...summarizeReferralRequests(referralRequestsResult.data) } : null;
   const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
   const invoiceSummary = summarizeInvoiceMoney({ invoices: allInvoices, payments: paymentsResult.data, jobs: allJobs, today });
   const filteredInvoices = filterInvoices(allInvoices, { query, status: invoiceStatus }, today);
@@ -149,7 +153,9 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
               ? "What's out for a decision, what's ready to schedule, what's already won but not finished, and what's been billed and collected."
               : browse === "invoices"
                 ? "Every invoice, with what has been collected against it. Invoices are created from a job."
-                : "Every estimate and job, searchable and filterable."}
+                : browse === "payments"
+                  ? "Every payment recorded against an invoice, newest first. Open one to see its invoice."
+                  : "Every estimate and job, searchable and filterable."}
           </p>
         </div>
         {browse === "jobs" || browse === "estimates" ? (
@@ -222,6 +228,12 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
         </>
       ) : null}
 
+      {browse === "payments" ? (
+        <Panel>
+          <PaymentsTable payments={paymentsResult.data} invoices={allInvoices} timeZone={timeZone} />
+        </Panel>
+      ) : null}
+
       {browse === "estimates" ? (
         <>
           <EstimatesSummary summary={estimateSummary} />
@@ -241,6 +253,7 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
       {browse === "jobs" ? (
         <>
           <JobsSummary summary={jobSummary} />
+          {reviewReferralSummary ? <ReviewReferralSummaryRow summary={reviewReferralSummary} /> : null}
           {allJobs.length === 0 ? (
             <JobsEmptyState contacts={contacts} leads={leads} />
           ) : (

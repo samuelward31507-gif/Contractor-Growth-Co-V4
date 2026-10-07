@@ -47,7 +47,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
         <h1 className="text-lg font-semibold text-ink">Estimate not found</h1>
         <p className="text-sm text-ink-3">This estimate may have been deleted, or the link is incorrect.</p>
-        <Link href="/estimates" className="mt-2 text-sm font-medium text-ink hover:underline">
+        <Link href="/money?browse=estimates" className="mt-2 text-sm font-medium text-ink hover:underline">
           Back to Estimates
         </Link>
       </div>
@@ -83,7 +83,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
       */}
       <DetailHeader
         eyebrow="Estimate"
-        backHref="/estimates"
+        backHref="/money?browse=estimates"
         backLabel="Back to Estimates"
         title={estimate.title}
         subtitle={customerName}

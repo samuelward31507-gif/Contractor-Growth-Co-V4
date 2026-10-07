@@ -1,23 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import {
-  LayoutDashboard,
-  Users,
-  Target,
-  Inbox,
-  CalendarDays,
-  CalendarClock,
-  FileText,
-  Hammer,
-  Wallet,
-  Receipt,
-  TrendingUp,
-  Star,
-  Handshake,
-  BarChart3,
-  Workflow,
-  Settings,
-  Building2,
-} from "lucide-react";
+import { House, Users, Inbox, CalendarDays, Wallet, ChartColumn, Zap, Settings, Building2 } from "lucide-react";
 import type { NavIconName } from "./nav-items";
 
 /**
@@ -28,21 +10,13 @@ import type { NavIconName } from "./nav-items";
  * components.
  */
 export const NAV_ICONS: Record<NavIconName, LucideIcon> = {
-  LayoutDashboard,
+  House,
   Users,
-  Target,
   Inbox,
   CalendarDays,
-  CalendarClock,
-  FileText,
-  Hammer,
   Wallet,
-  Receipt,
-  TrendingUp,
-  Star,
-  Handshake,
-  BarChart3,
-  Workflow,
+  ChartColumn,
+  Zap,
   Settings,
   Building2,
 };

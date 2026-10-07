@@ -43,7 +43,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
         <h1 className="text-lg font-semibold text-ink">Job not found</h1>
         <p className="text-sm text-ink-3">This job may have been deleted, or the link is incorrect.</p>
-        <Link href="/jobs" className="mt-2 text-sm font-medium text-ink hover:underline">
+        <Link href="/money?browse=jobs" className="mt-2 text-sm font-medium text-ink hover:underline">
           Back to Jobs
         </Link>
       </div>
@@ -75,7 +75,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
       */}
       <DetailHeader
         eyebrow="Job"
-        backHref="/jobs"
+        backHref="/money?browse=jobs"
         backLabel="Back to Jobs"
         title={job.title}
         subtitle={customerName}

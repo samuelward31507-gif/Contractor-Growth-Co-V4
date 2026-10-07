@@ -5,6 +5,7 @@ import type { OwnerDailyBriefing } from "@/lib/briefing/queries";
 import type { PipelineStage, TodayFigure } from "./dashboard-model";
 import { cardClass } from "@/lib/ui/surface";
 import { kpiDescriptionClass, kpiLabelClass, kpiValueClass, monoCountClass, primarySectionTitleClass } from "@/lib/ui/typography";
+import { TRACKPR_HREF } from "@/app/(app)/_components/nav-items";
 
 /**
  * Today's sections. Final redesign: Today is composed like an operations
@@ -172,8 +173,9 @@ export function TodayActivity({
     ...briefing.jobsRecentlyCompleted.map((job) => ({ key: `job-${job.id}`, icon: Wrench, text: `${job.contactName ?? job.title} - job completed`, href: job.href, action: "View job" })),
     ...briefing.reviewReferralOpportunities.map((item) => ({ key: `rr-${item.id}`, icon: Star, text: item.kind === "review" ? "A review reply is waiting" : "A referral reply is waiting", href: item.href, action: "View" })),
     // Phase 2-3c: work Trackpr is handling right now - only when there is some.
-    ...(handling ? [{ key: "handling", icon: Workflow, text: handling, href: "/automations", action: "View automations" }] : []),
-    { key: "handled", icon: Workflow, text: handled, href: "/automations", action: "View automations" },
+    // Batch 2: what Trackpr is doing lives under Trackpr, not the technical automation list.
+    ...(handling ? [{ key: "handling", icon: Workflow, text: handling, href: TRACKPR_HREF, action: "Open Trackpr" }] : []),
+    { key: "handled", icon: Workflow, text: handled, href: TRACKPR_HREF, action: "Open Trackpr" },
   ];
 
   return (

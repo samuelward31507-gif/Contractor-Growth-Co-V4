@@ -14,11 +14,13 @@ const { getTerminology }: typeof import("./terminology") = require("./terminolog
 test("contractor terminology uses the Trackpr 2.0 step 2C 'Contacts' nav wording", () => {
   const terminology = getTerminology("contractor");
   assert.equal(terminology.contactsLabel, "Contacts");
+  assert.equal(terminology.peopleLabel, "People");
   assert.equal(terminology.contactSingular, "contact");
 });
 
 test("gym terminology relabels contacts as members", () => {
   const terminology = getTerminology("gym");
   assert.equal(terminology.contactsLabel, "Members");
+  assert.equal(terminology.peopleLabel, "Members");
   assert.equal(terminology.contactSingular, "member");
 });

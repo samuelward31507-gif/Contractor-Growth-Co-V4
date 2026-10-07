@@ -49,7 +49,7 @@ test("nested routes under a new loading boundary have their own skeleton, never 
   for (const file of ["app/(app)/people/[id]/loading.tsx", "app/(app)/settings/sms/loading.tsx"]) assert.ok(exists(file), file);
 });
 
-const NEW_SKELETONS = ["today", "people", "schedule", "growth", "insights", "settings", "people/[id]", "settings/sms"].map((route) => `app/(app)/${route}/loading.tsx`);
+const NEW_SKELETONS = ["today", "people", "schedule", "growth", "insights", "settings", "people/[id]", "settings/sms", "autopilot"].map((route) => `app/(app)/${route}/loading.tsx`);
 
 test("the new skeletons render no data, no text and no data access - only pulse blocks and an accessible loading status", () => {
   for (const file of NEW_SKELETONS) {

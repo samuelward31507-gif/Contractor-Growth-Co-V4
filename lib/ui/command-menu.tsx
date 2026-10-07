@@ -17,6 +17,9 @@
  * /people?new=contact directly - People itself renders AddContactButton
  * (reused as-is from /contacts, per that button's own comment), so this
  * skips the /contacts -> /people redirect hop rather than routing through it.
+ * Batch 2: this palette is the single "find anything" entry point (the
+ * future Ask Trackpr) - still navigation and creation only, no search
+ * backend. "Create estimate" opens Money's Estimates view directly.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
@@ -31,11 +34,11 @@ function buildActions(navGroups: NavGroup[]): CommandAction[] {
   );
 
   return [
-    { id: "search-people", label: "Search contacts", hint: "Open Contacts and filter", href: "/people", icon: Search },
+    { id: "search-people", label: "Search people", hint: "Open People and filter", href: "/people", icon: Search },
     ...navActions,
     { id: "add-contact", label: "Add contact", href: "/people?new=contact", icon: UserPlus },
     { id: "add-lead", label: "Add lead", href: "/people?view=leads&new=lead", icon: Target },
-    { id: "create-estimate", label: "Create estimate", href: "/estimates?new=estimate", icon: FileText },
+    { id: "create-estimate", label: "Create estimate", href: "/money?browse=estimates&new=estimate", icon: FileText },
   ];
 }
 

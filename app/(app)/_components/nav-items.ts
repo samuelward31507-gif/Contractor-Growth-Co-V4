@@ -3,21 +3,13 @@
 // and a LucideIcon component reference can't be serialized across that
 // boundary. NavLink owns the actual name -> component lookup.
 export type NavIconName =
-  | "LayoutDashboard"
+  | "House"
   | "Users"
-  | "Target"
   | "Inbox"
   | "CalendarDays"
-  | "CalendarClock"
-  | "FileText"
-  | "Hammer"
   | "Wallet"
-  | "Receipt"
-  | "TrendingUp"
-  | "Star"
-  | "Handshake"
-  | "BarChart3"
-  | "Workflow"
+  | "ChartColumn"
+  | "Zap"
   | "Settings"
   | "Building2";
 
@@ -29,7 +21,7 @@ export type NavItem = {
   href: string;
   label: string;
   icon: NavIconName;
-  /** Omitted = visible to every vertical. The Money group (Overview, Invoices, Estimates, Jobs) is contractor-specific. */
+  /** Omitted = visible to every vertical. Money (estimates, jobs, invoices, payments) is contractor-specific. */
   verticals?: OrganizationVertical[];
   /** Extra path prefixes that count as "inside" this destination - legacy or detail routes that render under it (e.g. /appointments/[id] under Appointments). */
   activeFor?: string[];
@@ -37,81 +29,63 @@ export type NavItem = {
 
 /**
  * `id` is the stable key (sidebar collapse preferences, React keys); `label`
- * is what renders as the group heading - null for the ungrouped Today
- * entry and the pinned system group (Settings, Agency Command Center).
+ * is what renders as the group heading - null for the pinned system group
+ * (Settings, Agency Command Center).
  */
 export type NavGroup = { id: string; label: string | null; items: NavItem[] };
 
 /**
- * Trackpr 2.0 information architecture (Phase 1 correction): one ungrouped
- * home, then People, Money, Schedule and Insights - the four questions an
- * owner asks (who, how the money stands, when, how it's going) - then More
- * for the less frequent areas, and a pinned system group at the foot of the
- * sidebar. The mobile tab bar is built from these same groups.
+ * Batch 2 (navigation, shell & information architecture): the whole product
+ * in two questions -
  *
- * Several entries are two views of one existing route - the redesign adds
- * navigation, never new pages or backend:
- *   Contacts / Leads        -> /people, /people?view=leads (every open lead, any temperature)
- *   Overview / Invoices     -> /money, /money?browse=invoices (Money's own tabs)
- *   Calendar / Appointments -> /schedule, /schedule?view=list
- *   Opportunities           -> /today?view=by-type#opportunities (Today's third act, every open opportunity by type)
- *   Reviews / Referrals     -> /growth#reviews, /growth#referrals (one page, two sections)
- * Every href is the route the visitor actually lands on: /contacts, /leads,
- * /calendar, /appointments, /opportunities and /analytics all still work as
- * compatibility redirects for old links, but navigation never pays their
- * extra round trip.
+ *   YOU      what needs me?         Today, People, Inbox, Schedule, Money, Insights
+ *   TRACKPR  what is Trackpr doing? Trackpr
+ *
+ * with Settings (and, for a verified agency admin, Agency Command Center)
+ * pinned at the foot. One entry per destination: the old two-views-of-one-
+ * route entries (Contacts/Leads, Calendar/Appointments, Overview/Invoices/
+ * Estimates/Jobs, Analytics/Opportunities, Reviews/Referrals) become views
+ * INSIDE their destination (People's All/Leads, Schedule's own view switch,
+ * Money's tabs), never competing sidebar rows.
+ *
+ * Nothing was removed - each retired destination is re-homed, and its old
+ * URL still works:
+ *   /dashboard, /opportunities                  -> Today
+ *   /contacts, /customers, /leads (and [id])    -> People
+ *   /inbox                                      -> Inbox (/conversations)
+ *   /calendar, /appointments                    -> Schedule
+ *   /work, /estimates, /jobs, /invoices         -> Money (detail pages stay where they are)
+ *   /analytics, /activity                       -> Insights
+ *   /automations, /automation-health, /growth   -> Trackpr (the technical
+ *                                                  automation area and reviews/
+ *                                                  referrals, reached from it)
+ *
+ * The in-app Trackpr destination lives at /autopilot: /trackpr is the public
+ * Cinder product page (app/(cinder)/trackpr), which /how-it-works and
+ * /services already redirect to, so the app cannot take that URL.
+ *
+ * Every href is the route the visitor actually lands on - never a redirect
+ * (see navigation-performance.test.ts).
  */
+export const TRACKPR_HREF = "/autopilot";
+
 export const NAV_GROUPS: NavGroup[] = [
   {
-    id: "home",
-    label: null,
-    items: [{ href: "/today", label: "Today", icon: "LayoutDashboard", activeFor: ["/dashboard"] }],
-  },
-  {
-    id: "people",
-    label: "People",
+    id: "you",
+    label: "You",
     items: [
-      { href: "/people", label: "Contacts", icon: "Users", activeFor: ["/customers", "/contacts"] },
-      { href: "/people?view=leads", label: "Leads", icon: "Target", activeFor: ["/leads"] },
-      // Performance Pass A: points straight at /conversations - the route the
-      // Inbox actually renders - instead of /inbox, a compatibility redirect.
+      { href: "/today", label: "Today", icon: "House", activeFor: ["/dashboard", "/opportunities"] },
+      { href: "/people", label: "People", icon: "Users", activeFor: ["/customers", "/contacts", "/leads"] },
       { href: "/conversations", label: "Inbox", icon: "Inbox", activeFor: ["/inbox"] },
+      { href: "/schedule", label: "Schedule", icon: "CalendarDays", activeFor: ["/calendar", "/appointments"] },
+      { href: "/money", label: "Money", icon: "Wallet", verticals: ["contractor"], activeFor: ["/work", "/estimates", "/jobs", "/invoices"] },
+      { href: "/insights", label: "Insights", icon: "ChartColumn", activeFor: ["/analytics", "/activity"] },
     ],
   },
   {
-    id: "money",
-    label: "Money",
-    items: [
-      { href: "/money", label: "Overview", icon: "Wallet", verticals: ["contractor"], activeFor: ["/work"] },
-      { href: "/money?browse=invoices", label: "Invoices", icon: "Receipt", verticals: ["contractor"], activeFor: ["/invoices"] },
-      { href: "/estimates", label: "Estimates", icon: "FileText", verticals: ["contractor"] },
-      { href: "/jobs", label: "Jobs", icon: "Hammer", verticals: ["contractor"] },
-    ],
-  },
-  {
-    id: "schedule",
-    label: "Schedule",
-    items: [
-      { href: "/schedule", label: "Calendar", icon: "CalendarDays", activeFor: ["/calendar"] },
-      { href: "/schedule?view=list", label: "Appointments", icon: "CalendarClock", activeFor: ["/appointments"] },
-    ],
-  },
-  {
-    id: "insights",
-    label: "Insights",
-    items: [
-      { href: "/insights", label: "Analytics", icon: "BarChart3", activeFor: ["/analytics", "/activity"] },
-      { href: "/today?view=by-type#opportunities", label: "Opportunities", icon: "TrendingUp", activeFor: ["/opportunities"] },
-    ],
-  },
-  {
-    id: "more",
-    label: "More",
-    items: [
-      { href: "/growth#reviews", label: "Reviews", icon: "Star" },
-      { href: "/growth#referrals", label: "Referrals", icon: "Handshake" },
-      { href: "/automations", label: "Automations", icon: "Workflow", activeFor: ["/automation-health"] },
-    ],
+    id: "trackpr",
+    label: "Trackpr",
+    items: [{ href: TRACKPR_HREF, label: "Trackpr", icon: "Zap", activeFor: ["/automations", "/automation-health", "/growth"] }],
   },
   {
     id: "system",
@@ -131,9 +105,10 @@ export const AGENCY_NAV_ITEM: NavItem = { href: "/agency", label: "Agency Comman
 
 /**
  * Filters NAV_GROUPS down to items visible for a given vertical, relabels
- * Contacts via lib/verticals/terminology.ts (gym: "Members"), folds a
+ * People for a vertical with its own word for them (gym: "Members", via
+ * lib/verticals/terminology.ts's peopleLabel), folds a
  * verified agency admin's AGENCY_NAV_ITEM into the system group, and drops
- * any group left empty (a gym has no Money group).
+ * any group left empty.
  */
 export function getNavGroupsForVertical(vertical: OrganizationVertical, showAgencyLink: boolean): NavGroup[] {
   const terminology = getTerminology(vertical);
@@ -141,7 +116,7 @@ export function getNavGroupsForVertical(vertical: OrganizationVertical, showAgen
   return NAV_GROUPS.map((group) => {
     let items = group.items
       .filter((item) => !item.verticals || item.verticals.includes(vertical))
-      .map((item) => (item.href === "/people" ? { ...item, label: terminology.contactsLabel } : item));
+      .map((item) => (item.href === "/people" ? { ...item, label: terminology.peopleLabel } : item));
 
     if (group.id === "system" && showAgencyLink) {
       items = [...items, AGENCY_NAV_ITEM];
@@ -169,12 +144,12 @@ function isWithin(pathname: string, prefix: string) {
 
 /**
  * The one nav item the current URL belongs to, or null. Exactly one item is
- * ever active, even where two entries share a route (Contacts/Leads,
- * Calendar/Appointments, Today/Opportunities, Reviews/Referrals): on the
- * item's own route it qualifies only when every query param it names is
- * present in the URL, and the qualifying item matching the most wins (ties
- * go to the entry listed first) - so /people?view=leads is Leads and
- * plain /people (or /people/123) is Contacts. A fragment counts in favor
+ * ever active. On the item's own route (or below it: /people/123 is People,
+ * /settings/sms is Settings) it qualifies only when every query param it
+ * names is present in the URL, and the qualifying item matching the most
+ * wins (ties go to the entry listed first) - query views INSIDE a
+ * destination (/people?view=leads, /money?browse=invoices) stay on that
+ * destination. A fragment counts in favor
  * when it matches and against when it doesn't, without disqualifying. An
  * `activeFor` prefix (a legacy or detail route) qualifies on the path
  * alone. Pure, so the sidebar, mobile tab bar and breadcrumb can never

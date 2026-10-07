@@ -90,7 +90,7 @@ test("Phase 2-3c: 'Trackpr is handling N automatically' - only when N > 0, from 
   assert.equal(model.handlingLine(1), "Trackpr is handling 1 automatically");
   assert.equal(model.handlingLine(3), "Trackpr is handling 3 automatically");
   assert.match(PAGE, /handling=\{handlingLine\(decisions\.trackprHandling\.length\)\}/, "N is the assembler's own trackprHandling - never a second calculation");
-  assert.match(SECTIONS, /\.\.\.\(handling \? \[\{ key: "handling", icon: Workflow, text: handling, href: "\/automations", action: "View automations" \}\] : \[\]\),\s*\{ key: "handled", icon: Workflow, text: handled, href: "\/automations", action: "View automations" \},/, "the same row pattern, immediately before the existing handled row, which is unchanged");
+  assert.match(SECTIONS, /\.\.\.\(handling \? \[\{ key: "handling", icon: Workflow, text: handling, href: TRACKPR_HREF, action: "Open Trackpr" \}\] : \[\]\),\s*\{ key: "handled", icon: Workflow, text: handled, href: TRACKPR_HREF, action: "Open Trackpr" \},/, "the same row pattern, immediately before the existing handled row, which is unchanged");
 });
 
 test("where the work stands: six current-state stages, each linking to the page and filter that owns it", () => {

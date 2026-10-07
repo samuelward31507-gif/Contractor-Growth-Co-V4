@@ -40,9 +40,9 @@ test("filtering never changes the underlying data", () => {
   assert.deepEqual([...map.entries()], [...temperatures.entries()]);
 });
 
-test("the Leads nav entry, Today's Leads card and the /leads redirect all land on the full Leads view", async () => {
+test("the Leads view switch (Batch 2: inside People, no longer a sidebar entry), Today's Leads card and the /leads redirect all land on the full Leads view", async () => {
   const { readFileSync } = await import("node:fs");
-  assert.match(readFileSync("app/(app)/_components/nav-items.ts", "utf8"), /href: "\/people\?view=leads", label: "Leads"/);
+  assert.match(readFileSync("app/(app)/people/_components/people-views.tsx", "utf8"), /\{ value: "leads", label: "Leads", href: "\/people\?view=leads" \}/);
   assert.match(readFileSync("app/(app)/today/_components/dashboard-model.ts", "utf8"), /label: "Leads", value: values\.openLeads, detail: `\$\{summary\.hot_lead_count\} hot`, href: "\/people\?view=leads"/);
   assert.match(readFileSync("next.config.ts", "utf8"), /source: "\/leads", destination: "\/people\?view=leads"/);
   assert.match(readFileSync("app/(app)/people/page.tsx", "utf8"), /filterPeople\(allContacts, temperatureByContactId, \{ view, temperature \}\)/);
