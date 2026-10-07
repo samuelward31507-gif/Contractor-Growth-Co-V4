@@ -8,7 +8,8 @@ import { filterEstimates, getEstimatesResult, summarizeEstimates, ESTIMATE_STATU
 import { filterJobs, getJobsResult, summarizeJobs, JOB_STATUSES, type JobStatus } from "@/lib/jobs/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { computeMoneySnapshot, type MoneyEntry } from "@/lib/money/snapshot";
-import { pageEyebrowClass, pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
+import { pageTitleClass, pageDescriptionClass, sectionLabelClass } from "@/lib/ui/typography";
+import { Eyebrow } from "@/lib/ui/page-header";
 import { MoneyEntriesTable } from "./_components/money-entries-table";
 import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { Panel } from "@/lib/ui/section-card";
@@ -141,7 +142,7 @@ export default async function MoneyPage({ searchParams }: PageProps<"/money">) {
     <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className={`mb-2 ${pageEyebrowClass}`}>{MONEY_EYEBROW[browse]}</p>
+          <Eyebrow className="mb-2">{MONEY_EYEBROW[browse]}</Eyebrow>
           <h1 className={pageTitleClass}>Money</h1>
           <p className={`mt-1.5 ${pageDescriptionClass}`}>
             {browse === "money"

@@ -2,7 +2,7 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #14151a;
+  --foreground: #0d1512;
 
   /* Trackpr 2.0 redesign (design-tokens pass): the page canvas sits one
      step off pure white - a barely-there neutral - so a white Panel
@@ -21,32 +21,35 @@
      panel lifts off the canvas by contrast alone, never by shadow.
      Final redesign: one clear step darker (warm gray), so white cards
      genuinely lift off the workspace instead of blending into it. */
-  --canvas: #efefec;
+  /* Batch 1 (Cinder design foundation): the website's warm off-white
+     canvas, shared by the product, so Trackpr and the Cinder site read as
+     one family. */
+  --canvas: #f5f3ee;
   /* Card/panel surface - equals --background, given an explicit name for
      contexts (the new typography/status/card primitives) that want to talk
      about "the surface a card sits on" rather than "the page background." */
   --surface: #ffffff;
   /* Muted fill for filled (not bordered) low-emphasis regions: empty
      states, inset wells, neutral badges. */
-  --inset: #f4f3f0;
+  --inset: #efece5;
   /* Interaction fills: --hover for pointer hover on rows/nav items,
      --selected for the current item (active nav, selected tab). Kept
      deliberately close to the canvas - state is shown by a quiet fill plus
      text weight, never by a bright color. */
-  --hover: #f7f6f3;
-  --selected: #efeeea;
+  --hover: #f1eee8;
+  --selected: #ebe7df;
   /* Hairline border/divider (cards, dividers, table rows) and the stronger
      control border (inputs, secondary buttons) - two steps, no more. */
   /* Theme upgrade: hairlines a half-step lighter, so structure reads
      through spacing and the card lift below rather than through borders. */
-  --line: #e5e3de;
-  --line-strong: #d2cfc8;
+  --line: #e3dfd6;
+  --line-strong: #d0cbc0;
   /* Final redesign: the shell's dark plane. The sidebar and the one dark
      focal surface per page (Today's "Needs your attention") share this
      deep pine-ink, so the workspace reads gray workspace -> white surfaces
      -> dark focal surface. */
-  --sidebar: #0f1f1c;
-  --panel-dark: #11231f;
+  --sidebar: #0f1a17;
+  --panel-dark: #12201c;
   /* Text and structure on the dark plane - light text at three steps, a
      faint fill for rows/chips and a faint hairline, never a hard border. */
   --on-dark: #f3f6f4;
@@ -58,6 +61,7 @@
   /* The accent as it reads on the dark plane: a lighter pine, used for the
      active nav icon and links on the dark panel only. */
   --accent-on-dark: #6fd3b8;
+  --focus-on-dark: #e58c63;
   /* Semantic status text as it reads on the dark plane - lighter steps of
      the same warning/danger families, so a status keeps its meaning (and
      4.5:1 contrast) inside the dark attention panel. */
@@ -70,22 +74,42 @@
      near-identical near-blacks by design, not a conflict, just two tokens
      serving two different layers (bare body vs. the new typography
      component scale). */
-  --ink: #141716; /* 16.5:1 on --canvas - headings, primary text */
-  --ink-2: #4c5154; /* 7.5:1 - body copy */
-  --ink-3: #6b7175; /* 4.6:1 - meta/labels, the contrast floor */
+  /* Batch 1: the Cinder ink scale - near-black pine, then two warm grays
+     that still clear 4.5:1 on both the canvas and white. */
+  --ink: #0d1512; /* 17:1 on --canvas - headings, primary text */
+  --ink-2: #3a433f; /* 10.4:1 - body copy */
+  --ink-3: #5f6763; /* 5.4:1 - meta/labels, the contrast floor */
   /* Placeholders and disabled text only - below the body-text contrast
      floor by design, never used for information a user must read. */
-  --ink-4: #9ba0a3;
+  --ink-4: #969b97;
 
   /* Popovers, menus and tooltips are the only surfaces that float, so they
      are the only surfaces with a shadow - soft and short, never a glow. */
-  --shadow-popover: 0 1px 2px rgba(23, 25, 26, 0.06), 0 8px 24px -6px rgba(23, 25, 26, 0.14);
+  --shadow-popover: 0 1px 2px rgba(13, 21, 18, 0.06), 0 8px 24px -6px rgba(13, 21, 18, 0.14);
   /* Theme upgrade: the resting lift for cards and panels, and the 1px
      lift for raised controls (secondary buttons, the selected segment of a
      segmented control). Both are barely there - a premium "paper on desk"
      edge, never a floating card. Only popovers float. */
-  --shadow-card: 0 1px 2px rgba(20, 23, 22, 0.05), 0 2px 6px -2px rgba(20, 23, 22, 0.04);
-  --shadow-control: 0 1px 1px rgba(23, 25, 26, 0.05);
+  /* Batch 1: the website's soft 1px card edge. */
+  --shadow-card: 0 1px 2px rgba(13, 21, 18, 0.04);
+  --shadow-control: 0 1px 1px rgba(13, 21, 18, 0.05);
+
+  /* Batch 1 (Cinder design foundation): the primary action is the
+     website's ink pill - dark ink fill, light text. Pine (--accent below)
+     stays the success/healthy/active color, never the universal CTA. */
+  --primary: #0d1512;
+  --primary-hover: #1c2824;
+  --primary-foreground: #f2f0ea;
+
+  /* Batch 1: ember, the Cinder brand accent - spent sparingly (eyebrow
+     diamonds, focus, small highlights). 4.9:1 on white. Never a primary
+     fill. */
+  --brand: #b14f2b;
+  --brand-strong: #933f20;
+  --brand-soft: #f6e6dc;
+  --brand-on-dark: #e58c63;
+  /* The one focus color: a 2px ember outline on every interactive element. */
+  --focus: #b14f2b;
 
   /* Trackpr 2.0 redesign: the accent moves from a bright emerald to a
      deeper, more restrained pine green - same role as before (the ~10-15%
@@ -185,6 +209,15 @@
   --shadow-popover: var(--shadow-popover);
   --shadow-card: var(--shadow-card);
   --shadow-control: var(--shadow-control);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-on-dark: var(--brand-on-dark);
+  --color-focus: var(--focus);
+  --color-focus-on-dark: var(--focus-on-dark);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-foreground: var(--accent-foreground);
@@ -249,17 +282,53 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* Batch 1: Geist's single-storey a (ss01) and the flat-topped 1 (cv11),
+     app-wide - the same features the Cinder website sets. */
+  font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/*
+ * Batch 1 (Cinder design foundation): one focus treatment everywhere - a
+ * 2px ember outline, offset 2px, on keyboard focus only. Unlayered, so it
+ * beats both the browser default and the utility layer's `outline-none`
+ * (which every focus-ring utility pairs with); the old per-component
+ * colored rings are neutralized below so a control never shows two rings.
+ */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.bg-sidebar :focus-visible,
+.bg-panel-dark :focus-visible {
+  outline-color: var(--focus-on-dark);
+}
+/* Programmatic focus targets (a dialog panel, a skip-link landing spot)
+   are not controls - no ring. */
+[tabindex="-1"]:focus-visible {
+  outline: none;
+}
+*:focus-visible {
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
+}
+/* Text fields keep focus visible for mouse users too (a caret alone is
+   easy to lose) - same ember, quieter as a 1px border plus outline. */
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 0;
 }
 
 /* Theme upgrade: selection in the accent's own muted tint, and quiet,
    thin scrollbars on the shell's scrolling regions (main, sidebar, sheets)
    instead of the heavy platform default. */
 ::selection {
-  background: var(--accent-muted);
-  color: var(--accent-text);
+  background: var(--brand-soft);
+  color: var(--ink);
 }
 
 * {
@@ -312,6 +381,28 @@ body {
     transform-box: fill-box;
     transform-origin: center;
     animation: cinder-spark 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s both;
+  }
+}
+
+/*
+ * Batch 1 (Cinder design foundation): the product's motion vocabulary -
+ * 150-200ms, a subtle rise on page content, nothing that bounces. Opt-in
+ * under no-preference, so reduced motion renders the final state at once.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .ui-rise {
+    animation: ui-rise 0.2s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+}
+
+@keyframes ui-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 

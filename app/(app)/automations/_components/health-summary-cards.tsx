@@ -1,6 +1,7 @@
 import { CheckCircle2, AlertTriangle, AlertOctagon, PauseCircle, CreditCard, type LucideIcon } from "lucide-react";
 import type { OrganizationHealthSummary } from "@/lib/automation-health/types";
 import type { BadgeTone } from "@/lib/ui/badge";
+import { formatCalendarDateTime } from "@/lib/format/datetime";
 
 /**
  * Single source of truth for how an organization/automation health status
@@ -40,9 +41,9 @@ function formatRate(rate: number | null): string {
   return `${Math.round(rate)}%`;
 }
 
-function formatRelative(iso: string | null): string {
+function formatRelative(iso: string | null, timeZone: string | undefined): string {
   if (!iso) return "Never";
-  return new Date(iso).toLocaleString();
+  return formatCalendarDateTime(iso, timeZone);
 }
 
 /**
@@ -59,7 +60,7 @@ function formatRelative(iso: string | null): string {
  * needs-attention count, success rate) either duplicated a number already
  * here or was a cruder version of the real incident-based counts below.
  */
-export function HealthSummaryCards({ health, activeAutomationCount }: { health: OrganizationHealthSummary; activeAutomationCount: number }) {
+export function HealthSummaryCards({ health, activeAutomationCount, timeZone }: { health: OrganizationHealthSummary; activeAutomationCount: number; timeZone?: string }) {
   const statusBadge = HEALTH_STATUS_BADGE[health.status];
   const style = STATUS_STYLE[health.status];
   const StatusIcon = statusBadge.icon;
@@ -96,7 +97,7 @@ export function HealthSummaryCards({ health, activeAutomationCount }: { health: 
         ))}
         <div>
           <p className="text-xs text-ink-3">Last success</p>
-          <p className="mt-0.5 truncate text-sm font-medium text-ink-2">{formatRelative(health.lastSuccessfulActivityAt)}</p>
+          <p className="mt-0.5 truncate text-sm font-medium text-ink-2">{formatRelative(health.lastSuccessfulActivityAt, timeZone)}</p>
         </div>
       </div>
     </div>

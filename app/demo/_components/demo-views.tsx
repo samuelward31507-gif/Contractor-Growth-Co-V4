@@ -3,13 +3,13 @@
 import { useState } from "react";
 import { ArrowRight, Plus, Search, FileText, Workflow, CheckCircle2, Star, TrendingUp } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
-import { PageHeader } from "@/lib/ui/page-header";
+import { Eyebrow, PageHeader } from "@/lib/ui/page-header";
 import { Panel } from "@/lib/ui/section-card";
 import { Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { HeroStatRow } from "@/lib/ui/hero-stat-row";
 import { inputClass, primaryButtonAutoClass } from "@/lib/ui/form";
-import { pageEyebrowClass, pageTitleClass, pageDescriptionClass, sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
+import { pageTitleClass, pageDescriptionClass, sectionLabelClass, primarySectionTitleClass, metaClass } from "@/lib/ui/typography";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 import { StatCard, StatGrid } from "@/lib/ui/stat-card";
 import { cardClass } from "@/lib/ui/surface";
@@ -128,7 +128,7 @@ export function DemoDashboardView() {
   return (
     <div className={PAGE_CLASS}>
       <div>
-        <p className={`mb-2 ${pageEyebrowClass}`}>{DEMO_EYEBROW}</p>
+        <Eyebrow className="mb-2">{DEMO_EYEBROW}</Eyebrow>
         <h1 className={pageTitleClass}>Good morning, {DEMO_BUSINESS_NAME}.</h1>
         <p className={`mt-1.5 ${pageDescriptionClass}`}>Here&rsquo;s what needs your attention today.</p>
       </div>

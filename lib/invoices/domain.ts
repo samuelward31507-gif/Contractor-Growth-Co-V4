@@ -18,6 +18,8 @@
  * never a stored status.
  */
 
+import { formatCurrency } from "../format/money";
+
 export type InvoiceStatus = "draft" | "sent" | "partially_paid" | "paid" | "void";
 
 export const INVOICE_STATUSES: readonly InvoiceStatus[] = ["draft", "sent", "partially_paid", "paid", "void"];
@@ -327,8 +329,7 @@ export function sumCollected(payments: Pick<PaymentRecord, "amount">[]): number 
   return fromCents(payments.reduce((sum, payment) => sum + toCents(payment.amount), 0));
 }
 
-/** Whole dollars when the amount has none, cents otherwise - the Phase 1A quote-page rule. */
+/** Whole dollars when the amount has none, cents otherwise - the Phase 1A quote-page rule (Batch 1: lib/format/money.ts "auto"). */
 export function formatMoney(value: number): string {
-  const hasCents = toCents(value) % 100 !== 0;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: hasCents ? 2 : 0 }).format(value);
+  return formatCurrency(value, { cents: "auto" });
 }

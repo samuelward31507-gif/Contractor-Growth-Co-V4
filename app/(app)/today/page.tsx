@@ -16,7 +16,8 @@ import { getContacts } from "@/lib/contacts/queries";
 import { calendarDateInTimeZone, formatMoney } from "@/lib/invoices/domain";
 import { getAutomationMode, getOrganizationTimezone } from "@/lib/settings/queries";
 import { formatCurrency } from "@/lib/dashboard/format";
-import { pageEyebrowClass, pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
+import { pageTitleClass, pageDescriptionClass } from "@/lib/ui/typography";
+import { Eyebrow } from "@/lib/ui/page-header";
 import { PageContainer } from "@/lib/ui/page";
 import { QueueRow } from "@/lib/ui/queue-row";
 import { AddLeadButton } from "../leads/_components/add-lead-button";
@@ -233,7 +234,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
 
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <p className={`mb-2 ${pageEyebrowClass}`}>{todayEyebrow(briefingNow, timeZone ?? null)}</p>
+          <Eyebrow className="mb-2">{todayEyebrow(briefingNow, timeZone ?? null)}</Eyebrow>
           <h1 className={pageTitleClass}>{greeting}</h1>
           <p className={`mt-1.5 ${pageDescriptionClass}`}>{attentionLine(totalNeedingAttention)}</p>
         </div>

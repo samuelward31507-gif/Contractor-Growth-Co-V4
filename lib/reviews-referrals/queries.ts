@@ -5,7 +5,7 @@ export type ReviewRequestStatus = "not_requested" | "requested" | "responded" | 
 export type ReferralRequestStatus = "not_requested" | "requested" | "responded" | "converted" | "declined" | "failed";
 
 export const REVIEW_REQUEST_STATUSES: { value: ReviewRequestStatus; label: string }[] = [
-  { value: "not_requested", label: "Not requested" },
+  { value: "not_requested", label: "Not Requested" },
   { value: "requested", label: "Requested" },
   { value: "responded", label: "Responded" },
   { value: "completed", label: "Completed" },
@@ -14,7 +14,7 @@ export const REVIEW_REQUEST_STATUSES: { value: ReviewRequestStatus; label: strin
 ];
 
 export const REFERRAL_REQUEST_STATUSES: { value: ReferralRequestStatus; label: string }[] = [
-  { value: "not_requested", label: "Not requested" },
+  { value: "not_requested", label: "Not Requested" },
   { value: "requested", label: "Requested" },
   { value: "responded", label: "Responded" },
   { value: "converted", label: "Converted" },

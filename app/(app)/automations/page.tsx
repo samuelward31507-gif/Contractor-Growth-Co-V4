@@ -15,6 +15,8 @@ import { ScheduledLivenessList } from "./_components/scheduled-liveness-list";
 import { AiAgents, getAiAgentWorkflowNames } from "./_components/ai-agents";
 import { AiActivityFeed } from "./_components/ai-activity-feed";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
+import { formatDateTime } from "@/lib/format/datetime";
 
 /**
  * Trackpr 2.0 Phase 4: the Automation Control Center, consolidating what
@@ -46,7 +48,7 @@ export default async function AutomationsPage() {
     redirect("/onboarding");
   }
 
-  const [statsByName, enabledByAutomationId, orgHealth, automationHealthSummaries, incidents, lastHealthCheck, scheduledLiveness] = await Promise.all([
+  const [statsByName, enabledByAutomationId, orgHealth, automationHealthSummaries, incidents, lastHealthCheck, scheduledLiveness, timeZone] = await Promise.all([
     getWorkflowNameStats(supabase, membership.organizationId),
     getAutomationEnabledMap(supabase, membership.organizationId),
     getOrganizationHealth(supabase, membership.organizationId),
@@ -58,6 +60,8 @@ export default async function AutomationsPage() {
     // Schedule Trigger call this route" is a platform-wide fact, not a
     // per-organization one (see the migration's own comment).
     getScheduledAutomationLiveness(supabase),
+    // Batch 1: display only - dates on this page render in the org timezone.
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
 
   const summaries = buildAutomationSummaries(statsByName, enabledByAutomationId);
@@ -100,10 +104,10 @@ export default async function AutomationsPage() {
       */}
       <div className="flex flex-col gap-3">
         <p className={sectionLabelClass}>Overview</p>
-        <HealthSummaryCards health={orgHealth} activeAutomationCount={activeAutomationCount} />
+        <HealthSummaryCards health={orgHealth} activeAutomationCount={activeAutomationCount} timeZone={timeZone} />
         <p className={metaClass}>
           {lastHealthCheck
-            ? `Activity reflects the last 30 days. Last automated health check: ${new Date(lastHealthCheck.checkedAt).toLocaleString()} (${lastHealthCheck.stuckCount} stuck execution${lastHealthCheck.stuckCount === 1 ? "" : "s"} found).`
+            ? `Activity reflects the last 30 days. Last automated health check: ${formatDateTime(lastHealthCheck.checkedAt, timeZone)} (${lastHealthCheck.stuckCount} stuck execution${lastHealthCheck.stuckCount === 1 ? "" : "s"} found).`
             : "Activity reflects the last 30 days. No automated health check has run yet."}
         </p>
         {healthCheckIsStale ? (

@@ -195,7 +195,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <ServicesSection services={services} canEdit={canEdit} />
             <ServiceAreasSection areas={serviceAreas} canEdit={canEdit} />
             <BookingSettingsSection settings={bookingSettings} canEdit={canEdit} />
-            <CalendarConnectionSection connection={calendarConnection} availableCalendars={availableCalendars} canEdit={canEdit} />
+            <CalendarConnectionSection connection={calendarConnection} availableCalendars={availableCalendars} canEdit={canEdit} timeZone={profile.timezone} />
             <OperationsDetailSection profile={profile} canEdit={canEdit} />
           </SettingsGroup>
 

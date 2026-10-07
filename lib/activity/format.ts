@@ -1,8 +1,9 @@
 import { isSameCalendarDay } from "@/lib/appointments/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { Contact, Users, CalendarClock, MessageSquare, Receipt, Wallet, Activity as ActivityIcon, type LucideIcon } from "lucide-react";
-import { addDaysToCalendarDate, calendarDateInTimeZone, formatInvoiceNumber, formatMoney, labelStatus, PAYMENT_METHODS, type InvoiceStatus } from "@/lib/invoices/domain";
+import { addDaysToCalendarDate, calendarDateInTimeZone, formatInvoiceNumber, formatMoney, PAYMENT_METHODS } from "@/lib/invoices/domain";
 import { safeTimeZone } from "@/lib/bi/date-range";
+import { statusDisplayLabel } from "@/lib/ui/status-vocabulary";
 
 const ENTITY_LABELS: Record<string, string> = {
   contact: "Contact",
@@ -115,7 +116,7 @@ export function describeMetadata(metadata: unknown): string | null {
     const method = asText(meta.method);
     if (method) parts.push(PAYMENT_METHODS.find((item) => item.value === method)?.label ?? humanizeText(method));
     const statusAfter = asText(meta.invoice_status_after);
-    if (statusAfter) parts.push(`now ${labelStatus(statusAfter as InvoiceStatus)}`);
+    if (statusAfter) parts.push(`now ${statusDisplayLabel(statusAfter)}`);
     const dueDate = asText(meta.due_date);
     if (dueDate) parts.push(`due ${dueDate}`);
     const reason = asText(meta.reason);

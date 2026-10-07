@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
-import { pageEyebrowClass, pageTitleClass } from "./typography";
+import { pageTitleClass } from "./typography";
+import { Eyebrow } from "./page-header";
 import { PAGE_MAX_WIDTH_CLASS } from "./page";
 
 /**
@@ -60,7 +61,7 @@ export function DetailHeader({
         <div className="flex items-start gap-4">
           {avatar}
           <div className="min-w-0">
-            <p className={pageEyebrowClass}>{eyebrow}</p>
+            <Eyebrow>{eyebrow}</Eyebrow>
             <h1 className={`mt-1 ${pageTitleClass}`}>{title}</h1>
             {subtitle ? <p className="mt-0.5 text-sm text-ink-3">{subtitle}</p> : null}
             {badges ? <div className="mt-2.5 flex flex-wrap items-center gap-2">{badges}</div> : null}

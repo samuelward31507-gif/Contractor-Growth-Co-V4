@@ -1,4 +1,5 @@
 import type { AppointmentStatus } from "./queries";
+import { STATUS_DOT_TONE_CLASS } from "@/lib/ui/status-vocabulary";
 
 export const STATUS_LABELS: Record<AppointmentStatus, string> = {
   scheduled: "Scheduled",
@@ -12,11 +13,11 @@ export const STATUS_LABELS: Record<AppointmentStatus, string> = {
 // the working states, one accent each for the closed outcomes. Rendered as a
 // small dot next to plain text (see status-badge.tsx), not a filled pill.
 export const STATUS_DOT_CLASS: Record<AppointmentStatus, string> = {
-  scheduled: "bg-slate-400",
-  confirmed: "bg-blue-500",
-  completed: "bg-emerald-500",
-  cancelled: "bg-red-400",
-  no_show: "bg-amber-500",
+  scheduled: STATUS_DOT_TONE_CLASS.neutral,
+  confirmed: STATUS_DOT_TONE_CLASS.progress,
+  completed: STATUS_DOT_TONE_CLASS.success,
+  cancelled: STATUS_DOT_TONE_CLASS.danger,
+  no_show: STATUS_DOT_TONE_CLASS.attention,
 };
 
 /**

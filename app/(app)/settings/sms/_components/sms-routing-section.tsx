@@ -29,7 +29,7 @@ export function SmsRoutingSection({
       title="SMS routing number"
       description="The Trackpr phone number your customers text to reach your business."
       icon={MessageSquare}
-      action={<Badge tone={isConfigured ? "success" : "neutral"}>{isConfigured ? "Configured" : "Not configured"}</Badge>}
+      action={<Badge tone={isConfigured ? "success" : "neutral"}>{isConfigured ? "Configured" : "Not Configured"}</Badge>}
     >
       <div className="space-y-5">
         <div className="rounded-lg border border-line bg-canvas/60 px-3.5 py-2.5">

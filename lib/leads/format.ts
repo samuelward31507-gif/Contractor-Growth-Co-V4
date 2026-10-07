@@ -1,4 +1,5 @@
 import type { LeadStatus, LeadTemperature } from "./queries";
+import { STATUS_DOT_TONE_CLASS } from "@/lib/ui/status-vocabulary";
 
 export const STATUS_LABELS: Record<LeadStatus, string> = {
   new: "New",
@@ -21,17 +22,17 @@ export const TEMPERATURE_LABELS: Record<LeadTemperature, string> = {
 // Rendered as a small dot next to plain text (see badges.tsx) rather than a
 // filled pill - color signals the distinction, it doesn't have to shout it.
 export const STATUS_DOT_CLASS: Record<LeadStatus, string> = {
-  new: "bg-slate-400",
-  contacted: "bg-slate-400",
-  qualified: "bg-slate-400",
-  appointment: "bg-blue-500",
-  estimate: "bg-amber-500",
-  won: "bg-emerald-500",
-  lost: "bg-red-400",
+  new: STATUS_DOT_TONE_CLASS.neutral,
+  contacted: STATUS_DOT_TONE_CLASS.neutral,
+  qualified: STATUS_DOT_TONE_CLASS.neutral,
+  appointment: STATUS_DOT_TONE_CLASS.progress,
+  estimate: STATUS_DOT_TONE_CLASS.attention,
+  won: STATUS_DOT_TONE_CLASS.success,
+  lost: STATUS_DOT_TONE_CLASS.danger,
 };
 
 export const TEMPERATURE_DOT_CLASS: Record<LeadTemperature, string> = {
-  cold: "bg-slate-300",
-  warm: "bg-amber-500",
-  hot: "bg-red-500",
+  cold: STATUS_DOT_TONE_CLASS.muted,
+  warm: STATUS_DOT_TONE_CLASS.attention,
+  hot: STATUS_DOT_TONE_CLASS.danger,
 };
