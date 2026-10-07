@@ -1,11 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
-import { createAutomationEventAsService } from "./events";
-import { startWorkflowExecutionAsService, completeWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
-import { evaluateOutboundGate } from "./outbound-gate";
 import { getAutomationEnabled } from "./settings";
-import { sendOutboundMessage } from "@/lib/messaging/outbound";
-import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
+import { runDerivedTouch, CLAIMED_VERIFICATION_FAILED, type DerivedTouchAdapter, type DerivedTouchSubject } from "./touch-runtime";
 import { describePaymentLink } from "@/lib/payments/payment-link";
 import { getOrganizationConnectStatus } from "@/lib/payments/connect";
 import { resolveAppBaseUrl, type SendSmsInput, type SendSmsResult } from "./sms";
@@ -27,12 +23,17 @@ import { daysOverdue, reminderStageFor, INVOICE_REMINDER_MAX_DAYS_OVERDUE, type 
  * local day (the oldest overdue invoice goes first; the others wait for a
  * later run inside their windows), and never without a usable payment link.
  *
- * The same chokepoints every scheduled automation uses:
- * createAutomationEventAsService (key invoice.reminder:<invoice_id>:<stage>,
- * gated on enabled + automation_paused), a workflow execution, a live
- * re-read of the invoice and payment link, evaluateOutboundGate (with the
- * invoice check) and sendOutboundMessage. A stage that is blocked or fails
- * keeps its key, so it is never retried; the next stage can still run later.
+ * P0-B B2.7: each stage this scan selects runs the shared derived touch
+ * runtime (lib/automation/touch-runtime.ts, INVOICE_REMINDER_ADAPTER): B1
+ * verification of the customer, the claim (key
+ * invoice.reminder:<invoice_id>:<stage> + B0's atomic execution start, gated
+ * on enabled + automation_paused), then - only after the claim - a live
+ * re-read of the invoice and payment link (verifyClaimed), then the outbound
+ * gate (with the invoice check), the send and the minimal execution record.
+ * A stage that is blocked or fails keeps its key, so it is never retried
+ * (invoice reminders have no A2 retry); the next stage can still run later.
+ * The scan, the hours window, the delivery quiet period, the duplicate and
+ * customer-day checks and the outcome names stay here, in the producer.
  * The service-role client is the scheduled path's only client (as for every
  * other scheduled automation); every read is filtered by organization_id
  * and the gate re-verifies organization ownership of the invoice, contact,
@@ -126,67 +127,99 @@ async function paymentUrlFor(service: SupabaseClient, organization: EligibleOrga
   return link.kind === "ready" ? link.url : null;
 }
 
-async function sendStage(service: SupabaseClient, organization: EligibleOrganization, invoice: CandidateInvoice, stage: InvoiceReminderStage, today: string, deps: InvoiceReminderDeps): Promise<InvoiceReminderOutcome> {
-  const base = { organizationId: organization.id, invoiceId: invoice.id, stage };
-  const event = await createAutomationEventAsService(service, organization.id, {
-    eventType: INVOICE_REMINDER_EVENT_TYPE,
-    entityType: "invoice",
-    entityId: invoice.id,
-    idempotencyKey: invoiceReminderIdempotencyKey(invoice.id, stage),
-    // Ids, numbers and dates only - never the message, phone or payment link.
-    payload: { invoice_id: invoice.id, number: invoice.number, contact_id: invoice.contact_id, stage, due_date: invoice.due_date, days_overdue: daysOverdue(today, invoice.due_date) },
-  });
-  if (!event.ok) return { ...base, outcome: "failed", reason: "event_not_recorded" };
-  if (event.skipped) return { ...base, outcome: "skipped_disabled" };
-  if (event.duplicate) return { ...base, outcome: "duplicate" };
+/** The fixed failure text recorded for a failed send - never the provider's error. */
+export const INVOICE_REMINDER_SEND_FAILED_MESSAGE = "The invoice reminder SMS could not be sent.";
+/** The blocked reason recorded when the claimed stage has no usable payment link (outcome no_payment_link). */
+export const PAYMENT_LINK_UNAVAILABLE_REASON = "payment_link_unavailable";
 
-  const execution = await startWorkflowExecutionAsService(service, event.event.id, INVOICE_REMINDER_WORKFLOW);
-  if (!execution.ok) return { ...base, outcome: "failed", reason: "execution_not_started" };
-  const executionId = execution.execution.id;
-  const blocked = async (reason: string, outcome: "blocked" | "no_payment_link" = "blocked"): Promise<InvoiceReminderOutcome> => {
-    await completeWorkflowExecutionAsService(service, executionId, { should_send: false, blocked_reason: reason, invoice_id: invoice.id, stage });
-    return { ...base, outcome, reason };
-  };
+/** One stage of one invoice, as the scan selected it. */
+export type InvoiceReminderItem = { organization: EligibleOrganization; invoice: CandidateInvoice; stage: InvoiceReminderStage; today: string };
+/** The invoice the message is composed from and its payment link - null until the claimed stage is verified live. */
+export type InvoiceReminderFacts = { invoice: CandidateInvoice; paymentUrl: string | null };
 
-  // Live re-read immediately before sending - never the scan's copy.
-  const { data: live } = await service.from("invoices").select("id, number, status, balance_due, due_date, contact_id, payment_token").eq("id", invoice.id).eq("organization_id", organization.id).maybeSingle();
-  const current = live as CandidateInvoice | null;
-  if (!current || !current.contact_id) return blocked("invoice_not_found");
-  const paymentUrl = await paymentUrlFor(service, organization, current);
-  if (!paymentUrl) return blocked("payment_link_unavailable", "no_payment_link");
+const invoiceReminderSubject = ({ organization, invoice }: InvoiceReminderItem): DerivedTouchSubject => ({
+  organizationId: organization.id,
+  contactId: invoice.contact_id,
+  leadId: null,
+  entityType: "invoice",
+  entityId: invoice.id,
+});
 
-  const conversation = await findOrCreateOpenConversation(service, organization.id, current.contact_id, "sms");
-  const body = composeInvoiceReminderMessage({ stage, businessName: organization.name?.trim() || "Your contractor", invoiceNumber: current.number, balanceDue: Number(current.balance_due), dueDate: current.due_date, paymentUrl });
-
-  const gate = await evaluateOutboundGate(service, {
-    organizationId: organization.id,
-    executionId,
-    contactId: current.contact_id,
-    conversationId: conversation?.id ?? null,
-    leadId: null,
-    aiResult: { should_send: true, response_message: body, needs_human: false },
-    invoiceId: current.id,
-    invoiceReminderStage: stage,
-    automationEnabled: await getAutomationEnabled(service, organization.id, INVOICE_REMINDERS_AUTOMATION_ID),
-  });
-  if (!gate.allowed) return blocked(gate.reason);
-
-  const send = await sendOutboundMessage(service, {
-    organizationId: organization.id,
-    contactId: gate.contactId,
-    conversationId: gate.conversationId,
-    channel: "sms",
-    body: gate.body,
+/**
+ * P0-B B2.7: invoice reminders on the shared derived touch runtime. The
+ * stage's facts are only trusted after the claim: verifyClaimed re-reads
+ * the invoice (organization-scoped) and its payment link, and a missing
+ * invoice or link is a recorded block on the claimed stage - never composed,
+ * gated or sent. The record is minimal: ids and the stage only, the fixed
+ * failure message, never the message, conversation, provider ids or the
+ * provider's error.
+ */
+export const INVOICE_REMINDER_ADAPTER: DerivedTouchAdapter<InvoiceReminderItem, InvoiceReminderFacts> = {
+  identity: { automationId: INVOICE_REMINDERS_AUTOMATION_ID, eventType: INVOICE_REMINDER_EVENT_TYPE, workflowName: INVOICE_REMINDER_WORKFLOW },
+  policy: {
+    // The scan already selected live, payment-active, unpaused organizations; the gate re-checks payment.
+    requiresActivePayment: false,
+    // Window-based: a stage is only ever selected inside its own window (no backfill).
+    stale: { mode: "none" },
+    missingSubject: "record_blocked",
+    gateChecksAutomationEnabled: true,
     senderType: "system",
-    workflowExecutionId: executionId,
-    sendSmsFn: deps.sendSmsFn,
-  });
-  if (!send.ok) {
-    await failWorkflowExecutionAsService(service, executionId, "The invoice reminder SMS could not be sent.", "sms_send_failed");
-    return { ...base, outcome: "failed", reason: "sms_send_failed" };
+    auditRecord: { shape: "minimal", failureMessage: INVOICE_REMINDER_SEND_FAILED_MESSAGE },
+  },
+  subject: invoiceReminderSubject,
+  idempotencyKey: ({ invoice, stage }) => invoiceReminderIdempotencyKey(invoice.id, stage),
+  isDue: ({ invoice, stage, today }) => reminderStageFor(daysOverdue(today, invoice.due_date)) === stage,
+  dueAt: ({ invoice, stage }) => ({ anchorMs: new Date(`${invoice.due_date}T00:00:00Z`).getTime(), delayMs: stage * 24 * 60 * 60 * 1000 }),
+  stillOwed: async (_service, { invoice }) => ({ owed: true, facts: { invoice, paymentUrl: null } }),
+  // Ids, numbers and dates only - never the message, phone or payment link.
+  payload: ({ invoice, stage, today }) => ({ invoice_id: invoice.id, number: invoice.number, contact_id: invoice.contact_id, stage, due_date: invoice.due_date, days_overdue: daysOverdue(today, invoice.due_date) }),
+  compose: ({ organization, stage }, { invoice, paymentUrl }) => {
+    if (!paymentUrl) throw new Error("invoice reminder: never composed without a verified payment link");
+    return composeInvoiceReminderMessage({ stage, businessName: organization.name?.trim() || "Your contractor", invoiceNumber: invoice.number, balanceDue: Number(invoice.balance_due), dueDate: invoice.due_date, paymentUrl });
+  },
+  gateOptions: ({ stage }, { invoice }) => ({ invoiceId: invoice.id, invoiceReminderStage: stage }),
+  auditFields: ({ invoice, stage }) => ({ invoice_id: invoice.id, stage }),
+  // Live re-read of the CLAIMED stage - never the scan's copy.
+  verifyClaimed: async (service, { organization, invoice }) => {
+    const { data: live } = await service.from("invoices").select("id, number, status, balance_due, due_date, contact_id, payment_token").eq("id", invoice.id).eq("organization_id", organization.id).maybeSingle();
+    const current = live as CandidateInvoice | null;
+    if (!current || !current.contact_id) return { verdict: "blocked", reason: "invoice_not_found" };
+    const paymentUrl = await paymentUrlFor(service, organization, current);
+    if (!paymentUrl) return { verdict: "blocked", reason: PAYMENT_LINK_UNAVAILABLE_REASON };
+    return { verdict: "verified", facts: { invoice: current, paymentUrl }, contactId: current.contact_id, leadId: null };
+  },
+};
+
+/** Which of the old failure reasons a failed touch maps to: the send, the claimed verification, or the claim (event vs execution start). */
+async function failureReason(service: SupabaseClient, item: InvoiceReminderItem, error: string): Promise<string> {
+  if (error === INVOICE_REMINDER_SEND_FAILED_MESSAGE) return "sms_send_failed";
+  if (error.startsWith(CLAIMED_VERIFICATION_FAILED)) return CLAIMED_VERIFICATION_FAILED;
+  const { data: event } = await service.from("automation_events").select("id").eq("organization_id", item.organization.id).eq("idempotency_key", invoiceReminderIdempotencyKey(item.invoice.id, item.stage)).maybeSingle();
+  return event ? "execution_not_started" : "event_not_recorded";
+}
+
+async function sendStage(service: SupabaseClient, organization: EligibleOrganization, invoice: CandidateInvoice, stage: InvoiceReminderStage, today: string, now: Date, isEnabled: (organizationId: string) => Promise<boolean>, deps: InvoiceReminderDeps): Promise<InvoiceReminderOutcome> {
+  const base = { organizationId: organization.id, invoiceId: invoice.id, stage };
+  const item: InvoiceReminderItem = { organization, invoice, stage, today };
+  const result = await runDerivedTouch(service, INVOICE_REMINDER_ADAPTER, item, now, { isEnabled, sendSmsFn: deps.sendSmsFn });
+  switch (result.status) {
+    case "sent":
+      return { ...base, outcome: "sent" };
+    case "blocked":
+      return result.reason === PAYMENT_LINK_UNAVAILABLE_REASON ? { ...base, outcome: "no_payment_link", reason: result.reason } : { ...base, outcome: "blocked", reason: result.reason };
+    case "failed":
+      return { ...base, outcome: "failed", reason: await failureReason(service, item, result.error) };
+    case "lifecycle_failed":
+      // B1 fails closed: nothing recorded, the stage stays eligible for a later run.
+      return { ...base, outcome: "failed", reason: "lifecycle_snapshot_failed" };
+    case "skipped_duplicate":
+      return { ...base, outcome: "duplicate" };
+    case "skipped_disabled":
+      return { ...base, outcome: "skipped_disabled" };
+    default:
+      // Unreachable under this kind's policy (no payment check, always due and owed, record_blocked missing subject); never a success.
+      return { ...base, outcome: "failed", reason: `unexpected_touch_status:${result.status}` };
   }
-  await completeWorkflowExecutionAsService(service, executionId, { should_send: true, sent: true, invoice_id: current.id, stage });
-  return { ...base, outcome: "sent" };
 }
 
 async function processOrganization(service: SupabaseClient, organization: EligibleOrganization, now: Date, deps: InvoiceReminderDeps): Promise<{ candidates: number; outcomes: InvoiceReminderOutcome[] }> {
@@ -241,6 +274,10 @@ async function processOrganization(service: SupabaseClient, organization: Eligib
   // Any reminder attempt today (sent, blocked or failed) uses up that customer's day - conservative by design.
   const contactsDone = new Set(remindedToday.rows.map((row) => row.payload?.contact_id).filter((id): id is string => Boolean(id)));
 
+  // The automation's enabled state, read at most once per organization per run (the runtime's kill switch).
+  let enabled: Promise<boolean> | null = null;
+  const isEnabled = (organizationId: string) => (enabled ??= getAutomationEnabled(service, organizationId, INVOICE_REMINDERS_AUTOMATION_ID));
+
   const outcomes: InvoiceReminderOutcome[] = [];
   // Oldest overdue first (then id) - deterministic choice when one customer has several.
   for (const invoice of candidates) {
@@ -264,7 +301,7 @@ async function processOrganization(service: SupabaseClient, organization: Eligib
       continue;
     }
     contactsDone.add(invoice.contact_id!);
-    outcomes.push(await sendStage(service, organization, invoice, stage, today, deps));
+    outcomes.push(await sendStage(service, organization, invoice, stage, today, now, isEnabled, deps));
   }
   return { candidates: candidates.length, outcomes };
 }

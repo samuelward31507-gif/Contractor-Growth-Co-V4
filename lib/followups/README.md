@@ -139,3 +139,42 @@ B1 and the still-owed check still run before the claim.
 - **Full** is every existing kind's record, unchanged, and A4 uses `FULL_AUDIT_RECORD`.
 - **Validation:** the policy is checked before anything is claimed. A missing policy, an unknown shape, or `minimal` without a message fails the run; there is no fallback shape.
 - **`sent`** joins `RUNTIME_OUTCOME_FIELDS`, so a kind's audit fields can't forge it.
+
+### Invoice reminders (P0-B B2.7)
+
+Invoice reminders are the fourth derived kind (`INVOICE_REMINDER_ADAPTER` in `lib/automation/invoice-reminders.ts`), and the first to use B2.7a's claimed verification and the minimal record.
+
+**The producer keeps every invoice-specific rule:**
+- **Organizations:** opted in only (off by default), live, payment active, not paused.
+- **Send window:** 09:00–18:00 in the organization's timezone, UTC when it has none.
+- **Candidates:** `sent` / `partially_paid`, 1–20 days overdue, contact required, positive balance, oldest due date first.
+- **Stages:** 1 / 7 / 14 (1–6, 7–13 and 14–20 days overdue). No backfill.
+- **Delivery:** a `invoice.delivered` is required, and the 48-hour quiet period after the latest one applies.
+- **Duplicates:** the stage key is checked *before* the customer-day rule.
+- **One reminder per customer per local day:** any `invoice.reminder` event today counts, whatever its outcome. The customer is marked before the stage runs.
+- **Outcome names**, unchanged.
+
+**The runtime runs the claimed stage:**
+1. Kill switch, then soft claim.
+2. B1 on the invoice's customer:
+   - unknown → nothing recorded, the stage stays eligible;
+   - another organization's or no contact → recorded blocked `contact_not_found`, with no conversation.
+3. Claim: `invoice.reminder:<invoice_id>:<stage>` + B0.
+4. **verifyClaimed**:
+   - the invoice is re-read, organization-scoped;
+   - missing, or no contact → blocked `invoice_not_found`;
+   - no usable payment link → blocked `payment_link_unavailable` (outcome `no_payment_link`);
+   - otherwise the refreshed invoice, contact and link are what compose, the conversation and the gate use.
+5. The outbound gate, with the invoice check and the automation's enabled state.
+6. Send (sender `system`).
+7. A **minimal** record:
+   - `{ should_send, blocked_reason }` or `{ should_send: true, sent: true }`, plus `{ invoice_id, stage }`;
+   - a failed send records only "The invoice reminder SMS could not be sent." (category `sms_send_failed`).
+
+**Consumed keys:** every post-claim block completes the execution and keeps the key, so a later run sees a duplicate.
+
+**No A2 retry:** invoice reminders are in neither `SAFE_RETRY_AUTOMATION_IDS` nor `AUTOMATIC_RETRY_POLICY`. A retry is `not_safely_retryable`.
+
+**Tests:**
+- `lib/automation/invoice-reminders.runtime.test.ts`: the real gate and B1.
+- `lib/automation/invoice-reminders.test.ts`: producer rules, wording, route, and the behavioural single-send-spine check.

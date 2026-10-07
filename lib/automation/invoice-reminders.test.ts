@@ -25,11 +25,17 @@ const lib = (relative: string) => pathToFileURL(path.join(process.cwd(), relativ
 
 type GateCall = { organizationId: string; contactId: string; conversationId: string | null; invoiceId?: string; invoiceReminderStage?: number; aiResult: { response_message: string } };
 const gateCalls: GateCall[] = [];
+// The order the shared spine's steps happen in: gate -> send, each on its execution.
+const spine: string[] = [];
 let gateDeny: string | null = null;
+// P0-B B2.7: the shared runtime imports the gate module's other exports too - keep them real; only the decision is mocked here.
+const realOutboundGate = await import(lib("lib/automation/outbound-gate.ts"));
 mock.module(lib("lib/automation/outbound-gate.ts"), {
   namedExports: {
-    evaluateOutboundGate: async (_s: unknown, input: GateCall) => {
+    ...realOutboundGate,
+    evaluateOutboundGate: async (_s: unknown, input: GateCall & { executionId: string }) => {
       gateCalls.push(input);
+      spine.push(`gate:${input.executionId}`);
       return gateDeny ? { allowed: false, reason: gateDeny } : { allowed: true, contactId: input.contactId, conversationId: input.conversationId, body: input.aiResult.response_message };
     },
   },
@@ -40,7 +46,7 @@ const sendCalls: SendCall[] = [];
 let sendOk = true;
 mock.module(lib("lib/messaging/outbound.ts"), {
   namedExports: {
-    sendOutboundMessage: async (_s: unknown, input: SendCall) => (sendCalls.push(input), sendOk ? { ok: true, messageId: `msg-${sendCalls.length}`, conversationId: "conv-1", providerMessageId: "SM" } : { ok: false, error: "provider said no", messageId: null, conversationId: null }),
+    sendOutboundMessage: async (_s: unknown, input: SendCall) => (sendCalls.push(input), spine.push(`send:${input.workflowExecutionId}`), sendOk ? { ok: true, messageId: `msg-${sendCalls.length}`, conversationId: "conv-1", providerMessageId: "SM" } : { ok: false, error: "provider said no", messageId: null, conversationId: null }),
   },
 });
 
@@ -68,6 +74,8 @@ function baseTables(): Tables {
     ],
     invoices: [],
     automation_events: [],
+    // P0-B B2.7: the B1 lifecycle snapshot loads the invoice's customer - each fixture contact is org-1's.
+    contacts: ["contact-1", "c1", "c2", "c3", "c4", "c5"].map((id) => ({ id, organization_id: "org-1", sms_opt_out: false })),
   };
 }
 
@@ -137,6 +145,7 @@ const outcomes = (r: Awaited<ReturnType<typeof run>>) => r.outcomes.map((o) => `
 beforeEach(() => {
   gateCalls.length = 0;
   sendCalls.length = 0;
+  spine.length = 0;
   gateDeny = null;
   sendOk = true;
 });
@@ -322,13 +331,27 @@ test("zero-balance or contactless invoices are never candidates", async () => {
 // Structure and route
 // ---------------------------------------------------------------------------
 
-test("structure: sends only through evaluateOutboundGate + sendOutboundMessage - no raw SMS sender, Twilio or n8n", () => {
-  const source = fs.readFileSync(path.join(process.cwd(), "lib/automation/invoice-reminders.ts"), "utf8");
-  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-  assert.match(code, /evaluateOutboundGate\(service, \{/);
-  assert.match(code, /sendOutboundMessage\(service, \{/);
-  assert.match(code, /invoiceId: current\.id,\s*invoiceReminderStage: stage,/);
-  assert.doesNotMatch(code, /sendSms\(|twilio|triggerN8n/i);
+test("single send spine (behavioural, P0-B B2.7): every send is the gate's allowed body on the stage's own B0 execution, after the gate; a denial sends nothing; no raw SMS sender, Twilio or n8n", async () => {
+  const t = baseTables();
+  t.invoices = [invoice("inv-1", 3, { contact_id: "c1" }), invoice("inv-2", 8, { contact_id: "c2" })];
+  t.automation_events = [delivered("inv-1", 100), delivered("inv-2", 100)];
+  const { supabase, rpcCalls } = fakeService(t);
+  await processInvoiceReminders(supabase, NOW, { log: () => {} });
+  // Each stage: its event, then B0's start on that event, then gate -> send on the started execution - nothing else sends.
+  const starts = rpcCalls.filter((c) => c.name === "start_workflow_execution");
+  assert.deepEqual(starts.map((c) => c.args.p_workflow_name), [INVOICE_REMINDER_WORKFLOW, INVOICE_REMINDER_WORKFLOW]);
+  assert.deepEqual(spine, ["gate:exec-1", "send:exec-1", "gate:exec-2", "send:exec-2"]);
+  assert.deepEqual(sendCalls.map((s) => s.body), gateCalls.map((g) => g.aiResult.response_message), "exactly the body the gate allowed");
+  // A denial: the gate ran on the claimed execution, nothing was sent.
+  spine.length = 0;
+  gateDeny = "contact_opted_out";
+  const u = baseTables();
+  u.invoices = [invoice("inv-3", 3)];
+  u.automation_events = [delivered("inv-3", 100)];
+  await run(u);
+  assert.deepEqual(spine, [`gate:exec-1`]);
+  const source = fs.readFileSync(path.join(process.cwd(), "lib/automation/invoice-reminders.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  assert.doesNotMatch(source, /sendSms\(|twilio|triggerN8n/i);
 });
 
 test("route: CRON_SECRET fails closed (401), authorizes before the service client, records liveness as 'invoice-reminders'", async () => {
