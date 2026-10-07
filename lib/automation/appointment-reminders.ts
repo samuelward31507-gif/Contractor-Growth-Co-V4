@@ -8,7 +8,7 @@ import {
   type AppointmentReminderConfig,
 } from "./settings";
 import { SESSION_EXECUTION_OPS, type ExecutionOps } from "./executions";
-import { runDerivedTouch, retryDerivedTouch, type DerivedTouchAdapter } from "./touch-runtime";
+import { runDerivedTouch, retryDerivedTouch, unchangedAfterClaim, type DerivedTouchAdapter, type DerivedTouchSubject } from "./touch-runtime";
 import type { ExecutionContext } from "@/lib/followups/engine";
 import { getBusinessProfile } from "@/lib/settings/queries";
 import { formatAppointmentDate, formatAppointmentTimeRange } from "@/lib/appointments/format";
@@ -184,6 +184,8 @@ export type ReminderRunTriggerSource = ExecutionContext["triggerSource"];
 /** One appointment reminder. `config` is null only on an A2 retry, which never re-evaluates the reminder window. */
 type ReminderItem = { appointment: CandidateAppointment; config: AppointmentReminderConfig | null };
 
+const reminderSubject = ({ appointment }: ReminderItem): DerivedTouchSubject => ({ organizationId: appointment.organization_id, contactId: appointment.contact_id, leadId: appointment.lead_id, entityType: "appointment", entityId: appointment.id });
+
 /**
  * P0-B B2.6: appointment reminders' kind adapter for the shared touch
  * runtime (lib/automation/touch-runtime.ts). Every value is this
@@ -203,8 +205,8 @@ type ReminderItem = { appointment: CandidateAppointment; config: AppointmentRemi
  */
 export const APPOINTMENT_REMINDER_ADAPTER: DerivedTouchAdapter<ReminderItem, { timezone: string }> = {
   identity: { automationId: "appointment-reminders", eventType: "appointment.reminder", workflowName: APPOINTMENT_REMINDER_WORKFLOW },
-  policy: { requiresActivePayment: false, stale: { mode: "none" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai" },
-  subject: ({ appointment }) => ({ organizationId: appointment.organization_id, contactId: appointment.contact_id, leadId: appointment.lead_id, entityType: "appointment", entityId: appointment.id }),
+  policy: { requiresActivePayment: false, stale: { mode: "none" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai", auditRecord: { shape: "full" } },
+  subject: reminderSubject,
   idempotencyKey: ({ appointment }) => `appointment.reminder:${appointment.id}:${appointment.start_at}`,
   isDue: ({ appointment, config }, now) => config !== null && isReminderDue(appointment, config, now),
   dueAt: ({ appointment, config }) => {
@@ -220,6 +222,8 @@ export const APPOINTMENT_REMINDER_ADAPTER: DerivedTouchAdapter<ReminderItem, { t
   compose: ({ appointment }, { timezone }) => composeReminderBody(appointment, timezone),
   gateOptions: ({ appointment }) => ({ appointmentId: appointment.id, appointmentEligibleStatuses: ELIGIBLE_STATUSES }),
   auditFields: ({ appointment }) => ({ appointment_id: appointment.id }),
+  // Nothing to re-check after the claim (B2.7a): the pre-claim facts, contact and lead stand.
+  verifyClaimed: unchangedAfterClaim(reminderSubject),
 };
 
 async function processOneReminder(

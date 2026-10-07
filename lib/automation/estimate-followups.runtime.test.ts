@@ -486,8 +486,8 @@ test("11. preview stays read-only: no claim, no execution, no send, no estimate 
 });
 
 test("12. the adapter: estimate policy as data + pure functions, matching the catalog; legacy key; no payment, BH or enabled-at-gate rule", () => {
-  assert.deepEqual(Object.keys(ESTIMATE_FOLLOWUP_ADAPTER).sort(), ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject"]);
-  assert.deepEqual(ESTIMATE_FOLLOWUP_ADAPTER.policy, { requiresActivePayment: false, stale: { mode: "record_blocked", audit: "audit_fields" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai" });
+  assert.deepEqual(Object.keys(ESTIMATE_FOLLOWUP_ADAPTER).sort(), ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject", "verifyClaimed"]);
+  assert.deepEqual(ESTIMATE_FOLLOWUP_ADAPTER.policy, { requiresActivePayment: false, stale: { mode: "record_blocked", audit: "audit_fields" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai", auditRecord: { shape: "full" } });
   const entry = AUTOMATION_CATALOG.find((a: Row) => a.id === ESTIMATE_FOLLOWUP_ADAPTER.identity.automationId);
   assert.ok((entry.eventTypes as string[]).includes(ESTIMATE_FOLLOWUP_ADAPTER.identity.eventType));
   assert.ok((entry.workflowNames as string[]).includes(ESTIMATE_FOLLOWUP_ADAPTER.identity.workflowName));

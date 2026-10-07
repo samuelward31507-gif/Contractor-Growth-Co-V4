@@ -1,12 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   auditFieldViolation,
+  auditRecordViolation,
+  blockedOutcome,
   claimTouch,
   executeTouch,
   recordBlockedTouch,
   verifyLifecycle,
   EVENT_EXECUTION_CONTEXT,
   type AuditFields,
+  type AuditRecordPolicy,
   type BlockedRecord,
   type ExecutionContext,
   type KindGateOptions,
@@ -35,11 +38,17 @@ import type { SendSmsInput, SendSmsResult } from "./sms";
  *   7. stale policy                 - more than 48h late: recorded, never sent
  *   8. claim                        - idempotency key + B0 atomic execution start,
  *                                     under the run's trigger source
- *   9. compose -> gate -> send -> record (the shared executor in
- *      lib/followups/engine.ts, the same one A4's persisted dispatcher uses)
+ *   9. claimed verification         - the kind's live re-check of the CLAIMED
+ *      touch (B2.7a): blocked -> recorded as a blocked execution (the event
+ *      and execution stand, the key stays used); unknown -> the execution
+ *      fails, nothing is sent; verified -> its facts, contact and lead are
+ *      what the rest of the pipeline uses
+ *  10. compose -> gate -> send -> record (the shared executor in
+ *      lib/followups/engine.ts, the same one A4's persisted dispatcher uses),
+ *      recorded under the kind's audit-record policy
  *
- * A2 retries of a derived touch (retryDerivedTouch) run steps 5, 6 and 9 on
- * the execution A2 already started.
+ * A2 retries of a derived touch (retryDerivedTouch) run steps 5, 6, 9 and 10
+ * on the execution A2 already started.
  *
  * Everything kind-specific arrives through DerivedTouchAdapter: pure
  * functions of the work item and policy VALUES. The runtime never branches
@@ -83,10 +92,24 @@ export type DerivedTouchPolicy = {
   requiresActivePayment: boolean;
   stale: StalePolicy;
   missingSubject: MissingSubjectPolicy;
-  /** Step 9: whether the gate itself re-checks the automation's enabled state. */
+  /** Step 10: whether the gate itself re-checks the automation's enabled state. */
   gateChecksAutomationEnabled: boolean;
   senderType: "ai" | "system";
+  /** How much every execution record of this kind may hold (engine.ts AuditRecordPolicy). */
+  auditRecord: AuditRecordPolicy;
 };
+
+/**
+ * Step 9's answer. "verified": the claimed touch still stands; `facts`,
+ * `contactId` and `leadId` replace the pre-claim ones downstream. "blocked":
+ * it must not be sent and is recorded as a blocked execution with `reason`
+ * (and the kind's audit fields, or `auditFields` when given). "unknown": the
+ * check could not establish the truth - the execution fails, nothing is sent.
+ */
+export type ClaimedVerification<Facts> =
+  | { verdict: "verified"; facts: Facts; contactId: string | null; leadId: string | null }
+  | { verdict: "blocked"; reason: string; auditFields?: AuditFields }
+  | { verdict: "unknown"; error: string };
 
 export type DerivedTouchAdapter<Item, Facts> = {
   identity: TouchIdentity;
@@ -106,7 +129,30 @@ export type DerivedTouchAdapter<Item, Facts> = {
   gateOptions: (item: Item, facts: Facts) => KindGateOptions;
   /** The ids recorded on every execution of this touch (flat scalars; never a runtime outcome field). */
   auditFields: (item: Item) => AuditFields;
+  /** Step 9: the kind's live re-check of the already-claimed touch. It never sends and never authorizes - the gate still decides. */
+  verifyClaimed: (service: SupabaseClient, item: Item, facts: Facts) => Promise<ClaimedVerification<Facts>>;
 };
+
+/** The verifyClaimed of a kind with nothing to re-check after the claim: the pre-claim facts and the subject's contact and lead stand. */
+export function unchangedAfterClaim<Item, Facts>(subject: (item: Item) => DerivedTouchSubject): DerivedTouchAdapter<Item, Facts>["verifyClaimed"] {
+  return async (_service, item, facts) => {
+    const { contactId, leadId } = subject(item);
+    return { verdict: "verified", facts, contactId, leadId };
+  };
+}
+
+/** Step 9, with a thrown check treated as unknown (fail closed), never as verified. */
+async function verifyClaimedTouch<Item, Facts>(service: SupabaseClient, adapter: DerivedTouchAdapter<Item, Facts>, item: Item, facts: Facts): Promise<ClaimedVerification<Facts>> {
+  try {
+    const verification = await adapter.verifyClaimed(service, item, facts);
+    if (verification.verdict === "verified" || verification.verdict === "blocked" || verification.verdict === "unknown") return verification;
+    return { verdict: "unknown", error: "claimed_verification_unrecognised" };
+  } catch (error) {
+    return { verdict: "unknown", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export const CLAIMED_VERIFICATION_FAILED = "claimed_verification_failed";
 
 export type DerivedTouchResult =
   | { status: "skipped_disabled" }
@@ -169,6 +215,9 @@ export async function runDerivedTouch<Item, Facts>(service: SupabaseClient, adap
   const auditFields = adapter.auditFields(item);
   const violation = auditFieldViolation(auditFields);
   if (violation) return { status: "failed", error: `audit_field_rejected:${violation}` };
+  const record = adapter.policy.auditRecord;
+  const policyViolation = auditRecordViolation(record);
+  if (policyViolation) return { status: "failed", error: policyViolation };
 
   // Soft claim - an optimization only; the race-proof guarantee is the key's unique index at step 8.
   const idempotencyKey = adapter.idempotencyKey(item);
@@ -181,7 +230,7 @@ export async function runDerivedTouch<Item, Facts>(service: SupabaseClient, adap
   if (resolution.kind === "unknown") return { status: "lifecycle_failed", error: resolution.error };
   if (resolution.kind === "missing") {
     if (adapter.policy.missingSubject === "skip") return { status: "subject_missing" };
-    return blockedResult(await recordBlockedTouch(service, adapter.identity, organizationId, touch(adapter.payload(item, null)), context, { reason: SUBJECT_MISSING_REASON, detail: null }, auditFields));
+    return blockedResult(await recordBlockedTouch(service, adapter.identity, organizationId, touch(adapter.payload(item, null)), context, { reason: SUBJECT_MISSING_REASON, detail: null }, auditFields, record));
   }
 
   const owed = await adapter.stillOwed(service, item, resolution.lifecycle);
@@ -195,7 +244,7 @@ export async function runDerivedTouch<Item, Facts>(service: SupabaseClient, adap
     const lateHours = hoursPastDue(now.getTime(), anchorMs, delayMs);
     if (isTouchOverdue(lateHours)) {
       const fields = stale.audit === "payload" ? payload : auditFields;
-      return blockedResult(await recordBlockedTouch(service, adapter.identity, organizationId, touch(payload), context, { reason: "followup_overdue", detail: `${Math.floor(lateHours)} hours past due` }, fields));
+      return blockedResult(await recordBlockedTouch(service, adapter.identity, organizationId, touch(payload), context, { reason: "followup_overdue", detail: `${Math.floor(lateHours)} hours past due` }, fields, record));
     }
   }
 
@@ -204,17 +253,37 @@ export async function runDerivedTouch<Item, Facts>(service: SupabaseClient, adap
   if (recorded.status === "duplicate") return { status: "skipped_duplicate" };
   if (recorded.status === "skipped") return { status: "skipped_disabled" };
 
+  // Step 9: only now - the touch is claimed, its key used, its execution started.
+  const claimed = await verifyClaimedTouch(service, adapter, item, facts);
+  if (claimed.verdict === "unknown") {
+    const error = `${CLAIMED_VERIFICATION_FAILED}: ${claimed.error}`;
+    await SERVICE_EXECUTION_OPS.fail(service, recorded.executionId, error);
+    return { status: "failed", error };
+  }
+  if (claimed.verdict === "blocked") {
+    const blockedFields = claimed.auditFields ?? auditFields;
+    const blockedViolation = auditFieldViolation(blockedFields);
+    if (blockedViolation) {
+      const error = `audit_field_rejected:${blockedViolation}`;
+      await SERVICE_EXECUTION_OPS.fail(service, recorded.executionId, error);
+      return { status: "failed", error };
+    }
+    await SERVICE_EXECUTION_OPS.complete(service, recorded.executionId, { ...blockedOutcome(record, claimed.reason, null), ...blockedFields });
+    return { status: "blocked", reason: claimed.reason };
+  }
+
   const result = await executeTouch(
     service,
     {
       organizationId,
-      contactId: subject.contactId,
-      leadId: subject.leadId,
-      body: adapter.compose(item, facts),
-      gateOptions: adapter.gateOptions(item, facts),
+      contactId: claimed.contactId,
+      leadId: claimed.leadId,
+      body: adapter.compose(item, claimed.facts),
+      gateOptions: adapter.gateOptions(item, claimed.facts),
       gateAutomationId: adapter.policy.gateChecksAutomationEnabled ? adapter.identity.automationId : null,
       senderType: adapter.policy.senderType,
       auditFields,
+      auditRecord: record,
     },
     recorded.executionId,
     SERVICE_EXECUTION_OPS,
@@ -251,11 +320,13 @@ export async function retryDerivedTouch<Item, Facts>(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const subject = adapter.subject(item);
   const auditFields = adapter.auditFields(item);
-  const violation = auditFieldViolation(auditFields);
+  const violation = auditFieldViolation(auditFields) ?? auditRecordViolation(adapter.policy.auditRecord);
   if (violation) {
-    await ops.fail(supabase, executionId, `audit_field_rejected:${violation}`);
-    return { ok: false, error: `audit_field_rejected:${violation}` };
+    const error = violation.startsWith("audit_record") ? violation : `audit_field_rejected:${violation}`;
+    await ops.fail(supabase, executionId, error);
+    return { ok: false, error };
   }
+  const record = adapter.policy.auditRecord;
 
   const resolution = await resolveSubject(supabase, subject, now);
   if (resolution.kind === "unknown") {
@@ -263,13 +334,31 @@ export async function retryDerivedTouch<Item, Facts>(
     return { ok: false, error: "lifecycle_snapshot_failed" };
   }
   if (resolution.kind === "missing") {
-    await ops.complete(supabase, executionId, { should_send: false, blocked_reason: SUBJECT_MISSING_REASON, blocked_detail: null, ...auditFields });
+    await ops.complete(supabase, executionId, { ...blockedOutcome(record, SUBJECT_MISSING_REASON, null), ...auditFields });
     return { ok: true };
   }
 
   const owed = await adapter.stillOwed(supabase, item, resolution.lifecycle);
   if (!owed.owed) {
-    await ops.complete(supabase, executionId, { should_send: false, blocked_reason: owed.reason, blocked_detail: null, ...auditFields });
+    await ops.complete(supabase, executionId, { ...blockedOutcome(record, owed.reason, null), ...auditFields });
+    return { ok: true };
+  }
+
+  // The retried execution is the claim: the same claimed verification applies.
+  const claimed = await verifyClaimedTouch(supabase, adapter, item, owed.facts);
+  if (claimed.verdict === "unknown") {
+    const error = `${CLAIMED_VERIFICATION_FAILED}: ${claimed.error}`;
+    await ops.fail(supabase, executionId, error);
+    return { ok: false, error: CLAIMED_VERIFICATION_FAILED };
+  }
+  if (claimed.verdict === "blocked") {
+    const blockedFields = claimed.auditFields ?? auditFields;
+    const blockedViolation = auditFieldViolation(blockedFields);
+    if (blockedViolation) {
+      await ops.fail(supabase, executionId, `audit_field_rejected:${blockedViolation}`);
+      return { ok: false, error: `audit_field_rejected:${blockedViolation}` };
+    }
+    await ops.complete(supabase, executionId, { ...blockedOutcome(record, claimed.reason, null), ...blockedFields });
     return { ok: true };
   }
 
@@ -277,13 +366,14 @@ export async function retryDerivedTouch<Item, Facts>(
     supabase,
     {
       organizationId: subject.organizationId,
-      contactId: subject.contactId,
-      leadId: subject.leadId,
-      body: adapter.compose(item, owed.facts),
-      gateOptions: adapter.gateOptions(item, owed.facts),
+      contactId: claimed.contactId,
+      leadId: claimed.leadId,
+      body: adapter.compose(item, claimed.facts),
+      gateOptions: adapter.gateOptions(item, claimed.facts),
       gateAutomationId: adapter.policy.gateChecksAutomationEnabled ? adapter.identity.automationId : null,
       senderType: adapter.policy.senderType,
       auditFields,
+      auditRecord: record,
     },
     executionId,
     ops,

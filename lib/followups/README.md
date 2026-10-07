@@ -108,3 +108,34 @@ Appointment reminders are the third derived kind (`APPOINTMENT_REMINDER_ADAPTER`
 - **`confirmation_requested_at`** stays in the producer. It's written only after the runtime reports `sent`, and only when the reminder asked for confirmation. A write error is logged; the reminder still counts as sent.
 - **A2 retry:** `retryAppointmentReminder` keeps its reference and lookup checks and runs the reminder through `retryDerivedTouch`. A retry never writes `confirmation_requested_at`.
 - **Tests:** `lib/automation/appointment-reminders.runtime.test.ts`.
+
+### Claimed verification and the audit-record policy (P0-B B2.7a)
+
+Two generic contract additions. No kind uses either beyond its default yet. Invoice reminders are **not** migrated in B2.7a; that is B2.7.
+
+**`verifyClaimed(service, item, facts)`** is a new adapter step. The derived pipeline is now:
+
+claim (key + B0 start) → **verifyClaimed** → compose → gate → send → record.
+
+B1 and the still-owed check still run before the claim.
+
+- **Why after the claim:** a check after the claim reads the truth as of a moment when no concurrent run can also be sending this touch. The key is used and the execution has started, so a block is recorded rather than silently skipped, and the same touch is never re-attempted.
+- **Verdicts:**
+  - `verified`: its `facts`, `contactId` and `leadId` replace the pre-claim ones for compose, the conversation and the gate.
+  - `blocked`: the event and execution stand. The execution completes as blocked (`reason`, plus the kind's audit fields or the verdict's own). Nothing is composed, gated or sent, and the key stays used.
+  - `unknown`, a throw, or an unrecognised verdict: the execution **fails** (`claimed_verification_failed: …`). It is never blocked and never sent.
+- **Not an authorizer:** the outbound gate still decides every send.
+- **Existing kinds** (customer reactivation, estimate follow-up, appointment reminders) use `unchangedAfterClaim(subject)`, a pass-through that keeps the pre-claim facts and subject. Their behaviour is byte-identical.
+- **A2 retry:** `retryDerivedTouch` applies the same verification after still-owed. A blocked verdict completes the retry execution; an unknown verdict fails it.
+
+**`policy.auditRecord`** sets how much every execution record of a kind may hold (`AuditRecordPolicy` in `engine.ts`).
+
+| | `{ shape: "full" }` | `{ shape: "minimal", failureMessage }` |
+|---|---|---|
+| Blocked | `should_send: false`, `blocked_reason`, `blocked_detail` | `should_send: false`, `blocked_reason` (no detail) |
+| Sent | `should_send: true`, message, conversation and provider ids | `should_send: true`, `sent: true` |
+| Send failure | the provider's error | the kind's fixed `failureMessage`, never the provider's text |
+
+- **Full** is every existing kind's record, unchanged, and A4 uses `FULL_AUDIT_RECORD`.
+- **Validation:** the policy is checked before anything is claimed. A missing policy, an unknown shape, or `minimal` without a message fails the run; there is no fallback shape.
+- **`sent`** joins `RUNTIME_OUTCOME_FIELDS`, so a kind's audit fields can't forge it.

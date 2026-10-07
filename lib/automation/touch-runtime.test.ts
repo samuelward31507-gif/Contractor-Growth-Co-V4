@@ -142,6 +142,7 @@ function rpc(name: string, args: Row) {
       return { data: { ...event, is_duplicate: false }, error: null };
     }
     if (name === "start_workflow_execution") {
+      trace.push("start");
       const event = events.find((e) => e.id === args.p_automation_event_id);
       if (!event) return { data: null, error: { message: "Automation event not found" } };
       if (control.startLoses) return { data: null, error: { message: "Automation event is already being processed" } };
@@ -284,7 +285,7 @@ const config = { inactivity_days: 180, respect_business_hours: true };
 function probe(overrides: Partial<Record<string, unknown>> = {}) {
   const real = CUSTOMER_REACTIVATION_ADAPTER as Record<string, unknown>;
   const traced: Record<string, unknown> = { identity: real.identity, policy: { ...(real.policy as Row), ...((overrides.policy as Row) ?? {}) } };
-  for (const key of ["subject", "idempotencyKey", "isDue", "dueAt", "stillOwed", "payload", "compose", "gateOptions", "auditFields"]) {
+  for (const key of ["subject", "idempotencyKey", "isDue", "dueAt", "stillOwed", "payload", "compose", "gateOptions", "auditFields", "verifyClaimed"]) {
     const fn = (overrides[key] ?? real[key]) as (...args: unknown[]) => unknown;
     traced[key] = (...args: unknown[]) => {
       trace.push(key);
@@ -454,8 +455,8 @@ test("11. execution recording: send failure -> failed execution (sms_send_failed
 });
 
 test("12. the adapter is a fixed interface of pure functions + policy values, matching the catalog", () => {
-  assert.deepEqual(Object.keys(CUSTOMER_REACTIVATION_ADAPTER).sort(), ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject"]);
-  assert.deepEqual(CUSTOMER_REACTIVATION_ADAPTER.policy, { requiresActivePayment: true, stale: { mode: "record_blocked", audit: "payload" }, missingSubject: "skip", gateChecksAutomationEnabled: false, senderType: "ai" });
+  assert.deepEqual(Object.keys(CUSTOMER_REACTIVATION_ADAPTER).sort(), ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject", "verifyClaimed"]);
+  assert.deepEqual(CUSTOMER_REACTIVATION_ADAPTER.policy, { requiresActivePayment: true, stale: { mode: "record_blocked", audit: "payload" }, missingSubject: "skip", gateChecksAutomationEnabled: false, senderType: "ai", auditRecord: { shape: "full" } });
   const entry = AUTOMATION_CATALOG.find((a: Row) => a.id === CUSTOMER_REACTIVATION_ADAPTER.identity.automationId);
   assert.ok(entry);
   assert.ok((entry.eventTypes as string[]).includes(CUSTOMER_REACTIVATION_ADAPTER.identity.eventType));
@@ -568,7 +569,7 @@ test("16. execution context: the run's trigger source reaches B0 with the touch'
 });
 
 test("17. audit fields: flat scalars appended after the outcome fields; a collision or a non-scalar is rejected before anything is recorded; deterministic", async () => {
-  assert.deepEqual([...RUNTIME_OUTCOME_FIELDS].sort(), ["blocked_detail", "blocked_reason", "conversation_id", "message_id", "provider_message_id", "should_send"]);
+  assert.deepEqual([...RUNTIME_OUTCOME_FIELDS].sort(), ["blocked_detail", "blocked_reason", "conversation_id", "message_id", "provider_message_id", "sent", "should_send"]);
   assert.equal(auditFieldViolation({ job_id: "j", occurrence: 2, lead_id: null }), null);
   assert.equal(auditFieldViolation({ should_send: true }), "should_send");
   assert.equal(auditFieldViolation({ zeta: 1, message_id: "x", blocked_reason: "y" }), "blocked_reason", "the first violation in sorted key order");
@@ -763,8 +764,191 @@ test("22. no callback sprawl: the adapter contract is a fixed set of pure functi
   const runtime = readFileSync(path.join(process.cwd(), "lib/automation/touch-runtime.ts"), "utf8");
   const contract = runtime.slice(runtime.indexOf("export type DerivedTouchAdapter"), runtime.indexOf("export type DerivedTouchResult"));
   const members = [...contract.matchAll(/^  (\w+):/gm)].map((m) => m[1]).sort();
-  assert.deepEqual(members, ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject"]);
+  assert.deepEqual(members, ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject", "verifyClaimed"]);
   assert.doesNotMatch(runtime, /\b(before|after)[A-Z]\w*\s*[:?(]|\bon[A-Z]\w*\s*[:?(]/, "no hook members or calls");
   const policy = runtime.slice(runtime.indexOf("export type DerivedTouchPolicy"), runtime.indexOf("export type DerivedTouchAdapter"));
-  assert.deepEqual([...policy.matchAll(/^  (\w+):/gm)].map((m) => m[1]).sort(), ["gateChecksAutomationEnabled", "missingSubject", "requiresActivePayment", "senderType", "stale"]);
+  assert.deepEqual([...policy.matchAll(/^  (\w+):/gm)].map((m) => m[1]).sort(), ["auditRecord", "gateChecksAutomationEnabled", "missingSubject", "requiresActivePayment", "senderType", "stale"]);
+});
+
+// ===========================================================================
+// P0-B B2.7a: claimed verification (after the claim) and the audit-record
+// policy. Exercised through the REAL customer-reactivation adapter with
+// verifyClaimed / policy values overridden - the runtime cannot tell the
+// difference, which is the point. No existing kind uses either yet.
+// ===========================================================================
+
+const traced = (steps: string[]) => trace.filter((step) => steps.includes(step));
+const executionFor = (jobId: string) => executions().find((e) => e.automation_event_id === events().find((ev) => (ev.payload as Row).job_id === jobId)!.id)!;
+const verifiedAs = (result: Row) => async () => result;
+const MINIMAL = { shape: "minimal", failureMessage: "The reminder could not be sent." };
+
+test("23. verified: refreshed facts, contact and lead are what compose, the conversation and the gate use", async () => {
+  const job = addJob();
+  const refreshed = probe({ verifyClaimed: verifiedAs({ verdict: "verified", facts: { contact: { first_name: "Verified" }, title: "Fresh roof" }, contactId: OTHER_CONTACT, leadId: null }) });
+  assert.equal((await derived(refreshed, job)).status, "sent");
+  const [message] = store.messages!.filter((m) => m.direction === "outbound");
+  assert.match(String(message.body), /Hey Verified, it's been a while since we helped with Fresh roof\./);
+  const conversation = store.conversations!.find((c) => c.id === message.conversation_id)!;
+  assert.deepEqual({ contact: conversation.contact_id, lead: conversation.lead_id ?? null }, { contact: OTHER_CONTACT, lead: null }, "the verified contact, not the pre-claim subject's");
+  // The gate decides on the verified lead: an unknown verified lead is blocked though the subject had none.
+  store.conversations = [];
+  const second = addJob({ contact_id: CONTACT, completed_at: daysAgo(181) });
+  assert.deepEqual(await derived(probe({ verifyClaimed: verifiedAs({ verdict: "verified", facts: { contact: { first_name: "V" }, title: "T" }, contactId: CONTACT, leadId: "88888888-8888-4888-8888-888888888888" }) }), second), { status: "blocked", reason: "lead_not_found" });
+  // ...and on the verified contact: an opted-out verified contact is blocked though the subject's contact is fine.
+  store.contacts![1].sms_opt_out = true;
+  store.conversations = [];
+  const third = addJob({ contact_id: CONTACT, completed_at: daysAgo(182) });
+  assert.deepEqual(await derived(probe({ verifyClaimed: verifiedAs({ verdict: "verified", facts: { contact: { first_name: "V" }, title: "T" }, contactId: OTHER_CONTACT, leadId: null }) }), third), { status: "blocked", reason: "contact_opted_out" });
+  assert.equal(calls.sends, 1);
+});
+
+test("24. order: claim (key) -> B0 start -> B1 is before both -> verifyClaimed -> compose -> gate -> send", async () => {
+  addJob();
+  hooks.beforeRun = undefined;
+  assert.equal((await derived(probe(), store.jobs![0])).status, "sent");
+  assert.deepEqual(traced(["snapshot", "event", "start", "verifyClaimed", "compose", "gateOptions", "send"]), ["snapshot", "event", "start", "verifyClaimed", "compose", "gateOptions", "send"]);
+});
+
+test("25. blocked after the claim: the event and execution stand (completed blocked, key used) - no compose, conversation, gate or send", async () => {
+  const job = addJob();
+  let afterVerify = false;
+  const touchedAfterVerify: string[] = [];
+  hooks.beforeRun = (table) => {
+    if (afterVerify) touchedAfterVerify.push(table);
+  };
+  const blocked = probe({ verifyClaimed: async () => { afterVerify = true; return { verdict: "blocked", reason: "probe_blocked" }; } });
+  assert.deepEqual(await derived(blocked, job), { status: "blocked", reason: "probe_blocked" });
+  afterVerify = false;
+  assert.ok(!touchedAfterVerify.includes("conversations") && !touchedAfterVerify.includes("messages"), `no conversation or message after the blocked verdict: ${touchedAfterVerify}`);
+  assert.ok(!trace.includes("compose") && !trace.includes("gateOptions") && !trace.includes("send"));
+  const [event] = events();
+  assert.equal(event.idempotency_key, `customer.reactivation:${CONTACT}:${job.id}`);
+  const execution = executionFor(job.id);
+  assert.deepEqual({ status: execution.status, outcome: execution.outcome, trigger: execution.trigger_source }, { status: "completed", outcome: "blocked", trigger: "event" });
+  assert.deepEqual(execution.metadata, { should_send: false, blocked_reason: "probe_blocked", blocked_detail: null, job_id: job.id });
+  assert.equal(calls.sends, 0);
+  assert.equal(store.conversations!.length, 0);
+  assert.equal((await derived(blocked, job)).status, "skipped_duplicate", "the key stays used: never re-sent");
+  assert.equal(events().length, 1);
+
+  // A blocked verdict may carry its own audit fields - still never an outcome field.
+  const withFields = addJob({ contact_id: OTHER_CONTACT });
+  assert.deepEqual(await derived(probe({ verifyClaimed: verifiedAs({ verdict: "blocked", reason: "probe_blocked", auditFields: { job_id: withFields.id, check: "live" } }) }), withFields), { status: "blocked", reason: "probe_blocked" });
+  assert.deepEqual(executionFor(withFields.id).metadata, { should_send: false, blocked_reason: "probe_blocked", blocked_detail: null, job_id: withFields.id, check: "live" });
+  const colliding = addJob({ contact_id: OTHER_CONTACT, completed_at: daysAgo(182) });
+  store.conversations = [];
+  const collision = await derived(probe({ verifyClaimed: verifiedAs({ verdict: "blocked", reason: "probe_blocked", auditFields: { should_send: true } }) }), colliding);
+  assert.deepEqual(collision, { status: "failed", error: "audit_field_rejected:should_send" });
+  assert.equal(executionFor(colliding.id).status, "failed", "never recorded as a success");
+  assert.equal(calls.sends, 0);
+});
+
+test("26. an unknown claimed verification fails closed: the execution FAILS (never blocked, never sent); a throw or an unrecognised verdict is unknown too", async () => {
+  for (const [label, verifyClaimed] of [
+    ["unknown", verifiedAs({ verdict: "unknown", error: "live read failed" })],
+    ["throws", async () => { throw new Error("live read threw"); }],
+    ["unrecognised", verifiedAs({ verdict: "maybe" })],
+  ] as const) {
+    store.conversations = [];
+    const job = addJob({ contact_id: label === "unknown" ? CONTACT : OTHER_CONTACT, completed_at: label === "unrecognised" ? daysAgo(182) : daysAgo(181) });
+    const sendsBefore = calls.sends;
+    const result = await derived(probe({ verifyClaimed }), job);
+    assert.equal(result.status, "failed", label);
+    assert.match(String((result as Row).error), /^claimed_verification_failed: /, label);
+    const execution = executionFor(job.id);
+    assert.deepEqual({ status: execution.status, outcome: execution.outcome }, { status: "failed", outcome: "failed" }, label);
+    assert.match(String(execution.error_message), /^claimed_verification_failed: /);
+    assert.equal(calls.sends, sendsBefore, label);
+  }
+});
+
+test("27. B0 stays the boundary: a refused execution start never reaches verifyClaimed; a failed B1 read never reaches the claim", async () => {
+  control.startLoses = true;
+  const job = addJob();
+  assert.equal(((await quiet(() => derived(probe(), job))) as Row).status, "failed");
+  assert.ok(trace.includes("event") && !trace.includes("verifyClaimed"));
+  control.startLoses = false;
+  trace.length = 0;
+  control.snapshotFails = true;
+  assert.equal((await derived(probe(), addJob({ contact_id: OTHER_CONTACT }))).status, "lifecycle_failed");
+  assert.ok(!trace.includes("event") && !trace.includes("verifyClaimed"));
+});
+
+test("28. minimal audit record: send -> {should_send, sent} + audit; gate block -> no blocked_detail; send failure -> the fixed message, never the provider's", async () => {
+  const minimal = (extra: Record<string, unknown> = {}) => probe({ policy: { auditRecord: MINIMAL }, ...extra });
+  const sent = addJob();
+  assert.equal((await derived(minimal(), sent)).status, "sent");
+  assert.deepEqual(executionFor(sent.id).metadata, { should_send: true, sent: true, job_id: sent.id });
+
+  store.conversations = [];
+  store.contacts![1].sms_opt_out = true;
+  const gated = addJob({ contact_id: OTHER_CONTACT });
+  assert.deepEqual(await derived(minimal(), gated), { status: "blocked", reason: "contact_opted_out" });
+  assert.deepEqual(executionFor(gated.id).metadata, { should_send: false, blocked_reason: "contact_opted_out", job_id: gated.id });
+  store.contacts![1].sms_opt_out = false;
+
+  store.conversations = [];
+  control.sendOk = false;
+  const failing = addJob({ contact_id: OTHER_CONTACT, completed_at: daysAgo(182) });
+  assert.deepEqual(await derived(minimal(), failing), { status: "failed", error: "The reminder could not be sent." });
+  const failed = executionFor(failing.id);
+  assert.equal(failed.error_message, "The reminder could not be sent.");
+  assert.ok(!JSON.stringify(store.workflow_executions).includes("Twilio error 30003"), "the provider error is nowhere in the record");
+  control.sendOk = true;
+
+  // Claimed-blocked, stale and known-missing records under minimal: no blocked_detail either.
+  store.conversations = [];
+  const claimedBlocked = addJob({ contact_id: CONTACT, completed_at: daysAgo(181) });
+  await derived(minimal({ verifyClaimed: verifiedAs({ verdict: "blocked", reason: "probe_blocked" }) }), claimedBlocked);
+  assert.deepEqual(executionFor(claimedBlocked.id).metadata, { should_send: false, blocked_reason: "probe_blocked", job_id: claimedBlocked.id });
+  const late = addJob({ contact_id: OTHER_CONTACT, completed_at: daysAgo(400) });
+  store.conversations = [];
+  await derived(probe({ policy: { auditRecord: MINIMAL, stale: { mode: "record_blocked", audit: "audit_fields" } } }), late);
+  assert.deepEqual(executionFor(late.id).metadata, { should_send: false, blocked_reason: "followup_overdue", job_id: late.id });
+  const foreign = otherContactJob();
+  await derived(probe({ policy: { auditRecord: MINIMAL, missingSubject: "record_blocked" } }), foreign);
+  assert.deepEqual(executionFor(foreign.id).metadata, { should_send: false, blocked_reason: "contact_not_found", job_id: foreign.id });
+});
+
+test("29. the audit-record policy is validated, never silently replaced by another shape", async () => {
+  for (const [auditRecord, error] of [
+    [{ shape: "minimal" }, "audit_record_minimal_needs_failure_message"],
+    [{ shape: "minimal", failureMessage: "  " }, "audit_record_minimal_needs_failure_message"],
+    [{ shape: "compact" }, "audit_record_shape_unknown"],
+    [undefined, "audit_record_policy_missing"],
+  ] as const) {
+    const before = { events: store.automation_events!.length, executions: store.workflow_executions!.length, sends: calls.sends };
+    assert.deepEqual(await derived(probe({ policy: { auditRecord } }), addJob()), { status: "failed", error }, JSON.stringify(auditRecord));
+    assert.deepEqual({ events: store.automation_events!.length, executions: store.workflow_executions!.length, sends: calls.sends }, before, "nothing claimed or sent");
+  }
+  const conversationsBefore = store.conversations!.length;
+  await assert.rejects(executeTouch(db as never, { organizationId: ORG, contactId: CONTACT, leadId: null, body: "x", gateOptions: {}, gateAutomationId: null, senderType: "ai", auditFields: {}, auditRecord: { shape: "compact" } as never }, "exec-x", SERVICE_EXECUTION_OPS), /audit_record_shape_unknown/);
+  assert.equal(store.conversations!.length, conversationsBefore, "rejected before anything is read or written");
+  // Every migrated kind records the full shape.
+  assert.deepEqual(CUSTOMER_REACTIVATION_ADAPTER.policy.auditRecord, { shape: "full" });
+});
+
+test("30. the shared retry entry applies the same claimed verification: blocked closes the execution, unknown fails it, verified facts/contact are used", async () => {
+  const freshFailed = async (contactId: string, daysAgoCompleted: number) => {
+    const job = addJob({ contact_id: contactId, completed_at: daysAgo(daysAgoCompleted) });
+    const event = await failedTouch(job);
+    return { job, executionId: await a2StartsRetry(event.id as string) };
+  };
+  const blocked = await freshFailed(CONTACT, 181);
+  let sendsBefore = calls.sends;
+  assert.deepEqual(await retryDerivedTouch(db as never, probe({ verifyClaimed: verifiedAs({ verdict: "blocked", reason: "probe_blocked" }) }) as never, { job: blocked.job, config }, blocked.executionId, SERVICE_EXECUTION_OPS as never, T0), { ok: true });
+  assert.deepEqual(store.workflow_executions!.find((e) => e.id === blocked.executionId)!.metadata, { should_send: false, blocked_reason: "probe_blocked", blocked_detail: null, job_id: blocked.job.id });
+  assert.equal(calls.sends, sendsBefore);
+
+  const unknown = await freshFailed(OTHER_CONTACT, 181);
+  sendsBefore = calls.sends;
+  assert.deepEqual(await retryDerivedTouch(db as never, probe({ verifyClaimed: verifiedAs({ verdict: "unknown", error: "live read failed" }) }) as never, { job: unknown.job, config }, unknown.executionId, SERVICE_EXECUTION_OPS as never, T0), { ok: false, error: "claimed_verification_failed" });
+  assert.equal(store.workflow_executions!.find((e) => e.id === unknown.executionId)!.status, "failed");
+  assert.equal(calls.sends, sendsBefore);
+
+  const verified = await freshFailed(CONTACT, 182);
+  assert.deepEqual(await retryDerivedTouch(db as never, probe({ verifyClaimed: verifiedAs({ verdict: "verified", facts: { contact: { first_name: "Retry" }, title: "Live title" }, contactId: CONTACT, leadId: null }) }) as never, { job: verified.job, config }, verified.executionId, SERVICE_EXECUTION_OPS as never, T0), { ok: true });
+  const retried = store.workflow_executions!.find((e) => e.id === verified.executionId)!;
+  assert.equal(retried.outcome, "succeeded");
+  assert.match(String(store.messages!.find((m) => m.workflow_execution_id === verified.executionId)!.body), /Hey Retry, .* with Live title\./);
 });

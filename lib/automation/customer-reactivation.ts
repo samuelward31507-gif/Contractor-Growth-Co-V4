@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { runDerivedTouch, type DerivedTouchAdapter } from "./touch-runtime";
+import { runDerivedTouch, unchangedAfterClaim, type DerivedTouchAdapter, type DerivedTouchSubject } from "./touch-runtime";
 import { getAutomationEnabled, getAutomationConfigByOrganization, readCustomerReactivationConfig, type CustomerReactivationConfig } from "./settings";
 import { OPEN_LEAD_STATUSES, type LeadStatus } from "@/lib/leads/queries";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
@@ -151,6 +151,8 @@ type ReactivationFacts = { contact: ReactivationContact; title: string };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const reactivationSubject = ({ job }: ReactivationItem): DerivedTouchSubject => ({ organizationId: job.organization_id, contactId: job.contact_id, leadId: null, entityType: "job", entityId: job.id });
+
 /**
  * P0-B B2.4: customer reactivation's kind adapter for the shared touch
  * runtime (lib/automation/touch-runtime.ts). Every value below is this
@@ -166,8 +168,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const CUSTOMER_REACTIVATION_ADAPTER: DerivedTouchAdapter<ReactivationItem, ReactivationFacts> = {
   identity: { automationId: "customer-reactivation", eventType: "customer.reactivation", workflowName: CUSTOMER_REACTIVATION_WORKFLOW },
   // Legacy values, unchanged: the overdue record carries the event payload; a contact that is not the organization's records nothing (its legacy outcome no_contact).
-  policy: { requiresActivePayment: true, stale: { mode: "record_blocked", audit: "payload" }, missingSubject: "skip", gateChecksAutomationEnabled: false, senderType: "ai" },
-  subject: ({ job }) => ({ organizationId: job.organization_id, contactId: job.contact_id, leadId: null, entityType: "job", entityId: job.id }),
+  policy: { requiresActivePayment: true, stale: { mode: "record_blocked", audit: "payload" }, missingSubject: "skip", gateChecksAutomationEnabled: false, senderType: "ai", auditRecord: { shape: "full" } },
+  subject: reactivationSubject,
   idempotencyKey: ({ job }) => `customer.reactivation:${job.contact_id}:${job.id}`,
   isDue: ({ job, config }, now) => isReactivationDue(job.completed_at, config, now),
   dueAt: ({ job, config }) => ({ anchorMs: new Date(job.completed_at).getTime(), delayMs: config.inactivity_days * DAY_MS }),
@@ -209,6 +211,8 @@ export const CUSTOMER_REACTIVATION_ADAPTER: DerivedTouchAdapter<ReactivationItem
   compose: ({ job }, facts) => composeReactivationBody(facts.contact, { ...job, title: facts.title }),
   gateOptions: ({ job, config }) => ({ jobId: job.id, jobEligibleStatuses: ["completed"], respectBusinessHours: config.respect_business_hours }),
   auditFields: ({ job }) => ({ job_id: job.id }),
+  // Nothing to re-check after the claim (B2.7a): the pre-claim facts, contact and lead stand.
+  verifyClaimed: unchangedAfterClaim(reactivationSubject),
 };
 
 async function processOneCustomer(

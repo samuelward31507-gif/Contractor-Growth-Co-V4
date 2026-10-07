@@ -492,8 +492,8 @@ test("9. preview stays read-only: no claim, no execution, no send, no confirmati
 });
 
 test("10. the adapter: appointment policy as data + pure functions, matching the catalog; legacy key; no stale, payment, business-hours or enabled-at-gate rule", () => {
-  assert.deepEqual(Object.keys(APPOINTMENT_REMINDER_ADAPTER).sort(), ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject"]);
-  assert.deepEqual(APPOINTMENT_REMINDER_ADAPTER.policy, { requiresActivePayment: false, stale: { mode: "none" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai" });
+  assert.deepEqual(Object.keys(APPOINTMENT_REMINDER_ADAPTER).sort(), ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject", "verifyClaimed"]);
+  assert.deepEqual(APPOINTMENT_REMINDER_ADAPTER.policy, { requiresActivePayment: false, stale: { mode: "none" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai", auditRecord: { shape: "full" } });
   const entry = AUTOMATION_CATALOG.find((x: Row) => x.id === APPOINTMENT_REMINDER_ADAPTER.identity.automationId);
   assert.ok((entry.eventTypes as string[]).includes(APPOINTMENT_REMINDER_ADAPTER.identity.eventType));
   assert.ok((entry.workflowNames as string[]).includes(APPOINTMENT_REMINDER_ADAPTER.identity.workflowName));

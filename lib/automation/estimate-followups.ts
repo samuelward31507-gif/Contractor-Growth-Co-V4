@@ -6,7 +6,7 @@ import {
   SESSION_EXECUTION_OPS,
   type ExecutionOps,
 } from "./executions";
-import { runDerivedTouch, retryDerivedTouch, type DerivedTouchAdapter } from "./touch-runtime";
+import { runDerivedTouch, retryDerivedTouch, unchangedAfterClaim, type DerivedTouchAdapter, type DerivedTouchSubject } from "./touch-runtime";
 import type { ExecutionContext } from "@/lib/followups/engine";
 import {
   getAutomationEnabled,
@@ -95,6 +95,8 @@ export type EstimateRunTriggerSource = ExecutionContext["triggerSource"];
 /** One estimate follow-up touch. `config` is null only on an A2 retry, which never re-evaluates cadence or lateness. */
 type EstimateTouchItem = { estimate: CandidateEstimate; config: EstimateFollowupConfig | null; occurrence: 1 | 2 | null };
 
+const estimateTouchSubject = ({ estimate }: EstimateTouchItem): DerivedTouchSubject => ({ organizationId: estimate.organization_id, contactId: estimate.contact_id, leadId: estimate.lead_id, entityType: "estimate", entityId: estimate.id });
+
 /**
  * P0-B B2.5: estimate follow-up's kind adapter for the shared touch runtime
  * (lib/automation/touch-runtime.ts). Every value is this automation's
@@ -112,8 +114,8 @@ type EstimateTouchItem = { estimate: CandidateEstimate; config: EstimateFollowup
  */
 export const ESTIMATE_FOLLOWUP_ADAPTER: DerivedTouchAdapter<EstimateTouchItem, CandidateEstimate> = {
   identity: { automationId: "estimate-followup", eventType: "estimate.followup", workflowName: ESTIMATE_FOLLOWUP_WORKFLOW },
-  policy: { requiresActivePayment: false, stale: { mode: "record_blocked", audit: "audit_fields" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai" },
-  subject: ({ estimate }) => ({ organizationId: estimate.organization_id, contactId: estimate.contact_id, leadId: estimate.lead_id, entityType: "estimate", entityId: estimate.id }),
+  policy: { requiresActivePayment: false, stale: { mode: "record_blocked", audit: "audit_fields" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai", auditRecord: { shape: "full" } },
+  subject: estimateTouchSubject,
   idempotencyKey: ({ estimate, occurrence }) => `estimate.followup:${estimate.id}:${occurrence}`,
   isDue: ({ estimate, config, occurrence }, now) =>
     config !== null && occurrence !== null && computeFollowupOccurrence((now.getTime() - new Date(estimate.sent_at).getTime()) / HOUR_MS, config) === occurrence,
@@ -126,6 +128,8 @@ export const ESTIMATE_FOLLOWUP_ADAPTER: DerivedTouchAdapter<EstimateTouchItem, C
   compose: ({ occurrence }, estimate) => composeFollowupBody(estimate, occurrence!),
   gateOptions: ({ estimate }) => ({ estimateId: estimate.id, estimateEligibleStatuses: ACTIVE_STATUSES }),
   auditFields: ({ estimate, occurrence }) => ({ estimate_id: estimate.id, occurrence }),
+  // Nothing to re-check after the claim (B2.7a): the pre-claim facts, contact and lead stand.
+  verifyClaimed: unchangedAfterClaim(estimateTouchSubject),
 };
 
 /**
