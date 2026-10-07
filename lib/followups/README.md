@@ -96,3 +96,15 @@ Estimate follow-up is the second derived kind (`ESTIMATE_FOLLOWUP_ADAPTER` in `l
 - **A2 retry:** `retryEstimateWorkflow` keeps its estimate-specific checks (reference, estimate, occurrence, expiry retry) and runs the touch through `retryDerivedTouch`.
 - **Preview** stays read-only.
 - **Tests:** `lib/automation/estimate-followups.runtime.test.ts`.
+
+### Appointment reminders (P0-B B2.6)
+
+Appointment reminders are the third derived kind (`APPOINTMENT_REMINDER_ADAPTER` in `lib/automation/appointment-reminders.ts`).
+
+- **Identity:** one reminder per (appointment, `start_at`), under the legacy key `appointment.reminder:<id>:<start_at>`. A reschedule is a new reminder.
+- **Due:** inside the organization's lead-time window, behind the existing stability guard (`isReminderDue`). There's no lateness rule (`stale: none`).
+- **Status:** the gate re-checks the appointment is still scheduled/confirmed.
+- **Run Now** passes `{ triggerSource: "manual" }`.
+- **`confirmation_requested_at`** stays in the producer. It's written only after the runtime reports `sent`, and only when the reminder asked for confirmation. A write error is logged; the reminder still counts as sent.
+- **A2 retry:** `retryAppointmentReminder` keeps its reference and lookup checks and runs the reminder through `retryDerivedTouch`. A retry never writes `confirmation_requested_at`.
+- **Tests:** `lib/automation/appointment-reminders.runtime.test.ts`.

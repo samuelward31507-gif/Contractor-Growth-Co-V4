@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAutomationEventAsService } from "./events";
 import {
   getAutomationEnabled,
   getAutomationConfig,
@@ -8,17 +7,9 @@ import {
   REMINDER_LEAD_TIME_MAX_HOURS,
   type AppointmentReminderConfig,
 } from "./settings";
-import {
-  startWorkflowExecutionAsService,
-  completeWorkflowExecutionAsService,
-  failWorkflowExecutionAsService,
-  SESSION_EXECUTION_OPS,
-  type ExecutionOps,
-  type WorkflowExecutionTriggerSource,
-} from "./executions";
-import { evaluateOutboundGate } from "./outbound-gate";
-import { sendOutboundMessage } from "@/lib/messaging/outbound";
-import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
+import { SESSION_EXECUTION_OPS, type ExecutionOps } from "./executions";
+import { runDerivedTouch, retryDerivedTouch, type DerivedTouchAdapter } from "./touch-runtime";
+import type { ExecutionContext } from "@/lib/followups/engine";
 import { getBusinessProfile } from "@/lib/settings/queries";
 import { formatAppointmentDate, formatAppointmentTimeRange } from "@/lib/appointments/format";
 import type { AppointmentStatus } from "@/lib/appointments/queries";
@@ -148,7 +139,7 @@ export async function processAppointmentReminders(
   /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
   /** Phase D: "manual" when triggered by an org admin's "Run now" action; every real cron tick omits this and keeps the column's own 'event' default. */
-  triggerSource: WorkflowExecutionTriggerSource = "event",
+  triggerSource: ReminderRunTriggerSource = "event",
 ): Promise<ReminderRunResult> {
   const configByOrg = await getAutomationConfigByOrganization(supabase, "appointment-reminders");
 
@@ -180,142 +171,109 @@ export async function processAppointmentReminders(
   const outcomes: ReminderOutcome[] = [];
 
   for (const appointment of candidates) {
-    outcomes.push(await processOneReminder(supabase, appointment, sendSmsFn, triggerSource));
+    const config = readAppointmentReminderConfig(configByOrg.get(appointment.organization_id) ?? null);
+    outcomes.push(await processOneReminder(supabase, appointment, config, now, sendSmsFn, triggerSource));
   }
 
   return { candidates: candidates.length, outcomes };
 }
 
+/** How a reminder run was initiated: the cron tick ("event") or an admin's Run now ("manual"). A2 owns "retry". */
+export type ReminderRunTriggerSource = ExecutionContext["triggerSource"];
+
+/** One appointment reminder. `config` is null only on an A2 retry, which never re-evaluates the reminder window. */
+type ReminderItem = { appointment: CandidateAppointment; config: AppointmentReminderConfig | null };
+
+/**
+ * P0-B B2.6: appointment reminders' kind adapter for the shared touch
+ * runtime (lib/automation/touch-runtime.ts). Every value is this
+ * automation's existing behavior: one reminder per (appointment, start_at)
+ * under the legacy key appointment.reminder:<id>:<start_at> - a reschedule
+ * is a new start_at, so a new reminder; due inside the organization's
+ * reminder_lead_time_hours window before start_at, and only once that
+ * start_at has been in place since the reminder's own due point
+ * (isReminderDue); no lateness rule (window-based - a past appointment is
+ * never due); no engagement, payment or business-hours rule and no enabled
+ * re-check at the gate; the gate re-checks the appointment is still
+ * scheduled/confirmed; the deterministic message in the organization's
+ * timezone; sender "ai"; {appointment_id} on every execution. A contact that
+ * is not the organization's is recorded as blocked contact_not_found
+ * (B2.5a). The confirmation_requested_at write is NOT here - it is the
+ * producer's, after a sent reminder.
+ */
+export const APPOINTMENT_REMINDER_ADAPTER: DerivedTouchAdapter<ReminderItem, { timezone: string }> = {
+  identity: { automationId: "appointment-reminders", eventType: "appointment.reminder", workflowName: APPOINTMENT_REMINDER_WORKFLOW },
+  policy: { requiresActivePayment: false, stale: { mode: "none" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai" },
+  subject: ({ appointment }) => ({ organizationId: appointment.organization_id, contactId: appointment.contact_id, leadId: appointment.lead_id, entityType: "appointment", entityId: appointment.id }),
+  idempotencyKey: ({ appointment }) => `appointment.reminder:${appointment.id}:${appointment.start_at}`,
+  isDue: ({ appointment, config }, now) => config !== null && isReminderDue(appointment, config, now),
+  dueAt: ({ appointment, config }) => {
+    if (!config) throw new Error("appointment reminder: no reminder window for this touch");
+    return { anchorMs: new Date(appointment.start_at).getTime(), delayMs: -config.reminder_lead_time_hours * 60 * 60 * 1000 };
+  },
+  // Nothing is re-checked before the claim (the gate re-checks the appointment); the facts are the organization's timezone for the message.
+  stillOwed: async (service, { appointment }) => {
+    const businessProfile = await getBusinessProfile(service, appointment.organization_id);
+    return { owed: true, facts: { timezone: businessProfile?.timezone ?? "UTC" } };
+  },
+  payload: ({ appointment }) => ({ appointment_id: appointment.id, contact_id: appointment.contact_id, lead_id: appointment.lead_id, start_at: appointment.start_at }),
+  compose: ({ appointment }, { timezone }) => composeReminderBody(appointment, timezone),
+  gateOptions: ({ appointment }) => ({ appointmentId: appointment.id, appointmentEligibleStatuses: ELIGIBLE_STATUSES }),
+  auditFields: ({ appointment }) => ({ appointment_id: appointment.id }),
+};
+
 async function processOneReminder(
   supabase: SupabaseClient,
   appointment: CandidateAppointment,
+  config: AppointmentReminderConfig,
+  now: Date,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
-  triggerSource: WorkflowExecutionTriggerSource = "event",
+  triggerSource: ReminderRunTriggerSource = "event",
 ): Promise<ReminderOutcome> {
-  // Phase C: checked here too (not only inside createAutomationEventAsService's
-  // own chokepoint) so a disabled organization skips the businessProfile/
-  // conversation lookups below entirely, not just the event insert.
-  if (!(await getAutomationEnabled(supabase, appointment.organization_id, "appointment-reminders"))) {
-    return { appointmentId: appointment.id, outcome: "skipped_disabled" };
-  }
-
-  const idempotencyKey = `appointment.reminder:${appointment.id}:${appointment.start_at}`;
-
-  const eventResult = await createAutomationEventAsService(supabase, appointment.organization_id, {
-    eventType: "appointment.reminder",
-    entityType: "appointment",
-    entityId: appointment.id,
-    payload: {
-      appointment_id: appointment.id,
-      contact_id: appointment.contact_id,
-      lead_id: appointment.lead_id,
-      start_at: appointment.start_at,
-    },
-    idempotencyKey,
-  });
-
-  if (!eventResult.ok) {
-    return { appointmentId: appointment.id, outcome: "failed", error: eventResult.error };
-  }
-  if (eventResult.duplicate) {
-    return { appointmentId: appointment.id, outcome: "skipped_duplicate" };
-  }
-  if (eventResult.skipped) {
-    return { appointmentId: appointment.id, outcome: "skipped_disabled" };
-  }
-
-  const executionResult = await startWorkflowExecutionAsService(
-    supabase,
-    eventResult.event.id,
-    APPOINTMENT_REMINDER_WORKFLOW,
-    {},
-    triggerSource,
-  );
-  if (!executionResult.ok) {
-    return { appointmentId: appointment.id, outcome: "failed", error: executionResult.error };
-  }
-
-  const executionId = executionResult.execution.id;
-  const businessProfile = await getBusinessProfile(supabase, appointment.organization_id);
-  const timezone = businessProfile?.timezone ?? "UTC";
-
-  let conversationId: string | null = null;
-  if (appointment.contact_id) {
-    const conversation = await findOrCreateOpenConversation(
-      supabase,
-      appointment.organization_id,
-      appointment.contact_id,
-      "sms",
-      appointment.lead_id,
-    );
-    conversationId = conversation?.id ?? null;
-  }
-
-  const body = composeReminderBody(appointment, timezone);
-
-  const gateResult = await evaluateOutboundGate(supabase, {
-    organizationId: appointment.organization_id,
-    executionId,
-    contactId: appointment.contact_id,
-    conversationId,
-    leadId: appointment.lead_id,
-    aiResult: { should_send: true, response_message: body, needs_human: false },
-    appointmentId: appointment.id,
-    appointmentEligibleStatuses: ELIGIBLE_STATUSES,
-  });
-
-  if (!gateResult.allowed) {
-    await completeWorkflowExecutionAsService(supabase, executionId, {
-      should_send: false,
-      blocked_reason: gateResult.reason,
-      blocked_detail: gateResult.detail ?? null,
-      appointment_id: appointment.id,
-    });
-    return { appointmentId: appointment.id, outcome: "blocked", reason: gateResult.reason };
-  }
-
-  const sendResult = await sendOutboundMessage(supabase, {
-    organizationId: appointment.organization_id,
-    contactId: gateResult.contactId,
-    conversationId: gateResult.conversationId,
-    channel: "sms",
-    body: gateResult.body,
-    senderType: "ai",
-    workflowExecutionId: executionId,
+  const appointmentId = appointment.id;
+  // P0-B B2.6: the reminder itself runs the shared derived touch runtime -
+  // kill switch (read per appointment, as before), still due, B1
+  // verification, claim (the legacy key + B0), compose, gate, send, record.
+  const result = await runDerivedTouch(supabase, APPOINTMENT_REMINDER_ADAPTER, { appointment, config }, now, {
+    isEnabled: (organizationId) => getAutomationEnabled(supabase, organizationId, "appointment-reminders"),
+    context: { triggerSource },
     sendSmsFn,
   });
 
-  if (!sendResult.ok) {
-    await failWorkflowExecutionAsService(supabase, executionId, sendResult.error, "sms_send_failed");
-    return { appointmentId: appointment.id, outcome: "failed", error: sendResult.error };
-  }
-
-  // Pass 5B, Part A1/A2: materializes "a confirmation request genuinely
-  // reached this customer" onto the row itself, only when the reminder
-  // actually included the confirmation ask (i.e. wasn't already confirmed) -
-  // see composeReminderBody's own comment. Best-effort: a failure to record
-  // this must never be treated as the send itself failing, since the
-  // message has already been genuinely sent by this point.
-  if (appointment.status !== "confirmed") {
-    const { error: requestedAtError } = await supabase
-      .from("appointments")
-      .update({ confirmation_requested_at: new Date().toISOString() })
-      .eq("id", appointment.id)
-      .eq("organization_id", appointment.organization_id);
-    if (requestedAtError) {
-      console.error("[automation] failed to record confirmation_requested_at", { appointmentId: appointment.id, error: requestedAtError.message });
+  switch (result.status) {
+    case "sent": {
+      // Pass 5B, Part A1/A2: materializes "a confirmation request genuinely
+      // reached this customer" onto the row itself, only when the reminder
+      // actually included the confirmation ask (i.e. wasn't already confirmed) -
+      // see composeReminderBody's own comment. Only after a reminder that was
+      // actually sent. Best-effort: a failure to record this must never be
+      // treated as the send itself failing, since the message has already
+      // been genuinely sent by this point.
+      if (appointment.status !== "confirmed") {
+        const { error: requestedAtError } = await supabase
+          .from("appointments")
+          .update({ confirmation_requested_at: new Date().toISOString() })
+          .eq("id", appointment.id)
+          .eq("organization_id", appointment.organization_id);
+        if (requestedAtError) {
+          console.error("[automation] failed to record confirmation_requested_at", { appointmentId: appointment.id, error: requestedAtError.message });
+        }
+      }
+      return { appointmentId, outcome: "sent", messageId: result.messageId };
     }
+    case "blocked":
+      return { appointmentId, outcome: "blocked", reason: result.reason };
+    case "failed":
+      return { appointmentId, outcome: "failed", error: result.error };
+    case "lifecycle_failed":
+      return { appointmentId, outcome: "failed", error: `lifecycle_snapshot_failed: ${result.error}` };
+    case "skipped_duplicate":
+    case "skipped_disabled":
+      return { appointmentId, outcome: result.status };
+    default:
+      // Unreachable for a scanned candidate under this kind's policy (due at the same instant, no payment check, record_blocked missing subject, always owed); never a success.
+      return { appointmentId, outcome: "failed", error: `unexpected_touch_status:${result.status}` };
   }
-
-  await completeWorkflowExecutionAsService(supabase, executionId, {
-    should_send: true,
-    message_id: sendResult.messageId,
-    conversation_id: sendResult.conversationId,
-    provider_message_id: sendResult.providerMessageId,
-    appointment_id: appointment.id,
-  });
-
-  return { appointmentId: appointment.id, outcome: "sent", messageId: sendResult.messageId };
 }
 
 export type ReminderPreview =
@@ -440,66 +398,11 @@ export async function retryAppointmentReminder(
     return { ok: false, error: "The appointment no longer exists." };
   }
 
-  const businessProfile = await getBusinessProfile(supabase, event.organizationId);
-  const timezone = businessProfile?.timezone ?? "UTC";
-
-  let conversationId: string | null = null;
-  if (appointment.contact_id) {
-    const conversation = await findOrCreateOpenConversation(
-      supabase,
-      event.organizationId,
-      appointment.contact_id,
-      "sms",
-      appointment.lead_id,
-    );
-    conversationId = conversation?.id ?? null;
-  }
-
-  const body = composeReminderBody(appointment as CandidateAppointment, timezone);
-
-  const gateResult = await evaluateOutboundGate(supabase, {
-    organizationId: event.organizationId,
-    executionId,
-    contactId: appointment.contact_id,
-    conversationId,
-    leadId: appointment.lead_id,
-    aiResult: { should_send: true, response_message: body, needs_human: false },
-    appointmentId: appointment.id,
-    appointmentEligibleStatuses: ELIGIBLE_STATUSES,
-  });
-
-  if (!gateResult.allowed) {
-    await ops.complete(supabase, executionId, {
-      should_send: false,
-      blocked_reason: gateResult.reason,
-      blocked_detail: gateResult.detail ?? null,
-      appointment_id: appointment.id,
-    });
-    return { ok: true };
-  }
-
-  const sendResult = await sendOutboundMessage(supabase, {
-    organizationId: event.organizationId,
-    contactId: gateResult.contactId,
-    conversationId: gateResult.conversationId,
-    channel: "sms",
-    body: gateResult.body,
-    senderType: "ai",
-    workflowExecutionId: executionId,
-  });
-
-  if (!sendResult.ok) {
-    await ops.fail(supabase, executionId, sendResult.error, "sms_send_failed");
-    return { ok: false, error: sendResult.error };
-  }
-
-  await ops.complete(supabase, executionId, {
-    should_send: true,
-    message_id: sendResult.messageId,
-    conversation_id: sendResult.conversationId,
-    provider_message_id: sendResult.providerMessageId,
-    appointment_id: appointment.id,
-  });
-
-  return { ok: true };
+  // P0-B B2.6: the reminder's retry runs the shared retry entry - subject +
+  // B1 verification (an unknown lifecycle fails this execution), the
+  // organization's timezone, then the shared gate/send spine with A2's ops,
+  // composed from the appointment as it is now. The reminder window is never
+  // re-evaluated on a retry, and a retry never writes confirmation_requested_at
+  // (it never did).
+  return retryDerivedTouch(supabase, APPOINTMENT_REMINDER_ADAPTER, { appointment: appointment as CandidateAppointment, config: null }, executionId, ops);
 }
