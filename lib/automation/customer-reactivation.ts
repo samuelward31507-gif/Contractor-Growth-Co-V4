@@ -165,7 +165,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 export const CUSTOMER_REACTIVATION_ADAPTER: DerivedTouchAdapter<ReactivationItem, ReactivationFacts> = {
   identity: { automationId: "customer-reactivation", eventType: "customer.reactivation", workflowName: CUSTOMER_REACTIVATION_WORKFLOW },
-  policy: { requiresActivePayment: true, stale: "record_overdue", gateChecksAutomationEnabled: false, senderType: "ai" },
+  // Legacy values, unchanged: the overdue record carries the event payload; a contact that is not the organization's records nothing (its legacy outcome no_contact).
+  policy: { requiresActivePayment: true, stale: { mode: "record_blocked", audit: "payload" }, missingSubject: "skip", gateChecksAutomationEnabled: false, senderType: "ai" },
   subject: ({ job }) => ({ organizationId: job.organization_id, contactId: job.contact_id, leadId: null, entityType: "job", entityId: job.id }),
   idempotencyKey: ({ job }) => `customer.reactivation:${job.contact_id}:${job.id}`,
   isDue: ({ job, config }, now) => isReactivationDue(job.completed_at, config, now),
@@ -204,10 +205,10 @@ export const CUSTOMER_REACTIVATION_ADAPTER: DerivedTouchAdapter<ReactivationItem
 
     return { owed: true, facts: { contact: contact as ReactivationContact, title: freshJob.title as string } };
   },
-  payload: ({ job }, facts) => ({ contact_id: job.contact_id, job_id: job.id, job_title: facts.title }),
+  payload: ({ job }, facts) => ({ contact_id: job.contact_id, job_id: job.id, job_title: facts ? facts.title : job.title }),
   compose: ({ job }, facts) => composeReactivationBody(facts.contact, { ...job, title: facts.title }),
   gateOptions: ({ job, config }) => ({ jobId: job.id, jobEligibleStatuses: ["completed"], respectBusinessHours: config.respect_business_hours }),
-  resultMetadata: ({ job }) => ({ job_id: job.id }),
+  auditFields: ({ job }) => ({ job_id: job.id }),
 };
 
 async function processOneCustomer(

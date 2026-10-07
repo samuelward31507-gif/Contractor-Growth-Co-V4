@@ -234,7 +234,9 @@ const SNAPSHOT_MARKER_TABLE = "opportunities";
 
 process.env.VERCEL_ENV = "preview";
 const { processCustomerReactivation, CUSTOMER_REACTIVATION_ADAPTER } = await import(lib("lib/automation/customer-reactivation.ts"));
-const { runDerivedTouch } = await import(lib("lib/automation/touch-runtime.ts"));
+const { runDerivedTouch, retryDerivedTouch } = await import(lib("lib/automation/touch-runtime.ts"));
+const { auditFieldViolation, executeTouch, RUNTIME_OUTCOME_FIELDS } = await import(lib("lib/followups/engine.ts"));
+const { SERVICE_EXECUTION_OPS, startWorkflowExecutionAsService } = await import(lib("lib/automation/executions.ts"));
 const { classifyFailedExecutions } = await import(lib("lib/automation/execution-retry.ts"));
 const { AUTOMATION_CATALOG } = await import(lib("lib/automation/catalog.ts"));
 const { AUTOMATIC_RETRY_POLICY } = await import(lib("lib/automation/retry-eligibility.ts"));
@@ -282,7 +284,7 @@ const config = { inactivity_days: 180, respect_business_hours: true };
 function probe(overrides: Partial<Record<string, unknown>> = {}) {
   const real = CUSTOMER_REACTIVATION_ADAPTER as Record<string, unknown>;
   const traced: Record<string, unknown> = { identity: real.identity, policy: { ...(real.policy as Row), ...((overrides.policy as Row) ?? {}) } };
-  for (const key of ["subject", "idempotencyKey", "isDue", "dueAt", "stillOwed", "payload", "compose", "gateOptions", "resultMetadata"]) {
+  for (const key of ["subject", "idempotencyKey", "isDue", "dueAt", "stillOwed", "payload", "compose", "gateOptions", "auditFields"]) {
     const fn = (overrides[key] ?? real[key]) as (...args: unknown[]) => unknown;
     traced[key] = (...args: unknown[]) => {
       trace.push(key);
@@ -291,12 +293,13 @@ function probe(overrides: Partial<Record<string, unknown>> = {}) {
   }
   return traced;
 }
-const derived = (adapter: unknown, job: Row, now: Date = T0, enabled = true) =>
+const derived = (adapter: unknown, job: Row, now: Date = T0, enabled = true, context?: { triggerSource: "event" | "manual" }) =>
   runDerivedTouch(db as never, adapter as never, { job, config }, now, {
     isEnabled: async () => {
       trace.push("isEnabled");
       return enabled;
     },
+    ...(context ? { context } : {}),
   });
 
 // ===========================================================================
@@ -451,8 +454,8 @@ test("11. execution recording: send failure -> failed execution (sms_send_failed
 });
 
 test("12. the adapter is a fixed interface of pure functions + policy values, matching the catalog", () => {
-  assert.deepEqual(Object.keys(CUSTOMER_REACTIVATION_ADAPTER).sort(), ["compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "resultMetadata", "stillOwed", "subject"]);
-  assert.deepEqual(CUSTOMER_REACTIVATION_ADAPTER.policy, { requiresActivePayment: true, stale: "record_overdue", gateChecksAutomationEnabled: false, senderType: "ai" });
+  assert.deepEqual(Object.keys(CUSTOMER_REACTIVATION_ADAPTER).sort(), ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject"]);
+  assert.deepEqual(CUSTOMER_REACTIVATION_ADAPTER.policy, { requiresActivePayment: true, stale: { mode: "record_blocked", audit: "payload" }, missingSubject: "skip", gateChecksAutomationEnabled: false, senderType: "ai" });
   const entry = AUTOMATION_CATALOG.find((a: Row) => a.id === CUSTOMER_REACTIVATION_ADAPTER.identity.automationId);
   assert.ok(entry);
   assert.ok((entry.eventTypes as string[]).includes(CUSTOMER_REACTIVATION_ADAPTER.identity.eventType));
@@ -485,7 +488,9 @@ test("14. one executor: customer reactivation no longer has its own claim/gate/s
   }
   assert.match(reactivation, /runDerivedTouch\(supabase, CUSTOMER_REACTIVATION_ADAPTER, \{ job, config \}, now, \{ isEnabled, sendSmsFn \}\)/);
   const runtime = readFileSync(path.join(process.cwd(), "lib/automation/touch-runtime.ts"), "utf8");
-  assert.match(runtime, /import \{ claimTouch, executeTouch, verifyLifecycle,/);
+  const engineImport = /import \{([^}]*)\} from "@\/lib\/followups\/engine";/.exec(runtime);
+  assert.ok(engineImport, "the derived driver imports the shared runtime from engine.ts");
+  for (const name of ["claimTouch", "executeTouch", "recordBlockedTouch", "verifyLifecycle"]) assert.match(engineImport![1], new RegExp(`\\b${name}\\b`), name);
   const engine = readFileSync(path.join(process.cwd(), "lib/followups/engine.ts"), "utf8");
   assert.match(engine, /const recorded = await claimTouch\(service, kind, row\.organization_id,/);
   assert.match(engine, /await executeTouch\(service, obligationTouchSend\(kind,/);
@@ -507,4 +512,259 @@ test("15. the persisted kind's gate options reach the shared executor: a lead cl
   assert.equal(calls.sends, 0);
   const execution = store.workflow_executions!.find((e) => e.workflow_name === "lead_followup_touch")!;
   assert.equal(execution.outcome, "blocked");
+});
+
+// ===========================================================================
+// P0-B B2.5a: the extended contract (execution context, audit fields,
+// subject resolution, stale policy, shared retry entry). Exercised through
+// the REAL customer-reactivation adapter, with policy VALUES overridden where
+// a test needs a value customer reactivation does not use - the runtime
+// cannot tell the difference, which is the point.
+// ===========================================================================
+
+/** Captures every B0 start call for the duration of `fn`. */
+async function captureStarts<T>(fn: () => Promise<T>): Promise<{ result: T; starts: Row[] }> {
+  const starts: Row[] = [];
+  const realRpc = db.rpc;
+  (db as Row).rpc = (name: string, args: Row) => {
+    if (name === "start_workflow_execution") starts.push({ ...args });
+    return realRpc(name, args);
+  };
+  try {
+    return { result: await fn(), starts };
+  } finally {
+    (db as Row).rpc = realRpc;
+  }
+}
+const metadataOf = (execution: Row) => execution.metadata as Row;
+const otherContactJob = () => {
+  store.contacts!.push({ id: "55555555-5555-4555-8555-555555555555", organization_id: OTHER_ORG, first_name: "Foreign", phone: "+15550142309", sms_opt_out: false });
+  return addJob({ contact_id: "55555555-5555-4555-8555-555555555555" });
+};
+
+test("16. execution context: the run's trigger source reaches B0 with the touch's event and the kind's workflow; 'event' when omitted", async () => {
+  const job = addJob();
+  const manual = await captureStarts(() => derived(probe(), job, T0, true, { triggerSource: "manual" }));
+  assert.equal((manual.result as Row).status, "sent");
+  const [event] = events();
+  assert.deepEqual(manual.starts, [{ p_automation_event_id: event.id, p_workflow_name: "customer_reactivation_followup", p_metadata: {}, p_trigger_source: "manual" }]);
+  assert.equal(executions()[0].trigger_source, "manual");
+  store.conversations = []; // customer reactivation's own still-owed rule refuses a contact mid-conversation
+  const other = addJob({ contact_id: OTHER_CONTACT });
+  const omitted = await captureStarts(() => derived(probe(), other));
+  assert.equal(omitted.starts[0].p_trigger_source, "event");
+  // The overdue record carries the run's trigger source too.
+  store.conversations = [];
+  const late = addJob({ contact_id: OTHER_CONTACT, completed_at: daysAgo(400) });
+  const overdue = await captureStarts(() => derived(probe(), late, T0, true, { triggerSource: "manual" }));
+  assert.deepEqual(overdue.result, { status: "blocked", reason: "followup_overdue" });
+  assert.equal(overdue.starts[0].p_trigger_source, "manual");
+  // A refused B0 start: no execution, no send.
+  control.startLoses = true;
+  const refused = await captureStarts(() => derived(probe(), addJob({ contact_id: OTHER_CONTACT, completed_at: daysAgo(181), id: uuid() })));
+  assert.equal((refused.result as Row).status, "failed");
+  assert.equal(refused.starts.length, 1);
+  assert.equal(calls.sends, 2);
+});
+
+test("17. audit fields: flat scalars appended after the outcome fields; a collision or a non-scalar is rejected before anything is recorded; deterministic", async () => {
+  assert.deepEqual([...RUNTIME_OUTCOME_FIELDS].sort(), ["blocked_detail", "blocked_reason", "conversation_id", "message_id", "provider_message_id", "should_send"]);
+  assert.equal(auditFieldViolation({ job_id: "j", occurrence: 2, lead_id: null }), null);
+  assert.equal(auditFieldViolation({ should_send: true }), "should_send");
+  assert.equal(auditFieldViolation({ zeta: 1, message_id: "x", blocked_reason: "y" }), "blocked_reason", "the first violation in sorted key order");
+  assert.equal(auditFieldViolation({ nested: { a: 1 } }), "nested");
+  assert.equal(auditFieldViolation({ list: [1] }), "list");
+
+  const job = addJob();
+  assert.equal((await derived(probe(), job)).status, "sent");
+  assert.deepEqual(metadataOf(executions()[0]), { should_send: true, message_id: "m", conversation_id: metadataOf(executions()[0]).conversation_id, provider_message_id: "SM", job_id: job.id });
+
+  for (const bad of [{ should_send: false }, { conversation_id: "forged" }, { job: { id: "x" } }]) {
+    const before = { events: store.automation_events!.length, executions: store.workflow_executions!.length, sends: calls.sends, conversations: store.conversations!.length };
+    const result = await derived(probe({ auditFields: () => bad }), addJob({ contact_id: OTHER_CONTACT }));
+    assert.deepEqual(result, { status: "failed", error: `audit_field_rejected:${Object.keys(bad)[0]}` });
+    assert.deepEqual({ events: store.automation_events!.length, executions: store.workflow_executions!.length, sends: calls.sends, conversations: store.conversations!.length }, before, "nothing claimed, recorded or sent");
+  }
+  // The shared executor refuses a collision before any read or write (a persisted kind can never reach it either).
+  const conversationsBefore = store.conversations!.length;
+  await assert.rejects(executeTouch(db as never, { organizationId: ORG, contactId: CONTACT, leadId: null, body: "x", gateOptions: {}, gateAutomationId: null, senderType: "ai", auditFields: { message_id: "forged" } }, "exec-x", SERVICE_EXECUTION_OPS), /audit_field_rejected:message_id/);
+  assert.equal(store.conversations!.length, conversationsBefore);
+});
+
+test("18. subject resolution: an UNKNOWN lifecycle fails closed (nothing recorded, still eligible); a KNOWN missing contact follows the policy - never a send", async () => {
+  // Unknown: a failed read.
+  const job = addJob();
+  control.snapshotFails = true;
+  assert.deepEqual(await derived(probe({ policy: { missingSubject: "record_blocked" } }), job), { status: "lifecycle_failed", error: "snapshot read failed (test)" });
+  assert.equal(events().length + executions().length + calls.sends, 0, "an unknown lifecycle is never recorded, even under record_blocked");
+  control.snapshotFails = false;
+  assert.equal((await derived(probe(), job)).status, "sent", "still eligible");
+
+  // Known missing + skip (customer reactivation's legacy value).
+  const foreign = otherContactJob();
+  trace.length = 0;
+  assert.deepEqual(await derived(probe(), foreign), { status: "subject_missing" });
+  assert.equal(events().filter((e) => (e.payload as Row).job_id === foreign.id).length, 0);
+
+  // Known missing + record_blocked.
+  trace.length = 0;
+  const conversationsBefore = store.conversations!.length;
+  const sendsBefore = calls.sends;
+  const result = await derived(probe({ policy: { missingSubject: "record_blocked" } }), foreign);
+  assert.deepEqual(result, { status: "blocked", reason: "contact_not_found" });
+  const event = events().find((e) => (e.payload as Row).job_id === foreign.id)!;
+  assert.equal(event.idempotency_key, `customer.reactivation:${foreign.contact_id}:${foreign.id}`, "the touch's own key is claimed");
+  assert.deepEqual(event.payload, { contact_id: foreign.contact_id, job_id: foreign.id, job_title: "Roof repair" }, "payload without facts");
+  const execution = executions().find((e) => e.automation_event_id === event.id)!;
+  assert.equal(execution.outcome, "blocked");
+  assert.deepEqual(metadataOf(execution), { should_send: false, blocked_reason: "contact_not_found", blocked_detail: null, job_id: foreign.id });
+  assert.ok(!trace.includes("stillOwed") && !trace.includes("compose") && !trace.includes("gateOptions"), "never composed or gated");
+  assert.equal(store.conversations!.length, conversationsBefore, "no conversation is resolved for a foreign contact");
+  assert.equal(calls.sends, sendsBefore);
+  assert.equal((await derived(probe({ policy: { missingSubject: "record_blocked" } }), foreign)).status, "skipped_duplicate", "deterministic: recorded once");
+
+  // A null contact is not a missing subject: no snapshot is loaded; the kind's still-owed (customer reactivation: no_contact)
+  // or, past it, the gate (missing_contact_id) decides - exactly as before.
+  const noContact = addJob({ contact_id: null });
+  trace.length = 0;
+  assert.deepEqual(await derived(probe(), noContact), { status: "not_owed", reason: "no_contact" });
+  assert.ok(!trace.includes("snapshot"));
+  const owedAnyway = probe({ stillOwed: async () => ({ owed: true, facts: { contact: { first_name: null }, title: "Roof repair" } }) });
+  assert.deepEqual(await derived(owedAnyway, noContact), { status: "blocked", reason: "missing_contact_id" });
+});
+
+test("19. stale policy: none sends a late touch; record_blocked records followup_overdue with the audit fields or (legacy) the payload; a missing subject is decided first", async () => {
+  const late = addJob({ completed_at: daysAgo(400) });
+  trace.length = 0;
+  assert.equal((await derived(probe({ policy: { stale: { mode: "none" } } }), late)).status, "sent", "mode none: no lateness rule");
+  assert.ok(!trace.includes("dueAt"));
+
+  const auditLate = addJob({ contact_id: OTHER_CONTACT, completed_at: daysAgo(400) });
+  assert.deepEqual(await derived(probe({ policy: { stale: { mode: "record_blocked", audit: "audit_fields" } } }), auditLate), { status: "blocked", reason: "followup_overdue" });
+  const auditExecution = executions().find((e) => e.automation_event_id === events().find((ev) => (ev.payload as Row).job_id === auditLate.id)!.id)!;
+  assert.deepEqual(metadataOf(auditExecution), { should_send: false, blocked_reason: "followup_overdue", blocked_detail: "219 hours past due".replace("219", String(Math.floor((400 - 180) * 24 - 0))), job_id: auditLate.id });
+
+  // Customer reactivation's legacy value: the overdue record carries the event payload, exactly as recordOverdueTouch did.
+  resetForLegacy();
+  const legacy = addJob({ completed_at: daysAgo(400), title: "Old roof" });
+  assert.deepEqual((await run()).outcomes, [{ contactId: CONTACT, outcome: "blocked", reason: "followup_overdue" }]);
+  assert.deepEqual(metadataOf(executions()[0]), { should_send: false, blocked_reason: "followup_overdue", blocked_detail: `${(400 - 180) * 24} hours past due`, contact_id: CONTACT, job_id: legacy.id, job_title: "Old roof" });
+  assert.equal(executions()[0].trigger_source, "event");
+
+  // Missing subject + overdue: the subject is resolved first.
+  const foreignLate = otherContactJob();
+  foreignLate.completed_at = daysAgo(400);
+  assert.deepEqual(await derived(probe(), foreignLate), { status: "subject_missing" }, "skip: nothing recorded, not an overdue record");
+  assert.deepEqual(await derived(probe({ policy: { missingSubject: "record_blocked" } }), foreignLate), { status: "blocked", reason: "contact_not_found" });
+});
+function resetForLegacy() {
+  store.automation_events = [];
+  store.workflow_executions = [];
+  store.jobs = [];
+  store.messages = [];
+  store.conversations = [];
+  calls.sends = 0;
+}
+
+/** A2's part of a retry, as retry.ts does it: a new execution on the touch's original event, trigger_source 'retry'. */
+async function a2StartsRetry(eventId: string) {
+  const started = await startWorkflowExecutionAsService(db as never, eventId, "customer_reactivation_followup", {}, "retry");
+  assert.ok(started.ok);
+  return started.execution.id as string;
+}
+function spyOps() {
+  const used: string[] = [];
+  return {
+    used,
+    ops: {
+      complete: (...args: unknown[]) => (used.push("complete"), (SERVICE_EXECUTION_OPS.complete as (...a: unknown[]) => Promise<unknown>)(...args)),
+      fail: (...args: unknown[]) => (used.push("fail"), (SERVICE_EXECUTION_OPS.fail as (...a: unknown[]) => Promise<unknown>)(...args)),
+    },
+  };
+}
+async function failedTouch(job: Row) {
+  control.sendOk = false;
+  assert.equal((await derived(probe(), job)).status, "failed");
+  control.sendOk = true;
+  store.conversations = []; // the failed attempt opened one; customer reactivation's still-owed would refuse a contact mid-conversation
+  return events().find((e) => (e.payload as Row).job_id === job.id)!;
+}
+
+test("20. shared retry entry: after A2 starts the retry execution - subject + B1, still owed, then the shared gate/send spine, with A2's ops; no new event, no new B0 start", async () => {
+  const job = addJob();
+  const event = await failedTouch(job);
+  const executionId = await a2StartsRetry(event.id as string);
+  trace.length = 0;
+  const { ops, used } = spyOps();
+  const { result, starts } = await captureStarts(() => retryDerivedTouch(db as never, probe() as never, { job, config }, executionId, ops as never, T0));
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(starts, [], "B0 is A2's: the retry starts nothing");
+  assert.deepEqual(trace.filter((step) => ["snapshot", "stillOwed", "compose", "gateOptions", "send"].includes(step)), ["snapshot", "stillOwed", "compose", "gateOptions", "send"]);
+  assert.deepEqual(used, ["complete"], "recorded through A2's ops");
+  const retried = store.workflow_executions!.find((e) => e.id === executionId)!;
+  assert.deepEqual({ outcome: retried.outcome, trigger_source: retried.trigger_source, attempt: retried.attempt }, { outcome: "succeeded", trigger_source: "retry", attempt: 2 });
+  assert.equal(events().length, 1, "same event, same key");
+});
+
+test("21. shared retry entry fails closed and respects still-owed, the gate and the subject; it never applies the stale rule", async () => {
+  // Each case retries its own failed touch (A2 can only retry a failed execution of an event not yet completed).
+  let contacts = 0;
+  const freshFailedTouch = async (extra: Row = {}) => {
+    const contactId = `66666666-6666-4666-8666-${String(++contacts).padStart(12, "0")}`;
+    store.contacts!.push({ id: contactId, organization_id: ORG, first_name: "Case", phone: `+1555014240${contacts}`, phone_normalized: `+1555014240${contacts}`, sms_opt_out: false });
+    const job = addJob({ contact_id: contactId, ...extra });
+    const event = await failedTouch(job);
+    return { job, contactId, executionId: await a2StartsRetry(event.id as string) };
+  };
+  const executionOf = (id: string) => store.workflow_executions!.find((e) => e.id === id)!;
+
+  // Unknown lifecycle: the retry execution fails; nothing is sent.
+  /** Runs one retry and proves it sent nothing. */
+  const retryWithoutSend = async (job: Row, executionId: string) => {
+    const before = calls.sends;
+    const result = await retryDerivedTouch(db as never, probe() as never, { job, config }, executionId, SERVICE_EXECUTION_OPS as never, T0);
+    assert.equal(calls.sends, before, "nothing sent");
+    return result;
+  };
+  const unknown = await freshFailedTouch();
+  control.snapshotFails = true;
+  assert.deepEqual(await retryWithoutSend(unknown.job, unknown.executionId), { ok: false, error: "lifecycle_snapshot_failed" });
+  assert.equal(executionOf(unknown.executionId).status, "failed");
+  assert.match(String(executionOf(unknown.executionId).error_message), /lifecycle_snapshot_failed/);
+  control.snapshotFails = false;
+
+  // No longer owed: closed as blocked with the kind's reason.
+  const notOwed = await freshFailedTouch();
+  store.leads!.push({ id: uuid(), organization_id: ORG, contact_id: notOwed.contactId, status: "new" });
+  assert.deepEqual(await retryWithoutSend(notOwed.job, notOwed.executionId), { ok: true });
+  assert.deepEqual(metadataOf(executionOf(notOwed.executionId)), { should_send: false, blocked_reason: "active_engagement", blocked_detail: null, job_id: notOwed.job.id });
+
+  // The gate stays in the spine.
+  const gated = await freshFailedTouch();
+  store.contacts!.find((c) => c.id === gated.contactId)!.sms_opt_out = true;
+  assert.deepEqual(await retryWithoutSend(gated.job, gated.executionId), { ok: true });
+  assert.equal(metadataOf(executionOf(gated.executionId)).blocked_reason, "contact_opted_out");
+
+  // No stale rule on retry: a touch now far past due is still retried.
+  const stale = await freshFailedTouch();
+  trace.length = 0;
+  assert.deepEqual(await retryDerivedTouch(db as never, probe() as never, { job: { ...stale.job, completed_at: daysAgo(400) }, config }, stale.executionId, SERVICE_EXECUTION_OPS as never, T0), { ok: true });
+  assert.ok(!trace.includes("dueAt") && !trace.includes("isDue"), "neither cadence nor lateness is re-evaluated");
+  assert.equal(executionOf(stale.executionId).outcome, "succeeded");
+
+  // A known-missing subject closes the existing execution as blocked, whatever the missingSubject policy (here: skip).
+  const missing = await freshFailedTouch();
+  store.contacts!.find((c) => c.id === missing.contactId)!.organization_id = OTHER_ORG;
+  assert.deepEqual(await retryWithoutSend(missing.job, missing.executionId), { ok: true });
+  assert.deepEqual(metadataOf(executionOf(missing.executionId)), { should_send: false, blocked_reason: "contact_not_found", blocked_detail: null, job_id: missing.job.id });
+});
+
+test("22. no callback sprawl: the adapter contract is a fixed set of pure functions + policy values; no before/after/on hooks", () => {
+  const runtime = readFileSync(path.join(process.cwd(), "lib/automation/touch-runtime.ts"), "utf8");
+  const contract = runtime.slice(runtime.indexOf("export type DerivedTouchAdapter"), runtime.indexOf("export type DerivedTouchResult"));
+  const members = [...contract.matchAll(/^  (\w+):/gm)].map((m) => m[1]).sort();
+  assert.deepEqual(members, ["auditFields", "compose", "dueAt", "gateOptions", "idempotencyKey", "identity", "isDue", "payload", "policy", "stillOwed", "subject"]);
+  assert.doesNotMatch(runtime, /\b(before|after)[A-Z]\w*\s*[:?(]|\bon[A-Z]\w*\s*[:?(]/, "no hook members or calls");
+  const policy = runtime.slice(runtime.indexOf("export type DerivedTouchPolicy"), runtime.indexOf("export type DerivedTouchAdapter"));
+  assert.deepEqual([...policy.matchAll(/^  (\w+):/gm)].map((m) => m[1]).sort(), ["gateChecksAutomationEnabled", "missingSubject", "requiresActivePayment", "senderType", "stale"]);
 });

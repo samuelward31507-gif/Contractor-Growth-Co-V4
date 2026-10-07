@@ -567,18 +567,36 @@ test("12. lease intact: the claim leases for FOLLOWUP_LEASE_MINUTES; a live leas
   assert.equal(calls.sends, 2);
 });
 
-test("13. B0 atomic claim intact: when start_workflow_execution refuses (another attempt holds the event), nothing is sent", async () => {
-  const { followup } = await newFollowup();
-  control.startLoses = true;
-  clock = at(24);
-  const outcome = (await quiet(() => dispatchFollowup(db as never, followup.id, clock))) as Row;
-  assert.equal(outcome.outcome, "failed");
-  assert.equal(calls.sends, 0);
-  assert.equal(touchExecutions().length, 0);
-  assert.deepEqual({ state: fu(followup.id).state, next_action: fu(followup.id).next_action, lease_until: fu(followup.id).lease_until }, { state: "failed", next_action: "human_review", lease_until: null });
-  const source = readFileSync(path.join(process.cwd(), "lib/followups/engine.ts"), "utf8");
-  assert.match(source, /startWorkflowExecutionAsService\(service, eventResult\.event\.id, kind\.workflowName\)/);
-  assert.match(readFileSync(path.join(process.cwd(), "lib/automation/executions.ts"), "utf8"), /rpc\("start_workflow_execution"/);
+test("13. B0 atomic claim intact: the touch's event, the kind's workflow and the run's trigger source reach start_workflow_execution; a refused start records no execution and sends nothing", async () => {
+  // Behavioural (P0-B B2.5a, replacing a source-text pin): capture every B0 start call.
+  const starts: Row[] = [];
+  const realRpc = db.rpc;
+  (db as Row).rpc = (name: string, args: Row) => {
+    if (name === "start_workflow_execution") starts.push({ ...args });
+    return realRpc(name, args);
+  };
+  try {
+    const { followup } = await newFollowup();
+    const refused = (await newFollowup({ contact_id: OTHER_CONTACT })).followup;
+    clock = at(24);
+    assert.equal((await dispatchFollowup(db as never, followup.id, clock)).outcome, "sent");
+    const [event] = touchEvents();
+    assert.deepEqual(starts, [{ p_automation_event_id: event.id, p_workflow_name: getObligationKind("lead_no_reply")!.workflowName, p_metadata: {}, p_trigger_source: "event" }]);
+    assert.equal(touchExecutions()[0].automation_event_id, event.id);
+
+    starts.length = 0;
+    control.startLoses = true;
+    const outcome = (await quiet(() => dispatchFollowup(db as never, refused.id, clock))) as Row;
+    assert.equal(outcome.outcome, "failed");
+    const refusedEvent = touchEvents().find((e) => (e.payload as Row).followup_id === refused.id)!;
+    assert.deepEqual(starts, [{ p_automation_event_id: refusedEvent.id, p_workflow_name: "lead_followup_touch", p_metadata: {}, p_trigger_source: "event" }], "the refused start was asked for this touch's event");
+    assert.equal(touchExecutions().length, 1, "no execution for the refused start");
+    assert.equal(calls.sends, 1, "no send for the refused start");
+    assert.deepEqual({ state: fu(refused.id).state, next_action: fu(refused.id).next_action, lease_until: fu(refused.id).lease_until }, { state: "failed", next_action: "human_review", lease_until: null });
+    assert.match(readFileSync(path.join(process.cwd(), "lib/automation/executions.ts"), "utf8"), /rpc\("start_workflow_execution"/);
+  } finally {
+    (db as Row).rpc = realRpc;
+  }
 });
 
 test("14. A2 retry intact: failed send -> failed execution (A2-classified) -> retry re-runs the kind's checks + gate + send -> obligation advances", async () => {

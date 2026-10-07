@@ -24,8 +24,11 @@ const lib = (relative: string) => pathToFileURL(path.join(process.cwd(), relativ
 type GateCall = { organizationId: string; contactId: string | null; conversationId: string | null; estimateId?: string; estimateEligibleStatuses?: string[]; aiResult: { should_send: boolean; response_message: string; needs_human: boolean } };
 const gateCalls: GateCall[] = [];
 let gateDeny: string | null = null;
+// The real module's other exports stay available (the shared touch runtime imports isWithinBusinessHours); only the gate decision is stubbed.
+const realOutboundGate = await import(lib("lib/automation/outbound-gate.ts"));
 mock.module(lib("lib/automation/outbound-gate.ts"), {
   namedExports: {
+    ...realOutboundGate,
     evaluateOutboundGate: async (_s: unknown, input: GateCall) => {
       gateCalls.push(input);
       return gateDeny ? { allowed: false, reason: gateDeny } : { allowed: true, contactId: input.contactId, conversationId: input.conversationId, body: input.aiResult.response_message };
@@ -298,4 +301,23 @@ test("structural: no .limit(500) left; the scheduled route and the Run now actio
   assert.match(route, /await processEstimateFollowups\(service\);/);
   const actions = fs.readFileSync(path.join(process.cwd(), "app/(app)/automations/actions.ts"), "utf8");
   assert.match(actions, /await processEstimateFollowups\(supabase, new Date\(\), undefined, "manual"\)/);
+});
+
+// ===========================================================================
+// P0-B B2.5a: test infrastructure only. A future migration of estimate
+// follow-up onto the shared touch runtime reads the contact's B1 lifecycle
+// snapshot; this proves the fake service above can serve that read (through
+// the runtime's own verifyLifecycle) without changing any expectation above.
+// ===========================================================================
+
+test("infrastructure: the fake service serves the shared runtime's B1 lifecycle snapshot read (and reports a contact that is not the organization's)", async () => {
+  const { verifyLifecycle } = await import(lib("lib/followups/engine.ts"));
+  const t = { ...tables([estimate("e-1", 30)], [configured(24, 72)]), contacts: [{ id: "contact-1", organization_id: "org-1", sms_opt_out: false }] };
+  const fake = fakeService(t);
+  const verified = await verifyLifecycle(fake.supabase, "org-1", "contact-1", NOW);
+  assert.equal(verified.failed, false);
+  assert.equal(verified.snapshot.contactId, "contact-1");
+  assert.equal(verified.lifecycle.stage, "estimate_follow_up", "the sent estimate is the contact's lifecycle position");
+  const missing = await verifyLifecycle(fakeService({ ...t, contacts: [] }).supabase, "org-1", "contact-1", NOW);
+  assert.deepEqual(missing, { failed: true, error: "contact_not_found" });
 });

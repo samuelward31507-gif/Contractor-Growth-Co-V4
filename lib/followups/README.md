@@ -70,3 +70,17 @@ Two drivers feed those steps:
 Each kind plugs in through a `DerivedTouchAdapter`: pure functions of the work item (subject, legacy key, due check, due time, still-owed check, payload, message, gate options, result ids) plus policy values.
 
 The first derived kind is customer reactivation (`CUSTOMER_REACTIVATION_ADAPTER`). Its existing scan is still its producer. Tests: `lib/automation/touch-runtime.test.ts`.
+
+### Contract extension (P0-B B2.5a)
+
+- **Execution context:** `{ triggerSource: "event" | "manual" }` describes how a run was initiated. It reaches B0's start through `claimTouch`, and defaults to `"event"`. `"retry"` stays A2's alone.
+- **Audit fields:** `auditFields(item)` returns the kind's flat scalar ids, recorded on every execution of a touch after the runtime's outcome fields. A field that would overwrite an outcome field (`RUNTIME_OUTCOME_FIELDS`), or that isn't a scalar, is rejected before anything is recorded.
+- **Subject resolution:** the B1 step tells two failures apart:
+  - **unknown** (a failed read): fail closed, record nothing, stay eligible;
+  - **known missing** (B1's `contact_not_found`): the kind's `missingSubject` policy decides:
+    - `record_blocked`: claim the key and record a blocked `contact_not_found` execution, with no conversation, message, gate or send;
+    - `skip`: record nothing.
+- **Stale policy:**
+  - `{ mode: "none" }`, or
+  - `{ mode: "record_blocked", audit: "audit_fields" | "payload" }`: recorded through the runtime's own `recordBlockedTouch`, so the trigger source is kept. `payload` is customer reactivation's legacy value.
+- **`retryDerivedTouch`:** the shared A2 retry of a derived touch. A2 still decides, accounts the attempt and starts the `"retry"` execution. The runtime then runs subject + B1 → still owed → the shared gate/send spine, with A2's ops. There is no stale check on retry.

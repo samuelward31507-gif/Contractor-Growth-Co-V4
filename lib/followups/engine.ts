@@ -189,6 +189,32 @@ export function registeredObligationKinds(): ObligationKind[] {
 /** The catalog identity a touch is recorded under. */
 export type TouchIdentity = { automationId: string; eventType: string; workflowName: string };
 
+/**
+ * HOW a run was initiated - never what kind it is. The cron/event path is
+ * "event"; an admin "Run now" is "manual". "retry" is A2's alone: A2 starts
+ * the retry execution itself, so it never passes through here.
+ */
+export type ExecutionContext = { triggerSource: "event" | "manual" };
+export const EVENT_EXECUTION_CONTEXT: ExecutionContext = { triggerSource: "event" };
+
+/**
+ * A kind's audit fields: the ids that identify the touch on every execution
+ * record it produces. Flat scalars only - never a free-form blob - and never
+ * one of the runtime's own outcome fields.
+ */
+export type AuditFields = Readonly<Record<string, string | number | null>>;
+export const RUNTIME_OUTCOME_FIELDS: readonly string[] = ["should_send", "blocked_reason", "blocked_detail", "message_id", "conversation_id", "provider_message_id"];
+
+/** The first audit field that is not a flat scalar or that would overwrite a runtime outcome field, or null. Deterministic: fields are checked in sorted order. */
+export function auditFieldViolation(fields: Record<string, unknown>): string | null {
+  for (const key of Object.keys(fields).sort()) {
+    if (RUNTIME_OUTCOME_FIELDS.includes(key)) return key;
+    const value = fields[key];
+    if (value !== null && typeof value !== "string" && typeof value !== "number") return key;
+  }
+  return null;
+}
+
 export type LifecycleVerification = { failed: false; snapshot: LifecycleSnapshot | null; lifecycle: LifecycleResult | null } | { failed: true; error: string };
 
 /**
@@ -215,6 +241,7 @@ export async function claimTouch(
   kind: TouchIdentity,
   organizationId: string,
   touch: { entityType: string; entityId: string; payload: Record<string, unknown>; idempotencyKey: string },
+  context: ExecutionContext = EVENT_EXECUTION_CONTEXT,
 ): Promise<TouchClaim> {
   const eventResult = await createAutomationEventAsService(service, organizationId, {
     eventType: kind.eventType,
@@ -226,9 +253,35 @@ export async function claimTouch(
   if (!eventResult.ok) return { status: "error", error: eventResult.error };
   if (eventResult.skipped) return { status: "skipped" };
   if (eventResult.duplicate) return { status: "duplicate" };
-  const execution = await startWorkflowExecutionAsService(service, eventResult.event.id, kind.workflowName);
+  const execution = await startWorkflowExecutionAsService(service, eventResult.event.id, kind.workflowName, {}, context.triggerSource);
   if (!execution.ok) return { status: "start_failed", error: execution.error };
   return { status: "claimed", executionId: execution.execution.id };
+}
+
+export type BlockedRecord = { status: "blocked"; reason: string } | { status: "error"; error: string } | { status: "skipped" } | { status: "duplicate" } | { status: "start_failed"; error: string };
+
+/**
+ * A touch that is decided before any message exists (overdue, known-missing
+ * subject): its key is claimed under the run's trigger source and the
+ * execution is completed as blocked - never composed, never gated, never
+ * sent. `fields` are recorded after the runtime's outcome fields and may not
+ * overwrite them.
+ */
+export async function recordBlockedTouch(
+  service: SupabaseClient,
+  kind: TouchIdentity,
+  organizationId: string,
+  touch: { entityType: string; entityId: string; payload: Record<string, unknown>; idempotencyKey: string },
+  context: ExecutionContext,
+  outcome: { reason: string; detail: string | null },
+  fields: Record<string, unknown>,
+): Promise<BlockedRecord> {
+  const violation = auditFieldViolation(fields);
+  if (violation) return { status: "error", error: `audit_field_rejected:${violation}` };
+  const recorded = await claimTouch(service, kind, organizationId, touch, context);
+  if (recorded.status !== "claimed") return recorded;
+  await SERVICE_EXECUTION_OPS.complete(service, recorded.executionId, { should_send: false, blocked_reason: outcome.reason, blocked_detail: outcome.detail, ...fields });
+  return { status: "blocked", reason: outcome.reason };
 }
 
 /** The gate inputs a kind may supply; the runtime owns the rest (organization, execution, contact, conversation, lead, message). */
@@ -245,8 +298,8 @@ export type TouchSend = {
   /** Policy value: the automation whose enabled state the gate re-checks, or null for a kind whose gate call never carried it. */
   gateAutomationId: string | null;
   senderType: "ai" | "system";
-  /** The kind's ids, recorded on the execution's result. */
-  resultMetadata: Record<string, unknown>;
+  /** The kind's ids, recorded on the execution's result after the runtime's outcome fields. */
+  auditFields: AuditFields;
 };
 
 export type TouchResult = { kind: "sent"; messageId: string } | { kind: "blocked"; reason: OutboundGateDenialReason } | { kind: "failed"; error: string };
@@ -259,6 +312,9 @@ export async function executeTouch(
   ops: ExecutionOps,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
 ): Promise<TouchResult> {
+  // Checked before anything is read or written; a kind can never overwrite an outcome field.
+  const violation = auditFieldViolation(input.auditFields);
+  if (violation) throw new Error(`audit_field_rejected:${violation}`);
   const conversation = input.contactId ? await findOrCreateOpenConversation(supabase, input.organizationId, input.contactId, "sms", input.leadId) : null;
   const automationEnabled = input.gateAutomationId ? await getAutomationEnabled(supabase, input.organizationId, input.gateAutomationId) : null;
   const gate = await evaluateOutboundGate(supabase, {
@@ -272,7 +328,7 @@ export async function executeTouch(
     ...(automationEnabled === null ? {} : { automationEnabled }),
   });
   if (!gate.allowed) {
-    await ops.complete(supabase, executionId, { should_send: false, blocked_reason: gate.reason, blocked_detail: gate.detail ?? null, ...input.resultMetadata });
+    await ops.complete(supabase, executionId, { should_send: false, blocked_reason: gate.reason, blocked_detail: gate.detail ?? null, ...input.auditFields });
     return { kind: "blocked", reason: gate.reason };
   }
   const sent = await sendOutboundMessage(supabase, {
@@ -289,7 +345,7 @@ export async function executeTouch(
     await ops.fail(supabase, executionId, sent.error, "sms_send_failed");
     return { kind: "failed", error: sent.error };
   }
-  await ops.complete(supabase, executionId, { should_send: true, message_id: sent.messageId, conversation_id: sent.conversationId, provider_message_id: sent.providerMessageId, ...input.resultMetadata });
+  await ops.complete(supabase, executionId, { should_send: true, message_id: sent.messageId, conversation_id: sent.conversationId, provider_message_id: sent.providerMessageId, ...input.auditFields });
   return { kind: "sent", messageId: sent.messageId };
 }
 
@@ -471,7 +527,7 @@ function obligationTouchSend(kind: ObligationKind, input: { organizationId: stri
     gateOptions: kind.gateOptions,
     gateAutomationId: kind.automationId,
     senderType: "ai",
-    resultMetadata: { followup_id: input.followupId, lead_id: input.leadId, touch: input.touch },
+    auditFields: { followup_id: input.followupId, lead_id: input.leadId, touch: input.touch },
   };
 }
 
