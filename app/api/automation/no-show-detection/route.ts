@@ -3,6 +3,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { processNoShowDetection } from "@/lib/automation/no-show-detection";
 import { isAuthorizedCronRequest } from "@/lib/automation/cron-auth";
 import { recordScheduledAutomationRun } from "@/lib/automation-health/scheduled-automation-liveness";
+import { withOpsFailureReporting } from "@/lib/ops/route-failure";
 
 /**
  * Pass 5B: scheduled-automation target invoked by an n8n Schedule Trigger -
@@ -42,10 +43,14 @@ async function handle(request: NextRequest) {
 // Both GET and POST point at the exact same authorized, idempotent logic -
 // GET is what the n8n Schedule Trigger's HTTP Request node uses; POST
 // remains available for manual/test invocation.
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   return handle(request);
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   return handle(request);
 }
+
+// Batch 4 (operations hardening): a 5xx or a throw leaves one structured operator line (lib/ops/route-failure.ts); the response is unchanged.
+export const GET = withOpsFailureReporting("automation.cron.no_show_detection", handleGET);
+export const POST = withOpsFailureReporting("automation.cron.no_show_detection", handlePOST);

@@ -28,6 +28,7 @@ import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { N8nTouchDraft } from "@/lib/automation/n8n";
 import type { DerivedTouchAdapter, ResumeInput, ResumeResult, TouchDraft } from "@/lib/automation/touch-runtime";
+import { withOpsFailureReporting } from "@/lib/ops/route-failure";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_MESSAGE_LENGTH = 1600;
@@ -1170,7 +1171,7 @@ async function handleDraftCallback(service: SupabaseClient, raw: unknown, kind: 
   return resumeResponse(result);
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
@@ -1801,3 +1802,6 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+// Batch 4 (operations hardening): a 5xx or a throw leaves one structured operator line (lib/ops/route-failure.ts); the response is unchanged.
+export const POST = withOpsFailureReporting("automation.n8n_callback", handlePOST);

@@ -9,7 +9,9 @@ import { evaluateLiveness } from "@/lib/ops/liveness";
  * the latest health-check heartbeat. It never runs automation work and
  * returns no organization, customer or configuration data - only booleans
  * and the heartbeat time. 200 = app, database and scheduler all OK;
- * 503 = something is wrong (see `checks`).
+ * 503 = something is wrong (see `checks`). Batch 4: `checks.automation` /
+ * `automationOk` report, separately, whether the last tick found executions
+ * stuck past their callback (lib/ops/liveness.ts) - same row, no new read.
  */
 export const dynamic = "force-dynamic";
 
@@ -17,12 +19,13 @@ export async function GET() {
   const result = await evaluateLiveness(async () => {
     const { data, error } = await createServiceRoleClient()
       .from("automation_health_check_runs")
-      .select("checked_at")
+      .select("checked_at, stuck_count")
       .order("checked_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (error) throw new Error("heartbeat_read_failed");
-    return (data as { checked_at: string } | null)?.checked_at ?? null;
+    const row = data as { checked_at: string; stuck_count: number | null } | null;
+    return row ? { checkedAt: row.checked_at, stuckCount: row.stuck_count } : null;
   });
   return NextResponse.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
 }

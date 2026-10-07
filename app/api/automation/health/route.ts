@@ -10,6 +10,7 @@ import { classifyFailedExecutions, processDueRetries } from "@/lib/automation/ex
 import { dispatchDueFollowups } from "@/lib/followups/engine";
 import { runTickPhase } from "@/lib/automation-health/tick-phase";
 import { reportOpsAlert } from "@/lib/ops/alert";
+import { assessHealthTick } from "@/lib/automation-health/tick-assessment";
 
 /**
  * Read-only operational check for workflow_executions rows stuck in
@@ -157,7 +158,7 @@ export async function GET(request: NextRequest) {
     await phase("scheduled_degraded_alert", () => evaluateScheduledAutomationDegradedAlert(service, staleScheduledAutomations.length > 0), undefined);
   }
 
-  const [{ count: failedExecutionCount }, { count: criticalIncidentCount }, { count: warningIncidentCount }] = await Promise.all([
+  const [{ count: failedExecutionCount, error: failedCountError }, { count: criticalIncidentCount, error: criticalCountError }, { count: warningIncidentCount, error: warningCountError }] = await Promise.all([
     service.from("workflow_executions").select("id", { count: "exact", head: true }).eq("status", "failed").gte("started_at", failedSinceIso),
     service.from("automation_incidents").select("id", { count: "exact", head: true }).eq("severity", "critical").in("status", ["open", "acknowledged"]),
     service.from("automation_incidents").select("id", { count: "exact", head: true }).eq("severity", "warning").in("status", ["open", "acknowledged"]),
@@ -177,14 +178,33 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const overall =
-    (criticalIncidentCount ?? 0) > 0 ? "unhealthy" : (warningIncidentCount ?? 0) > 0 || stuck.length > 0 || staleScheduledAutomations.length > 0 ? "degraded" : "healthy";
+  // Batch 4 (operations hardening): the tick's verdict - an unread count is
+  // unknown (never 0), a phase that swallowed its own error is degraded, and
+  // executions Trackpr stopped retrying leave a structured operator line.
+  // What the tick DID (phases, retries, heartbeat rule) is unchanged.
+  const assessment = assessHealthTick({
+    phaseFailures,
+    phaseErrorCounts: { execution_timeout: timeout.errors, retry_classification: retryDecisions.errors, retry_processing: retries.errors },
+    counts: {
+      failedExecutions: failedCountError ? null : (failedExecutionCount ?? 0),
+      criticalIncidents: criticalCountError ? null : (criticalIncidentCount ?? 0),
+      warningIncidents: warningCountError ? null : (warningIncidentCount ?? 0),
+    },
+    stuckCount: stuck.length,
+    staleScheduledAutomationCount: staleScheduledAutomations.length,
+    heartbeatRecorded,
+    retryDecisions: retryDecisions.decided,
+  });
+  for (const alert of assessment.alerts) await reportOpsAlert(alert);
 
-  const tickOk = phaseFailures.length === 0 && heartbeatRecorded;
+  const tickOk = assessment.ok;
   return NextResponse.json({
     ok: tickOk,
-    status: tickOk ? overall : "degraded",
+    status: assessment.status,
     failedPhases: phaseFailures,
+    phaseErrors: assessment.phaseErrors,
+    countsUnavailable: assessment.countsUnavailable,
+    stoppedRetrying: assessment.stoppedRetrying,
     heartbeatRecorded,
     timestamp: new Date().toISOString(),
     thresholdMinutes: STUCK_THRESHOLD_MINUTES,
@@ -198,10 +218,10 @@ export async function GET(request: NextRequest) {
     retriesStopped: retries.stopped,
     followupsDispatched: followups.length,
     followupOutcomes: followups.map((f) => f.outcome),
-    failedExecutionCount: failedExecutionCount ?? 0,
+    failedExecutionCount: failedCountError ? null : (failedExecutionCount ?? 0),
     failedExecutionWindowHours: FAILED_EXECUTION_WINDOW_HOURS,
-    activeCriticalIncidents: criticalIncidentCount ?? 0,
-    activeWarningIncidents: warningIncidentCount ?? 0,
+    activeCriticalIncidents: criticalCountError ? null : (criticalIncidentCount ?? 0),
+    activeWarningIncidents: warningCountError ? null : (warningIncidentCount ?? 0),
     incidentsOpened,
     incidentsResolved,
     scheduledAutomationLiveness: scheduledLiveness,
