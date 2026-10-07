@@ -120,7 +120,10 @@ function fakeService(t: Tables, options: { failPage?: number } = {}) {
 }
 
 function tables(estimates: Row[], settings: Row[] = []): Tables {
-  return { estimates, automation_settings: settings, organizations: [{ id: "org-1", automation_paused: false }, { id: "org-2", automation_paused: false }, { id: "org-3", automation_paused: false }], automation_events: [] };
+  // P0-B B2.5: the estimates' contact exists in each organization the fixtures use, so the shared runtime's B1
+  // lifecycle verification finds it (fixture infrastructure only - no expectation depends on it).
+  const contacts = ["org-1", "org-2", "org-3"].map((org) => ({ id: "contact-1", organization_id: org, sms_opt_out: false }));
+  return { estimates, automation_settings: settings, organizations: [{ id: "org-1", automation_paused: false }, { id: "org-2", automation_paused: false }, { id: "org-3", automation_paused: false }], automation_events: [], contacts };
 }
 const disabled = (org = "org-1"): Row => ({ organization_id: org, automation_id: "estimate-followup", enabled: false, config: {} });
 const configured = (f1: number, f2: number, org = "org-1"): Row => ({ organization_id: org, automation_id: "estimate-followup", enabled: true, config: { followup_1_hours: f1, followup_2_hours: f2 } });

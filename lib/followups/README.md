@@ -84,3 +84,15 @@ The first derived kind is customer reactivation (`CUSTOMER_REACTIVATION_ADAPTER`
   - `{ mode: "none" }`, or
   - `{ mode: "record_blocked", audit: "audit_fields" | "payload" }`: recorded through the runtime's own `recordBlockedTouch`, so the trigger source is kept. `payload` is customer reactivation's legacy value.
 - **`retryDerivedTouch`:** the shared A2 retry of a derived touch. A2 still decides, accounts the attempt and starts the `"retry"` execution. The runtime then runs subject + B1 → still owed → the shared gate/send spine, with A2's ops. There is no stale check on retry.
+
+### Estimate follow-up (P0-B B2.5)
+
+Estimate follow-up is the second derived kind (`ESTIMATE_FOLLOWUP_ADAPTER` in `lib/automation/estimate-followups.ts`).
+
+- **Producer** (unchanged order): handle expiry first, then hand the touch to the runtime.
+  - Expiry is lifecycle-only and never enters the runtime: sent → expired, plus the `estimate.expired` event and the `estimate_expired_lifecycle` execution.
+  - The runtime then runs: kill switch → still due → B1 → K5-3 overdue (`record_blocked`, `{estimate_id, occurrence}`) → legacy key `estimate.followup:<id>:<occurrence>` + B0 → gate → send.
+- **Run Now** passes `{ triggerSource: "manual" }`.
+- **A2 retry:** `retryEstimateWorkflow` keeps its estimate-specific checks (reference, estimate, occurrence, expiry retry) and runs the touch through `retryDerivedTouch`.
+- **Preview** stays read-only.
+- **Tests:** `lib/automation/estimate-followups.runtime.test.ts`.

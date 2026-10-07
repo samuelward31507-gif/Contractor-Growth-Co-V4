@@ -3,12 +3,11 @@ import { createAutomationEventAsService } from "./events";
 import {
   startWorkflowExecutionAsService,
   completeWorkflowExecutionAsService,
-  failWorkflowExecutionAsService,
   SESSION_EXECUTION_OPS,
   type ExecutionOps,
-  type WorkflowExecutionTriggerSource,
 } from "./executions";
-import { evaluateOutboundGate } from "./outbound-gate";
+import { runDerivedTouch, retryDerivedTouch, type DerivedTouchAdapter } from "./touch-runtime";
+import type { ExecutionContext } from "@/lib/followups/engine";
 import {
   getAutomationEnabled,
   getAutomationConfig,
@@ -16,8 +15,6 @@ import {
   readEstimateFollowupConfig,
   type EstimateFollowupConfig,
 } from "./settings";
-import { sendOutboundMessage } from "@/lib/messaging/outbound";
-import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import type { EstimateStatus } from "@/lib/estimates/queries";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
@@ -90,6 +87,47 @@ function composeFollowupBody(estimate: CandidateEstimate, occurrence: 1 | 2): st
   return `Following up one more time on the estimate for "${estimate.title}" - let us know if you'd like to move forward or have any questions. Reply STOP to opt out of texts.`;
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/** How an estimate run was initiated: the cron tick ("event") or an admin's Run now ("manual"). A2 owns "retry". */
+export type EstimateRunTriggerSource = ExecutionContext["triggerSource"];
+
+/** One estimate follow-up touch. `config` is null only on an A2 retry, which never re-evaluates cadence or lateness. */
+type EstimateTouchItem = { estimate: CandidateEstimate; config: EstimateFollowupConfig | null; occurrence: 1 | 2 | null };
+
+/**
+ * P0-B B2.5: estimate follow-up's kind adapter for the shared touch runtime
+ * (lib/automation/touch-runtime.ts). Every value is this automation's
+ * existing behavior: anchored on sent_at; the organization's
+ * followup_1_hours / followup_2_hours; the occurrence chosen by
+ * computeFollowupOccurrence (the more current one when both are due); the
+ * legacy key estimate.followup:<id>:<occurrence>; the K5-3 overdue rule
+ * (more than 48 hours late is recorded as blocked followup_overdue with
+ * {estimate_id, occurrence}); no engagement check (still owed is always
+ * true - the gate re-checks the estimate is still 'sent'); no payment or
+ * business-hours rule and no enabled re-check at the gate; the deterministic
+ * message, sender "ai"; {estimate_id, occurrence} on every execution. A
+ * contact that is not the organization's is recorded as blocked
+ * contact_not_found (B2.5a). Expiry is NOT here - it is the producer's.
+ */
+export const ESTIMATE_FOLLOWUP_ADAPTER: DerivedTouchAdapter<EstimateTouchItem, CandidateEstimate> = {
+  identity: { automationId: "estimate-followup", eventType: "estimate.followup", workflowName: ESTIMATE_FOLLOWUP_WORKFLOW },
+  policy: { requiresActivePayment: false, stale: { mode: "record_blocked", audit: "audit_fields" }, missingSubject: "record_blocked", gateChecksAutomationEnabled: false, senderType: "ai" },
+  subject: ({ estimate }) => ({ organizationId: estimate.organization_id, contactId: estimate.contact_id, leadId: estimate.lead_id, entityType: "estimate", entityId: estimate.id }),
+  idempotencyKey: ({ estimate, occurrence }) => `estimate.followup:${estimate.id}:${occurrence}`,
+  isDue: ({ estimate, config, occurrence }, now) =>
+    config !== null && occurrence !== null && computeFollowupOccurrence((now.getTime() - new Date(estimate.sent_at).getTime()) / HOUR_MS, config) === occurrence,
+  dueAt: ({ estimate, config, occurrence }) => {
+    if (!config || !occurrence) throw new Error("estimate follow-up: no cadence for this touch");
+    return { anchorMs: new Date(estimate.sent_at).getTime(), delayMs: (occurrence === 2 ? config.followup_2_hours : config.followup_1_hours) * HOUR_MS };
+  },
+  stillOwed: async (_service, { estimate }) => ({ owed: true, facts: estimate }),
+  payload: ({ estimate, occurrence }) => ({ estimate_id: estimate.id, contact_id: estimate.contact_id, lead_id: estimate.lead_id, occurrence }),
+  compose: ({ occurrence }, estimate) => composeFollowupBody(estimate, occurrence!),
+  gateOptions: ({ estimate }) => ({ estimateId: estimate.id, estimateEligibleStatuses: ACTIVE_STATUSES }),
+  auditFields: ({ estimate, occurrence }) => ({ estimate_id: estimate.id, occurrence }),
+};
+
 /**
  * Finds `sent` estimates due for auto-expiration or their next follow-up,
  * and processes each one: expiration transitions the estimate and records
@@ -112,7 +150,7 @@ export async function processEstimateFollowups(
   /** Test seam only - production callers must never pass this; see lib/messaging/outbound.ts. */
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
   /** Phase D: "manual" when triggered by an org admin's "Run now" action; every real cron tick omits this and keeps the column's own 'event' default. */
-  triggerSource: WorkflowExecutionTriggerSource = "event",
+  triggerSource: EstimateRunTriggerSource = "event",
   /** K5-4: test seam only - never passed by the scheduled route or the "Run now" action. */
   testScope?: FollowupTestScope,
 ): Promise<FollowupRunResult> {
@@ -165,77 +203,47 @@ async function processOneEstimate(
   config: EstimateFollowupConfig,
   isEnabled: (organizationId: string) => Promise<boolean>,
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
-  triggerSource: WorkflowExecutionTriggerSource = "event",
+  triggerSource: EstimateRunTriggerSource = "event",
 ): Promise<FollowupOutcome> {
   // K5-2: expiry is a lifecycle fact, not an outbound action - it runs
   // whatever the automation's state. It sends nothing; expireEstimate still
   // records the estimate.expired event only when the existing event rules
-  // allow it (automation enabled, organization not paused).
+  // allow it (automation enabled, organization not paused). It stays here,
+  // in the producer: the shared touch runtime only ever runs the touch.
   if (estimate.expires_at && new Date(estimate.expires_at).getTime() <= now.getTime()) {
     return expireEstimate(supabase, estimate, triggerSource);
   }
 
-  // Phase C: a follow-up is only sent while the automation is enabled.
-  if (!(await isEnabled(estimate.organization_id))) {
-    return { estimateId: estimate.id, outcome: "skipped_disabled" };
-  }
-
-  const hoursSinceSent = (now.getTime() - new Date(estimate.sent_at).getTime()) / (60 * 60 * 1000);
+  // P0-B B2.5: the touch itself runs the shared derived touch runtime - kill
+  // switch, still due, B1 verification, K5-3 overdue rule, claim (the legacy
+  // key + B0), compose, gate, send, record.
+  const hoursSinceSent = (now.getTime() - new Date(estimate.sent_at).getTime()) / HOUR_MS;
   const occurrence = computeFollowupOccurrence(hoursSinceSent, config);
-
-  if (!occurrence) {
-    return { estimateId: estimate.id, outcome: "not_due" };
+  const result = await runDerivedTouch(supabase, ESTIMATE_FOLLOWUP_ADAPTER, { estimate, config, occurrence }, now, { isEnabled, context: { triggerSource }, sendSmsFn });
+  const estimateId = estimate.id;
+  switch (result.status) {
+    case "sent":
+      return { estimateId, outcome: "sent", occurrence: occurrence!, messageId: result.messageId };
+    case "blocked":
+      return { estimateId, outcome: "blocked", reason: result.reason };
+    case "failed":
+      return { estimateId, outcome: "failed", error: result.error };
+    case "lifecycle_failed":
+      return { estimateId, outcome: "failed", error: `lifecycle_snapshot_failed: ${result.error}` };
+    case "skipped_duplicate":
+    case "skipped_disabled":
+    case "not_due":
+      return { estimateId, outcome: result.status };
+    default:
+      // Unreachable under this kind's policy (no payment check, record_blocked missing subject, always owed); never a success.
+      return { estimateId, outcome: "failed", error: `unexpected_touch_status:${result.status}` };
   }
-
-  // K5-3: more than 48 hours past due - recorded as not sent, never sent later.
-  if (hoursLate(hoursSinceSent, occurrence, config) > STALE_FOLLOWUP_GRACE_HOURS) {
-    return skipStaleFollowup(supabase, estimate, occurrence, hoursLate(hoursSinceSent, occurrence, config), triggerSource);
-  }
-
-  return sendFollowup(supabase, estimate, occurrence, sendSmsFn, triggerSource);
-}
-
-/**
- * K5-3: claims the occurrence's idempotency key (the same
- * estimate.followup:<id>:<occurrence> key sendFollowup uses) and records the
- * execution as not sent, the way a gate block is recorded - so a later run
- * finds the duplicate and never sends this stale check-in. No conversation
- * lookup, no gate, no message.
- */
-async function skipStaleFollowup(
-  supabase: SupabaseClient,
-  estimate: CandidateEstimate,
-  occurrence: 1 | 2,
-  lateHours: number,
-  triggerSource: WorkflowExecutionTriggerSource = "event",
-): Promise<FollowupOutcome> {
-  const eventResult = await createAutomationEventAsService(supabase, estimate.organization_id, {
-    eventType: "estimate.followup",
-    entityType: "estimate",
-    entityId: estimate.id,
-    payload: { estimate_id: estimate.id, contact_id: estimate.contact_id, lead_id: estimate.lead_id, occurrence },
-    idempotencyKey: `estimate.followup:${estimate.id}:${occurrence}`,
-  });
-  if (!eventResult.ok) return { estimateId: estimate.id, outcome: "failed", error: eventResult.error };
-  if (eventResult.duplicate) return { estimateId: estimate.id, outcome: "skipped_duplicate" };
-  if (eventResult.skipped) return { estimateId: estimate.id, outcome: "skipped_disabled" };
-
-  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, ESTIMATE_FOLLOWUP_WORKFLOW, {}, triggerSource);
-  if (!executionResult.ok) return { estimateId: estimate.id, outcome: "failed", error: executionResult.error };
-  await completeWorkflowExecutionAsService(supabase, executionResult.execution.id, {
-    should_send: false,
-    blocked_reason: "followup_overdue",
-    blocked_detail: `${Math.floor(lateHours)} hours past due`,
-    estimate_id: estimate.id,
-    occurrence,
-  });
-  return { estimateId: estimate.id, outcome: "blocked", reason: "followup_overdue" };
 }
 
 async function expireEstimate(
   supabase: SupabaseClient,
   estimate: CandidateEstimate,
-  triggerSource: WorkflowExecutionTriggerSource = "event",
+  triggerSource: EstimateRunTriggerSource = "event",
 ): Promise<FollowupOutcome> {
   const idempotencyKey = `estimate.expired:${estimate.id}`;
 
@@ -287,110 +295,6 @@ async function expireEstimate(
   }
 
   return { estimateId: estimate.id, outcome: "expired" };
-}
-
-async function sendFollowup(
-  supabase: SupabaseClient,
-  estimate: CandidateEstimate,
-  occurrence: 1 | 2,
-  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
-  triggerSource: WorkflowExecutionTriggerSource = "event",
-): Promise<FollowupOutcome> {
-  const idempotencyKey = `estimate.followup:${estimate.id}:${occurrence}`;
-
-  const eventResult = await createAutomationEventAsService(supabase, estimate.organization_id, {
-    eventType: "estimate.followup",
-    entityType: "estimate",
-    entityId: estimate.id,
-    payload: { estimate_id: estimate.id, contact_id: estimate.contact_id, lead_id: estimate.lead_id, occurrence },
-    idempotencyKey,
-  });
-
-  if (!eventResult.ok) {
-    return { estimateId: estimate.id, outcome: "failed", error: eventResult.error };
-  }
-  if (eventResult.duplicate) {
-    return { estimateId: estimate.id, outcome: "skipped_duplicate" };
-  }
-  if (eventResult.skipped) {
-    return { estimateId: estimate.id, outcome: "skipped_disabled" };
-  }
-
-  const executionResult = await startWorkflowExecutionAsService(
-    supabase,
-    eventResult.event.id,
-    ESTIMATE_FOLLOWUP_WORKFLOW,
-    {},
-    triggerSource,
-  );
-  if (!executionResult.ok) {
-    return { estimateId: estimate.id, outcome: "failed", error: executionResult.error };
-  }
-
-  const executionId = executionResult.execution.id;
-
-  let conversationId: string | null = null;
-  if (estimate.contact_id) {
-    const conversation = await findOrCreateOpenConversation(
-      supabase,
-      estimate.organization_id,
-      estimate.contact_id,
-      "sms",
-      estimate.lead_id,
-    );
-    conversationId = conversation?.id ?? null;
-  }
-
-  const body = composeFollowupBody(estimate, occurrence);
-
-  const gateResult = await evaluateOutboundGate(supabase, {
-    organizationId: estimate.organization_id,
-    executionId,
-    contactId: estimate.contact_id,
-    conversationId,
-    leadId: estimate.lead_id,
-    aiResult: { should_send: true, response_message: body, needs_human: false },
-    estimateId: estimate.id,
-    estimateEligibleStatuses: ACTIVE_STATUSES,
-  });
-
-  if (!gateResult.allowed) {
-    await completeWorkflowExecutionAsService(supabase, executionId, {
-      should_send: false,
-      blocked_reason: gateResult.reason,
-      blocked_detail: gateResult.detail ?? null,
-      estimate_id: estimate.id,
-      occurrence,
-    });
-    return { estimateId: estimate.id, outcome: "blocked", reason: gateResult.reason };
-  }
-
-  const sendResult = await sendOutboundMessage(supabase, {
-    organizationId: estimate.organization_id,
-    contactId: gateResult.contactId,
-    conversationId: gateResult.conversationId,
-    channel: "sms",
-    body: gateResult.body,
-    senderType: "ai",
-    workflowExecutionId: executionId,
-    sendSmsFn,
-  });
-
-  if (!sendResult.ok) {
-    await failWorkflowExecutionAsService(supabase, executionId, sendResult.error, "sms_send_failed");
-    return { estimateId: estimate.id, outcome: "failed", error: sendResult.error };
-  }
-
-  await completeWorkflowExecutionAsService(supabase, executionId, {
-    should_send: true,
-    message_id: sendResult.messageId,
-    conversation_id: sendResult.conversationId,
-    provider_message_id: sendResult.providerMessageId,
-    estimate_id: estimate.id,
-    occurrence,
-  });
-
-  return { estimateId: estimate.id, outcome: "sent", occurrence, messageId: sendResult.messageId };
 }
 
 export type FollowupPreview =
@@ -525,59 +429,9 @@ export async function retryEstimateWorkflow(
     return { ok: false, error: "Missing follow-up occurrence." };
   }
 
-  let conversationId: string | null = null;
-  if (estimate.contact_id) {
-    const conversation = await findOrCreateOpenConversation(supabase, event.organizationId, estimate.contact_id, "sms", estimate.lead_id);
-    conversationId = conversation?.id ?? null;
-  }
-
-  const body = composeFollowupBody(estimate as CandidateEstimate, occurrence);
-
-  const gateResult = await evaluateOutboundGate(supabase, {
-    organizationId: event.organizationId,
-    executionId,
-    contactId: estimate.contact_id,
-    conversationId,
-    leadId: estimate.lead_id,
-    aiResult: { should_send: true, response_message: body, needs_human: false },
-    estimateId: estimate.id,
-    estimateEligibleStatuses: ACTIVE_STATUSES,
-  });
-
-  if (!gateResult.allowed) {
-    await ops.complete(supabase, executionId, {
-      should_send: false,
-      blocked_reason: gateResult.reason,
-      blocked_detail: gateResult.detail ?? null,
-      estimate_id: estimate.id,
-      occurrence,
-    });
-    return { ok: true };
-  }
-
-  const sendResult = await sendOutboundMessage(supabase, {
-    organizationId: event.organizationId,
-    contactId: gateResult.contactId,
-    conversationId: gateResult.conversationId,
-    channel: "sms",
-    body: gateResult.body,
-    senderType: "ai",
-    workflowExecutionId: executionId,
-  });
-
-  if (!sendResult.ok) {
-    await ops.fail(supabase, executionId, sendResult.error, "sms_send_failed");
-    return { ok: false, error: sendResult.error };
-  }
-
-  await ops.complete(supabase, executionId, {
-    should_send: true,
-    message_id: sendResult.messageId,
-    conversation_id: sendResult.conversationId,
-    provider_message_id: sendResult.providerMessageId,
-    estimate_id: estimate.id,
-    occurrence,
-  });
-
-  return { ok: true };
+  // P0-B B2.5: the touch's retry runs the shared retry entry - subject +
+  // B1 verification (an unknown lifecycle fails this execution), still owed,
+  // then the shared gate/send spine with A2's ops. Cadence and lateness are
+  // never re-evaluated on a retry.
+  return retryDerivedTouch(supabase, ESTIMATE_FOLLOWUP_ADAPTER, { estimate: estimate as CandidateEstimate, config: null, occurrence }, executionId, ops);
 }
