@@ -130,8 +130,10 @@ const realNextServer = await import("next/server");
 mock.module("next/server", { namedExports: { ...realNextServer, after: (fn: () => unknown) => void fn() } });
 mock.module(lib("lib/supabase/service.ts"), { namedExports: { createServiceRoleClient: () => db } });
 mock.module(lib("lib/automation/events.ts"), { namedExports: { createAutomationEvent: createEvent, createAutomationEventAsService: createEvent } });
+const realN8n = await import(lib("lib/automation/n8n.ts"));
 mock.module(lib("lib/automation/n8n.ts"), {
   namedExports: {
+    ...realN8n,
     triggerN8nWorkflow: async () => {
       calls.n8n += 1;
       return { ok: true };
@@ -147,8 +149,10 @@ mock.module(lib("lib/automation-health/service.ts"), {
     resolveAutomationFailureIncidents: async () => undefined,
   },
 });
+const realSettingsQueries = await import(lib("lib/settings/queries.ts"));
 mock.module(lib("lib/settings/queries.ts"), {
   namedExports: {
+    ...realSettingsQueries,
     getAiSettings: async () => ({ ai_enabled: true, tone: null, business_introduction: null, general_instructions: null }),
     getBusinessProfile: async () => ({ name: "QA Fixture Roofing", timezone: "UTC" }),
     getBusinessHours: async () => [],
@@ -163,8 +167,11 @@ mock.module(lib("lib/messaging/outbound.ts"), {
     },
   },
 });
+// P0-B B2.8c: the nurture/reactivation producers now run the shared touch runtime, which imports the gate module's other exports - keep them real; only the decision is mocked.
+const realOutboundGate = await import(lib("lib/automation/outbound-gate.ts"));
 mock.module(lib("lib/automation/outbound-gate.ts"), {
   namedExports: {
+    ...realOutboundGate,
     evaluateOutboundGate: async () => {
       calls.gate += 1;
       return { allowed: false, reason: "organization_not_live" };
@@ -372,22 +379,24 @@ test("reactivation 6: the contact has an upcoming appointment on another lead ->
 // n8n callback re-check (a newer lead appeared after dispatch)
 // ===========================================================================
 
+// P0-B B2.8c: lost-lead nurture is claimed by Trackpr and handed to n8n for a draft; its callback is the strict
+// draft contract for the handed-off execution (resumed through the shared runtime).
 function dispatchedTouch(eventType: string, leadId: string) {
-  const event = { id: uuid(), organization_id: ORG, event_type: eventType, entity_type: "lead", entity_id: leadId, payload: { lead_id: leadId, contact_id: CONTACT, conversation_id: null }, status: "processing" };
+  const event = { id: uuid(), organization_id: ORG, event_type: eventType, entity_type: "lead", entity_id: leadId, payload: { lead_id: leadId, contact_id: CONTACT, conversation_id: null, occurrence: 1 }, idempotency_key: `${eventType}:${leadId}:1`, status: "processing" };
   store.automation_events!.push(event);
-  const execution: Row = { id: uuid(), organization_id: ORG, automation_event_id: event.id, workflow_name: "lead_lost_nurture_followup", status: "running", attempt: 1, metadata: {}, automation_events: event };
+  const execution: Row = { id: uuid(), organization_id: ORG, automation_event_id: event.id, workflow_name: "lead_lost_nurture_followup", status: "running", attempt: 1, metadata: { handoff: "n8n_draft" }, automation_events: event };
   store.workflow_executions!.push(execution);
   return { event, execution };
 }
-const callback = (execution: Row, event: Row, aiResult: Row) =>
+const callback = (execution: Row, event: Row, draft: Row) =>
   POST(
     new Request("https://preview.example/api/automation/n8n-callback", {
       method: "POST",
       headers: { "content-type": "application/json", "x-trackpr-webhook-secret": SECRET },
-      body: JSON.stringify({ execution_id: execution.id, event_id: event.id, organization_id: ORG, ai_result: aiResult }),
+      body: JSON.stringify({ execution_id: execution.id, event_id: event.id, organization_id: ORG, automation_id: "lost-lead-nurture", draft }),
     }) as never,
   ) as Promise<Response>;
-const AI = { should_send: true, response_message: "Hi Riley, just checking in.", qualification_status: "qualifying", missing_information: [], urgency: "normal", needs_human: true, model: "claude-sonnet-5", intent: null, summary: "check-in" };
+const AI = { body: "Hi Riley, just checking in.", needs_human: true, classification: { qualification_status: "qualifying", urgency: "normal", intent: null, summary: "check-in", missing_information: [] }, model: "claude-sonnet-5", usage: null };
 
 test("callback 11/12: a nurture touch whose lead was superseded after dispatch -> blocked before any AI handling: no lock, no escalation, no AI record, no send", async () => {
   const leadA = addLead("lost", 60);

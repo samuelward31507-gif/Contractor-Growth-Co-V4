@@ -1,10 +1,10 @@
 import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAutomationEventAsService } from "./events";
-import { startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
+import { failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
+import { claimAndHandOffTouch, type DerivedTouchAdapter, type DerivedTouchSubject, type HandOffResult } from "./touch-runtime";
 import { getAutomationEnabled, getAutomationConfigByOrganization, readLeadReactivationConfig, type LeadReactivationConfig } from "./settings";
-import { getLead, type LeadStatus } from "@/lib/leads/queries";
+import { getLead, type Lead, type LeadStatus } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
@@ -12,6 +12,8 @@ import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouc
 import { checkLifecycleEligibility, type LifecycleBlockReason } from "./lifecycle-eligibility";
 
 export const LEAD_REACTIVATION_WORKFLOW = "lead_reactivation_followup";
+export const LEAD_REACTIVATION_AUTOMATION_ID = "lead-reactivation";
+export const LEAD_REACTIVATION_EVENT_TYPE = "lead.reactivation";
 
 /**
  * Automation Configuration V4: the pure decision behind which touch (if
@@ -45,6 +47,105 @@ const ACTIVE_APPOINTMENT_STATUSES = ["scheduled", "confirmed"];
 const ACTIVE_ESTIMATE_STATUSES = ["sent", "accepted"];
 const ACTIVE_JOB_STATUSES = ["scheduled", "in_progress"];
 
+
+/**
+ * P0-B B2.8c: one lead reactivation touch, as the shared touch runtime sees
+ * it. The producer below still owns discovery (open conversation, inbound
+ * history, cadence on the last inbound message), the active-engagement and
+ * status checks, the 48-hour rule and the recorded A3 block; `schedule` is
+ * null when the touch is resumed from n8n's draft.
+ */
+export type ReactivationTouchItem = {
+  organizationId: string;
+  leadId: string;
+  contactId: string | null;
+  occurrence: 1 | 2;
+  conversationId: string | null;
+  schedule: { lastInboundAtMs: number; config: LeadReactivationConfig } | null;
+};
+type ReactivationTouchFacts = { lead: Lead };
+
+const reactivationSubject = ({ organizationId, leadId, contactId }: ReactivationTouchItem): DerivedTouchSubject => ({ organizationId, contactId, leadId, entityType: "lead", entityId: leadId });
+
+/**
+ * P0-B B2.8c: lead reactivation on the shared n8n hand-off. Trackpr claims
+ * the touch (key + B0, marked for a draft hand-off), n8n only drafts, and the
+ * draft re-enters through resumeClaimedTouch: B1, this still-owed re-check
+ * (an eligible status, this lead's own open SMS conversation - never created
+ * for a reactivation - and A3), the organization's AI setting, the outbound
+ * gate (eligible status, no active appointment/estimate/job, automation
+ * enabled), the send and the record. Trackpr never composes this message.
+ */
+export const LEAD_REACTIVATION_ADAPTER: DerivedTouchAdapter<ReactivationTouchItem, ReactivationTouchFacts> = {
+  identity: { automationId: LEAD_REACTIVATION_AUTOMATION_ID, eventType: LEAD_REACTIVATION_EVENT_TYPE, workflowName: LEAD_REACTIVATION_WORKFLOW },
+  policy: {
+    requiresActivePayment: false,
+    stale: { mode: "none" },
+    missingSubject: "record_blocked",
+    gateChecksAutomationEnabled: true,
+    senderType: "ai",
+    auditRecord: { shape: "full" },
+  },
+  subject: reactivationSubject,
+  idempotencyKey: ({ leadId, occurrence }) => `${LEAD_REACTIVATION_EVENT_TYPE}:${leadId}:${occurrence}`,
+  isDue: ({ schedule, occurrence }, now) => schedule !== null && computeReactivationOccurrence(now.getTime() - schedule.lastInboundAtMs, schedule.config) === occurrence,
+  dueAt: ({ schedule, occurrence }) => ({ anchorMs: schedule?.lastInboundAtMs ?? 0, delayMs: schedule ? (occurrence === 2 ? schedule.config.touch_2_days : schedule.config.touch_1_days) * 24 * 60 * 60 * 1000 : 0 }),
+  stillOwed: async (service, { organizationId, leadId, contactId }) => {
+    const lead = await getLead(service, organizationId, leadId);
+    if (!lead || !ELIGIBLE_LEAD_STATUSES.includes(lead.status)) return { owed: false, reason: "not_eligible_status" };
+    if (!contactId) return { owed: false, reason: "no_contact" };
+    const { data: openConversation } = await service.from("conversations").select("id, lead_id").eq("organization_id", organizationId).eq("contact_id", contactId).eq("channel", "sms").eq("status", "open").maybeSingle();
+    if (!openConversation || openConversation.lead_id !== leadId) return { owed: false, reason: "no_open_conversation" };
+    const eligibility = await checkLifecycleEligibility(service, organizationId, "lead.reactivation", leadId, contactId);
+    if (!eligibility.eligible) return { owed: false, reason: eligibility.reason };
+    return { owed: true, facts: { lead } };
+  },
+  payload: ({ leadId, contactId, conversationId, occurrence }) => ({ lead_id: leadId, contact_id: contactId, conversation_id: conversationId, occurrence }),
+  compose: () => {
+    throw new Error("lead reactivation is drafted by n8n - Trackpr never composes it");
+  },
+  gateOptions: () => ({ leadEligibleStatuses: ELIGIBLE_LEAD_STATUSES, leadMustHaveNoActiveEngagement: true }),
+  auditFields: ({ leadId, occurrence }) => ({ lead_id: leadId, occurrence }),
+  verifyClaimed: async (service, item, facts) => {
+    const aiSettings = await getAiSettings(service, item.organizationId);
+    if (!aiSettings.ai_enabled) return { verdict: "blocked", reason: "organization_ai_disabled" };
+    return { verdict: "verified", facts, contactId: item.contactId, leadId: item.leadId };
+  },
+};
+
+/** The touch a lead.reactivation execution was claimed for, rebuilt from Trackpr's stored event - never from the callback. */
+export function reactivationTouchItemFromEvent(event: { organization_id: string; entity_id: string | null; payload: Record<string, unknown> | null }): ReactivationTouchItem | null {
+  const payload = event.payload ?? {};
+  const occurrence = payload.occurrence;
+  if (!event.entity_id || (occurrence !== 1 && occurrence !== 2)) return null;
+  return {
+    organizationId: event.organization_id,
+    leadId: event.entity_id,
+    contactId: typeof payload.contact_id === "string" ? payload.contact_id : null,
+    occurrence,
+    conversationId: typeof payload.conversation_id === "string" ? payload.conversation_id : null,
+    schedule: null,
+  };
+}
+
+function reactivationOutcomeOf(leadId: string, occurrence: 1 | 2, result: HandOffResult): ReactivationOutcome {
+  switch (result.status) {
+    case "handed_off":
+      return { leadId, outcome: "dispatched", occurrence, executionId: result.executionId };
+    case "already_processed":
+      return { leadId, outcome: "skipped_duplicate" };
+    case "blocked":
+      return { leadId, outcome: "blocked", reason: result.reason as "contact_not_found" };
+    case "unavailable":
+      if (result.reason === "skipped_disabled") return { leadId, outcome: "skipped_disabled" };
+      if (result.reason === "not_due") return { leadId, outcome: "not_due" };
+      if (result.reason === "not_owed" && (result.detail === "not_eligible_status" || result.detail === "no_open_conversation" || result.detail === "no_contact")) return { leadId, outcome: result.detail };
+      return { leadId, outcome: "not_owed", reason: result.detail ?? result.reason };
+    case "failed":
+      return { leadId, outcome: "failed", error: result.error };
+  }
+}
+
 type CandidateLead = {
   id: string;
   organization_id: string;
@@ -65,7 +166,9 @@ export type ReactivationOutcome =
   | { leadId: string; outcome: "skipped_disabled" }
   | { leadId: string; outcome: "active_engagement" }
   | { leadId: string; outcome: "not_eligible_status" }
-  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" | LifecycleBlockReason }
+  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" | LifecycleBlockReason | "contact_not_found" }
+  /** P0-B B2.8c: the shared runtime's still-owed re-check refused the claim (a change since the producer's own checks); nothing recorded. */
+  | { leadId: string; outcome: "not_owed"; reason: string }
   | { leadId: string; outcome: "failed"; error: string };
 
 export type ReactivationRunResult = {
@@ -312,105 +415,86 @@ async function processOneLead(
     return { leadId, ...blocked };
   }
 
-  const eventResult = await createAutomationEventAsService(supabase, organizationId, {
-    eventType: "lead.reactivation",
-    entityType: "lead",
-    entityId: leadId,
-    payload: { lead_id: leadId, contact_id: lead.contact_id, conversation_id: openConversation.id, occurrence },
-    idempotencyKey,
-  });
+  // P0-B B2.8c: the claim and the hand-off run the shared touch runtime - kill switch (cached), due,
+  // the key's soft claim, B1, still owed, then the key + B0 start marked for a draft hand-off. The
+  // dispatch itself is deferred exactly as before; its failure fails the execution as before.
+  const contactId = lead.contact_id;
+  const item: ReactivationTouchItem = { organizationId, leadId, contactId, occurrence, conversationId: openConversation.id, schedule: { lastInboundAtMs: new Date(lastInbound.created_at).getTime(), config } };
+  const result = await claimAndHandOffTouch(supabase, LEAD_REACTIVATION_ADAPTER, item, now, { isEnabled }, async ({ eventId, executionId }) => {
+    const [aiSettings, businessProfile, contact] = await Promise.all([
+      getAiSettings(supabase, organizationId),
+      getBusinessProfile(supabase, organizationId),
+      getContact(supabase, organizationId, contactId),
+    ]);
 
-  if (!eventResult.ok) {
-    return { leadId, outcome: "failed", error: eventResult.error };
-  }
-  if (eventResult.duplicate) {
-    // Lost a race against another concurrent cron tick between the
-    // fast-path check above and this insert - a clean, expected outcome,
-    // not a failure.
-    return { leadId, outcome: "skipped_duplicate" };
-  }
-  if (eventResult.skipped) {
-    return { leadId, outcome: "skipped_disabled" };
-  }
-
-  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, LEAD_REACTIVATION_WORKFLOW);
-  if (!executionResult.ok) {
-    return { leadId, outcome: "failed", error: executionResult.error };
-  }
-
-  const executionId = executionResult.execution.id;
-
-  const [aiSettings, businessProfile, contact] = await Promise.all([
-    getAiSettings(supabase, organizationId),
-    getBusinessProfile(supabase, organizationId),
-    getContact(supabase, organizationId, lead.contact_id),
-  ]);
-
-  // Only real, stored facts are ever passed into the contract - service,
-  // source, and the lead's own prior AI summary (if any). No prior
-  // conversation transcript, no pricing, no availability - the n8n prompt
-  // is instructed never to invent anything beyond what's given here.
-  const contract: N8nWorkflowContract = {
-    version: 1,
-    event: {
-      id: eventResult.event.id,
-      type: "lead.reactivation",
-      organization_id: organizationId,
-      entity_type: "lead",
-      entity_id: leadId,
-      payload: {
-        lead_id: leadId,
-        contact_id: lead.contact_id,
-        conversation_id: openConversation.id,
-        service: lead.service,
-        source: lead.source,
-        ai_summary: lead.ai_summary,
-        status: freshLead.status,
-        occurrence,
+    // Only real, stored facts are ever passed into the contract - service,
+    // source, and the lead's own prior AI summary (if any). No prior
+    // conversation transcript, no pricing, no availability - the n8n prompt
+    // is instructed never to invent anything beyond what's given here.
+    const contract: N8nWorkflowContract = {
+      version: 1,
+      event: {
+        id: eventId,
+        type: LEAD_REACTIVATION_EVENT_TYPE,
+        organization_id: organizationId,
+        entity_type: "lead",
+        entity_id: leadId,
+        payload: {
+          lead_id: leadId,
+          contact_id: contactId,
+          conversation_id: openConversation.id,
+          service: lead.service,
+          source: lead.source,
+          ai_summary: lead.ai_summary,
+          status: freshLead.status,
+          occurrence,
+        },
       },
-    },
-    execution: {
-      id: executionId,
-      workflow_name: LEAD_REACTIVATION_WORKFLOW,
-      attempt: executionResult.execution.attempt,
-    },
-    context: {
-      organization: {
-        id: organizationId,
-        name: businessProfile?.name ?? "",
-        timezone: businessProfile?.timezone ?? "UTC",
+      execution: {
+        id: executionId,
+        workflow_name: LEAD_REACTIVATION_WORKFLOW,
+        // The claim always starts the first execution of a new event.
+        attempt: 1,
       },
-      ai: {
-        enabled: aiSettings.ai_enabled,
-        tone: aiSettings.tone,
-        business_introduction: aiSettings.business_introduction,
-        general_instructions: aiSettings.general_instructions,
+      context: {
+        organization: {
+          id: organizationId,
+          name: businessProfile?.name ?? "",
+          timezone: businessProfile?.timezone ?? "UTC",
+        },
+        ai: {
+          enabled: aiSettings.ai_enabled,
+          tone: aiSettings.tone,
+          business_introduction: aiSettings.business_introduction,
+          general_instructions: aiSettings.general_instructions,
+        },
+        contact: contact
+          ? {
+              id: contact.id,
+              first_name: contact.first_name,
+              last_name: contact.last_name,
+              phone: contact.phone,
+              email: contact.email,
+            }
+          : null,
       },
-      contact: contact
-        ? {
-            id: contact.id,
-            first_name: contact.first_name,
-            last_name: contact.last_name,
-            phone: contact.phone,
-            email: contact.email,
-          }
-        : null,
-    },
-  };
+    };
 
-  after(async () => {
-    const dispatch = await triggerN8nWorkflow(contract);
-    if (!dispatch.ok) {
-      const failed = await failWorkflowExecutionAsService(supabase, executionId, dispatch.error, "n8n_dispatch_failed");
-      if (!failed.ok) {
-        console.error("[automation] failed to record lead.reactivation dispatch failure", {
-          executionId,
-          dispatchError: dispatch.error,
-          recordError: failed.error,
-        });
+    after(async () => {
+      const dispatch = await triggerN8nWorkflow(contract);
+      if (!dispatch.ok) {
+        const failed = await failWorkflowExecutionAsService(supabase, executionId, dispatch.error, "n8n_dispatch_failed");
+        if (!failed.ok) {
+          console.error("[automation] failed to record lead.reactivation dispatch failure", {
+            executionId,
+            dispatchError: dispatch.error,
+            recordError: failed.error,
+          });
+        }
       }
-    }
+    });
+    return { ok: true };
   });
 
-  return { leadId, outcome: "dispatched", occurrence, executionId };
+  return reactivationOutcomeOf(leadId, occurrence, result);
 }

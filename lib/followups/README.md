@@ -210,6 +210,7 @@ Invoice reminders are the fourth derived kind (`INVOICE_REMINDER_ADAPTER` in `li
    - a declined draft (null body) is recorded as `blocked` `draft_declined`;
    - a needs-human draft is recorded as `blocked` `needs_human`;
    - a malformed draft fails the execution (`draft_invalid: …`).
+   - (B2.8c: the declined and needs-human decisions are applied after B1, still owed and `verifyClaimed`, so a lifecycle block always wins.)
 3. **The spine:** B1 → still owed → `verifyClaimed` → gate → send → record. This is the same post-claim spine `runDerivedTouch` and `retryDerivedTouch` now share; the draft is the body and the kind's `compose` is not called. A concurrent duplicate resume is `already_processed`.
 
 **The draft is never an authorization.** The runtime's `TouchDraft` is `{ body, needsHuman }`. The n8n wire contract (`lib/automation/n8n.ts` `validateN8nDraftCallback`) is strict and allowlist-only:
@@ -225,3 +226,25 @@ Any other field is rejected, never ignored. That includes:
 **Out of this phase:** the new contract carries no authentication change and no HMAC.
 
 **Tests:** `lib/automation/touch-runtime.test.ts` 31–39 and `lib/automation/n8n-draft.test.ts`.
+
+### Lost-lead nurture and lead reactivation on the hand-off (P0-B B2.8c)
+
+**Producers.** `processLeadNurture` and `processLeadReactivation` keep their selection, cadence, 48-hour stale rule, A3 check and recorded skips. A due, eligible touch is then claimed through `claimAndHandOffTouch` with `LOST_LEAD_NURTURE_ADAPTER` / `LEAD_REACTIVATION_ADAPTER`:
+- same keys (`lead.lost_nurture:<lead>:<n>`, `lead.reactivation:<lead>:<n>`), payloads and n8n contract;
+- the execution starts marked `n8n_draft`;
+- the dispatch still runs after the response, and a failed dispatch still fails the execution (`n8n_dispatch_failed`).
+
+Neither kind is retryable; A2's allowlist is unchanged.
+
+**Callback.** The route reads the execution the callback names, with its event, from Trackpr's rows. Only when that stored event type is `lead.lost_nurture` or `lead.reactivation` (`DRAFT_HANDOFF_EVENT_TYPES`) does the callback take the strict path:
+- a valid draft goes through `validateN8nDraftCallback` → `resumeClaimedTouch`;
+- an AI failure (`draft.model: null`) fails the execution (`ai_model_failure: …`) after the same identity checks (`failHandedOffTouch`), with no lock, no escalation and no AI record;
+- any other strict-invalid draft fails it as `draft_invalid: …`.
+
+Every other automation keeps the legacy `ai_result` flow unchanged.
+
+A valid needs-human draft is a recorded `blocked needs_human` (conversation locked, escalation recorded). AI records, summaries and escalations are written only when the touch was still owed (not for a `lifecycle`-stage block).
+
+**Known:** n8n still posts the old `ai_result` shape to an old URL in this phase. Those callbacks for these two kinds are rejected (400) until n8n moves to the strict draft contract.
+
+**Tests:** `app/api/automation/n8n-callback/handoff-callback.test.ts` 1–16 and `lib/automation/lifecycle-eligibility.test.ts`.

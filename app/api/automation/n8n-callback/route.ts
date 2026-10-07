@@ -26,6 +26,8 @@ import { checkInstantFollowupStillCurrent, INSTANT_FOLLOWUP_EVENT_TYPE } from "@
 import { formatAppointmentDate, formatAppointmentTime, formatAppointmentTimeRange } from "@/lib/appointments/format";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { N8nTouchDraft } from "@/lib/automation/n8n";
+import type { DerivedTouchAdapter, ResumeInput, ResumeResult, TouchDraft } from "@/lib/automation/touch-runtime";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_MESSAGE_LENGTH = 1600;
@@ -988,6 +990,186 @@ export async function handleBookingIntent(
   });
 }
 
+// ---------------------------------------------------------------------------
+// P0-B B2.8c: the n8n draft hand-off (lib/automation/touch-runtime.ts).
+//
+// Exactly these event types are claimed by Trackpr and handed to n8n for a
+// DRAFT only; their callback is the strict draft contract
+// (validateN8nDraftCallback) and re-enters the shared runtime through
+// resumeClaimedTouch - never this route's own gate/send. The discriminator is
+// the stored event type of the execution the callback names (Trackpr's row),
+// never the shape of the callback. Every other event type keeps the legacy
+// ai_result flow below, unchanged. The migrated kinds' modules are loaded only
+// for their own callbacks, so a legacy callback's code path is untouched.
+// ---------------------------------------------------------------------------
+
+type DraftHandOffKind = {
+  resume: (service: SupabaseClient, ids: Omit<ResumeInput<never>, "item" | "draft">, event: EmbeddedEvent, draft: TouchDraft) => Promise<ResumeResult | null>;
+  fail: (service: SupabaseClient, ids: Omit<ResumeInput<never>, "item" | "draft">, event: EmbeddedEvent, error: string) => Promise<ResumeResult | null>;
+};
+
+type TouchRuntime = typeof import("@/lib/automation/touch-runtime");
+
+function draftHandOffKind<Item, Facts>(runtime: TouchRuntime, adapter: DerivedTouchAdapter<Item, Facts>, itemFromEvent: (event: EmbeddedEvent) => Item | null): DraftHandOffKind {
+  return {
+    resume: async (service, ids, event, draft) => {
+      const item = itemFromEvent(event);
+      return item ? runtime.resumeClaimedTouch(service, adapter, { ...ids, item, draft }) : null;
+    },
+    fail: async (service, ids, event, error) => {
+      const item = itemFromEvent(event);
+      return item ? runtime.failHandedOffTouch(service, adapter, { ...ids, item }, error) : null;
+    },
+  };
+}
+
+/** The event types handed to n8n for a draft (lib/automation/lead-nurture.ts, lib/automation/lead-reactivation.ts). */
+export const DRAFT_HANDOFF_EVENT_TYPES: ReadonlySet<string> = new Set(["lead.lost_nurture", "lead.reactivation"]);
+
+async function loadDraftHandOffKind(eventType: string): Promise<DraftHandOffKind | null> {
+  if (!DRAFT_HANDOFF_EVENT_TYPES.has(eventType)) return null;
+  const runtime = await import("@/lib/automation/touch-runtime");
+  if (eventType === "lead.lost_nurture") {
+    const nurture = await import("@/lib/automation/lead-nurture");
+    return draftHandOffKind(runtime, nurture.LOST_LEAD_NURTURE_ADAPTER, nurture.nurtureTouchItemFromEvent);
+  }
+  const reactivation = await import("@/lib/automation/lead-reactivation");
+  return draftHandOffKind(runtime, reactivation.LEAD_REACTIVATION_ADAPTER, reactivation.reactivationTouchItemFromEvent);
+}
+
+/** The hand-off kind of the execution this callback names, read from Trackpr's own rows - null for every legacy automation. */
+async function draftHandOffFor(service: SupabaseClient, raw: unknown): Promise<{ kind: DraftHandOffKind; event: EmbeddedEvent } | null | "unknown"> {
+  if (typeof raw !== "object" || raw === null) return null;
+  const executionId = (raw as Record<string, unknown>).execution_id;
+  if (!isUuid(executionId)) return null;
+  const { data, error } = await service.from("workflow_executions").select("id, automation_events(id, organization_id, event_type, entity_type, entity_id, payload, created_at)").eq("id", executionId).maybeSingle();
+  // Fail closed: a callback whose kind cannot be read never falls through to the legacy flow.
+  if (error) return "unknown";
+  const event = normalizeEvent((data?.automation_events ?? null) as EmbeddedEvent | EmbeddedEvent[] | null);
+  const kind = event ? await loadDraftHandOffKind(event.event_type) : null;
+  return event && kind ? { kind, event } : null;
+}
+
+/** The marker every n8n AI-failure branch sends: no model. Recorded exactly like the legacy AI failure - a FAILED execution. */
+export const DRAFT_AI_MODEL_FAILURE = "ai_model_failure: AI model call failed or returned no usable result";
+
+/**
+ * The AI side effects of a returned draft, as the legacy flow records them for
+ * an AI result: the AI interaction (once per execution), the lead's AI
+ * summary, the founder's hot-lead notice and - for a needs-human draft - the
+ * conversation's AI lockout with its escalation. Only for a draft the touch
+ * actually reached (never for a lifecycle block, an AI failure or a rejected
+ * callback). Nothing here sends.
+ */
+async function recordDraftSideEffects(service: SupabaseClient, event: EmbeddedEvent, executionId: string, draft: N8nTouchDraft): Promise<void> {
+  const leadId = event.entity_type === "lead" ? event.entity_id : null;
+  const contactId = typeof event.payload?.contact_id === "string" ? (event.payload.contact_id as string) : null;
+  const conversationId = typeof event.payload?.conversation_id === "string" ? (event.payload.conversation_id as string) : null;
+
+  const { error: aiInsertError } = await service.from("ai_interactions").upsert(
+    {
+      organization_id: event.organization_id,
+      lead_id: leadId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      workflow_execution_id: executionId,
+      interaction_type: interactionTypeFor(event.event_type),
+      input: { event_type: event.event_type, entity_type: event.entity_type, entity_id: event.entity_id, payload: event.payload },
+      output: draft,
+      model: draft.model,
+      tokens_used: draft.usage?.total_tokens ?? null,
+    },
+    { onConflict: "workflow_execution_id", ignoreDuplicates: true },
+  );
+  if (aiInsertError) console.error("[automation] failed to record ai_interaction", { executionId, error: aiInsertError.message });
+
+  const classification = draft.classification;
+  if (leadId) {
+    const summaryParts: string[] = [];
+    if (classification?.qualification_status) summaryParts.push(`Qualification: ${classification.qualification_status}`);
+    if (classification?.urgency) summaryParts.push(`Urgency: ${classification.urgency}`);
+    if (classification && classification.missing_information.length > 0) summaryParts.push(`Missing: ${classification.missing_information.join(", ")}`);
+    if (draft.needs_human) summaryParts.push("Needs human follow-up");
+    if (classification?.summary) summaryParts.push(classification.summary);
+    if (summaryParts.length > 0) {
+      const { error: leadUpdateError } = await service.from("leads").update({ ai_summary: summaryParts.join(" · ") }).eq("id", leadId).eq("organization_id", event.organization_id);
+      if (leadUpdateError) console.error("[automation] failed to update lead ai_summary", { executionId, error: leadUpdateError.message });
+    }
+    if (classification?.urgency === "high" || classification?.urgency === "emergency") {
+      await notifyFounder(service, {
+        organizationId: event.organization_id,
+        kind: "hot_lead",
+        summary: classification.summary ? `Urgency: ${classification.urgency}. ${classification.summary}` : `A lead was flagged as ${classification.urgency} urgency.`,
+        detailPath: `/leads/${leadId}`,
+      });
+    }
+  }
+
+  if (draft.needs_human && conversationId) {
+    const { data: lockedRow, error: aiLockError } = await service.from("conversations").update({ ai_enabled: false }).eq("id", conversationId).eq("organization_id", event.organization_id).eq("ai_enabled", true).select("id").maybeSingle();
+    if (aiLockError) {
+      console.error("[automation] failed to lock conversation ai_enabled after needs_human", { executionId, error: aiLockError.message });
+    } else if (lockedRow) {
+      await recordAutomationHealthSignal(service, {
+        organizationId: event.organization_id,
+        category: "human_escalation_requested",
+        severity: "warning",
+        fingerprintContext: conversationId,
+        title: "AI escalated a conversation to a human",
+        description: classification?.summary ?? null,
+        workflowExecutionId: executionId,
+        metadata: { conversationId, contactId, leadId },
+      });
+      await notifyFounder(service, {
+        organizationId: event.organization_id,
+        kind: "ai_escalation",
+        summary: classification?.summary ? `AI handed off to a human: ${classification.summary}` : "The AI handed a conversation off to a human.",
+        detailPath: `/conversations/${conversationId}`,
+      });
+    }
+  }
+}
+
+function resumeResponse(result: ResumeResult): NextResponse {
+  switch (result.status) {
+    case "sent":
+      return NextResponse.json({ ok: true });
+    case "blocked":
+      return NextResponse.json({ ok: true, sent: false, blockedReason: result.reason });
+    case "already_processed":
+      return NextResponse.json({ ok: true, alreadyProcessed: true });
+    case "failed":
+      return NextResponse.json({ ok: true, failed: true });
+    case "rejected":
+      return NextResponse.json({ ok: false, error: `Rejected: ${result.reason}.` }, { status: result.reason === "execution_not_found" ? 404 : result.reason === "organization_mismatch" ? 403 : 400 });
+  }
+}
+
+/** A callback for a handed-off execution: strict draft -> resumeClaimedTouch; an AI failure or an invalid draft -> the execution fails. */
+async function handleDraftCallback(service: SupabaseClient, raw: unknown, kind: DraftHandOffKind, event: EmbeddedEvent): Promise<NextResponse> {
+  const body = raw as Record<string, unknown>;
+  if (!isUuid(body.event_id) || !isUuid(body.organization_id) || typeof body.automation_id !== "string") {
+    return NextResponse.json({ ok: false, error: "A draft callback must name its execution, event, organization and automation." }, { status: 400 });
+  }
+  const ids = { executionId: body.execution_id as string, eventId: body.event_id, organizationId: body.organization_id, automationId: body.automation_id };
+
+  const { validateN8nDraftCallback, touchDraftFromN8n } = await import("@/lib/automation/n8n");
+  const validation = validateN8nDraftCallback(raw);
+  if (!validation.ok) {
+    const draft = body.draft as Record<string, unknown> | null | undefined;
+    const error = draft && typeof draft === "object" && draft.model === null ? DRAFT_AI_MODEL_FAILURE : `draft_invalid: ${validation.error}`;
+    const failed = await kind.fail(service, ids, event, error);
+    return failed ? resumeResponse(failed) : NextResponse.json({ ok: false, error: "The claimed touch could not be rebuilt." }, { status: 400 });
+  }
+
+  const result = await kind.resume(service, ids, event, touchDraftFromN8n(validation.callback.draft));
+  if (!result) return NextResponse.json({ ok: false, error: "The claimed touch could not be rebuilt." }, { status: 400 });
+  if (result.status === "sent" || (result.status === "blocked" && result.stage !== "lifecycle")) {
+    await recordDraftSideEffects(service, event, ids.executionId, validation.callback.draft);
+  }
+  return resumeResponse(result);
+}
+
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
@@ -999,6 +1181,12 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
+
+  // P0-B B2.8c: a handed-off execution's draft never takes the legacy path below.
+  const handOffService = createServiceRoleClient();
+  const handOff = await draftHandOffFor(handOffService, raw);
+  if (handOff === "unknown") return NextResponse.json({ ok: false, error: "Could not read the automation execution." }, { status: 500 });
+  if (handOff) return handleDraftCallback(handOffService, raw, handOff.kind, handOff.event);
 
   const validation = validateBody(raw);
   if (!validation.ok) {

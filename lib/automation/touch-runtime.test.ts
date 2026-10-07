@@ -1099,10 +1099,10 @@ test("34. resume rejects anything that is not a handed-off execution Trackpr own
 
 test("35. resume: a declined or needs-human draft is recorded as blocked; a malformed draft fails the execution - never sent", async () => {
   const declined = await handedOff();
-  assert.deepEqual(await resume(probe(), declined.job, declined, { body: null, needsHuman: false }), { status: "blocked", reason: "draft_declined" });
+  assert.deepEqual(await resume(probe(), declined.job, declined, { body: null, needsHuman: false }), { status: "blocked", reason: "draft_declined", stage: "draft" });
   assert.deepEqual(executionById(declined.executionId).metadata, { should_send: false, blocked_reason: "draft_declined", blocked_detail: null, job_id: declined.job.id });
   const human = await handedOff(addJob({ contact_id: OTHER_CONTACT }));
-  assert.deepEqual(await resume(probe(), human.job, human, { body: "Sure!", needsHuman: true }), { status: "blocked", reason: "needs_human" });
+  assert.deepEqual(await resume(probe(), human.job, human, { body: "Sure!", needsHuman: true }), { status: "blocked", reason: "needs_human", stage: "draft" });
   for (const [label, draft] of [["empty", { body: "  ", needsHuman: false }], ["too long", { body: "x".repeat(1601), needsHuman: false }], ["no flag", { body: "Hi" }], ["missing", null]] as const) {
     resetForLegacy();
     const bad = await handedOff();
@@ -1122,13 +1122,13 @@ test("36. resume re-verifies after the draft: B1 failure fails the execution, no
   control.snapshotFails = false;
 
   const moved = await handedOff(addJob({ contact_id: OTHER_CONTACT }));
-  assert.deepEqual(await resume(probe({ stillOwed: async () => ({ owed: false, reason: "customer_active" }) }), moved.job, moved, DRAFT), { status: "blocked", reason: "customer_active" });
+  assert.deepEqual(await resume(probe({ stillOwed: async () => ({ owed: false, reason: "customer_active" }) }), moved.job, moved, DRAFT), { status: "blocked", reason: "customer_active", stage: "lifecycle" });
   resetForLegacy();
   const verified = await handedOff();
-  assert.deepEqual(await resume(probe({ verifyClaimed: verifiedAs({ verdict: "blocked", reason: "probe_blocked" }) }), verified.job, verified, DRAFT), { status: "blocked", reason: "probe_blocked" });
+  assert.deepEqual(await resume(probe({ verifyClaimed: verifiedAs({ verdict: "blocked", reason: "probe_blocked" }) }), verified.job, verified, DRAFT), { status: "blocked", reason: "probe_blocked", stage: "verification" });
   const gated = await handedOff(addJob({ contact_id: OTHER_CONTACT }));
   store.contacts![1].sms_opt_out = true;
-  assert.deepEqual(await resume(probe(), gated.job, gated, DRAFT), { status: "blocked", reason: "contact_opted_out" });
+  assert.deepEqual(await resume(probe(), gated.job, gated, DRAFT), { status: "blocked", reason: "contact_opted_out", stage: "gate" });
   assert.equal(calls.sends, 0);
 });
 
@@ -1136,7 +1136,7 @@ test("37. the draft can never choose the recipient, authorize the send or steer 
   const claimed = await handedOff();
   store.contacts![0].sms_opt_out = true;
   const smuggled = { ...DRAFT, sendAuthorized: true, gatePassed: true, contactId: OTHER_CONTACT, recipient: "+15550000000", retry: { after: "1m" } };
-  assert.deepEqual(await resume(probe(), claimed.job, claimed, smuggled), { status: "blocked", reason: "contact_opted_out" }, "an 'authorized' draft is still gated");
+  assert.deepEqual(await resume(probe(), claimed.job, claimed, smuggled), { status: "blocked", reason: "contact_opted_out", stage: "gate" }, "an 'authorized' draft is still gated");
   store.contacts![0].sms_opt_out = false;
   store.conversations = []; // the gated attempt opened one; customer reactivation's still-owed would refuse a contact mid-conversation
   const second = await handedOff(addJob({ contact_id: CONTACT, completed_at: daysAgo(182) }));

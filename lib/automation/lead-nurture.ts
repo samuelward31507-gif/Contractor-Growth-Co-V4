@@ -1,11 +1,11 @@
 import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAutomationEventAsService } from "./events";
-import { startWorkflowExecutionAsService, failWorkflowExecutionAsService } from "./executions";
+import { failWorkflowExecutionAsService } from "./executions";
 import { triggerN8nWorkflow, type N8nWorkflowContract } from "./n8n";
+import { claimAndHandOffTouch, type DerivedTouchAdapter, type DerivedTouchSubject, type HandOffResult } from "./touch-runtime";
 import { getAutomationEnabled, getAutomationConfigByOrganization, readLostLeadNurtureConfig, type LostLeadNurtureConfig } from "./settings";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
-import { getLead } from "@/lib/leads/queries";
+import { getLead, type Lead } from "@/lib/leads/queries";
 import { getContact } from "@/lib/contacts/queries";
 import { getAiSettings, getBusinessProfile } from "@/lib/settings/queries";
 import { readAllPages } from "@/lib/bi/revenue-attribution";
@@ -13,6 +13,8 @@ import { enabledPerOrganization, hoursPastDue, isTouchOverdue, recordOverdueTouc
 import { checkLifecycleEligibility, type LifecycleBlockReason } from "./lifecycle-eligibility";
 
 export const LEAD_LOST_NURTURE_WORKFLOW = "lead_lost_nurture_followup";
+export const LOST_LEAD_NURTURE_AUTOMATION_ID = "lost-lead-nurture";
+export const LEAD_LOST_NURTURE_EVENT_TYPE = "lead.lost_nurture";
 
 /**
  * Automation Configuration V3: the pure decision behind which touch (if
@@ -32,6 +34,105 @@ export function computeNurtureOccurrence(elapsedMs: number, config: LostLeadNurt
   return null;
 }
 
+
+/**
+ * P0-B B2.8c: one lost-lead nurture touch, as the shared touch runtime sees
+ * it. The producer below still owns discovery, cadence, the 48-hour rule and
+ * the recorded A3 block; `schedule` carries its cadence for the claim and is
+ * null when the touch is resumed from n8n's draft (due-ness was decided when
+ * it was claimed).
+ */
+export type NurtureTouchItem = {
+  organizationId: string;
+  leadId: string;
+  contactId: string | null;
+  occurrence: 1 | 2;
+  conversationId: string | null;
+  schedule: { lostAtMs: number; config: LostLeadNurtureConfig } | null;
+};
+type NurtureTouchFacts = { lead: Lead };
+
+const nurtureSubject = ({ organizationId, leadId, contactId }: NurtureTouchItem): DerivedTouchSubject => ({ organizationId, contactId, leadId, entityType: "lead", entityId: leadId });
+
+/**
+ * P0-B B2.8c: lost-lead nurture on the shared n8n hand-off. Trackpr claims the
+ * touch (key + B0, marked for a draft hand-off), n8n only drafts, and the
+ * draft re-enters through resumeClaimedTouch: B1, this still-owed re-check
+ * (the lead is still lost, A3), the organization's AI setting, the outbound
+ * gate (lead still 'lost', automation enabled), the send and the record.
+ * Trackpr never composes this message - the draft is the body.
+ */
+export const LOST_LEAD_NURTURE_ADAPTER: DerivedTouchAdapter<NurtureTouchItem, NurtureTouchFacts> = {
+  identity: { automationId: LOST_LEAD_NURTURE_AUTOMATION_ID, eventType: LEAD_LOST_NURTURE_EVENT_TYPE, workflowName: LEAD_LOST_NURTURE_WORKFLOW },
+  policy: {
+    // No payment step before the claim, as before: the gate checks payment and live mode before any send.
+    requiresActivePayment: false,
+    // The producer applies the 48-hour rule (recorded followup_overdue) before the claim.
+    stale: { mode: "none" },
+    // A contact that is not the organization's: the claimed touch is recorded blocked, never dispatched.
+    missingSubject: "record_blocked",
+    gateChecksAutomationEnabled: true,
+    senderType: "ai",
+    auditRecord: { shape: "full" },
+  },
+  subject: nurtureSubject,
+  idempotencyKey: ({ leadId, occurrence }) => `${LEAD_LOST_NURTURE_EVENT_TYPE}:${leadId}:${occurrence}`,
+  isDue: ({ schedule, occurrence }, now) => schedule !== null && computeNurtureOccurrence(now.getTime() - schedule.lostAtMs, schedule.config) === occurrence,
+  dueAt: ({ schedule, occurrence }) => ({ anchorMs: schedule?.lostAtMs ?? 0, delayMs: schedule ? (occurrence === 2 ? schedule.config.touch_2_days : schedule.config.touch_1_days) * 24 * 60 * 60 * 1000 : 0 }),
+  stillOwed: async (service, { organizationId, leadId, contactId }) => {
+    const lead = await getLead(service, organizationId, leadId);
+    if (!lead || lead.status !== "lost") return { owed: false, reason: "lead_not_lost" };
+    const eligibility = await checkLifecycleEligibility(service, organizationId, "lead.lost_nurture", leadId, contactId);
+    if (!eligibility.eligible) return { owed: false, reason: eligibility.reason };
+    return { owed: true, facts: { lead } };
+  },
+  payload: ({ leadId, contactId, conversationId, occurrence }) => ({ lead_id: leadId, contact_id: contactId, conversation_id: conversationId, occurrence }),
+  compose: () => {
+    throw new Error("lost-lead nurture is drafted by n8n - Trackpr never composes it");
+  },
+  gateOptions: () => ({ leadEligibleStatuses: ["lost"] }),
+  auditFields: ({ leadId, occurrence }) => ({ lead_id: leadId, occurrence }),
+  // The organization's "Allow AI to represent this business" setting, read live once the draft is back.
+  verifyClaimed: async (service, item, facts) => {
+    const aiSettings = await getAiSettings(service, item.organizationId);
+    if (!aiSettings.ai_enabled) return { verdict: "blocked", reason: "organization_ai_disabled" };
+    return { verdict: "verified", facts, contactId: item.contactId, leadId: item.leadId };
+  },
+};
+
+/** The touch a lead.lost_nurture execution was claimed for, rebuilt from Trackpr's stored event - never from the callback. */
+export function nurtureTouchItemFromEvent(event: { organization_id: string; entity_id: string | null; payload: Record<string, unknown> | null }): NurtureTouchItem | null {
+  const payload = event.payload ?? {};
+  const occurrence = payload.occurrence;
+  if (!event.entity_id || (occurrence !== 1 && occurrence !== 2)) return null;
+  return {
+    organizationId: event.organization_id,
+    leadId: event.entity_id,
+    contactId: typeof payload.contact_id === "string" ? payload.contact_id : null,
+    occurrence,
+    conversationId: typeof payload.conversation_id === "string" ? payload.conversation_id : null,
+    schedule: null,
+  };
+}
+
+function nurtureOutcomeOf(leadId: string, occurrence: 1 | 2, result: HandOffResult): NurtureOutcome {
+  switch (result.status) {
+    case "handed_off":
+      return { leadId, outcome: "dispatched", occurrence, executionId: result.executionId };
+    case "already_processed":
+      return { leadId, outcome: "skipped_duplicate" };
+    case "blocked":
+      return { leadId, outcome: "blocked", reason: result.reason as "contact_not_found" };
+    case "unavailable":
+      if (result.reason === "skipped_disabled") return { leadId, outcome: "skipped_disabled" };
+      if (result.reason === "not_due") return { leadId, outcome: "not_due" };
+      if (result.reason === "not_owed" && result.detail === "lead_not_lost") return { leadId, outcome: "not_lost" };
+      return { leadId, outcome: "not_owed", reason: result.detail ?? result.reason };
+    case "failed":
+      return { leadId, outcome: "failed", error: result.error };
+  }
+}
+
 type LostEventRow = {
   id: string;
   organization_id: string;
@@ -45,7 +146,9 @@ export type NurtureOutcome =
   | { leadId: string; outcome: "not_due" }
   | { leadId: string; outcome: "skipped_duplicate" }
   | { leadId: string; outcome: "skipped_disabled" }
-  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" | LifecycleBlockReason }
+  | { leadId: string; outcome: "blocked"; reason: "followup_overdue" | LifecycleBlockReason | "contact_not_found" }
+  /** P0-B B2.8c: the shared runtime's still-owed re-check refused the claim (a change since the producer's own checks); nothing recorded. */
+  | { leadId: string; outcome: "not_owed"; reason: string }
   | { leadId: string; outcome: "failed"; error: string };
 
 export type NurtureRunResult = {
@@ -205,95 +308,76 @@ async function processOneLead(
     conversationId = conversation?.id ?? null;
   }
 
-  const idempotencyKey = `lead.lost_nurture:${leadId}:${occurrence}`;
+  // P0-B B2.8c: the claim and the hand-off run the shared touch runtime - kill switch (cached), due,
+  // the key's soft claim, B1, still owed, then the key + B0 start marked for a draft hand-off. The
+  // dispatch itself is deferred exactly as before; its failure fails the execution as before.
+  const item: NurtureTouchItem = { organizationId, leadId, contactId: lead.contact_id, occurrence, conversationId, schedule: { lostAtMs: lostAt, config } };
+  const result = await claimAndHandOffTouch(supabase, LOST_LEAD_NURTURE_ADAPTER, item, now, { isEnabled }, async ({ eventId, executionId }) => {
+    const [aiSettings, businessProfile] = await Promise.all([
+      getAiSettings(supabase, organizationId),
+      getBusinessProfile(supabase, organizationId),
+    ]);
 
-  const eventResult = await createAutomationEventAsService(supabase, organizationId, {
-    eventType: "lead.lost_nurture",
-    entityType: "lead",
-    entityId: leadId,
-    payload: { lead_id: leadId, contact_id: lead.contact_id, conversation_id: conversationId, occurrence },
-    idempotencyKey,
-  });
-
-  if (!eventResult.ok) {
-    return { leadId, outcome: "failed", error: eventResult.error };
-  }
-  if (eventResult.duplicate) {
-    return { leadId, outcome: "skipped_duplicate" };
-  }
-  if (eventResult.skipped) {
-    return { leadId, outcome: "skipped_disabled" };
-  }
-
-  const executionResult = await startWorkflowExecutionAsService(supabase, eventResult.event.id, LEAD_LOST_NURTURE_WORKFLOW);
-  if (!executionResult.ok) {
-    return { leadId, outcome: "failed", error: executionResult.error };
-  }
-
-  const executionId = executionResult.execution.id;
-
-  const [aiSettings, businessProfile] = await Promise.all([
-    getAiSettings(supabase, organizationId),
-    getBusinessProfile(supabase, organizationId),
-  ]);
-
-  // Only real, stored facts are ever passed into the contract - service,
-  // source, and the AI's own prior summary (if any). No prior conversation
-  // transcript, no pricing, no availability - the n8n prompt is instructed
-  // never to invent anything beyond what's given here.
-  const contract: N8nWorkflowContract = {
-    version: 1,
-    event: {
-      id: eventResult.event.id,
-      type: "lead.lost_nurture",
-      organization_id: organizationId,
-      entity_type: "lead",
-      entity_id: leadId,
-      payload: {
-        lead_id: leadId,
-        contact_id: lead.contact_id,
-        conversation_id: conversationId,
-        service: lead.service,
-        source: lead.source,
-        ai_summary: lead.ai_summary,
-        status: lead.status,
-        occurrence,
+    // Only real, stored facts are ever passed into the contract - service,
+    // source, and the AI's own prior summary (if any). No prior conversation
+    // transcript, no pricing, no availability - the n8n prompt is instructed
+    // never to invent anything beyond what's given here.
+    const contract: N8nWorkflowContract = {
+      version: 1,
+      event: {
+        id: eventId,
+        type: LEAD_LOST_NURTURE_EVENT_TYPE,
+        organization_id: organizationId,
+        entity_type: "lead",
+        entity_id: leadId,
+        payload: {
+          lead_id: leadId,
+          contact_id: lead.contact_id,
+          conversation_id: conversationId,
+          service: lead.service,
+          source: lead.source,
+          ai_summary: lead.ai_summary,
+          status: lead.status,
+          occurrence,
+        },
       },
-    },
-    execution: {
-      id: executionId,
-      workflow_name: LEAD_LOST_NURTURE_WORKFLOW,
-      attempt: executionResult.execution.attempt,
-    },
-    context: {
-      organization: {
-        id: organizationId,
-        name: businessProfile?.name ?? "",
-        timezone: businessProfile?.timezone ?? "UTC",
+      execution: {
+        id: executionId,
+        workflow_name: LEAD_LOST_NURTURE_WORKFLOW,
+        // The claim always starts the first execution of a new event.
+        attempt: 1,
       },
-      ai: {
-        enabled: aiSettings.ai_enabled,
-        tone: aiSettings.tone,
-        business_introduction: aiSettings.business_introduction,
-        general_instructions: aiSettings.general_instructions,
+      context: {
+        organization: {
+          id: organizationId,
+          name: businessProfile?.name ?? "",
+          timezone: businessProfile?.timezone ?? "UTC",
+        },
+        ai: {
+          enabled: aiSettings.ai_enabled,
+          tone: aiSettings.tone,
+          business_introduction: aiSettings.business_introduction,
+          general_instructions: aiSettings.general_instructions,
+        },
+        contact,
       },
-      contact,
-    },
-  };
+    };
 
-  after(async () => {
-    const dispatch = await triggerN8nWorkflow(contract);
-    if (!dispatch.ok) {
-      const failed = await failWorkflowExecutionAsService(supabase, executionId, dispatch.error, "n8n_dispatch_failed");
-      if (!failed.ok) {
-        console.error("[automation] failed to record lead.lost_nurture dispatch failure", {
-          executionId,
-          dispatchError: dispatch.error,
-          recordError: failed.error,
-        });
+    after(async () => {
+      const dispatch = await triggerN8nWorkflow(contract);
+      if (!dispatch.ok) {
+        const failed = await failWorkflowExecutionAsService(supabase, executionId, dispatch.error, "n8n_dispatch_failed");
+        if (!failed.ok) {
+          console.error("[automation] failed to record lead.lost_nurture dispatch failure", {
+            executionId,
+            dispatchError: dispatch.error,
+            recordError: failed.error,
+          });
+        }
       }
-    }
+    });
+    return { ok: true };
   });
 
-  return { leadId, outcome: "dispatched", occurrence, executionId };
+  return nurtureOutcomeOf(leadId, occurrence, result);
 }

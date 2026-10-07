@@ -286,6 +286,10 @@ type ClaimedOutcome =
   | { kind: "verification_unknown"; error: string }
   | { kind: "audit_rejected"; error: string }
   | { kind: "claimed_blocked"; reason: string }
+  /** P0-B B2.8c: the subject is gone or the touch is no longer owed - recorded blocked. */
+  | { kind: "lifecycle_blocked"; reason: string }
+  /** P0-B B2.8c: a resumed draft that declines or asks for a person - recorded blocked after lifecycle and verification. */
+  | { kind: "draft_blocked"; reason: string }
   | TouchResult;
 
 async function finishClaimedTouch<Item, Facts>(
@@ -293,7 +297,17 @@ async function finishClaimedTouch<Item, Facts>(
   adapter: DerivedTouchAdapter<Item, Facts>,
   item: Item,
   facts: Facts,
-  claim: { organizationId: string; executionId: string; ops: ExecutionOps; auditFields: AuditFields; record: AuditRecordPolicy; bodyFor: (facts: Facts) => string; sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult> },
+  claim: {
+    organizationId: string;
+    executionId: string;
+    ops: ExecutionOps;
+    auditFields: AuditFields;
+    record: AuditRecordPolicy;
+    bodyFor: (facts: Facts) => string;
+    /** A resumed draft's own decision not to send (declined / needs a person), applied once the touch is verified - never before. */
+    draftBlock?: string | null;
+    sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>;
+  },
 ): Promise<ClaimedOutcome> {
   const { executionId, ops, auditFields, record } = claim;
   const claimed = await verifyClaimedTouch(supabase, adapter, item, facts);
@@ -312,6 +326,10 @@ async function finishClaimedTouch<Item, Facts>(
     }
     await ops.complete(supabase, executionId, { ...blockedOutcome(record, claimed.reason, null), ...blockedFields });
     return { kind: "claimed_blocked", reason: claimed.reason };
+  }
+  if (claim.draftBlock) {
+    await ops.complete(supabase, executionId, { ...blockedOutcome(record, claim.draftBlock, null), ...auditFields });
+    return { kind: "draft_blocked", reason: claim.draftBlock };
   }
 
   return executeTouch(
@@ -350,6 +368,8 @@ export async function runDerivedTouch<Item, Facts>(service: SupabaseClient, adap
   });
   if (result.kind === "verification_unknown" || result.kind === "audit_rejected") return { status: "failed", error: result.error };
   if (result.kind === "claimed_blocked") return { status: "blocked", reason: result.reason };
+  // Unreachable on a first run: lifecycle and draft blocks come only from a resumed/retried execution's spine.
+  if (result.kind === "lifecycle_blocked" || result.kind === "draft_blocked") return { status: "blocked", reason: result.reason };
   if (result.kind === "sent") return { status: "sent", messageId: result.messageId };
   if (result.kind === "blocked") return { status: "blocked", reason: result.reason };
   // Unreachable: this run claimed the execution alone (B0).
@@ -369,7 +389,7 @@ async function runClaimedSpine<Item, Facts>(
   adapter: DerivedTouchAdapter<Item, Facts>,
   item: Item,
   now: Date,
-  claim: { executionId: string; ops: ExecutionOps; auditFields: AuditFields; record: AuditRecordPolicy; bodyFor: (facts: Facts) => string; sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult> },
+  claim: { executionId: string; ops: ExecutionOps; auditFields: AuditFields; record: AuditRecordPolicy; bodyFor: (facts: Facts) => string; draftBlock?: string | null; sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult> },
 ): Promise<ClaimedOutcome | { kind: "lifecycle_failed" }> {
   const { executionId, ops, auditFields, record } = claim;
   const subject = adapter.subject(item);
@@ -381,13 +401,13 @@ async function runClaimedSpine<Item, Facts>(
   }
   if (resolution.kind === "missing") {
     await ops.complete(supabase, executionId, { ...blockedOutcome(record, SUBJECT_MISSING_REASON, null), ...auditFields });
-    return { kind: "claimed_blocked", reason: SUBJECT_MISSING_REASON };
+    return { kind: "lifecycle_blocked", reason: SUBJECT_MISSING_REASON };
   }
 
   const owed = await adapter.stillOwed(supabase, item, resolution.lifecycle);
   if (!owed.owed) {
     await ops.complete(supabase, executionId, { ...blockedOutcome(record, owed.reason, null), ...auditFields });
-    return { kind: "claimed_blocked", reason: owed.reason };
+    return { kind: "lifecycle_blocked", reason: owed.reason };
   }
 
   // The existing execution is the claim: the same claimed verification applies.
@@ -543,10 +563,17 @@ export type ResumeInput<Item> = {
 
 export type ResumeRejection = "automation_mismatch" | "organization_mismatch" | "execution_not_found" | "event_mismatch" | "workflow_mismatch" | "subject_mismatch" | "not_handed_off";
 
+/**
+ * Where a resumed touch was blocked (P0-B B2.8c): the subject or the touch
+ * no longer stands ("lifecycle"), the kind's claimed verification ("verification"),
+ * the draft itself ("draft") or the outbound gate ("gate").
+ */
+export type ResumeBlockStage = "lifecycle" | "verification" | "draft" | "gate";
+
 export type ResumeResult =
   | { status: "sent"; messageId: string }
   /** A business decision, recorded on the execution (gate, lifecycle, still-owed, verification, a declined or needs-human draft). */
-  | { status: "blocked"; reason: string }
+  | { status: "blocked"; reason: string; stage: ResumeBlockStage }
   /** The execution is no longer running, or another request already owns its send - nothing done. */
   | { status: "already_processed" }
   /** The request does not match a handed-off execution Trackpr owns - nothing read beyond it, nothing recorded. */
@@ -569,14 +596,13 @@ export function draftViolation(draft: unknown): string | null {
   return null;
 }
 
-export async function resumeClaimedTouch<Item, Facts>(
-  service: SupabaseClient,
-  adapter: DerivedTouchAdapter<Item, Facts>,
-  input: ResumeInput<Item>,
-  now: Date = new Date(),
-  /** Test seam only - production callers never pass this; see lib/messaging/outbound.ts. */
-  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
-): Promise<ResumeResult> {
+/**
+ * Re-validates a resume (or failure) request against Trackpr's own rows: the
+ * kind, the organization, the execution and its event, the workflow, the
+ * subject's key and the hand-off marker. Null when the execution is a
+ * running, handed-off execution of this kind and subject.
+ */
+async function handedOffExecutionMismatch<Item, Facts>(service: SupabaseClient, adapter: DerivedTouchAdapter<Item, Facts>, input: Omit<ResumeInput<Item>, "draft">): Promise<ResumeResult | null> {
   const rejected = (reason: ResumeRejection): ResumeResult => ({ status: "rejected", reason });
   const { identity } = adapter;
   if (input.automationId !== identity.automationId) return rejected("automation_mismatch");
@@ -594,6 +620,19 @@ export async function resumeClaimedTouch<Item, Facts>(
   if (event.idempotency_key !== adapter.idempotencyKey(input.item)) return rejected("subject_mismatch");
   if (execution.status !== "running") return { status: "already_processed" };
   if ((execution.metadata as { handoff?: unknown } | null)?.handoff !== DRAFT_HANDOFF_METADATA.handoff) return rejected("not_handed_off");
+  return null;
+}
+
+export async function resumeClaimedTouch<Item, Facts>(
+  service: SupabaseClient,
+  adapter: DerivedTouchAdapter<Item, Facts>,
+  input: ResumeInput<Item>,
+  now: Date = new Date(),
+  /** Test seam only - production callers never pass this; see lib/messaging/outbound.ts. */
+  sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>,
+): Promise<ResumeResult> {
+  const mismatch = await handedOffExecutionMismatch(service, adapter, input);
+  if (mismatch) return mismatch;
 
   const ops = SERVICE_EXECUTION_OPS;
   const executionId = input.executionId;
@@ -612,20 +651,23 @@ export async function resumeClaimedTouch<Item, Facts>(
     await ops.fail(service, executionId, error);
     return { status: "failed", error };
   }
-  const blockOnDraft = input.draft.needsHuman ? DRAFT_NEEDS_HUMAN : input.draft.body === null ? DRAFT_DECLINED : null;
-  if (blockOnDraft) {
-    await ops.complete(service, executionId, { ...blockedOutcome(record, blockOnDraft, null), ...auditFields });
-    return { status: "blocked", reason: blockOnDraft };
-  }
-  const body = input.draft.body as string;
+  // P0-B B2.8c: the draft's own decision not to send is applied after lifecycle and verification
+  // (the touch's truth first), never instead of them.
+  const draftBlock = input.draft.needsHuman ? DRAFT_NEEDS_HUMAN : input.draft.body === null ? DRAFT_DECLINED : null;
+  const body = input.draft.body ?? "";
 
-  const result = await runClaimedSpine(service, adapter, input.item, now, { executionId, ops, auditFields, record, bodyFor: () => body, sendSmsFn });
+  const result = await runClaimedSpine(service, adapter, input.item, now, { executionId, ops, auditFields, record, bodyFor: () => body, draftBlock, sendSmsFn });
   switch (result.kind) {
     case "sent":
       return { status: "sent", messageId: result.messageId };
     case "blocked":
+      return { status: "blocked", reason: result.reason, stage: "gate" };
+    case "lifecycle_blocked":
+      return { status: "blocked", reason: result.reason, stage: "lifecycle" };
     case "claimed_blocked":
-      return { status: "blocked", reason: result.reason };
+      return { status: "blocked", reason: result.reason, stage: "verification" };
+    case "draft_blocked":
+      return { status: "blocked", reason: result.reason, stage: "draft" };
     case "duplicate_in_progress":
       return { status: "already_processed" };
     case "lifecycle_failed":
@@ -635,4 +677,18 @@ export async function resumeClaimedTouch<Item, Facts>(
     case "failed":
       return { status: "failed", error: result.error };
   }
+}
+
+/**
+ * P0-B B2.8c: the drafter could not produce a usable draft (an AI failure,
+ * or a callback that fails the strict draft contract) for a handed-off
+ * execution. After the same re-validation as resumeClaimedTouch, the
+ * execution FAILS with `error` - an AI failure is never recorded as a
+ * human-required or declined decision, and nothing is sent.
+ */
+export async function failHandedOffTouch<Item, Facts>(service: SupabaseClient, adapter: DerivedTouchAdapter<Item, Facts>, input: Omit<ResumeInput<Item>, "draft">, error: string): Promise<ResumeResult> {
+  const mismatch = await handedOffExecutionMismatch(service, adapter, input);
+  if (mismatch) return mismatch;
+  await SERVICE_EXECUTION_OPS.fail(service, input.executionId, error);
+  return { status: "failed", error };
 }
