@@ -6,12 +6,22 @@ import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
 import { emitEstimateSent, emitEstimateLifecycleEvent } from "@/lib/automation/estimates";
-import { deliverEstimateToCustomer } from "@/lib/automation/estimate-delivery";
+import { deliverEstimateToCustomer, describeEstimateDelivery, type EstimateDeliverySummary } from "@/lib/automation/estimate-delivery";
 import { resolveCustomerLinkBaseUrl } from "@/lib/estimates/approval-link";
 import { emitJobCreatedFromEstimate } from "@/lib/automation/jobs";
 import { findRecentDuplicateEstimate } from "@/lib/estimates/duplicate-guard";
+import { getJobByEstimateId } from "@/lib/jobs/queries";
 
 export type EstimateActionResult = { ok: true; id?: string } | { ok: false; error: string };
+
+/**
+ * Final Batch 3: sending an estimate is two facts, reported separately and
+ * truthfully - the estimate became 'sent' (its approval link is live), and
+ * whether the customer was actually texted. `delivery.texted` is true only
+ * when the provider accepted the text; any block, skip or provider failure
+ * says so in `delivery.message` - never a blanket "sent".
+ */
+export type EstimateSendResult = { ok: true; id: string; delivery: EstimateDeliverySummary } | { ok: false; error: string };
 
 export type EstimateFormState = {
   error?: string;
@@ -187,7 +197,7 @@ export async function updateEstimate(_prevState: EstimateFormState, formData: Fo
  * second automation event (idempotency lives at the automation-event layer
  * too, but guarding the state transition itself here is cheap and correct).
  */
-export async function sendEstimate(estimateId: string): Promise<EstimateActionResult> {
+export async function sendEstimate(estimateId: string): Promise<EstimateSendResult> {
   const { supabase, organizationId } = await requireOrganization();
 
   const { data, error } = await supabase
@@ -206,11 +216,46 @@ export async function sendEstimate(estimateId: string): Promise<EstimateActionRe
   // Delivers the real approval link to the customer (gated like every other
   // automated send) - sending an estimate no longer depends on the
   // contractor copying the link out of the page.
-  await deliverEstimateToCustomer(supabase, estimateId, resolveCustomerLinkBaseUrl((await headers()).get("host")));
+  //
+  // Final Batch 3: the delivery outcome is no longer discarded - the caller is
+  // told whether the customer was actually texted (see EstimateSendResult).
+  // The estimate stays 'sent' either way: its approval link is live and can
+  // be shared by hand, and the delivery event is idempotent per estimate, so
+  // reverting to draft could never re-text it.
+  const outcome = await deliverEstimateToCustomer(supabase, estimateId, resolveCustomerLinkBaseUrl((await headers()).get("host")));
 
   revalidatePath("/money");
   revalidatePath(`/estimates/${estimateId}`);
-  return { ok: true, id: data.id };
+  return { ok: true, id: data.id, delivery: describeEstimateDelivery(outcome) };
+}
+
+/**
+ * Final Batch 3: the next action for an accepted estimate with no job. Reuses
+ * the one existing estimate -> job path (emitJobCreatedFromEstimate: same
+ * insert, idempotent on estimate_id, lead -> won, job.created kickoff) that
+ * acceptance itself runs - for the case where that side effect never landed.
+ * Only for an accepted estimate of the caller's organization; never a second
+ * job (an existing one is returned instead).
+ */
+export async function createJobFromAcceptedEstimate(estimateId: string): Promise<EstimateActionResult> {
+  const { supabase, organizationId } = await requireOrganization();
+
+  const { data: estimate, error } = await supabase.from("estimates").select("id, status").eq("id", estimateId).eq("organization_id", organizationId).maybeSingle();
+  if (error) return { ok: false, error: "We couldn't load this estimate." };
+  if (!estimate) return { ok: false, error: "This estimate could not be found." };
+  if (estimate.status !== "accepted") return { ok: false, error: "Only an accepted estimate can become a job." };
+
+  const existing = await getJobByEstimateId(supabase, organizationId, estimateId);
+  if (existing) return { ok: true, id: existing.id };
+
+  await emitJobCreatedFromEstimate(supabase, organizationId, estimateId);
+  const created = await getJobByEstimateId(supabase, organizationId, estimateId);
+  if (!created) return { ok: false, error: "We couldn't create the job. Please try again." };
+
+  revalidatePath("/money");
+  revalidatePath("/jobs");
+  revalidatePath(`/estimates/${estimateId}`);
+  return { ok: true, id: created.id };
 }
 
 async function transitionEstimate(

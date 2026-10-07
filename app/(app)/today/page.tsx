@@ -237,11 +237,10 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
           <h1 className={pageTitleClass}>{greeting}</h1>
           <p className={`mt-1.5 ${pageDescriptionClass}`}>{attentionLine(totalNeedingAttention)}</p>
         </div>
-        {contacts.length > 0 ? (
-          <div className="shrink-0">
-            <AddLeadButton contacts={contacts} />
-          </div>
-        ) : null}
+        {/* Final Batch 3: always offered - with no contacts yet it says "Add a contact first". */}
+        <div className="shrink-0">
+          <AddLeadButton contacts={contacts} />
+        </div>
       </header>
 
       {/* Act I - what happened: the KPI row (today's figures, plus the one

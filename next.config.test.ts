@@ -50,11 +50,11 @@ test("1. /leads/[id] redirects to /customers/[id] with a lead marker, preserving
   assert.equal(rule!.permanent, true);
 });
 
-test("2. /leads redirects to /people, filtered to hot leads - permanent:false since its own destination changed during IA consolidation (a stale cached 308 must not strand a returning visitor on an older destination)", async () => {
+test("2. /leads redirects to /people's Leads view (every open lead - Final Batch 3) - permanent:false since its own destination changed during IA consolidation (a stale cached 308 must not strand a returning visitor on an older destination)", async () => {
   const rules = await getRedirects();
   const rule = findRule(rules, "/leads");
   assert.ok(rule);
-  assert.equal(rule!.destination, "/people?temperature=hot");
+  assert.equal(rule!.destination, "/people?view=leads");
   assert.equal(rule!.permanent, false);
 });
 

@@ -14,8 +14,9 @@ import { getContactJobs } from "@/lib/jobs/queries";
 import { getContactInvoices } from "@/lib/invoices/queries";
 import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { getReviewRequestsForJobs } from "@/lib/reviews-referrals/queries";
-import { deriveContactLifecycle } from "@/lib/customers/lifecycle-stage";
-import { findPersonNextStep } from "@/lib/people/next-step";
+import { contactLifecycleFromCanonical } from "@/lib/customers/lifecycle-stage";
+import { derivePersonLifecycle, findPersonNextStep } from "@/lib/people/next-step";
+import { loadLifecyclePolicy } from "@/lib/people/lifecycle-policy";
 import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import { summarizeOpenLeadValue, formatOpenLeadValueDisplay } from "@/lib/contacts/open-lead-value";
 import { formatCurrency } from "@/lib/dashboard/format";
@@ -66,7 +67,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     );
   }
 
-  const [messages, contactAppointments, contactLeads, contactEstimates, contactJobs, contactOptOut, timeZone, contactInvoices, waiting] = await Promise.all([
+  const [messages, contactAppointments, contactLeads, contactEstimates, contactJobs, contactOptOut, timeZone, contactInvoices, waiting, lifecyclePolicy] = await Promise.all([
     getMessages(supabase, membership.organizationId, conversation.id),
     conversation.contact_id
       ? getContactAppointments(supabase, membership.organizationId, conversation.contact_id)
@@ -103,6 +104,7 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
     conversation.contact_id ? getContactInvoices(supabase, membership.organizationId, conversation.contact_id) : Promise.resolve([]),
     // Phase 2-13 (§3): whether this contact's conversations are waiting on the business.
     conversation.contact_id ? getWaitingConversationIds(supabase, membership.organizationId, { contactId: conversation.contact_id }) : Promise.resolve({ ids: new Set<string>(), failed: false }),
+    loadLifecyclePolicy(supabase, membership.organizationId),
   ]);
 
   // review_requests are read after contactJobs resolves (needs its own job
@@ -118,15 +120,23 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
   const contactName = conversation.contact ? contactDisplayName(conversation.contact) : "No contact";
   const smsOptOut = Boolean(contactOptOut?.data?.sms_opt_out);
 
-  const lifecycleStage = conversation.contact_id
-    ? deriveContactLifecycle(conversation.contact_id, {
+  // Final Batch 3: badge and next step from one canonical lifecycle (lib/people/next-step.ts).
+  const person = conversation.contact_id
+    ? {
+        contactId: conversation.contact_id,
         leads: contactLeads,
+        appointments: contactAppointments,
         estimates: contactEstimates,
         jobs: contactJobs,
-        appointments: contactAppointments,
+        invoices: contactInvoices,
         reviewRequests,
-      })
+        messages,
+        smsOptOut: Boolean(contactOptOut?.data?.sms_opt_out),
+        policy: lifecyclePolicy,
+      }
     : null;
+  const personLifecycle = person ? derivePersonLifecycle(person) : null;
+  const lifecycleStage = personLifecycle ? contactLifecycleFromCanonical(personLifecycle) : null;
 
   const openLeadValueSummary = summarizeOpenLeadValue(contactLeads);
   const openLeadCount = contactLeads.filter((lead) => lead.status !== "won" && lead.status !== "lost").length;
@@ -137,9 +147,10 @@ export default async function ConversationDetailPage({ params }: PageProps<"/con
   // "a conversation is waiting for a reply" branch only ever considers this
   // one thread. Every other branch (appointment/estimate/lead) reads this
   // contact's full, real history exactly like the Person page does.
-  const nextStep = conversation.contact_id
-    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: [conversation], waitingConversationIds: waiting.ids, invoices: contactInvoices, timeZone })
-    : null;
+  const nextStep =
+    person && personLifecycle
+      ? findPersonNextStep({ ...person, conversations: [conversation], waitingConversationIds: waiting.ids, timeZone, jobsEnabled: membership.vertical === "contractor", lifecycle: personLifecycle })
+      : null;
 
   // Phase 1B-4: the one invoice worth showing next to the thread - an open
   // balance first (sent, then partially paid), else the most recent live

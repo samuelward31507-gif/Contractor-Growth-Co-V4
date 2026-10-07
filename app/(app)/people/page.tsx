@@ -8,9 +8,10 @@ import { getAppointments } from "@/lib/appointments/queries";
 import { getReviewRequests } from "@/lib/reviews-referrals/queries";
 import { getConversations } from "@/lib/conversations/queries";
 import { getInvoices } from "@/lib/invoices/queries";
-import { deriveContactLifecycle, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
+import { contactLifecycleFromCanonical, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
 import { summarizeOpenLeadValue } from "@/lib/contacts/open-lead-value";
-import { findPersonNextStep, type NextStep } from "@/lib/people/next-step";
+import { derivePersonLifecycle, findPersonNextStep, type NextStep } from "@/lib/people/next-step";
+import { loadLifecyclePolicy } from "@/lib/people/lifecycle-policy";
 import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import Link from "next/link";
 import { PageHeader } from "@/lib/ui/page-header";
@@ -22,6 +23,8 @@ import { PeopleEmptyState } from "./_components/people-empty-state";
 import { PeopleSearch } from "./_components/people-search";
 import { PeopleTable } from "./_components/people-table";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+import { filterPeople, type PeopleView } from "@/lib/people/filter";
+import { AddLeadButton } from "@/app/(app)/leads/_components/add-lead-button";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 
 function groupByContactId<T extends { contact_id: string | null }>(records: T[]): Map<string, T[]> {
@@ -47,6 +50,12 @@ function normalizeSort(value: string | undefined): PersonSort {
 function normalizeTemperature(value: string | undefined): LeadTemperature | "all" {
   return value && VALID_TEMPERATURES.has(value) ? (value as LeadTemperature) : "all";
 }
+
+function normalizeView(value: string | undefined): PeopleView {
+  return value === "leads" ? "leads" : "all";
+}
+
+const TEMPERATURE_CHIPS: (LeadTemperature | "all")[] = ["all", "hot", "warm", "cold"];
 
 function personSortName(contact: Contact): string {
   return [contact.last_name, contact.first_name].filter(Boolean).join(" ").trim().toLowerCase() || "zzz";
@@ -93,6 +102,10 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   const query = typeof params.q === "string" ? params.q : "";
   const sort = normalizeSort(typeof params.sort === "string" ? params.sort : undefined);
   const temperature = normalizeTemperature(typeof params.temperature === "string" ? params.temperature : undefined);
+  // Final Batch 3: the Leads view is everyone with an open lead (any
+  // temperature); temperature only narrows it. It used to BE the hot filter.
+  const view = normalizeView(typeof params.view === "string" ? params.view : undefined);
+  const leadsView = view === "leads" || temperature !== "all";
 
   const supabase = await getRequestSupabase();
   const { user, membership } = await getRequestMembership();
@@ -105,7 +118,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     redirect("/onboarding");
   }
 
-  const [allContacts, leads, estimates, jobs, appointments, reviewRequests, conversations, invoices, waiting, timeZone] = await Promise.all([
+  const [allContacts, leads, estimates, jobs, appointments, reviewRequests, conversations, invoices, waiting, timeZone, lifecyclePolicy] = await Promise.all([
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getEstimates(supabase, membership.organizationId),
@@ -121,10 +134,9 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     getWaitingConversationIds(supabase, membership.organizationId),
     // Phase 3 (W1): next-step appointment times in the organization's timezone, as on the Person page.
     getOrganizationTimezone(supabase, membership.organizationId),
+    // Final Batch 3: one policy for every row's canonical lifecycle.
+    loadLifecyclePolicy(supabase, membership.organizationId),
   ]);
-  const lifecycleByContactId = new Map<string, ContactLifecycleStage>(
-    allContacts.map((contact) => [contact.id, deriveContactLifecycle(contact.id, { leads, estimates, jobs, appointments, reviewRequests })]),
-  );
 
   const temperatureByContactId = new Map<string, LeadTemperature>();
   const leadsByContactId = groupByContactId(leads);
@@ -147,38 +159,59 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   const appointmentsByContactId = groupByContactId(appointments);
   const conversationsByContactId = groupByContactId(conversations);
   const invoicesByContactId = groupByContactId(invoices);
+  const jobContactId = new Map(jobs.map((job) => [job.id, job.contact_id]));
+  const reviewRequestsByContactId = new Map<string, typeof reviewRequests>();
+  for (const request of reviewRequests) {
+    const contactId = request.job_id ? jobContactId.get(request.job_id) : null;
+    if (!contactId) continue;
+    reviewRequestsByContactId.set(contactId, [...(reviewRequestsByContactId.get(contactId) ?? []), request]);
+  }
 
+  // Final Batch 3: the badge and the next step both come from ONE canonical
+  // lifecycle per person (lib/lifecycle via lib/people/next-step.ts), so they
+  // can never disagree and a stale lead status never outranks newer records.
   const valueByContactId = new Map<string, ReturnType<typeof summarizeOpenLeadValue>>();
   const nextStepByContactId = new Map<string, NextStep | null>();
+  const lifecycleByContactId = new Map<string, ContactLifecycleStage>();
   for (const contact of allContacts) {
     valueByContactId.set(contact.id, summarizeOpenLeadValue(leadsByContactId.get(contact.id) ?? []));
+    const person = {
+      contactId: contact.id,
+      leads: leadsByContactId.get(contact.id) ?? [],
+      appointments: appointmentsByContactId.get(contact.id) ?? [],
+      estimates: estimatesByContactId.get(contact.id) ?? [],
+      jobs: jobsByContactId.get(contact.id) ?? [],
+      invoices: invoicesByContactId.get(contact.id) ?? [],
+      reviewRequests: reviewRequestsByContactId.get(contact.id) ?? [],
+      policy: lifecyclePolicy,
+    };
+    const lifecycle = derivePersonLifecycle(person);
+    lifecycleByContactId.set(contact.id, contactLifecycleFromCanonical(lifecycle));
     nextStepByContactId.set(
       contact.id,
       findPersonNextStep({
-        leads: leadsByContactId.get(contact.id) ?? [],
-        appointments: appointmentsByContactId.get(contact.id) ?? [],
-        estimates: estimatesByContactId.get(contact.id) ?? [],
-        jobs: jobsByContactId.get(contact.id) ?? [],
+        ...person,
         conversations: conversationsByContactId.get(contact.id) ?? [],
         waitingConversationIds: waiting.ids,
-        invoices: invoicesByContactId.get(contact.id) ?? [],
         timeZone,
+        jobsEnabled: membership.vertical === "contractor",
+        lifecycle,
       }),
     );
   }
 
-  const temperatureFiltered = temperature === "all" ? allContacts : allContacts.filter((contact) => temperatureByContactId.get(contact.id) === temperature);
-  const contacts = sortContacts(filterContacts(temperatureFiltered, query), sort);
+  const viewFiltered = filterPeople(allContacts, temperatureByContactId, { view, temperature });
+  const contacts = sortContacts(filterContacts(viewFiltered, query), sort);
 
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow={temperature === "hot" ? "People · Leads" : "People"}
+        eyebrow={leadsView ? "People · Leads" : "People"}
         // Trackpr 2.0 (step 2G): the title follows the nav entry that lands
-        // here - Leads is this list filtered to hot leads, Contacts (Members
-        // for a gym) is everyone.
-        title={temperature === "hot" ? "Leads" : getTerminology(membership.vertical).contactsLabel}
-        description={temperature === "hot" ? "Open leads that are ready for a conversation now." : "Everyone your business is currently working with or has worked with."}
+        // here - Leads is everyone with an open lead (Final Batch 3: every
+        // temperature, not only hot), Contacts (Members for a gym) is everyone.
+        title={leadsView ? "Leads" : getTerminology(membership.vertical).contactsLabel}
+        description={leadsView ? "Everyone with an open lead - hot, warm and cold." : "Everyone your business is currently working with or has worked with."}
         badge={
           allContacts.length > 0 ? (
             <span className="inline-flex items-center rounded-full bg-inset px-2.5 py-0.5 text-xs font-medium tabular-nums text-ink-2">
@@ -195,24 +228,39 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
               Review duplicates
             </Link>
             {allContacts.length > 0 ? <AddContactButton /> : null}
+            {/* Final Batch 3: Add Lead lives where leads are worked (it explains "add a contact first" when there are none). */}
+            {leadsView ? <AddLeadButton contacts={allContacts} /> : null}
           </div>
         }
       />
 
-      {temperature !== "all" ? (
-        <p className="text-sm text-ink-3">
-          Showing {TEMPERATURE_LABELS[temperature].toLowerCase()} leads only ({contacts.length}) ·{" "}
+      {leadsView ? (
+        <nav aria-label="Lead temperature" className="flex flex-wrap items-center gap-2 text-sm text-ink-3">
+          {TEMPERATURE_CHIPS.map((chip) => {
+            const active = chip === temperature;
+            return (
+              <Link
+                key={chip}
+                href={chip === "all" ? "/people?view=leads" : `/people?view=leads&temperature=${chip}`}
+                aria-current={active ? "page" : undefined}
+                className={`rounded-full px-3 py-1 font-medium ${active ? "bg-selected text-ink" : "text-ink-2 hover:text-ink"}`}
+              >
+                {chip === "all" ? "All open leads" : TEMPERATURE_LABELS[chip]}
+              </Link>
+            );
+          })}
+          <span aria-live="polite">· {contacts.length} shown ·</span>
           <Link href="/people" className="font-medium text-ink-2 underline underline-offset-2 hover:text-ink">
             View everyone
           </Link>
-        </p>
+        </nav>
       ) : null}
 
       {allContacts.length === 0 ? (
         <PeopleEmptyState />
       ) : (
         <Panel>
-          <PeopleSearch initialQuery={query} initialSort={sort} initialTemperature={temperature !== "all" ? temperature : undefined} />
+          <PeopleSearch initialQuery={query} initialSort={sort} initialTemperature={temperature !== "all" ? temperature : undefined} initialView={view !== "all" ? view : undefined} />
           <div className="mt-5">
             <PeopleTable
               contacts={contacts}

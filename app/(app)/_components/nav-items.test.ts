@@ -65,7 +65,7 @@ test("B. no legacy or redirect-only route appears anywhere in navigation, for ei
 test("B2. the entries that replace redirect routes link to exactly the URL each redirect lands on", () => {
   const byLabel = new Map(getNavGroupsForVertical("contractor", false).flatMap((g) => g.items.map((i) => [i.label, i.href] as const)));
   assert.equal(byLabel.get("Contacts"), "/people"); // /contacts -> /people
-  assert.equal(byLabel.get("Leads"), "/people?temperature=hot"); // /leads -> /people?temperature=hot
+  assert.equal(byLabel.get("Leads"), "/people?view=leads"); // /leads -> /people?view=leads (Final Batch 3: every open lead)
   assert.equal(byLabel.get("Calendar"), "/schedule"); // /calendar -> /schedule
   assert.equal(byLabel.get("Appointments"), "/schedule?view=list"); // /appointments -> /schedule?view=list
   assert.equal(byLabel.get("Opportunities"), "/today?view=by-type#opportunities"); // /opportunities -> /today?view=by-type#opportunities
@@ -94,7 +94,7 @@ test("C. every label renders exactly as specified, for a contractor", () => {
   const expected = [
     "/today:Today",
     "/people:Contacts",
-    "/people?temperature=hot:Leads",
+    "/people?view=leads:Leads",
     "/conversations:Inbox",
     "/money:Overview",
     "/money?browse=invoices:Invoices",
@@ -208,7 +208,7 @@ test("gym nav excludes Estimates, Jobs, Money and Invoices, and drops the then-e
 
 test("gym nav still includes every vertical-neutral item", () => {
   const hrefs = hrefsOf(getNavGroupsForVertical("gym", false));
-  for (const href of ["/today", "/people", "/people?temperature=hot", "/conversations", "/schedule", "/schedule?view=list", "/today?view=by-type#opportunities", "/growth#reviews", "/growth#referrals", "/insights", "/automations", "/settings"]) {
+  for (const href of ["/today", "/people", "/people?view=leads", "/conversations", "/schedule", "/schedule?view=list", "/today?view=by-type#opportunities", "/growth#reviews", "/growth#referrals", "/insights", "/automations", "/settings"]) {
     assert.ok(hrefs.includes(href), `expected ${href} to remain visible for gym`);
   }
 });
@@ -251,9 +251,10 @@ const activeLabel = (pathname: string, search = "", hash = "") => resolveActiveN
 
 test("R1. two views of one route resolve to the more specific entry only when its query is present (or its fragment matches)", () => {
   assert.equal(activeLabel("/people"), "Contacts");
-  assert.equal(activeLabel("/people", "temperature=hot"), "Leads");
+  assert.equal(activeLabel("/people", "view=leads"), "Leads");
+  assert.equal(activeLabel("/people", "view=leads&temperature=hot"), "Leads");
   assert.equal(activeLabel("/people", "temperature=warm"), "Contacts");
-  assert.equal(activeLabel("/people", "temperature=hot&q=smith"), "Leads");
+  assert.equal(activeLabel("/people", "view=leads&q=smith"), "Leads");
   assert.equal(activeLabel("/schedule"), "Calendar");
   assert.equal(activeLabel("/schedule", "view=week&date=2026-09-28"), "Calendar");
   assert.equal(activeLabel("/schedule", "view=list"), "Appointments");

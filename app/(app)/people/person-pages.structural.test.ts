@@ -66,7 +66,9 @@ test("Phase 3 (W1): the Person page names its lead-value stat honestly; the Peop
   assert.doesNotMatch(person, /label: "Open opportunity value"/);
   const people = read("app/(app)/people/page.tsx");
   assert.match(people, /getOrganizationTimezone\(supabase, membership\.organizationId\)/);
-  assert.match(people, /invoices: invoicesByContactId\.get\(contact\.id\) \?\? \[\],\n\s+timeZone,/);
+  // Final Batch 3: the per-person rows (invoices included) feed one canonical lifecycle; the next step still gets the timezone.
+  assert.match(people, /invoices: invoicesByContactId\.get\(contact\.id\) \?\? \[\],/);
+  assert.match(people, /findPersonNextStep\(\{\n\s+\.\.\.person,[\s\S]*?timeZone,/);
 });
 
 test("Phase 3 (W1): Inbox 'needs a reply' is the canonical waiting rule, not 'the last message is inbound'", () => {

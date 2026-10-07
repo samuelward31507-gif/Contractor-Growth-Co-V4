@@ -86,9 +86,16 @@ With nothing open, the settled stage tells the two apart: `customer` / `paid` (r
 - **Won leads:** a lead marked `won` with no job stays `won` (e.g. gym membership conversion).
 - **Organization policy:** `asOf` and the policy (dormancy days, estimate follow-up hours) are part of the snapshot, so the result is reproducible, but it changes if the organization changes its automation config.
 
-## What B2+ will consume (not wired in B1)
+## Consumers
 
-Nothing outside `lib/lifecycle` imports this model yet; `statuses.test.ts` enforces that. The intended consumers are:
+`statuses.test.ts` refuses any import of the model outside `lib/lifecycle` except the sanctioned consumers:
+
+- **B2.1:** the obligation engine (`lib/followups/engine.ts`).
+- **Final Batch 3:** the person next-action resolver (`lib/people/next-step.ts`, with `lib/people/lifecycle-policy.ts`) and the People badge mapping (`contactLifecycleFromCanonical` in `lib/customers/lifecycle-stage.ts`). People, the Person page, the Inbox context panel and the Appointment page reach the model only through them, so the badge and the next action now follow this precedence (the badge's old `review_requested`-above-`estimate_sent` order is gone).
+
+### Originally intended consumers (B1)
+
+The intended consumers are:
 
 - the automation dispatcher, through a "customer advanced since anchor" check from `activeStages` / `primary`;
 - transition writers;

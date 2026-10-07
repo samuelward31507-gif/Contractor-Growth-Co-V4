@@ -11,7 +11,8 @@ import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format"
 import { formatCurrency } from "@/lib/dashboard/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
-import { successBannerClass } from "@/lib/ui/form";
+import { errorBannerClass, successBannerClass } from "@/lib/ui/form";
+import { describeEstimateDeliveryState, getEstimateDeliveryState, type EstimateDeliveryState } from "@/lib/automation/estimate-delivery";
 import { SectionCard, Panel } from "@/lib/ui/section-card";
 import { DetailHeader } from "@/lib/ui/detail-header";
 import { ApprovalLinkRow } from "./_components/approval-link-row";
@@ -65,6 +66,8 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
   // this link reflects the real, single job created for this estimate
   // rather than a second, independent lookup path.
   const job = estimate.status === "accepted" ? await getJobByEstimateId(supabase, membership.organizationId, id) : null;
+  // Final Batch 3: whether the customer was actually texted - read from the estimate's own delivery execution.
+  const deliveryState: EstimateDeliveryState = estimate.status === "draft" ? { state: "not_attempted" } : await getEstimateDeliveryState(supabase, membership.organizationId, id);
 
   const customerName = estimate.contact ? contactDisplayName(estimate.contact) : "No contact";
 
@@ -89,7 +92,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
             {ESTIMATE_STATUS_LABELS[estimate.status]}
           </Badge>
         }
-        action={<EstimateActions estimate={estimate} contacts={contacts} leads={leads} />}
+        action={<EstimateActions estimate={estimate} contacts={contacts} leads={leads} hasJob={Boolean(job)} />}
         meta={
           <div>
             <p className="text-xs font-medium text-ink-3">Amount</p>
@@ -101,6 +104,12 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
       />
 
       <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
+      {estimate.status === "accepted" && !job ? (
+        <div className={errorBannerClass} role="status">
+          <p className="font-medium">Accepted · no job yet</p>
+          <p>The customer accepted this estimate, but no job exists for it. Use Create Job to start the work.</p>
+        </div>
+      ) : null}
       {estimate.status === "accepted" && job ? (
         <div className={successBannerClass}>
           <p className="font-medium">Job created</p>
@@ -125,6 +134,12 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
                 <dt className={detailLabelClass}>Sent</dt>
                 <dd className={detailValueClass}>{estimate.sent_at ? formatContactDate(estimate.sent_at) : "—"}</dd>
               </div>
+              {estimate.status !== "draft" ? (
+                <div>
+                  <dt className={detailLabelClass}>Customer text</dt>
+                  <dd className={detailValueClass}>{describeEstimateDeliveryState(deliveryState)}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt className={detailLabelClass}>Responded</dt>
                 <dd className={detailValueClass}>{estimate.responded_at ? formatContactDate(estimate.responded_at) : "—"}</dd>

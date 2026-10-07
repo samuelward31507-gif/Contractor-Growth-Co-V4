@@ -80,7 +80,8 @@ const nextConfig: NextConfig = {
       // :id, /calendar, /appointments) keep `permanent: true` - nothing
       // about where they point has changed, so there is nothing stale for a
       // cached 308 to strand anyone on.
-      { source: "/leads", destination: "/people?temperature=hot", permanent: false },
+      // Final Batch 3: Leads is every open lead, not only hot ones.
+      { source: "/leads", destination: "/people?view=leads", permanent: false },
       // Phase 3: `duplicates` is excluded - /contacts/duplicates is a real page (People's "Review duplicates"),
       // and redirects run before the filesystem, so the plain :id rule sent it to /people/duplicates ("Person not found").
       { source: "/contacts/:id((?!duplicates$)[^/]+)", destination: "/customers/:id?from=contact", permanent: true },

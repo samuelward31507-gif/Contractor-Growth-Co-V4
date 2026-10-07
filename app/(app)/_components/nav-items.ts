@@ -51,7 +51,7 @@ export type NavGroup = { id: string; label: string | null; items: NavItem[] };
  *
  * Several entries are two views of one existing route - the redesign adds
  * navigation, never new pages or backend:
- *   Contacts / Leads        -> /people, /people?temperature=hot
+ *   Contacts / Leads        -> /people, /people?view=leads (every open lead, any temperature)
  *   Overview / Invoices     -> /money, /money?browse=invoices (Money's own tabs)
  *   Calendar / Appointments -> /schedule, /schedule?view=list
  *   Opportunities           -> /today?view=by-type#opportunities (Today's third act, every open opportunity by type)
@@ -72,7 +72,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "People",
     items: [
       { href: "/people", label: "Contacts", icon: "Users", activeFor: ["/customers", "/contacts"] },
-      { href: "/people?temperature=hot", label: "Leads", icon: "Target", activeFor: ["/leads"] },
+      { href: "/people?view=leads", label: "Leads", icon: "Target", activeFor: ["/leads"] },
       // Performance Pass A: points straight at /conversations - the route the
       // Inbox actually renders - instead of /inbox, a compatibility redirect.
       { href: "/conversations", label: "Inbox", icon: "Inbox", activeFor: ["/inbox"] },
@@ -173,7 +173,7 @@ function isWithin(pathname: string, prefix: string) {
  * Calendar/Appointments, Today/Opportunities, Reviews/Referrals): on the
  * item's own route it qualifies only when every query param it names is
  * present in the URL, and the qualifying item matching the most wins (ties
- * go to the entry listed first) - so /people?temperature=hot is Leads and
+ * go to the entry listed first) - so /people?view=leads is Leads and
  * plain /people (or /people/123) is Contacts. A fragment counts in favor
  * when it matches and against when it doesn't, without disqualifying. An
  * `activeFor` prefix (a legacy or detail route) qualifies on the path

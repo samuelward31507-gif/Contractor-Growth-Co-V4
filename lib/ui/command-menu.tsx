@@ -11,8 +11,9 @@
  * There is no backend full-text search across people (see next-step.ts's own
  * sibling investigation), so "Search People" opens /people - the one real
  * place that search already lives - rather than faking a global result list.
- * "Add lead" navigates to /today?new=lead - /today's own header is the one
- * live surface that renders AddLeadButton. "Add contact" navigates to
+ * "Add lead" navigates to /people?view=leads&new=lead (Final Batch 3) - the
+ * Leads view's header renders AddLeadButton for every organization, with or
+ * without contacts (Today's header hides it until a contact exists). "Add contact" navigates to
  * /people?new=contact directly - People itself renders AddContactButton
  * (reused as-is from /contacts, per that button's own comment), so this
  * skips the /contacts -> /people redirect hop rather than routing through it.
@@ -33,7 +34,7 @@ function buildActions(navGroups: NavGroup[]): CommandAction[] {
     { id: "search-people", label: "Search contacts", hint: "Open Contacts and filter", href: "/people", icon: Search },
     ...navActions,
     { id: "add-contact", label: "Add contact", href: "/people?new=contact", icon: UserPlus },
-    { id: "add-lead", label: "Add lead", href: "/today?new=lead", icon: Target },
+    { id: "add-lead", label: "Add lead", href: "/people?view=leads&new=lead", icon: Target },
     { id: "create-estimate", label: "Create estimate", href: "/estimates?new=estimate", icon: FileText },
   ];
 }

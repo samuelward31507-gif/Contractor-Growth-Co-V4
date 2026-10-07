@@ -44,8 +44,9 @@ import { APPOINTMENT_STATUS_TONE, APPOINTMENT_STATUS_ICON } from "../../appointm
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_components/status";
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
 import { INVOICE_STATUS_TONE, INVOICE_STATUS_ICON, INVOICE_STATUS_LABELS } from "../../invoices/_components/status";
-import { buildPersonTimeline } from "@/lib/people/timeline";
+import { buildPersonTimeline, formatTimelineTimestamp } from "@/lib/people/timeline";
 import { findPersonNextStep } from "@/lib/people/next-step";
+import { loadLifecyclePolicy } from "@/lib/people/lifecycle-policy";
 import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import { CreateEstimateButton } from "./_components/create-estimate-button";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
@@ -183,17 +184,34 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
   // `.in("job_id", jobIds)` read (see getReviewRequestsForJobs's own
   // comment) rather than a full org fetch filtered in memory - this page
   // only needs this one person's own jobs' requests.
-  const [stageHistories, conversationMessages, reviewRequests, referralRequests] = await Promise.all([
+  const [stageHistories, conversationMessages, reviewRequests, referralRequests, lifecyclePolicy] = await Promise.all([
     Promise.all(leads.map((lead) => getLeadStageHistory(supabase, membership.organizationId, lead.id))),
     Promise.all(conversations.map((conversation) => getMessages(supabase, membership.organizationId, conversation.id))),
     getReviewRequestsForJobs(supabase, membership.organizationId, jobIds),
     getReferralRequestsForJobs(supabase, membership.organizationId, jobIds),
+    loadLifecyclePolicy(supabase, membership.organizationId),
   ]);
   const stageHistoryByLeadId = new Map(leads.map((lead, index) => [lead.id, stageHistories[index]]));
   const messages = conversationMessages.flat();
 
   const timeline = buildPersonTimeline({ leads, stageHistoryByLeadId, appointments, estimates, jobs, messages, reviewRequests, referralRequests, timeZone });
-  const nextStep = findPersonNextStep({ leads, appointments, estimates, jobs, conversations, waitingConversationIds: waiting.ids, invoices, timeZone });
+  // Final Batch 3: from the canonical lifecycle of this person's own rows (lib/people/next-step.ts).
+  const nextStep = findPersonNextStep({
+    contactId: contact.id,
+    leads,
+    appointments,
+    estimates,
+    jobs,
+    invoices,
+    messages,
+    reviewRequests,
+    referralRequests,
+    policy: lifecyclePolicy,
+    conversations,
+    waitingConversationIds: waiting.ids,
+    timeZone,
+    jobsEnabled: membership.vertical === "contractor",
+  });
   const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
 
   const openLeadCount = leads.filter((lead) => lead.status !== "won" && lead.status !== "lost").length;
@@ -377,6 +395,16 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
                         <span className="min-w-0 flex-1">
                           <span className="flex items-baseline justify-between gap-3">
                             <span className="text-sm font-medium text-ink">{event.label}</span>
+                            {/* Final Batch 3: when it happened, from the event's own stored timestamp. */}
+                            {(() => {
+                              const stamp = formatTimelineTimestamp(event.at, timeZone);
+                              return stamp ? (
+                                <time dateTime={stamp.iso} title={`${stamp.date} ${stamp.time}`} className="shrink-0 text-xs tabular-nums text-ink-3">
+                                  {stamp.date} · {stamp.time}
+                                  {stamp.relative ? ` · ${stamp.relative}` : ""}
+                                </time>
+                              ) : null;
+                            })()}
                           </span>
                           {event.detail ? <span className="block truncate text-xs text-ink-3">{event.detail}</span> : null}
                         </span>

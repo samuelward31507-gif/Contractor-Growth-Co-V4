@@ -8,7 +8,7 @@ import type { Contact } from "@/lib/contacts/queries";
 import { primaryButtonAutoClass, secondaryButtonAutoClass } from "@/lib/ui/form";
 import { LeadDialog } from "./lead-dialog";
 
-/** `?new=lead` opens this dialog on load - the command menu's "Add lead" action navigates to /today?new=lead, the one live surface (Today's own header) that renders this button today. */
+/** `?new=lead` opens this dialog on load - the command menu's "Add lead" action navigates to /people?view=leads&new=lead (Final Batch 3); Today's header renders it too. */
 export function AddLeadButton({ contacts }: { contacts: Contact[] }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -17,7 +17,13 @@ export function AddLeadButton({ contacts }: { contacts: Contact[] }) {
 
   function close() {
     setOpen(false);
-    if (searchParams.get("new") === "lead") router.replace(pathname);
+    if (searchParams.get("new") === "lead") {
+      // Final Batch 3: drop only `new` - keep the view the dialog was opened from (e.g. view=leads).
+      const rest = new URLSearchParams(searchParams.toString());
+      rest.delete("new");
+      const query = rest.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    }
   }
 
   if (contacts.length === 0) {

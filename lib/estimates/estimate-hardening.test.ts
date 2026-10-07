@@ -91,7 +91,8 @@ mock.module(lib("lib/automation/estimates.ts"), {
     },
   },
 });
-mock.module(lib("lib/automation/estimate-delivery.ts"), { namedExports: { deliverEstimateToCustomer: async () => ({ status: "skipped", reason: "duplicate" }) } });
+const realEstimateDelivery = await import(lib("lib/automation/estimate-delivery.ts"));
+mock.module(lib("lib/automation/estimate-delivery.ts"), { namedExports: { ...realEstimateDelivery, deliverEstimateToCustomer: async () => ({ status: "skipped", reason: "duplicate" }) } });
 mock.module(lib("lib/automation/jobs.ts"), {
   namedExports: {
     emitJobCreatedFromEstimate: async () => undefined,

@@ -62,14 +62,20 @@ test("a closed conversation is never waiting, and another contact's waiting conv
   assert.equal(result, null);
 });
 
-test("a future scheduled appointment outranks a pending estimate", () => {
+// Final Batch 3: canonical precedence (lib/lifecycle) - a sent estimate is
+// further along than a booked appointment, so it decides the next step
+// (previously the appointment won here).
+test("a pending estimate outranks a future scheduled appointment (canonical precedence: furthest along first)", () => {
   const result = findPersonNextStep({
     ...emptyParams,
     appointments: [{ id: "a1", status: "confirmed", start_at: "2026-02-01T00:00:00.000Z", end_at: "2026-02-01T01:00:00.000Z", title: "Site visit" }] as unknown as Appointment[],
-    estimates: [{ id: "e1", status: "sent", title: "Roof estimate" }] as unknown as Estimate[],
+    estimates: [{ id: "e1", status: "sent", title: "Roof estimate", sent_at: "2026-01-15T06:00:00.000Z", created_at: "2026-01-15T06:00:00.000Z" }] as unknown as Estimate[],
   });
-  assert.equal(result?.href, "/appointments/a1");
-  assert.equal(result?.label, "Appointment scheduled");
+  assert.equal(result?.href, "/estimates/e1");
+  assert.equal(result?.label, "Estimate awaiting response");
+  const onlyAppointment = findPersonNextStep({ ...emptyParams, appointments: [{ id: "a1", status: "confirmed", start_at: "2026-02-01T00:00:00.000Z", end_at: "2026-02-01T01:00:00.000Z" }] as unknown as Appointment[] });
+  assert.equal(onlyAppointment?.label, "Appointment scheduled");
+  assert.equal(onlyAppointment?.href, "/appointments/a1");
 });
 
 test("a past appointment is not treated as the next step", () => {

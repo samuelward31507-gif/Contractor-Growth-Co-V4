@@ -96,7 +96,7 @@ test("Phase 2-3c: 'Trackpr is handling N automatically' - only when N > 0, from 
 test("where the work stands: six current-state stages, each linking to the page and filter that owns it", () => {
   const stages = model.pipelineStages(SUMMARY, VALUES, { count: 0, value: "$0.00" });
   assert.deepEqual(stages.map((s) => [s.label, s.value, s.detail, s.href, s.tone]), [
-    ["Leads", "$10", "2 hot", "/people?temperature=hot", undefined],
+    ["Leads", "$10", "2 hot", "/people?view=leads", undefined],
     ["Quoted", "$20", "3 estimates", "/estimates?status=sent", undefined],
     ["Accepted", "$30", "1 to book", "/estimates?status=accepted", undefined],
     ["In progress", "$40", "4 jobs", "/jobs?status=in_progress", undefined],

@@ -4,6 +4,7 @@ import type { Estimate } from "@/lib/estimates/queries";
 import type { Job } from "@/lib/jobs/queries";
 import type { Appointment } from "@/lib/appointments/queries";
 import type { ReviewRequest } from "@/lib/reviews-referrals/queries";
+import type { LifecycleResult } from "@/lib/lifecycle/derive";
 
 /**
  * Usability audit fix (#2, Customers lifecycle signal): the Customers list
@@ -21,6 +22,9 @@ export type ContactLifecycleStage =
   | "needs_follow_up"
   | "appointment_set"
   | "estimate_sent"
+  | "estimating"
+  | "won"
+  | "invoicing"
   | "active_job"
   | "completed"
   | "review_requested"
@@ -31,6 +35,9 @@ export const CONTACT_LIFECYCLE_LABEL: Record<ContactLifecycleStage, string> = {
   needs_follow_up: "Needs follow-up",
   appointment_set: "Appointment set",
   estimate_sent: "Estimate sent",
+  estimating: "Estimating",
+  won: "Accepted · no job yet",
+  invoicing: "Invoicing",
   active_job: "Active job",
   completed: "Completed",
   review_requested: "Review requested",
@@ -43,6 +50,9 @@ export const CONTACT_LIFECYCLE_TONE: Record<ContactLifecycleStage, BadgeTone> = 
   needs_follow_up: "danger",
   appointment_set: "info",
   estimate_sent: "warning",
+  estimating: "info",
+  won: "warning",
+  invoicing: "warning",
   active_job: "success",
   completed: "neutral",
   review_requested: "info",
@@ -96,4 +106,49 @@ export function deriveContactLifecycle(contactId: string, signals: ContactLifecy
   if (leads.some((lead) => lead.status === "lost")) return "lost";
 
   return "new";
+}
+
+/**
+ * Final Batch 3: the badge from the CANONICAL lifecycle (lib/lifecycle) - the
+ * same derivation the next step uses, so the badge and the next action can
+ * never disagree, and a stale lead status never outranks newer records (an
+ * accepted estimate, a completed job, a cancelled or past appointment). The
+ * People list, Person page and Inbox context use this; deriveContactLifecycle
+ * above is kept only for its existing tests and callers that hold no
+ * timestamps.
+ */
+export function contactLifecycleFromCanonical(result: Pick<LifecycleResult, "stage">): ContactLifecycleStage {
+  switch (result.stage) {
+    case "job_active":
+      return "active_job";
+    case "won":
+      return "won";
+    case "invoicing":
+      return "invoicing";
+    case "estimate_follow_up":
+    case "estimate_sent":
+      return "estimate_sent";
+    case "estimating":
+      return "estimating";
+    case "booked":
+      return "appointment_set";
+    case "visited":
+    case "qualified":
+    case "conversing":
+    case "responding":
+      return "needs_follow_up";
+    case "new_lead":
+      return "new";
+    case "review":
+      return "review_requested";
+    case "referral":
+    case "dormant":
+    case "paid":
+    case "customer":
+      return "completed";
+    case "lost":
+      return "lost";
+    case "no_activity":
+      return "new";
+  }
 }

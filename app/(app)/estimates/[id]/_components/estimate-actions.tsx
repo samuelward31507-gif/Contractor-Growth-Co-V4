@@ -10,13 +10,14 @@ import {
   ghostButtonClass,
   primaryButtonAutoClass,
   secondaryButtonAutoClass,
+  successBannerClass,
 } from "@/lib/ui/form";
 import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
 import type { Estimate } from "@/lib/estimates/queries";
 import { EstimateDialog } from "../../_components/estimate-dialog";
-import { cancelEstimate, markEstimateAccepted, markEstimateDeclined, sendEstimate } from "../../actions";
+import { cancelEstimate, createJobFromAcceptedEstimate, markEstimateAccepted, markEstimateDeclined, sendEstimate } from "../../actions";
 
 const primaryBtn = primaryButtonAutoClass;
 const secondaryBtn = secondaryButtonAutoClass;
@@ -48,19 +49,26 @@ export function EstimateActions({
   estimate,
   contacts,
   leads,
+  hasJob = false,
 }: {
   estimate: Estimate;
   contacts: Contact[];
   leads: Lead[];
+  /** Final Batch 3: an accepted estimate with no job offers "Create Job" (the existing estimate -> job path). */
+  hasJob?: boolean;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmKind | null>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Final Batch 3: the truthful result of Send Estimate - whether the customer
+  // was actually texted, never a blanket "sent" (see sendEstimate).
+  const [sendNotice, setSendNotice] = useState<{ texted: boolean; message: string } | null>(null);
   const router = useRouter();
 
   function run(action: () => Promise<{ ok: boolean; error?: string }>) {
     setError(null);
+    setSendNotice(null);
     startTransition(async () => {
       const result = await action();
       if (!result.ok) {
@@ -68,6 +76,20 @@ export function EstimateActions({
         return;
       }
       setConfirming(null);
+      router.refresh();
+    });
+  }
+
+  function send() {
+    setError(null);
+    setSendNotice(null);
+    startTransition(async () => {
+      const result = await sendEstimate(estimate.id);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setSendNotice(result.delivery);
       router.refresh();
     });
   }
@@ -81,7 +103,7 @@ export function EstimateActions({
               <Pencil aria-hidden className="h-4 w-4" />
               Edit
             </button>
-            <button type="button" disabled={isPending} onClick={() => run(() => sendEstimate(estimate.id))} className={primaryBtn}>
+            <button type="button" disabled={isPending} onClick={send} className={primaryBtn}>
               {isPending ? "Sending…" : "Send Estimate"}
             </button>
             <button type="button" disabled={isPending} onClick={() => setConfirming("cancel")} className={dangerBtn}>
@@ -108,9 +130,19 @@ export function EstimateActions({
             </button>
           </>
         ) : null}
+        {estimate.status === "accepted" && !hasJob ? (
+          <button type="button" disabled={isPending} onClick={() => run(() => createJobFromAcceptedEstimate(estimate.id))} className={primaryBtn}>
+            {isPending ? "Creating…" : "Create Job"}
+          </button>
+        ) : null}
       </div>
 
       {error ? <p className={errorBannerClass} role="alert">{error}</p> : null}
+      {sendNotice ? (
+        <p className={sendNotice.texted ? successBannerClass : errorBannerClass} role={sendNotice.texted ? "status" : "alert"}>
+          {sendNotice.message}
+        </p>
+      ) : null}
 
       {editOpen ? (
         <EstimateDialog

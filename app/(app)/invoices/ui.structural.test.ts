@@ -153,17 +153,19 @@ test("People and Inbox show invoice number, status, balance due and overdue to m
   assert.match(peoplePage, /getInvoices\(supabase, membership\.organizationId\)/);
   assert.match(peoplePage, /invoices: invoicesByContactId\.get\(contact\.id\) \?\? \[\]/);
   assert.match(personPage, /getContactInvoices\(supabase, membership\.organizationId, id\)/);
-  assert.match(personPage, /findPersonNextStep\(\{ leads, appointments, estimates, jobs, conversations, waitingConversationIds: waiting\.ids, invoices, timeZone \}\)/);
+  // Final Batch 3: the next step is the canonical-lifecycle resolver, still fed this person's invoices and timezone.
+  assert.match(personPage, /findPersonNextStep\(\{\n\s+contactId: contact\.id,[\s\S]*?\n\s+invoices,\n[\s\S]*?\n\s+timeZone,\n/);
   assert.match(personPage, /formatInvoiceNumber\(invoice\.number\)/);
   assert.match(personPage, /INVOICE_STATUS_LABELS\[invoice\.status\]/);
   assert.match(personPage, /formatMoney\(invoice\.balance_due\)/);
   assert.match(personPage, /<Badge tone="danger">Overdue<\/Badge>/);
   assert.match(conversationPage, /getContactInvoices\(supabase, membership\.organizationId, conversation\.contact_id\)/);
-  assert.match(conversationPage, /invoices: contactInvoices, timeZone/);
+  assert.match(conversationPage, /invoices: contactInvoices,/);
+  assert.match(conversationPage, /findPersonNextStep\(\{ \.\.\.person, conversations: \[conversation\], waitingConversationIds: waiting\.ids, timeZone,/);
   assert.match(conversationContext, /title="Invoice"/);
   assert.match(conversationContext, /formatInvoiceNumber\(relevantInvoice\.number\)/);
   assert.match(conversationContext, /formatMoney\(relevantInvoice\.balance_due\)/);
-  assert.match(appointmentPage, /invoices: contactInvoices, timeZone/);
+  assert.match(appointmentPage, /invoices: contactInvoices,\n\s+policy: lifecyclePolicy,\n\s+timeZone,/);
   for (const source of [personPage, conversationContext, conversationPage]) {
     assert.doesNotMatch(source, /invoice\.notes|relevantInvoice\.notes|approval_token|>\{invoice\.id\}<|>\{relevantInvoice\.id\}</);
   }

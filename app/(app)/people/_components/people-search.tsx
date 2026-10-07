@@ -32,10 +32,13 @@ export function PeopleSearch({
   initialQuery,
   initialSort,
   initialTemperature,
+  initialView,
 }: {
   initialQuery: string;
   initialSort: PersonSort;
   initialTemperature?: string;
+  /** Final Batch 3: the Leads view (view=leads) is carried forward exactly like the temperature filter. */
+  initialView?: string;
 }) {
   const [value, setValue] = useState(initialQuery);
   // The search text currently reflected in the URL - see lib/ui/search-sync.ts.
@@ -50,6 +53,7 @@ export function PeopleSearch({
     const trimmed = nextQuery.trim();
     if (trimmed) params.set("q", trimmed);
     if (nextSort !== "newest") params.set("sort", nextSort);
+    if (initialView) params.set("view", initialView);
     if (initialTemperature) params.set("temperature", initialTemperature);
     const queryString = params.toString();
     router.replace(queryString ? `${pathname}?${queryString}` : pathname);

@@ -168,6 +168,8 @@ export async function createLead(_prevState: LeadFormState, formData: FormData):
   });
 
   revalidatePath("/leads");
+  revalidatePath("/people");
+  revalidatePath(`/people/${input.contact_id}`);
   revalidatePath("/today");
   return { success: true };
 }

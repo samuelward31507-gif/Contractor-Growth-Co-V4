@@ -79,12 +79,20 @@ test("isKnown: only the listed values; null/undefined/other strings are unknown"
   assert.equal(S.isKnown(S.JOB_STATUS_VALUES, undefined), false);
 });
 
-// P0-B B2.1: the obligation engine is the first (and only) sanctioned
-// consumer (its test wraps the snapshot loader to observe it); every other
-// import of the model is still refused.
-const SANCTIONED_CONSUMERS = new Set([path.join("lib", "followups", "engine.ts"), path.join("lib", "followups", "obligations.test.ts")]);
+// P0-B B2.1: the obligation engine is the first sanctioned consumer (its
+// test wraps the snapshot loader to observe it). Final Batch 3: the person
+// next-action resolver (lib/people/next-step.ts), its policy loader and the
+// People badge mapping are the second - every UI surface reaches the model
+// only through them. Every other import of the model is still refused.
+const SANCTIONED_CONSUMERS = new Set([
+  path.join("lib", "followups", "engine.ts"),
+  path.join("lib", "followups", "obligations.test.ts"),
+  path.join("lib", "people", "next-step.ts"),
+  path.join("lib", "people", "lifecycle-policy.ts"),
+  path.join("lib", "customers", "lifecycle-stage.ts"),
+]);
 
-test("B1 wires no consumer: nothing outside lib/lifecycle imports the canonical lifecycle model (except the sanctioned B2.1 engine)", () => {
+test("B1 wires no consumer: nothing outside lib/lifecycle imports the canonical lifecycle model (except the sanctioned B2.1 engine and the Batch 3 next-action resolver)", () => {
   const MODEL = /lib\/lifecycle\/(stages|statuses|snapshot|snapshot-loader|derive)\b|from "\.\/(stages|statuses|snapshot|snapshot-loader|derive)"/;
   const offenders: string[] = [];
   const walk = (dir: string) => {

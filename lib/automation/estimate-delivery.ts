@@ -161,3 +161,101 @@ export async function deliverEstimateToCustomer(
     return { status: "skipped", reason: "error" };
   }
 }
+
+/**
+ * Final Batch 3: what the contractor is told about the customer text after
+ * "Send Estimate". `texted` is true ONLY for an accepted provider send; every
+ * other outcome (a safety-gate block, a skip, a provider failure) is reported
+ * as not texted, with the reason in plain words. Never a false "sent".
+ */
+export type EstimateDeliverySummary = { texted: true; message: string } | { texted: false; message: string };
+
+/** Plain-language reasons (lower-case clauses) for the gate blocks a contractor can actually hit. */
+const DELIVERY_BLOCK_REASONS: Record<string, string> = {
+  organization_not_live: "Trackpr is in TEST mode",
+  organization_payment_inactive: "automated texting is paused until billing is active",
+  organization_automation_paused: "automated texting is paused for your account",
+  contact_opted_out: "this customer has opted out of texts (STOP)",
+  lead_sms_consent_missing: "this customer hasn't agreed to texts",
+  invalid_destination: "the customer's phone number can't receive texts",
+  contact_not_found: "the customer could not be found",
+  outside_quiet_hours: "it's outside allowed texting hours (8am-9pm)",
+  outside_business_hours: "it's outside your business hours",
+  conversation_ai_disabled: "automated texts are turned off for this conversation",
+  estimate_status_ineligible: "the estimate is no longer awaiting a decision",
+};
+const SKIP_REASONS: Record<string, string> = {
+  no_contact: "this estimate has no customer",
+  no_link_base: "no app address is configured, so the approval link couldn't be built",
+  duplicate: "a text for this estimate was already attempted",
+  automation_skipped: "estimate texts are turned off",
+};
+
+export function describeEstimateDelivery(outcome: EstimateDeliveryOutcome): EstimateDeliverySummary {
+  if (outcome.status === "sent") return { texted: true, message: "Estimate sent and texted to the customer." };
+  const why =
+    outcome.status === "blocked"
+      ? (DELIVERY_BLOCK_REASONS[outcome.reason] ?? "Trackpr's safety checks didn't allow the text")
+      : outcome.status === "send_failed"
+        ? "the text failed to send"
+        : (SKIP_REASONS[outcome.reason] ?? "the text couldn't be sent");
+  return { texted: false, message: `Estimate marked as sent, but the customer was NOT texted: ${why}. Share the approval link yourself.` };
+}
+
+export type EstimateDeliveryState =
+  | { state: "texted" }
+  | { state: "sending" }
+  | { state: "failed" }
+  | { state: "not_texted"; reason: string | null }
+  | { state: "not_attempted" };
+
+/**
+ * Final Batch 3: the stored truth about an estimate's customer text, read
+ * from its own estimate.delivery execution (the latest attempt) - so the
+ * estimate page never implies the customer was texted when they were not.
+ * Read-only; organization-scoped.
+ */
+export async function getEstimateDeliveryState(supabase: SupabaseClient, organizationId: string, estimateId: string): Promise<EstimateDeliveryState> {
+  const { data: event } = await supabase
+    .from("automation_events")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("event_type", "estimate.delivery")
+    .eq("entity_id", estimateId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!event) return { state: "not_attempted" };
+  const { data: execution } = await supabase
+    .from("workflow_executions")
+    .select("status, metadata")
+    .eq("organization_id", organizationId)
+    .eq("automation_event_id", event.id)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!execution) return { state: "not_attempted" };
+  if (execution.status === "running") return { state: "sending" };
+  if (execution.status === "failed") return { state: "failed" };
+  const metadata = (execution.metadata ?? {}) as { should_send?: unknown; blocked_reason?: unknown };
+  if (execution.status === "completed" && metadata.should_send === true) return { state: "texted" };
+  return { state: "not_texted", reason: typeof metadata.blocked_reason === "string" ? metadata.blocked_reason : null };
+}
+
+/** Plain words for the estimate page's "Customer text" field. */
+export function describeEstimateDeliveryState(state: EstimateDeliveryState): string {
+  switch (state.state) {
+    case "texted":
+      return "Texted to the customer";
+    case "sending":
+      return "Sending…";
+    case "failed":
+      return "Text failed to send";
+    case "not_attempted":
+      return "Not texted";
+    case "not_texted": {
+      const why = state.reason ? DELIVERY_BLOCK_REASONS[state.reason] : undefined;
+      return why ? `Not texted (${why})` : "Not texted";
+    }
+  }
+}

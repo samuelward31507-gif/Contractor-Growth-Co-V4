@@ -220,3 +220,48 @@ export function messageTimelineLabel(message: { direction: string; status: strin
   if (message.status === "queued") return `${who} sending`;
   return message.sender_type === "ai" ? "Automated follow-up sent" : message.sender_type === "system" ? "System message sent" : "You sent a message";
 }
+
+export type TimelineTimestamp = {
+  /** The stored value, for <time dateTime>. */
+  iso: string;
+  /** e.g. "Oct 9, 2026" in the organization's timezone. */
+  date: string;
+  /** e.g. "3:05 PM" in the organization's timezone. */
+  time: string;
+  /** e.g. "2 hours ago" - only within the last week, where it helps; null otherwise. */
+  relative: string | null;
+};
+
+const RELATIVE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Final Batch 3: when a timeline event happened, from the event's own stored
+ * timestamp - formatted, never altered or estimated. An unreadable stored
+ * value yields null, so the UI shows no date rather than a made-up one.
+ * Date and time are in the organization's timezone (UTC when unknown); a
+ * relative phrase is added only for the last 7 days.
+ */
+export function formatTimelineTimestamp(at: string | null | undefined, timeZone: string | undefined, now: number = Date.now()): TimelineTimestamp | null {
+  if (!at) return null;
+  const ms = new Date(at).getTime();
+  if (!Number.isFinite(ms)) return null;
+  const zone = (() => {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: timeZone || "UTC" }).format(0);
+      return timeZone || "UTC";
+    } catch {
+      return "UTC";
+    }
+  })();
+  const date = new Intl.DateTimeFormat("en-US", { timeZone: zone, month: "short", day: "numeric", year: "numeric" }).format(ms);
+  const time = new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "numeric", minute: "2-digit" }).format(ms);
+  const age = now - ms;
+  let relative: string | null = null;
+  if (age >= 0 && age < RELATIVE_WINDOW_MS) {
+    const minutes = Math.floor(age / 60_000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    relative = minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : hours < 24 ? `${hours} hr ago` : days === 1 ? "yesterday" : `${days} days ago`;
+  }
+  return { iso: at, date, time, relative };
+}

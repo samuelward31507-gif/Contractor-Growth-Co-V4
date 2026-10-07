@@ -135,7 +135,7 @@ export function pipelineStages(
   overdue: { count: number; value: string },
 ): PipelineStage[] {
   return [
-    { key: "leads", label: "Leads", value: values.openLeads, detail: `${summary.hot_lead_count} hot`, href: "/people?temperature=hot" },
+    { key: "leads", label: "Leads", value: values.openLeads, detail: `${summary.hot_lead_count} hot`, href: "/people?view=leads" },
     { key: "quotes", label: "Quoted", value: values.quotesOut, detail: plural(summary.quotes_out_count, "estimate", "estimates"), href: "/estimates?status=sent" },
     { key: "accepted", label: "Accepted", value: values.readyToSchedule, detail: `${summary.ready_to_schedule_count} to book`, href: "/estimates?status=accepted" },
     { key: "jobs", label: "In progress", value: values.inProgress, detail: plural(summary.won_not_finished_count, "job", "jobs"), href: "/jobs?status=in_progress" },

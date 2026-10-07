@@ -10,6 +10,7 @@ import { getContactEstimates } from "@/lib/estimates/queries";
 import { getContactJobs } from "@/lib/jobs/queries";
 import { getContactInvoices } from "@/lib/invoices/queries";
 import { findPersonNextStep } from "@/lib/people/next-step";
+import { loadLifecyclePolicy } from "@/lib/people/lifecycle-policy";
 import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import { contactDisplayName, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
@@ -44,11 +45,12 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
     redirect("/onboarding");
   }
 
-  const [appointment, contacts, leads, timeZone] = await Promise.all([
+  const [appointment, contacts, leads, timeZone, lifecyclePolicy] = await Promise.all([
     getAppointment(supabase, membership.organizationId, id),
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
     getOrganizationTimezone(supabase, membership.organizationId),
+    loadLifecyclePolicy(supabase, membership.organizationId),
   ]);
 
   // Final Major Product Build: "what happens next" for this appointment's
@@ -75,7 +77,19 @@ export default async function AppointmentDetailPage({ params }: PageProps<"/appo
     : [[], [], [], [], [], [], { ids: new Set<string>(), failed: false }];
 
   const nextStep = appointment?.contact_id
-    ? findPersonNextStep({ leads: contactLeads, appointments: contactAppointments, estimates: contactEstimates, jobs: contactJobs, conversations: contactConversations, waitingConversationIds: waiting.ids, invoices: contactInvoices, timeZone })
+    ? findPersonNextStep({
+        contactId: appointment.contact_id,
+        leads: contactLeads,
+        appointments: contactAppointments,
+        estimates: contactEstimates,
+        jobs: contactJobs,
+        conversations: contactConversations,
+        waitingConversationIds: waiting.ids,
+        invoices: contactInvoices,
+        policy: lifecyclePolicy,
+        timeZone,
+        jobsEnabled: membership.vertical === "contractor",
+      })
     : null;
   const mostRecentOpenConversation = contactConversations.find((conversation) => conversation.status === "open") ?? contactConversations[0] ?? null;
 
