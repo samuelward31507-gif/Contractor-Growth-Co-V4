@@ -87,20 +87,20 @@ export function RespondPanel({
   }
 
   const primary =
-    "inline-flex min-h-[52px] w-full items-center justify-center rounded-[9px] bg-accent px-6 text-[15.5px] font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.12)_inset,0_1px_2px_rgba(13,21,18,0.12)] transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
+    "inline-flex min-h-[52px] w-full items-center justify-center rounded-[7px] bg-accent px-6 text-[15.5px] font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.12)_inset,0_1px_2px_rgba(13,21,18,0.12)] transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
   const quiet =
-    "inline-flex min-h-[44px] w-full items-center justify-center rounded-[9px] px-4 text-[15px] font-medium text-ink-3 transition-colors hover:bg-inset hover:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/15 focus-visible:ring-offset-2";
+    "inline-flex min-h-[44px] w-full items-center justify-center rounded-[7px] px-4 text-[15px] font-medium text-ink-3 transition-colors hover:bg-inset hover:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/15 focus-visible:ring-offset-2";
 
   return (
-    <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_260px] sm:items-center sm:gap-10">
+    <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_264px] sm:items-center sm:gap-12">
       <div>
         <h2 className="text-[17px] font-semibold tracking-[-0.012em] text-ink">
-          {arming === "accept" ? "Confirm your approval" : arming === "decline" ? "Pass on this quote?" : "Ready to go ahead?"}
+          {arming === "accept" ? "Confirm your approval" : arming === "decline" ? "Pass on this quote?" : "Your approval"}
         </h2>
-        <p className="mt-1.5 text-[15px] leading-relaxed text-ink-2">
+        <p className="mt-1.5 max-w-[420px] text-[15px] leading-relaxed text-ink-2">
           {arming === "decline"
             ? "Nothing else happens from here."
-            : `Approve the quote and ${organizationName} will be in touch to schedule the work.`}
+            : `Approving tells ${organizationName} to go ahead. They will be in touch to schedule the work.`}
         </p>
       </div>
 
@@ -128,7 +128,7 @@ export function RespondPanel({
             type="button"
             disabled={submitting}
             onClick={() => submit("decline")}
-            className="inline-flex min-h-[48px] w-full items-center justify-center rounded-[9px] border border-line-strong bg-surface px-4 text-[15px] font-semibold text-ink-2 transition-colors hover:bg-inset focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-h-[48px] w-full items-center justify-center rounded-[7px] border border-line-strong bg-surface px-4 text-[15px] font-semibold text-ink-2 transition-colors hover:bg-inset focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/15 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "One sec…" : "Yes — no thanks"}
           </button>

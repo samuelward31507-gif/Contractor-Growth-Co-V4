@@ -5,11 +5,13 @@ import { RespondPanel } from "./respond-panel";
 
 /**
  * The customer-facing quote, laid out as a document rather than an app
- * card: the business's letterhead, the work, the price, then the decision.
- * Presentational only - page.tsx resolves the token and the estimate; this
- * renders exactly the fields PublicEstimate carries (no notes, no invented
- * line items, numbers, terms or company details). Each section appears only
- * when its data exists.
+ * card: the business's letterhead, the quote and the work it covers, its
+ * dates and status, the price, then the decision and a way to reach the
+ * business. Presentational only - page.tsx resolves the token and the
+ * estimate; this renders exactly the fields PublicEstimate carries (no
+ * notes, and no invented line items, numbers, terms or company details).
+ * A quote has one amount, so it is shown once, as the total - never dressed
+ * up as a line-item table. Each section appears only when its data exists.
  */
 
 /**
@@ -43,8 +45,8 @@ export function isPastExpiry(estimate: PublicEstimate): boolean {
   return estimate.expiresAt != null && new Date(estimate.expiresAt).getTime() < Date.now();
 }
 
-const GUTTER = "px-6 sm:px-12";
-const EYEBROW = "text-[11.5px] font-semibold uppercase tracking-[0.13em] text-ink-3";
+const GUTTER = "px-6 sm:px-14";
+const LABEL = "text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3";
 
 /** The page frame: the warm canvas, the optional sample banner, and the white sheet. */
 export function QuoteFrame({ isDemo, children }: { isDemo: boolean; children: ReactNode }) {
@@ -52,13 +54,13 @@ export function QuoteFrame({ isDemo, children }: { isDemo: boolean; children: Re
     <main className="min-h-dvh bg-canvas text-ink">
       {isDemo ? (
         <div className="border-b border-line bg-warning-muted">
-          <p className="mx-auto max-w-[760px] px-5 py-2.5 text-center text-[13px] font-medium text-warning-text">
+          <p className="mx-auto max-w-[800px] px-5 py-2 text-center text-[12.5px] font-medium text-warning-text">
             Sample quote — this is a demo, no real pricing.
           </p>
         </div>
       ) : null}
-      <div className="mx-auto w-full max-w-[760px] px-3 pb-16 pt-5 sm:px-6 sm:pb-24 sm:pt-14">
-        <article className="overflow-hidden rounded-[10px] border border-line bg-surface shadow-[0_1px_2px_rgba(13,21,18,0.04),0_12px_32px_-18px_rgba(13,21,18,0.12)]">
+      <div className="mx-auto w-full max-w-[800px] px-3 pb-14 pt-4 sm:px-6 sm:pb-24 sm:pt-16">
+        <article className="overflow-hidden rounded-[6px] border border-line bg-surface shadow-[0_1px_2px_rgba(13,21,18,0.035),0_10px_30px_-20px_rgba(13,21,18,0.14)]">
           {children}
         </article>
       </div>
@@ -79,7 +81,8 @@ export function ClosedState({ heading, body }: { heading: string; body: string }
 export function QuoteUnavailable() {
   return (
     <QuoteFrame isDemo={false}>
-      <div className={`${GUTTER} py-10 sm:py-12`}>
+      <div className={`${GUTTER} py-10 sm:py-14`}>
+        <p className={`mb-4 ${LABEL}`}>Quote</p>
         <ClosedState
           heading="This quote link isn't available."
           body="The link may be incomplete or out of date. If you were expecting a quote, reply to the text or call the business that sent it."
@@ -89,12 +92,13 @@ export function QuoteUnavailable() {
   );
 }
 
-function statusLabel(estimate: PublicEstimate, expired: boolean): string | null {
-  if (estimate.status === "accepted") return estimate.respondedAt ? `Approved ${formatDate(estimate.respondedAt)}` : "Approved";
-  if (estimate.status === "declined") return "Declined";
-  if (estimate.status === "cancelled") return "Withdrawn";
-  if (expired) return "Expired";
-  return null;
+/** Where the quote stands, in the customer's terms - a quiet metadata line, never a badge. */
+function quoteStatus(estimate: PublicEstimate, expired: boolean): { label: string; tone: "open" | "approved" | "closed" } {
+  if (estimate.status === "accepted") return { label: estimate.respondedAt ? `Approved ${formatDate(estimate.respondedAt)}` : "Approved", tone: "approved" };
+  if (estimate.status === "declined") return { label: "Declined", tone: "closed" };
+  if (estimate.status === "cancelled") return { label: "Withdrawn", tone: "closed" };
+  if (expired) return { label: "Expired", tone: "closed" };
+  return { label: "Awaiting your response", tone: "open" };
 }
 
 export function QuoteDocument({ estimate, token, expired }: { estimate: PublicEstimate; token: string; expired: boolean }) {
@@ -102,75 +106,78 @@ export function QuoteDocument({ estimate, token, expired }: { estimate: PublicEs
   const open = estimate.status === "sent" && !expired;
   const phone = estimate.organizationPhone ? formatPhone(estimate.organizationPhone) : null;
   const amountLabel = estimate.amount != null ? formatQuoteAmount(estimate.amount) : null;
-  const status = statusLabel(estimate, expired);
-  // A long title (a full scope sentence) reads better a size down; it is also repeated in the price line.
-  const longTitle = estimate.title.length > 60;
+  const status = quoteStatus(estimate, expired);
+  // A long title (a full scope sentence) reads better a size down; a very long one reads as a paragraph.
+  const titleSize =
+    estimate.title.length > 140
+      ? "text-[19px] leading-[1.4] tracking-[-0.012em] sm:text-[23px] sm:leading-[1.35]"
+      : estimate.title.length > 60
+        ? "text-[22px] leading-[1.18] tracking-[-0.02em] sm:text-[28px]"
+        : "text-[27px] leading-[1.14] tracking-[-0.024em] sm:text-[36px]";
   // Inside running sentences the number must not break at its hyphen ("555-" / "0142").
   const phoneInline = phone ? phone.replace(/-/g, "\u2011") : null;
 
-  const facts: { term: string; value: string }[] = [];
-  if (estimate.sentAt) facts.push({ term: "Issued", value: formatDate(estimate.sentAt) });
-  if (estimate.expiresAt) facts.push({ term: expired ? "Valid until" : "Valid through", value: formatDate(estimate.expiresAt) });
-  if (status) facts.push({ term: "Status", value: status });
-
   return (
     <QuoteFrame isDemo={isDemo}>
-      {/* Letterhead: who sent this, and the quote's own dates. */}
-      <header className={`flex flex-col gap-5 border-b border-line py-6 sm:flex-row sm:items-start sm:justify-between sm:py-9 ${GUTTER}`}>
-        <div className="min-w-0">
-          <p className="text-[17px] font-semibold leading-tight tracking-[-0.015em] text-ink">{estimate.organizationName}</p>
-          {phone ? (
-            <a
-              href={`tel:${estimate.organizationPhone}`}
-              className="mt-1.5 inline-block rounded text-[14px] tabular-nums text-ink-3 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              {phone}
-            </a>
-          ) : null}
-        </div>
-        {facts.length ? (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-[13.5px] sm:grid-cols-[auto_auto] sm:text-right">
-            {facts.map((fact) => (
-              <div key={fact.term} className="contents">
-                <dt className="text-ink-3">{fact.term}</dt>
-                <dd className="tabular-nums text-ink">{fact.value}</dd>
-              </div>
-            ))}
-          </dl>
+      {/* Letterhead: the sender, and how to reach them. */}
+      <header className={`flex flex-wrap items-baseline justify-between gap-x-8 gap-y-1 border-b border-line py-6 sm:py-8 ${GUTTER}`}>
+        <p className="min-w-0 text-[19px] font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-[22px]">{estimate.organizationName}</p>
+        {phone ? (
+          <a
+            href={`tel:${estimate.organizationPhone}`}
+            className="rounded text-[14px] tabular-nums text-ink-3 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {phone}
+          </a>
         ) : null}
       </header>
 
-      {/* Opening: what this quote is for. */}
-      <section aria-labelledby="quote-title" className={`pt-8 sm:pt-14 ${GUTTER}`}>
-        <p className={EYEBROW}>Your quote</p>
-        <h1 id="quote-title" className={`mt-3 max-w-[640px] text-pretty font-display font-semibold leading-[1.12] tracking-[-0.026em] text-ink ${longTitle ? "text-[23px] sm:text-[30px]" : "text-[28px] sm:text-[38px]"}`}>
+      {/* Opening: the quote, and the work it covers. */}
+      <section aria-labelledby="quote-title" className={`pt-9 sm:pt-14 ${GUTTER}`}>
+        <p className={LABEL}>Quote</p>
+        <h1
+          id="quote-title"
+          className={`mt-3 max-w-[620px] text-pretty font-display font-semibold text-ink ${titleSize}`}
+        >
           {estimate.title}
         </h1>
+
+        {/* Document metadata: when it was issued and where it stands. */}
+        <dl className="mt-6 grid grid-cols-[auto_minmax(0,1fr)] gap-x-8 gap-y-3 sm:mt-8 sm:flex sm:gap-x-12">
+          {estimate.sentAt ? (
+            <div>
+              <dt className={LABEL}>Issued</dt>
+              <dd className="mt-1 text-[14.5px] tabular-nums text-ink">{formatDate(estimate.sentAt)}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt className={LABEL}>Status</dt>
+            <dd className="mt-1 flex items-center gap-2 text-[14.5px] text-ink">
+              <span
+                aria-hidden
+                className={`h-[7px] w-[7px] shrink-0 rounded-full ${status.tone === "approved" ? "bg-accent" : status.tone === "open" ? "bg-warning-text/70" : "bg-ink-4"}`}
+              />
+              <span className="tabular-nums">{status.label}</span>
+            </dd>
+          </div>
+        </dl>
       </section>
 
-      {/* Price: the work and its amount, then the total. Only real figures - nothing derived. */}
+      {/* Price: the quote has one amount, so it is shown once, as the total. */}
       {amountLabel ? (
-        <section aria-label="Price" className={`pt-8 sm:pt-12 ${GUTTER}`}>
-          <div className={`flex items-center justify-between border-b border-line pb-3 ${EYEBROW}`}>
-            <span>Description</span>
-            <span>Amount</span>
-          </div>
-          <div className="flex items-baseline justify-between gap-6 border-b border-line py-4 sm:py-5">
-            <p className="min-w-0 text-[15.5px] leading-snug text-ink">{estimate.title}</p>
-            <p className="shrink-0 text-[15.5px] tabular-nums text-ink">{amountLabel}</p>
-          </div>
-          <div className="flex items-end justify-between gap-6 pt-5 sm:pt-6">
-            <p className="pb-1.5 text-[13px] font-semibold uppercase tracking-[0.13em] text-ink">Total</p>
-            <p className="font-display text-[36px] font-semibold leading-none tracking-[-0.032em] tabular-nums text-ink sm:text-[46px]">{amountLabel}</p>
+        <section aria-label="Price" className={`mt-9 sm:mt-12 ${GUTTER}`}>
+          <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-2 border-t border-ink/80 pt-5 sm:pt-6">
+            <p className="pb-1 text-[13px] font-semibold uppercase tracking-[0.14em] text-ink">Total</p>
+            <p className="font-display text-[38px] font-semibold leading-none tracking-[-0.034em] tabular-nums text-ink sm:text-[48px]">{amountLabel}</p>
           </div>
           {estimate.expiresAt && open ? (
-            <p className="mt-3 text-right text-[13.5px] text-ink-3">This price is good until {formatDate(estimate.expiresAt)}.</p>
+            <p className="mt-3 text-[13.5px] text-ink-3 sm:text-right">This price is good until {formatDate(estimate.expiresAt)}.</p>
           ) : null}
         </section>
       ) : null}
 
       {/* The decision. */}
-      <section aria-label="Your response" className={`mt-8 border-t border-line bg-canvas/45 py-7 sm:mt-14 sm:py-10 ${GUTTER}`}>
+      <section aria-label="Your response" className={`mt-9 border-t border-line py-8 sm:mt-14 sm:py-11 ${GUTTER}`}>
         {estimate.status === "accepted" ? (
           <div role="status">
             <p className="flex items-center gap-2.5 text-[17px] font-semibold tracking-[-0.012em] text-accent-text">
@@ -194,20 +201,22 @@ export function QuoteDocument({ estimate, token, expired }: { estimate: PublicEs
         ) : (
           <RespondPanel token={token} organizationName={estimate.organizationName} amountLabel={amountLabel} isDemo={isDemo} />
         )}
+      </section>
 
-        {phone && open ? (
-          <p className="mt-7 border-t border-line pt-5 text-[14px] leading-relaxed text-ink-3">
+      {/* Contact: a person to ask, at the foot of the document. */}
+      {phone && open ? (
+        <footer className={`border-t border-line py-5 sm:py-6 ${GUTTER}`}>
+          <p className="text-[14px] leading-relaxed text-ink-3">
             Questions first? Call or text {estimate.organizationName} at{" "}
             <a
               href={`tel:${estimate.organizationPhone}`}
-              className="rounded font-semibold text-accent underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="whitespace-nowrap rounded font-semibold text-ink underline decoration-line-strong underline-offset-[3px] transition-colors hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {phone}
             </a>
           </p>
-        ) : null}
-      </section>
+        </footer>
+      ) : null}
     </QuoteFrame>
   );
 }
-
