@@ -164,6 +164,8 @@ test("accessibility: labelled dialog, live log, labelled controls, Escape to clo
   assert.match(CHAT, /<span className="sr-only">You: <\/span>/);
   assert.match(CHAT, /<span className="sr-only">Cinder assistant: <\/span>/);
   assert.match(CHAT, /aria-label="Cinder assistant is typing"/);
+  // An email hand-off says so - the visitor hears "opens your email app", not an address.
+  assert.match(CHAT, /aria-label=\{`\$\{step\.label\} \(opens your email app\)`\}/);
   assert.match(CHAT, /focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent/);
   // The message field shows focus as one 2px ember ring on its pill (never a second box inside it).
   assert.match(CHAT, /focus-within:ring-2 focus-within:ring-cinder-accent/);

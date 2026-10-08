@@ -67,6 +67,25 @@ export function parseReply(text: string): { reply: string; nextStep: NextStepLin
   return { reply: record.reply.trim(), nextStep: resolveNextStep(record.next_step), intent, signals };
 }
 
+/**
+ * A first-person description of the visitor's own business: "I own/run/operate…",
+ * "we're a/an…", "I'm a…", "my/our company…". A trade named inside a question
+ * ("Does Trackpr work with HVAC software?") is not one.
+ */
+const SELF_DESCRIBED_BUSINESS =
+  /\b(?:i|we)\s+(?:own|run|operate|manage|started|founded)\b|\b(?:i[’']?m|i am|we[’']?re|we are)\s+(?:an?|the)\s+\w|\b(?:my|our)\s+(?:company|business|shop|firm|crew|team|trade)\b/i;
+
+/**
+ * Business type counts as shared only when the visitor actually described
+ * their own business. The model's label is checked against the visitor's
+ * own turns, read here in memory only - nothing is stored.
+ */
+export function corroborateSignals(signals: QualificationSignal[], turns: ChatTurn[]): QualificationSignal[] {
+  if (!signals.includes("business_type")) return signals;
+  const described = turns.some((turn) => turn.role === "user" && SELF_DESCRIBED_BUSINESS.test(turn.content));
+  return described ? signals : signals.filter((signal) => signal !== "business_type");
+}
+
 function failureFrom(error: unknown): ChatResult {
   if (error instanceof Anthropic.RateLimitError) return { ok: false, reason: "rate_limited", status: 429 };
   if (error instanceof Anthropic.APIConnectionTimeoutError) return { ok: false, reason: "timeout" };
@@ -103,5 +122,5 @@ export async function generateChatReply(turns: ChatTurn[], deps: ChatDeps = {}):
 
   const guarded = guardReply(parsed.reply);
   if (!guarded.reply) return { ok: false, reason: "unparseable" };
-  return { ok: true, value: { ...parsed, reply: guarded.reply }, guarded: guarded.replaced };
+  return { ok: true, value: { ...parsed, reply: guarded.reply, signals: corroborateSignals(parsed.signals, turns) }, guarded: guarded.replaced };
 }

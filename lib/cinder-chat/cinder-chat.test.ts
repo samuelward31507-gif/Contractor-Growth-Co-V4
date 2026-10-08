@@ -16,7 +16,9 @@ import { NEXT_STEPS, MEETING_HREF, resolveNextStep } from "./actions";
 import { MAX_TURNS_SENT, MAX_USER_MESSAGE_CHARS, parseConversation } from "./conversation";
 import { FIGURE_SAFE_REPLY, guardReply } from "./guards";
 import { REPLY_SCHEMA, SYSTEM_PROMPT, UNKNOWN_ANSWER } from "./prompt";
-import { CHAT_MODEL, REFUSAL_REPLY, buildRequest, generateChatReply, parseReply } from "./service";
+import { CHAT_MODEL, REFUSAL_REPLY, buildRequest, corroborateSignals, generateChatReply, parseReply } from "./service";
+import { TALK_HREF } from "@/app/(cinder)/_components/content";
+import { CONTACT_EMAIL } from "@/lib/site/contact";
 import { handleChat } from "./handler";
 import { createRateLimiter } from "./rate-limit";
 import { isQualified, type ChatLeadSink } from "./lead-capture";
@@ -289,6 +291,67 @@ test("rate limit: per client and global caps within the window, then recovery", 
   assert.equal(allow("b", 3), true);
   assert.equal(allow("c", 4), false, "global cap");
   assert.equal(allow("a", 1500), true, "window passed");
+});
+
+// ---------------------------------------------------------------------------
+// Polish: follow-up questions, the business-type signal, "Talk to Cinder"
+// ---------------------------------------------------------------------------
+
+test("polish 1: follow-ups use what the visitor already said - business type only when unknown, varied, and optional", () => {
+  assert.match(SYSTEM_PROMPT, /Never ask for something they already gave you\./);
+  assert.match(SYSTEM_PROMPT, /Ask what kind of business they run only when you don't know it yet and it matters for the answer/);
+  assert.match(SYSTEM_PROMPT, /Otherwise ask about the most useful missing piece instead: what happens to a new lead today/);
+  assert.match(SYSTEM_PROMPT, /never their business type if they already said it/);
+  assert.match(SYSTEM_PROMPT, /Do not end replies with the same stock question, and it is fine to end with no question/);
+  assert.match(SYSTEM_PROMPT, /offer the next step instead of asking another question/);
+  // The one-question ceiling and the answer-first order are unchanged.
+  assert.match(SYSTEM_PROMPT, /Answer the question first\./);
+  assert.match(SYSTEM_PROMPT, /Never ask more than one question per reply, and never run a checklist\./);
+  assert.doesNotMatch(SYSTEM_PROMPT, /What kind of business are you running\?/, "no stock question is planted in the prompt");
+});
+
+test("polish 2: a trade named inside a question is not the visitor's business type", () => {
+  const user = (content: string) => [{ role: "user" as const, content }];
+  const all = ["business_type", "volume"] as const;
+  assert.deepEqual(corroborateSignals([...all], user("Does Trackpr automatically integrate with every HVAC software?")), ["volume"]);
+  assert.deepEqual(corroborateSignals([...all], user("If I owned a plumbing company, would it work?")), ["volume"], "hypothetical");
+  assert.deepEqual(corroborateSignals([...all], user("For example, could a roofing company use it?")), ["volume"], "example");
+  for (const stated of ["I own an HVAC company.", "We run a plumbing business with 3 trucks", "We’re a roofing company", "I'm an electrician", "Our company does remodeling", "I run a service business and get about 50 leads a month"]) {
+    assert.deepEqual(corroborateSignals([...all], user(stated)), [...all], stated);
+  }
+  // Earlier turns count; assistant turns never do.
+  assert.deepEqual(corroborateSignals(["business_type"], [{ role: "user", content: "We're an HVAC company" }, { role: "assistant", content: "Got it." }, { role: "user", content: "How much is it?" }]), ["business_type"]);
+  assert.deepEqual(corroborateSignals(["business_type"], [{ role: "user", content: "Hi" }, { role: "assistant", content: "I run a roofing company" }, { role: "user", content: "ok" }]), []);
+  assert.deepEqual(corroborateSignals(["volume"], user("anything")), ["volume"], "other signals pass through untouched");
+  assert.match(SYSTEM_PROMPT, /"Does Trackpr work with HVAC software\?" shares no business_type/);
+});
+
+test("polish 2: end to end - the HVAC software question records no business type; an owner's statement does", async () => {
+  const labelled = fakeModel(ok({ intent: "exploring_fit", signals: ["business_type"] }));
+  const question = await generateChatReply(userTurn("Does Trackpr automatically integrate with every HVAC software?"), { createMessage: labelled.createMessage });
+  assert.ok(question.ok);
+  if (question.ok) assert.deepEqual(question.value.signals, []);
+  const owner = await generateChatReply(userTurn("I own an HVAC company."), { createMessage: labelled.createMessage });
+  assert.ok(owner.ok);
+  if (owner.ok) assert.deepEqual(owner.value.signals, ["business_type"]);
+
+  const recorded: unknown[] = [];
+  const sink: ChatLeadSink = { record: async (summary) => void recorded.push(summary) };
+  const ready = fakeModel(ok({ intent: "ready_to_talk", signals: ["business_type"] }));
+  await handleChat(post({ messages: userTurn("Does Trackpr integrate with every HVAC software? I'd like to talk.") }), { createMessage: ready.createMessage, allow: always, leadSink: sink });
+  const response = await handleChat(post({ messages: userTurn("Does Trackpr integrate with every HVAC software?") }), { createMessage: ready.createMessage, allow: always });
+  assert.deepEqual((await response.json()).signals, [], "the public response carries the corrected signal list, same shape");
+  assert.deepEqual(recorded, [{ intent: "ready_to_talk", signals: [], nextStepOffered: false }], "lead capture never receives an inferred business type");
+});
+
+test("polish 3: Talk to Cinder keeps the site's destination, presents as the Cinder team, and never prints the address in prose", () => {
+  assert.equal(NEXT_STEPS.talk.href, TALK_HREF, "the destination is unchanged");
+  assert.equal(NEXT_STEPS.talk.label, "Talk with the Cinder team");
+  assert.doesNotMatch(`${NEXT_STEPS.talk.label} ${NEXT_STEPS.talk.description}`, /@|gmail|mailto/i);
+  const guarded = guardReply(`You can reach the team at ${CONTACT_EMAIL} any time.`);
+  assert.equal(guarded.replaced, true);
+  assert.ok(!guarded.reply.includes(CONTACT_EMAIL));
+  assert.doesNotMatch(guarded.reply, /@/);
 });
 
 // ---------------------------------------------------------------------------

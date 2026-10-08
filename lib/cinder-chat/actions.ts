@@ -20,7 +20,8 @@ export const MEETING_HREF = "/get-started";
 
 export const NEXT_STEPS: Record<Exclude<NextStepKey, "none">, NextStepLink> = {
   get_started: { key: "get_started", label: "Tell us about your business", href: MEETING_HREF, description: "The Get started page - Cinder looks at your business and shows how Trackpr would run it." },
-  talk: { key: "talk", label: "Talk to Cinder", href: TALK_HREF, description: "Email the Cinder team directly." },
+  // The destination is the site's own "Talk to Cinder" hand-off (TALK_HREF), unchanged; only the button's wording is the chat's.
+  talk: { key: "talk", label: "Talk with the Cinder team", href: TALK_HREF, description: "Reach the Cinder team directly (opens the visitor's email)." },
   demo: { key: "demo", label: "Try the interactive demo", href: TRACKPR_DEMO_HREF, description: "Click through Trackpr with sample data." },
   trackpr: { key: "trackpr", label: "Explore Trackpr", href: TRACKPR_HREF, description: "The Trackpr product page." },
 };
