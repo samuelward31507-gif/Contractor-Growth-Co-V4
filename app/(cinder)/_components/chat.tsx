@@ -383,7 +383,7 @@ function NextStepButton({ step }: { step: ChatNextStep }) {
     </>
   );
   return step.href.startsWith("mailto:") ? (
-    <a href={step.href} onClick={onClick} className={className}>
+    <a href={step.href} onClick={onClick} className={className} aria-label={`${step.label} (opens your email app)`}>
       {inner}
     </a>
   ) : (
