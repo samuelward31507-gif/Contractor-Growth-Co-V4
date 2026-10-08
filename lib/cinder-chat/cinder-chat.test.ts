@@ -15,7 +15,7 @@ import { KNOWLEDGE, renderKnowledge } from "./knowledge";
 import { NEXT_STEPS, MEETING_HREF, resolveNextStep } from "./actions";
 import { MAX_TURNS_SENT, MAX_USER_MESSAGE_CHARS, parseConversation } from "./conversation";
 import { FIGURE_SAFE_REPLY, guardReply } from "./guards";
-import { REPLY_SCHEMA, SYSTEM_PROMPT, UNKNOWN_ANSWER } from "./prompt";
+import { MODEL_NEXT_STEP_KEYS, REPLY_SCHEMA, SYSTEM_PROMPT, UNKNOWN_ANSWER } from "./prompt";
 import { CHAT_MODEL, REFUSAL_REPLY, buildRequest, corroborateSignals, generateChatReply, parseReply } from "./service";
 import { TALK_HREF } from "@/app/(cinder)/_components/content";
 import { CONTACT_EMAIL } from "@/lib/site/contact";
@@ -92,7 +92,22 @@ test("prompt: the rules that keep the assistant truthful are in the system promp
 test("output contract: strict JSON schema with an enum of next steps - the model picks a key, never a URL", () => {
   assert.equal(REPLY_SCHEMA.additionalProperties, false);
   assert.deepEqual([...REPLY_SCHEMA.required], ["reply", "next_step", "intent", "signals"]);
-  assert.deepEqual([...REPLY_SCHEMA.properties.next_step.enum], ["none", "get_started", "talk", "demo", "trackpr"]);
+  assert.deepEqual([...REPLY_SCHEMA.properties.next_step.enum], ["none", "get_started", "demo", "trackpr"]);
+});
+
+test("retired talk action: the model is never told about it or allowed to choose it; supported next steps and the truthful fallback remain", () => {
+  assert.ok(!(REPLY_SCHEMA.properties.next_step.enum as readonly string[]).includes("talk"));
+  assert.deepEqual([...MODEL_NEXT_STEP_KEYS], ["none", "get_started", "demo", "trackpr"]);
+  assert.doesNotMatch(SYSTEM_PROMPT, /"talk"/);
+  assert.doesNotMatch(SYSTEM_PROMPT, /Talk with the Cinder team/);
+  assert.doesNotMatch(SYSTEM_PROMPT, /opens the visitor's email/);
+  assert.doesNotMatch(SYSTEM_PROMPT, /mailto:/);
+  assert.ok(!SYSTEM_PROMPT.includes(TALK_HREF));
+  for (const key of ["get_started", "demo", "trackpr"] as const) assert.ok(SYSTEM_PROMPT.includes(`- "${key}": ${NEXT_STEPS[key].label}`), key);
+  assert.match(SYSTEM_PROMPT, /- "none": no button\./);
+  assert.match(SYSTEM_PROMPT, /offer "get_started" \(the team follows up from there\)/);
+  assert.match(SYSTEM_PROMPT, /If the answer is not there, reply with exactly: "I don't want to guess\. I can connect you with the Cinder team for that\."/);
+  assert.match(SYSTEM_PROMPT, /"ready_to_talk"/, "the buying-intent value is an intent, not a next step, and stays");
 });
 
 // ---------------------------------------------------------------------------

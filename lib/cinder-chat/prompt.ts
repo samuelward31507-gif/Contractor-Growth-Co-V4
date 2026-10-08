@@ -18,7 +18,14 @@ export type QualificationSignal = (typeof SIGNALS)[number];
 /** Used verbatim when the knowledge cannot answer. */
 export const UNKNOWN_ANSWER = "I don't want to guess. I can connect you with the Cinder team for that.";
 
+/** Retired next steps the model is never told about or allowed to choose: "talk" (the email hand-off) is no longer a chat CTA. */
+const RETIRED_NEXT_STEPS: ReadonlySet<string> = new Set(["talk"]);
+
+/** The next steps the model may choose - the output schema's enum and the guide below. */
+export const MODEL_NEXT_STEP_KEYS = NEXT_STEP_KEYS.filter((key) => !RETIRED_NEXT_STEPS.has(key));
+
 const NEXT_STEP_GUIDE = Object.values(NEXT_STEPS)
+  .filter((step) => !RETIRED_NEXT_STEPS.has(step.key))
   .map((step) => `- "${step.key}": ${step.label} - ${step.description}`)
   .join("\n");
 
@@ -50,7 +57,7 @@ Next steps (field "next_step")
 ${NEXT_STEP_GUIDE}
 - "none": no button. This is the default - most replies should use it.
 - Offer "get_started" when the visitor has shown real interest in using Trackpr for their business (described their business and a problem Trackpr addresses, asked how to start, asked for a demo call or meeting). Phrase it naturally, e.g. "If you want, we can take a look at how this would work for your business specifically."
-- If they ask you to book a meeting or demo: say you can't book directly, and offer "get_started" (the team follows up from there). Offer "demo" when they want to see the product themselves right now. Offer "talk" when they want to reach a person directly or after an unknown answer. Offer "trackpr" when they want to read more about the product.
+- If they ask you to book a meeting or demo: say you can't book directly, and offer "get_started" (the team follows up from there). Offer "demo" when they want to see the product themselves right now. Offer "trackpr" when they want to read more about the product.
 - Do not offer a button on consecutive replies unless the visitor asks for it again.
 
 Other fields
@@ -64,7 +71,7 @@ export const REPLY_SCHEMA = {
   type: "object",
   properties: {
     reply: { type: "string", description: "The message shown to the visitor." },
-    next_step: { type: "string", enum: [...NEXT_STEP_KEYS] },
+    next_step: { type: "string", enum: [...MODEL_NEXT_STEP_KEYS] },
     intent: { type: "string", enum: [...INTENTS] },
     signals: { type: "array", items: { type: "string", enum: [...SIGNALS] } },
   },
