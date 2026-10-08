@@ -3,13 +3,14 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { processEstimateFollowups } from "@/lib/automation/estimate-followups";
 import { isAuthorizedCronRequest } from "@/lib/automation/cron-auth";
 import { recordScheduledAutomationRun } from "@/lib/automation-health/scheduled-automation-liveness";
+import { withOpsFailureReporting } from "@/lib/ops/route-failure";
 
 /**
  * Scheduled-automation target invoked by an n8n Schedule Trigger - same
  * CRON_SECRET fail-closed pattern as every other automation cron route,
  * see lib/automation/cron-auth.ts.
  */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   if (!isAuthorizedCronRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
@@ -24,3 +25,6 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ ok: true, candidates: result.candidates, outcomes: result.outcomes });
 }
+
+// Batch 4 (operations hardening): a 5xx or a throw leaves one structured operator line (lib/ops/route-failure.ts); the response is unchanged.
+export const GET = withOpsFailureReporting("automation.cron.estimate_followups", handleGET);

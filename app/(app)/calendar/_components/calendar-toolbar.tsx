@@ -81,6 +81,7 @@ export function CalendarToolbar({
         <ScheduleViewSwitcher
           active={view}
           hrefs={{
+            agenda: "/schedule",
             day: buildCalendarHref("day", activeDateStr),
             week: buildCalendarHref("week", activeDateStr),
             month: buildCalendarHref("month", activeDateStr),

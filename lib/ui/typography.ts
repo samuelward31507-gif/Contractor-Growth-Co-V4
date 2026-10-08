@@ -158,7 +158,14 @@ export const numericDisplayClass = "tabular-nums tracking-[-0.02em]";
  * uppercase tracking reads as a deliberate instrument label, not as the
  * all-caps-everywhere admin template the earlier passes moved away from.
  */
-export const pageEyebrowClass = "font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-ink-3";
+//
+// Batch 1 (Cinder design foundation): the website's eyebrow - 11px, wider
+// 0.14em tracking, and (via PageHeader / Eyebrow in lib/ui/page-header.tsx)
+// a small ember diamond in front. Still once per page at most.
+export const pageEyebrowClass = "inline-flex items-center gap-2 font-mono text-[11px] font-medium uppercase leading-4 tracking-[0.14em] text-ink-3";
+
+/** Batch 1: the ember diamond that leads an eyebrow - decorative, 5px. */
+export const eyebrowDiamondClass = "h-[5px] w-[5px] shrink-0 rotate-45 bg-brand";
 
 /** Final redesign: record identifiers (invoice and estimate numbers) - Geist Mono, tabular, never larger than the row text. */
 export const recordIdClass = "font-mono text-[12.5px] tabular-nums tracking-[-0.01em]";

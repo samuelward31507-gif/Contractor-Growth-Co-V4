@@ -44,7 +44,7 @@ export default async function ContactDuplicatesPage() {
         className="-my-3 inline-flex min-h-11 w-fit items-center gap-1.5 rounded-md text-sm font-medium text-ink-3 transition-colors hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:my-0 sm:min-h-0"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
-        Back to Contacts
+        Back to People
       </Link>
 
       <div>

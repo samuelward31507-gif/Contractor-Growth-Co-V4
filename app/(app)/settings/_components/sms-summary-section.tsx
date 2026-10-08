@@ -21,7 +21,7 @@ export function SmsSummarySection({ smsPhoneNumber }: { smsPhoneNumber: string |
           <h2 className={subsectionTitleClass}>SMS &amp; Communications</h2>
           <p className={`mt-1 ${metaClass}`}>The Trackpr number customers text to reach your business.</p>
         </div>
-        <Badge tone={isConfigured ? "success" : "neutral"}>{isConfigured ? "Configured" : "Not configured"}</Badge>
+        <Badge tone={isConfigured ? "success" : "neutral"}>{isConfigured ? "Configured" : "Not Configured"}</Badge>
       </div>
 
       <Link

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { BarChart3, CalendarDays, LayoutDashboard, Menu, Users, Wallet, X, LogOut, type LucideIcon } from "lucide-react";
+import { CalendarDays, House, Inbox, Menu, Users, Wallet, X, LogOut, type LucideIcon } from "lucide-react";
 import type { OrganizationVertical } from "@/lib/auth/organization";
 import { getNavGroupsForVertical, resolveActiveNavItem, type NavItem } from "./nav-items";
 import { NavLink } from "./nav-link";
@@ -13,36 +13,32 @@ const FOCUS_RING = "focus:outline-none focus-visible:inset-ring-2 focus-visible:
 /** Theme upgrade: a short pine bar on the active tab's top edge, so "where am I" never rests on icon tint alone. */
 const ACTIVE_TAB_INDICATOR = "absolute left-1/2 top-0 h-0.5 w-8 -translate-x-1/2 rounded-b-full bg-accent";
 
-/**
- * A bottom tab: either one nav destination (`href`) or a whole group
- * (`groupId` - People stays lit on Contacts, Leads and Inbox alike).
- */
-type Tab = { label: string; icon: LucideIcon; href: string; groupId?: string };
+/** A bottom tab: one nav destination, lit anywhere inside it (its detail pages, legacy aliases and in-page views). */
+type Tab = { label: string; icon: LucideIcon; href: string };
 
 /**
- * The same primary IA as the desktop sidebar - Today, People, Money,
- * Schedule - in reach of a thumb, with Insights and every secondary area
- * one tap away in the More sheet. Each group tab opens the group's first
- * destination and stays lit anywhere inside the group. A vertical without
- * the Money group (gym) gets Insights in that slot.
+ * Batch 2: the four destinations a contractor reaches for most - Today,
+ * People, Inbox, Money - in reach of a thumb, then More. A vertical without
+ * Money (gym) gets Schedule in that slot. Everything else (Schedule,
+ * Insights, Trackpr, Settings, Agency) is one tap away in the More sheet.
  */
 function tabsFor(vertical: OrganizationVertical): Tab[] {
   return [
-    { label: "Today", icon: LayoutDashboard, href: "/today" },
-    { label: "People", icon: Users, href: "/people", groupId: "people" },
-    vertical === "contractor" ? { label: "Money", icon: Wallet, href: "/money", groupId: "money" } : { label: "Insights", icon: BarChart3, href: "/insights", groupId: "insights" },
-    { label: "Schedule", icon: CalendarDays, href: "/schedule", groupId: "schedule" },
+    { label: "Today", icon: House, href: "/today" },
+    { label: "People", icon: Users, href: "/people" },
+    { label: "Inbox", icon: Inbox, href: "/conversations" },
+    vertical === "contractor" ? { label: "Money", icon: Wallet, href: "/money" } : { label: "Schedule", icon: CalendarDays, href: "/schedule" },
   ];
 }
 
 /**
  * Trackpr 2.0 (step 2C): the light mobile navigation - a white bottom tab
  * bar in the same quiet system as the desktop sidebar, and a More sheet
- * that shows the complete grouped IA (People, Money, Schedule, Insights,
- * More, then Settings / Agency Command Center and the account), so
- * nothing reachable on desktop is out of reach on a phone. Driven by the
- * same getNavGroupsForVertical + resolveActiveNavItem as the sidebar, so
- * the two surfaces can never disagree.
+ * holding every destination the tabs don't (Batch 2: You's remainder -
+ * Schedule, Insights - then Trackpr, then Settings / Agency Command Center
+ * and the account), so nothing reachable on desktop is out of reach on a
+ * phone. Driven by the same getNavGroupsForVertical + resolveActiveNavItem
+ * as the sidebar, so the two surfaces can never disagree.
  */
 export function MobileTabBar({
   vertical,
@@ -61,10 +57,9 @@ export function MobileTabBar({
   const groups = getNavGroupsForVertical(vertical, showAgencyLink);
   const allItems = groups.flatMap((group) => group.items);
   const activeItem = resolveActiveNavItem(allItems, location);
-  const activeGroupId = groups.find((group) => activeItem && group.items.includes(activeItem))?.id;
   const tabs = tabsFor(vertical);
 
-  const isTabActive = (tab: Tab) => (tab.groupId ? activeGroupId === tab.groupId : activeItem?.href === tab.href);
+  const isTabActive = (tab: Tab) => activeItem?.href === tab.href;
   const menuActive = activeItem !== null && !tabs.some(isTabActive);
 
   // Keyboard/screen-reader handling for the sheet: focus moves into it on
@@ -86,7 +81,11 @@ export function MobileTabBar({
     if (restoreFocus) menuButtonRef.current?.focus();
   }
 
-  const sheetGroups = groups.filter((group) => group.id !== "system");
+  const tabHrefs = new Set(tabs.map((tab) => tab.href));
+  const sheetGroups = groups
+    .filter((group) => group.id !== "system")
+    .map((group) => ({ ...group, items: group.items.filter((item) => !tabHrefs.has(item.href)) }))
+    .filter((group) => group.items.length > 0);
   const systemGroup = groups.find((group) => group.id === "system");
 
   return (
@@ -204,7 +203,7 @@ export function MobileTabBar({
 
 function SheetGroup({ label, items, activeItem, onNavigate }: { label: string | null; items: NavItem[]; activeItem: NavItem | null; onNavigate: () => void }) {
   return (
-    <div className="pt-3" role="group" aria-label={label ?? "Home"}>
+    <div className="pt-3" role="group" aria-label={label ?? "Navigation"}>
       {label ? <p className="mb-1 px-2.5 text-xs font-medium text-ink-3">{label}</p> : null}
       <div className="space-y-px">
         {items.map((item) => (

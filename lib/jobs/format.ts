@@ -1,4 +1,5 @@
 import type { JobStatus } from "./queries";
+import { STATUS_DOT_TONE_CLASS } from "@/lib/ui/status-vocabulary";
 
 export const STATUS_LABELS: Record<JobStatus, string> = {
   scheduled: "Scheduled",
@@ -11,8 +12,8 @@ export const STATUS_LABELS: Record<JobStatus, string> = {
 // lib/estimates/format.ts: neutral for the working pipeline, one accent
 // each for the closed outcomes.
 export const STATUS_DOT_CLASS: Record<JobStatus, string> = {
-  scheduled: "bg-slate-400",
-  in_progress: "bg-blue-500",
-  completed: "bg-emerald-500",
-  cancelled: "bg-slate-300",
+  scheduled: STATUS_DOT_TONE_CLASS.neutral,
+  in_progress: STATUS_DOT_TONE_CLASS.progress,
+  completed: STATUS_DOT_TONE_CLASS.success,
+  cancelled: STATUS_DOT_TONE_CLASS.muted,
 };

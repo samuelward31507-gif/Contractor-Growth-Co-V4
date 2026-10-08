@@ -1,6 +1,7 @@
 import { CheckCircle2, AlertTriangle, CircleDashed, CircleSlash, PauseCircle, type LucideIcon } from "lucide-react";
 import type { BadgeTone } from "@/lib/ui/badge";
 import type { AutomationDisplayStatus } from "@/lib/automation/queries";
+import { formatDateTime as formatCanonicalDateTime } from "@/lib/format/datetime";
 
 /**
  * Single source of truth for how an AutomationDisplayStatus (computed
@@ -10,9 +11,9 @@ import type { AutomationDisplayStatus } from "@/lib/automation/queries";
  */
 export const AUTOMATION_STATUS_BADGE: Record<AutomationDisplayStatus, { label: string; tone: BadgeTone; icon: LucideIcon }> = {
   active: { label: "Active", tone: "success", icon: CheckCircle2 },
-  attention: { label: "Attention", tone: "warning", icon: AlertTriangle },
-  no_activity: { label: "No activity", tone: "neutral", icon: CircleDashed },
-  not_configured: { label: "Not configured", tone: "neutral", icon: CircleSlash },
+  attention: { label: "Needs Attention", tone: "warning", icon: AlertTriangle },
+  no_activity: { label: "No Activity", tone: "neutral", icon: CircleDashed },
+  not_configured: { label: "Not Configured", tone: "neutral", icon: CircleSlash },
   disabled: { label: "Disabled", tone: "neutral", icon: PauseCircle },
 };
 
@@ -20,29 +21,16 @@ export function formatCount(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
-const relativeTimeFormatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-const DIVISIONS: { amount: number; unit: Intl.RelativeTimeFormatUnit }[] = [
-  { amount: 60, unit: "seconds" },
-  { amount: 60, unit: "minutes" },
-  { amount: 24, unit: "hours" },
-  { amount: 7, unit: "days" },
-  { amount: 4.34524, unit: "weeks" },
-  { amount: 12, unit: "months" },
-  { amount: Number.POSITIVE_INFINITY, unit: "years" },
-];
+// Batch 1: the canonical date/time path (lib/format/datetime.ts).
+export { formatRelativeTime } from "@/lib/format/datetime";
 
-export function formatRelativeTime(iso: string): string {
-  let duration = (new Date(iso).getTime() - Date.now()) / 1000;
-  for (const division of DIVISIONS) {
-    if (Math.abs(duration) < division.amount) {
-      return relativeTimeFormatter.format(Math.round(duration), division.unit);
-    }
-    duration /= division.amount;
-  }
-  return relativeTimeFormatter.format(Math.round(duration), "years");
-}
-
-export function formatDateTime(iso: string): string {
+/**
+ * "Oct 9, 2026, 2:00 PM". With the organization's timezone it renders on
+ * the canonical path; without one, the legacy runtime-local rendering is
+ * kept unchanged for existing callers.
+ */
+export function formatDateTime(iso: string, timeZone?: string | null): string {
+  if (timeZone) return formatCanonicalDateTime(iso, timeZone);
   return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 }
 

@@ -21,7 +21,7 @@ export function ConversationsSummary({ summary }: { summary: ConversationSummary
           secondary={[
             { label: "Total conversations", value: summary.total },
             { label: "Closed", value: summary.closed, icon: Archive },
-            { label: "AI enabled", value: summary.aiEnabled, icon: Bot },
+            { label: "Trackpr replies on", value: summary.aiEnabled, icon: Bot },
           ]}
         />
       </div>

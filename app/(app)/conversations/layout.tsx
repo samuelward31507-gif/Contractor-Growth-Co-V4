@@ -9,6 +9,9 @@ import {
   summarizeConversations,
 } from "@/lib/conversations/queries";
 import { getWaitingConversationIds } from "@/lib/conversations/waiting";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
+import { presentConversationOwner, type ConversationOwnerView } from "@/lib/decisions/presentation";
+import { getSurfaceDecisionContext } from "@/lib/decisions/surface-context";
 import { PageHeader } from "@/lib/ui/page-header";
 import { ConversationsEmptyState } from "./_components/conversations-empty-state";
 import { ConversationsSummary } from "./_components/conversations-summary";
@@ -32,12 +35,17 @@ export default async function ConversationsLayout({ children }: { children: Reac
     redirect("/onboarding");
   }
 
-  const [conversationsResult, lastMessagesResult, waiting] = await Promise.all([
+  const [conversationsResult, lastMessagesResult, waiting, timeZone] = await Promise.all([
     getConversationsResult(supabase, membership.organizationId),
     getLastMessagesByConversationResult(supabase, membership.organizationId),
     // Phase 3 (W1): "needs a reply" is the canonical waiting rule, not "the last message is inbound".
     getWaitingConversationIds(supabase, membership.organizationId),
+    getOrganizationTimezone(supabase, membership.organizationId),
   ]);
+  // Batch 3 (core daily loop): who each conversation is with right now -
+  // "Needs your reply" vs "Trackpr is replying/handling" - from the actor
+  // model with Today's own decision context (lib/decisions/presentation.ts).
+  const actorContext = await getSurfaceDecisionContext(supabase, membership.organizationId, { waitingConversationIds: waiting.ids, timeZone: timeZone ?? null });
   const conversations = conversationsResult.data;
   const lastMessages = lastMessagesResult.data;
   // Trackpr 2.0, Phase 4B (P1 #4): a real Postgrest error on either read
@@ -47,6 +55,8 @@ export default async function ConversationsLayout({ children }: { children: Reac
 
   const summary = summarizeConversations(conversations);
   const withActivity = attachLastMessages(conversations, lastMessages);
+  // A plain object - a Map does not cross the server/client boundary.
+  const ownerById: Record<string, ConversationOwnerView> = Object.fromEntries(conversations.map((conversation) => [conversation.id, presentConversationOwner(conversation, waiting.ids, actorContext)]));
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden px-4 pt-6 sm:px-6 sm:pt-8 lg:px-10 lg:pt-9">
@@ -58,7 +68,7 @@ export default async function ConversationsLayout({ children }: { children: Reac
       ) : null}
       {conversations.length === 0 ? (
         <>
-          <PageHeader eyebrow="Conversations" title="Inbox" description="Every customer conversation in one place, organized by activity." />
+          <PageHeader eyebrow="Inbox" title="Inbox" description="Who needs you - and every conversation Trackpr is handling for you." />
           <div className="mt-6">
             <ConversationsSummary summary={summary} />
           </div>
@@ -67,7 +77,7 @@ export default async function ConversationsLayout({ children }: { children: Reac
           </div>
         </>
       ) : (
-        <ConversationsWorkspace conversations={withActivity} summary={summary} waitingConversationIds={[...waiting.ids]}>
+        <ConversationsWorkspace conversations={withActivity} summary={summary} waitingConversationIds={[...waiting.ids]} ownerById={ownerById}>
           {children}
         </ConversationsWorkspace>
       )}

@@ -73,7 +73,10 @@ test("Phase 3 (W1): the Person page names its lead-value stat honestly; the Peop
 
 test("Phase 3 (W1): Inbox 'needs a reply' is the canonical waiting rule, not 'the last message is inbound'", () => {
   const list = read("app/(app)/conversations/_components/conversations-list.tsx");
-  assert.match(list, /return conversation\.status === "open" && waitingIds\.has\(conversation\.id\);/);
+  // Batch 3: emphasis is "needs YOUR reply" - the canonical waiting set AND the actor model (presentConversationOwner, open conversations only).
+  assert.match(list, /const awaitingReply = Boolean\(owner\?\.needsYou\) && waitingIds\.has\(conversation\.id\);/);
+  const presentation = read("lib/decisions/presentation.ts");
+  assert.match(presentation, /if \(conversation\.status !== "open"\) return \{ owner: null, label: "Closed", needsYou: false \};\n\s+if \(waitingConversationIds\.has\(conversation\.id\)\) \{/);
   assert.doesNotMatch(list, /lastMessage\?\.direction === "inbound"/);
   const layout = read("app/(app)/conversations/layout.tsx");
   assert.match(layout, /getWaitingConversationIds\(supabase, membership\.organizationId\)/);

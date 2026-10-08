@@ -16,7 +16,17 @@
  * since that padding rhythm is the page shell's concern, not the header's.
  */
 import type { ReactNode } from "react";
-import { pageEyebrowClass, pageTitleClass, pageDescriptionClass } from "./typography";
+import { eyebrowDiamondClass, pageEyebrowClass, pageTitleClass, pageDescriptionClass } from "./typography";
+
+/** Batch 1: the Cinder eyebrow - Geist Mono, uppercase, led by a small ember diamond. */
+export function Eyebrow({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <p className={`${pageEyebrowClass} ${className}`.trim()}>
+      <span aria-hidden="true" className={eyebrowDiamondClass} />
+      {children}
+    </p>
+  );
+}
 
 export function PageHeader({
   eyebrow,
@@ -34,7 +44,7 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        {eyebrow ? <p className={`mb-2 ${pageEyebrowClass}`}>{eyebrow}</p> : null}
+        {eyebrow ? <Eyebrow className="mb-2">{eyebrow}</Eyebrow> : null}
         <div className="flex items-center gap-2.5">
           <h1 className={pageTitleClass}>{title}</h1>
           {badge}

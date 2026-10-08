@@ -11,7 +11,8 @@ import {
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
 import { CONTACT_LIFECYCLE_LABEL, CONTACT_LIFECYCLE_TONE, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
-import type { NextStep } from "@/lib/people/next-step";
+import type { NextStepView } from "@/lib/decisions/presentation";
+import { OwnerChip } from "@/lib/ui/owner-chip";
 import type { Estimate } from "@/lib/estimates/queries";
 import type { Invoice } from "@/lib/invoices/queries";
 import { formatInvoiceNumber, formatMoney, isOverdue } from "@/lib/invoices/domain";
@@ -52,8 +53,8 @@ export function ConversationContext({
   lifecycleStage: ContactLifecycleStage | null;
   /** Pre-formatted via formatOpenLeadValueDisplay, already excluding won/lost leads - null when there is no open opportunity for this contact. */
   openLeadValueDisplay: string | null;
-  /** The same real next-step computation the Person page uses (findPersonNextStep), scoped to this contact - null when there's nothing outstanding. */
-  nextStep: NextStep | null;
+  /** The same next step and owner the Person page shows (findPersonNextStep + presentNextStep), scoped to this contact - null when there's nothing outstanding. */
+  nextStep: NextStepView | null;
   smsOptOut: boolean;
   automationActivity: AutomationActivity;
   /** Trackpr 2.0, Launch Certification QA fix: the organization's real IANA timezone - without it, formatAppointmentDate/formatAppointmentTime below silently fall back to the server runtime's default (UTC). */
@@ -72,7 +73,7 @@ export function ConversationContext({
               Call
             </a>
           ) : null}
-          <Link href={`/estimates?new=estimate&contactId=${contact.id}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
+          <Link href={`/money?browse=estimates&new=estimate&contactId=${contact.id}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
             <FileSearch className="h-4 w-4" aria-hidden />
             Create Estimate
           </Link>
@@ -80,14 +81,17 @@ export function ConversationContext({
       ) : null}
 
       {nextStep ? (
-        <div className={`rounded-lg px-3.5 py-3 inset-ring  ${nextStep.attention ? "bg-warning-muted inset-ring-warning-border" : "bg-accent-muted/60 ring-accent-border/70"}`}>
+        <div className={`rounded-lg px-3.5 py-3 inset-ring ${nextStep.needsYou ? "bg-warning-muted inset-ring-warning-border" : "bg-surface inset-ring-line"}`}>
           <div className="flex items-start gap-2.5">
-            <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${nextStep.attention ? "bg-warning-muted text-warning-text" : "bg-accent-muted text-accent-text"}`}>
-              {nextStep.attention ? <AlertCircle className="h-3.5 w-3.5" aria-hidden /> : <ArrowRight className="h-3.5 w-3.5" aria-hidden />}
+            <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${nextStep.needsYou ? "bg-surface text-warning-text" : "bg-inset text-ink-3"}`}>
+              {nextStep.needsYou ? <AlertCircle className="h-3.5 w-3.5" aria-hidden /> : <ArrowRight className="h-3.5 w-3.5" aria-hidden />}
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-ink-3">What happens next</p>
-              <p className="text-sm font-semibold text-ink">{nextStep.label}</p>
+              <p className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                <OwnerChip owner={nextStep.owner} urgent={nextStep.needsYou} />
+                <span className="text-sm font-semibold text-ink">{nextStep.headline}</span>
+              </p>
               {nextStep.detail ? <p className="text-xs text-ink-3">{nextStep.detail}</p> : null}
               <Link href={nextStep.href} className="mt-1 inline-block text-xs font-medium text-accent hover:underline">
                 View

@@ -10,7 +10,10 @@ import { getConversations } from "@/lib/conversations/queries";
 import { getInvoices } from "@/lib/invoices/queries";
 import { contactLifecycleFromCanonical, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
 import { summarizeOpenLeadValue } from "@/lib/contacts/open-lead-value";
-import { derivePersonLifecycle, findPersonNextStep, type NextStep } from "@/lib/people/next-step";
+import { derivePersonLifecycle, findPersonNextStep } from "@/lib/people/next-step";
+import { presentNextStep, type NextStepView } from "@/lib/decisions/presentation";
+import { getEstimateContactReach, getSurfaceDecisionContext } from "@/lib/decisions/surface-context";
+import { getOpenOpportunitiesResult } from "@/lib/opportunities/queries";
 import { loadLifecyclePolicy } from "@/lib/people/lifecycle-policy";
 import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import Link from "next/link";
@@ -22,6 +25,7 @@ import { TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { PeopleEmptyState } from "./_components/people-empty-state";
 import { PeopleSearch } from "./_components/people-search";
 import { PeopleTable } from "./_components/people-table";
+import { PeopleViews } from "./_components/people-views";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 import { filterPeople, type PeopleView } from "@/lib/people/filter";
 import { AddLeadButton } from "@/app/(app)/leads/_components/add-lead-button";
@@ -137,6 +141,14 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     // Final Batch 3: one policy for every row's canonical lifecycle.
     loadLifecyclePolicy(supabase, membership.organizationId),
   ]);
+  // Batch 3 (core daily loop): who acts on each row's next step - the actor
+  // model's own rules (lib/decisions/presentation.ts), with Today's own
+  // decision context and the request-cached open opportunities it reads.
+  const [actorContext, openOpportunities, estimateReach] = await Promise.all([
+    getSurfaceDecisionContext(supabase, membership.organizationId, { waitingConversationIds: waiting.ids, timeZone: timeZone ?? null }),
+    getOpenOpportunitiesResult(supabase, membership.organizationId),
+    getEstimateContactReach(supabase, membership.organizationId),
+  ]);
 
   const temperatureByContactId = new Map<string, LeadTemperature>();
   const leadsByContactId = groupByContactId(leads);
@@ -171,7 +183,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   // lifecycle per person (lib/lifecycle via lib/people/next-step.ts), so they
   // can never disagree and a stale lead status never outranks newer records.
   const valueByContactId = new Map<string, ReturnType<typeof summarizeOpenLeadValue>>();
-  const nextStepByContactId = new Map<string, NextStep | null>();
+  const nextStepByContactId = new Map<string, NextStepView | null>();
   const lifecycleByContactId = new Map<string, ContactLifecycleStage>();
   for (const contact of allContacts) {
     valueByContactId.set(contact.id, summarizeOpenLeadValue(leadsByContactId.get(contact.id) ?? []));
@@ -187,15 +199,26 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
     };
     const lifecycle = derivePersonLifecycle(person);
     lifecycleByContactId.set(contact.id, contactLifecycleFromCanonical(lifecycle));
+    const personConversations = conversationsByContactId.get(contact.id) ?? [];
+    const step = findPersonNextStep({
+      ...person,
+      conversations: personConversations,
+      waitingConversationIds: waiting.ids,
+      timeZone,
+      jobsEnabled: membership.vertical === "contractor",
+      lifecycle,
+    });
     nextStepByContactId.set(
       contact.id,
-      findPersonNextStep({
-        ...person,
-        conversations: conversationsByContactId.get(contact.id) ?? [],
+      presentNextStep(step, lifecycle, {
+        contactId: contact.id,
+        contactPhone: estimateReach.get(contact.id)?.phone ?? contact.phone,
+        contactSmsOptOut: estimateReach.get(contact.id)?.smsOptOut ?? null,
+        conversations: personConversations,
         waitingConversationIds: waiting.ids,
-        timeZone,
-        jobsEnabled: membership.vertical === "contractor",
-        lifecycle,
+        estimates: person.estimates,
+        openOpportunities: openOpportunities.data,
+        context: actorContext,
       }),
     );
   }
@@ -210,7 +233,7 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
         // Trackpr 2.0 (step 2G): the title follows the nav entry that lands
         // here - Leads is everyone with an open lead (Final Batch 3: every
         // temperature, not only hot), Contacts (Members for a gym) is everyone.
-        title={leadsView ? "Leads" : getTerminology(membership.vertical).contactsLabel}
+        title={leadsView ? "Leads" : getTerminology(membership.vertical).peopleLabel}
         description={leadsView ? "Everyone with an open lead - hot, warm and cold." : "Everyone your business is currently working with or has worked with."}
         badge={
           allContacts.length > 0 ? (
@@ -233,6 +256,8 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
           </div>
         }
       />
+
+      <PeopleViews active={leadsView ? "leads" : "all"} everyoneLabel={membership.vertical === "gym" ? "All members" : "Everyone"} />
 
       {leadsView ? (
         <nav aria-label="Lead temperature" className="flex flex-wrap items-center gap-2 text-sm text-ink-3">

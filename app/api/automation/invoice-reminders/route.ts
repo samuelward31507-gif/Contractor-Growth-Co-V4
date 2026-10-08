@@ -3,6 +3,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { processInvoiceReminders } from "@/lib/automation/invoice-reminders";
 import { isAuthorizedCronRequest } from "@/lib/automation/cron-auth";
 import { recordScheduledAutomationRun } from "@/lib/automation-health/scheduled-automation-liveness";
+import { withOpsFailureReporting } from "@/lib/ops/route-failure";
 
 /**
  * Phase 3G-2b: automated invoice reminders, invoked by the Supabase pg_cron
@@ -29,10 +30,14 @@ async function handle(request: NextRequest) {
 
 // GET is what pg_net's net.http_get sends; POST remains available for
 // manual/test invocation - the same authorized, idempotent logic.
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   return handle(request);
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   return handle(request);
 }
+
+// Batch 4 (operations hardening): a 5xx or a throw leaves one structured operator line (lib/ops/route-failure.ts); the response is unchanged.
+export const GET = withOpsFailureReporting("automation.cron.invoice_reminders", handleGET);
+export const POST = withOpsFailureReporting("automation.cron.invoice_reminders", handlePOST);

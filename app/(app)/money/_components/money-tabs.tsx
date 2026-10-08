@@ -1,31 +1,18 @@
 import Link from "next/link";
 import { segmentedItemClass, segmentedTrackClass } from "@/lib/ui/segmented";
+import { MONEY_TABS, type MoneyTab } from "./money-views";
 
-export type MoneyTab = "money" | "invoices" | "estimates" | "jobs";
+export { normalizeBrowse, type MoneyTab } from "./money-views";
 
 /**
  * IA consolidation pass: Work's own three tabs (Needs to move | Estimates |
- * Jobs) collapse into this one - "Money" is the new default curated view
- * (Quotes out / Ready to schedule / Won not finished, replacing Needs to
- * move), and "All estimates"/"All jobs" are Work's own full browse-and-
- * search tables, unchanged, just reached from here instead of /work. Same
- * segmented-control pattern WorkTabs itself established.
- *
- * Phase 1B-3: "Invoices" joins the set - the billing side of the same
- * money-in-motion story, backed by public.invoices and
- * public.customer_payments.
+ * Jobs) collapsed into this one; Phase 1B-3 added Invoices; Batch 2 added
+ * Payments and made these Money's views (see money-views.ts).
  */
 export function MoneyTabs({ active }: { active: MoneyTab }) {
-  const items: { value: MoneyTab; label: string; href: string }[] = [
-    { value: "money", label: "Money", href: "/money" },
-    { value: "invoices", label: "Invoices", href: "/money?browse=invoices" },
-    { value: "estimates", label: "All estimates", href: "/money?browse=estimates" },
-    { value: "jobs", label: "All jobs", href: "/money?browse=jobs" },
-  ];
-
   return (
     <div className={segmentedTrackClass} role="group" aria-label="Money view">
-      {items.map((item) => (
+      {MONEY_TABS.map((item) => (
         <Link
           key={item.value}
           href={item.href}

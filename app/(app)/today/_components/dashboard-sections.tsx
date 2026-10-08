@@ -1,10 +1,15 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRight, ChevronRight, Star, Workflow, Wrench } from "lucide-react";
+import { ArrowRight, CheckCheck, ChevronRight, Star, Wrench } from "lucide-react";
 import type { OwnerDailyBriefing } from "@/lib/briefing/queries";
 import type { PipelineStage, TodayFigure } from "./dashboard-model";
 import { cardClass } from "@/lib/ui/surface";
 import { kpiDescriptionClass, kpiLabelClass, kpiValueClass, monoCountClass, primarySectionTitleClass } from "@/lib/ui/typography";
+import { TRACKPR_HREF } from "@/app/(app)/_components/nav-items";
+import type { DecisionItem } from "@/lib/decisions/types";
+import { trackprHandlingSentence } from "@/lib/decisions/owner";
+import { OwnerChip } from "@/lib/ui/owner-chip";
+import { formatTime } from "@/lib/format/datetime";
 
 /**
  * Today's sections. Final redesign: Today is composed like an operations
@@ -133,9 +138,9 @@ export function AttentionPanel({ id, count, children, footer, className = "" }: 
       <div className="flex items-start justify-between gap-3 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
         <div className="min-w-0">
           <h2 id={id} className="text-base font-semibold tracking-[-0.01em] text-on-dark">
-            Needs your attention
+            Needs you
           </h2>
-          <p className="mt-0.5 text-xs text-on-dark-3">{count > 0 ? "Most time-sensitive first" : "Anything that needs you appears here first"}</p>
+          <p className="mt-0.5 text-xs text-on-dark-3">{count > 0 ? "Only what Trackpr can't do for you · most time-sensitive first" : "Anything that needs you appears here first"}</p>
         </div>
         {count > 0 ? (
           <span className={`mt-0.5 inline-flex shrink-0 items-center rounded-full bg-dark-fill-strong px-2 py-0.5 text-on-dark inset-ring inset-ring-dark-line ${monoCountClass}`}>
@@ -150,52 +155,146 @@ export function AttentionPanel({ id, count, children, footer, className = "" }: 
 }
 
 // ---------------------------------------------------------------------------
-// Today's activity
+// Happening today
 // ---------------------------------------------------------------------------
 
 /**
- * Today's follow-ups - jobs recently completed and review/referral replies
- * waiting - plus what Trackpr is handling and handled, as a compact list.
+ * Batch 3: today's appointments, in time order, in the organization's
+ * timezone - the briefing's own appointmentsToday (no new read). Every
+ * visit is the contractor's to show up for; nothing here claims a reminder
+ * or a confirmation the data doesn't record.
+ */
+export function HappeningToday({
+  appointments,
+  timeZone,
+  className = "",
+}: {
+  appointments: OwnerDailyBriefing["appointmentsToday"];
+  timeZone: string | null;
+  className?: string;
+}) {
+  const ordered = [...appointments].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  return (
+    <section aria-labelledby="happening-today" className={`min-w-0 overflow-hidden ${cardClass} ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pb-2 pt-4 sm:px-5 sm:pt-5">
+        <h2 id="happening-today" className={primarySectionTitleClass}>
+          Happening today
+        </h2>
+        <SectionLink href="/schedule">Open Schedule</SectionLink>
+      </div>
+      {ordered.length === 0 ? (
+        <p className="px-4 pb-4 text-[13px] text-ink-3 sm:px-5 sm:pb-5">Nothing on the calendar today.</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {ordered.map((appointment) => (
+            <li key={appointment.id}>
+              <Link href={appointment.href} className="flex min-h-11 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-hover sm:px-5">
+                <span className="w-16 shrink-0 text-[12.5px] font-medium tabular-nums text-ink-2">{formatTime(appointment.time, timeZone)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-ink">{appointment.contactName ?? appointment.title}</span>
+                  <span className="block truncate text-xs text-ink-3">{appointment.contactName ? appointment.title : "Appointment"}</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5 text-xs text-ink-3">
+                  <OwnerChip owner="you" />
+                  <span className="hidden sm:inline">You&apos;re meeting them</span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trackpr is handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Batch 3: what Trackpr is doing right now, item by item - the assembler's
+ * own trackprHandling (actor "trackpr", lib/decisions/actor.ts), worded as
+ * outcomes (trackprHandlingSentence) - plus what it already handled today.
+ * Never counted as attention; never the machinery behind it.
+ */
+export function TrackprHandling({ items, handled, className = "" }: { items: DecisionItem[]; handled: string; className?: string }) {
+  return (
+    <section aria-labelledby="trackpr-handling" className={`min-w-0 overflow-hidden ${cardClass} ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pb-2 pt-4 sm:px-5 sm:pt-5">
+        <div className="min-w-0">
+          <h2 id="trackpr-handling" className={primarySectionTitleClass}>
+            Trackpr is handling
+          </h2>
+          <p className="mt-0.5 text-xs text-ink-3">No action needed from you.</p>
+        </div>
+        <SectionLink href={TRACKPR_HREF}>Open Trackpr</SectionLink>
+      </div>
+      <ul className="divide-y divide-line">
+        {items.map((item) => (
+          <li key={item.key}>
+            <Link href={item.subject.href} className="flex min-h-11 items-center gap-2.5 px-4 py-2 transition-colors hover:bg-hover sm:px-5">
+              <OwnerChip owner="trackpr" />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">{trackprHandlingSentence(item)}</span>
+              {item.age ? <span className="shrink-0 text-xs text-ink-3">{item.age}</span> : null}
+            </Link>
+          </li>
+        ))}
+        <li className="flex items-center gap-2.5 px-4 py-2.5 sm:px-5">
+          <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-inset inset-ring inset-ring-line">
+            <CheckCheck className="h-3.5 w-3.5 text-ink-3" strokeWidth={1.75} />
+          </span>
+          <span className="min-w-0 flex-1 text-[13px] text-ink-2">{handled}</span>
+        </li>
+      </ul>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Recent progress
+// ---------------------------------------------------------------------------
+
+/**
+ * Recent progress - jobs recently completed and review/referral replies
+ * waiting. Batch 3: what Trackpr is handling moved to its own section
+ * (TrackprHandling); this is completed work only.
  */
 export function TodayActivity({
   briefing,
-  handled,
-  handling,
   className = "",
 }: {
   briefing: Pick<OwnerDailyBriefing, "jobsRecentlyCompleted" | "reviewReferralOpportunities">;
-  handled: string;
-  handling?: string | null;
   className?: string;
 }) {
   const follow = [
     ...briefing.jobsRecentlyCompleted.map((job) => ({ key: `job-${job.id}`, icon: Wrench, text: `${job.contactName ?? job.title} - job completed`, href: job.href, action: "View job" })),
     ...briefing.reviewReferralOpportunities.map((item) => ({ key: `rr-${item.id}`, icon: Star, text: item.kind === "review" ? "A review reply is waiting" : "A referral reply is waiting", href: item.href, action: "View" })),
-    // Phase 2-3c: work Trackpr is handling right now - only when there is some.
-    ...(handling ? [{ key: "handling", icon: Workflow, text: handling, href: "/automations", action: "View automations" }] : []),
-    { key: "handled", icon: Workflow, text: handled, href: "/automations", action: "View automations" },
   ];
 
   return (
     <section aria-labelledby="today-activity" className={`min-w-0 overflow-hidden ${cardClass} ${className}`}>
       <h2 id="today-activity" className={`px-4 pb-2 pt-4 sm:px-5 sm:pt-5 ${primarySectionTitleClass}`}>
-        Today&apos;s activity
+        Recent progress
       </h2>
-      <ul className="divide-y divide-line">
-        {follow.map((item) => (
-          <li key={item.key} className="flex items-center justify-between gap-3 px-4 py-2 sm:px-5">
-            <span className="flex min-w-0 items-center gap-2.5 text-[13px] text-ink-2">
-              <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-inset inset-ring inset-ring-line">
-                <item.icon className="h-3.5 w-3.5 text-ink-3" strokeWidth={1.75} />
+      {follow.length === 0 ? (
+        <p className="px-4 pb-4 text-[13px] text-ink-3 sm:px-5 sm:pb-5">No completed work to show yet.</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {follow.map((item) => (
+            <li key={item.key} className="flex items-center justify-between gap-3 px-4 py-2 sm:px-5">
+              <span className="flex min-w-0 items-center gap-2.5 text-[13px] text-ink-2">
+                <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-inset inset-ring inset-ring-line">
+                  <item.icon className="h-3.5 w-3.5 text-ink-3" strokeWidth={1.75} />
+                </span>
+                <span className="truncate">{item.text}</span>
               </span>
-              <span className="truncate">{item.text}</span>
-            </span>
-            <Link href={item.href} className={`${LINK_CLASS} shrink-0`}>
-              {item.action}
-            </Link>
-          </li>
-        ))}
-      </ul>
+              <Link href={item.href} className={`${LINK_CLASS} shrink-0`}>
+                {item.action}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

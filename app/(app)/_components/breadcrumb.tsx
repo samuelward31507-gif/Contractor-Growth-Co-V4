@@ -12,8 +12,7 @@ import { useNavLocation } from "./use-nav-location";
  * AGENCY_NAV_ITEM is included unconditionally: this is a label lookup, never
  * an authorization check.
  */
-const GROUPS = NAV_GROUPS.map((group) => (group.id === "system" ? { ...group, items: [...group.items, AGENCY_NAV_ITEM] } : group));
-const ALL_ITEMS = GROUPS.flatMap((group) => group.items);
+const ALL_ITEMS = [...NAV_GROUPS.flatMap((group) => group.items), AGENCY_NAV_ITEM];
 
 export function Breadcrumb() {
   const location = useNavLocation();
@@ -21,10 +20,11 @@ export function Breadcrumb() {
 
   if (!item) return <p className="text-sm text-ink-3">Trackpr</p>;
 
-  const group = GROUPS.find((candidate) => candidate.items.includes(item));
+  // Batch 2: the groups are "You" and "Trackpr" - a heading, not a place - so
+  // the trail is the destination itself. A detail page (/people/123,
+  // /invoices/abc) still names the destination it belongs to.
   return (
     <p className="truncate text-sm text-ink-3">
-      {group?.label ? <span>{group.label} / </span> : null}
       <span className="font-medium text-ink">{item.label}</span>
     </p>
   );

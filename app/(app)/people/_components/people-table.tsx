@@ -10,7 +10,8 @@ import { TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { LEAD_TEMPERATURE_TONE } from "@/app/(app)/leads/_components/lead-status";
 import { CONTACT_LIFECYCLE_LABEL, CONTACT_LIFECYCLE_TONE, type ContactLifecycleStage } from "@/lib/customers/lifecycle-stage";
 import type { OpenLeadValueSummary } from "@/lib/contacts/open-lead-value";
-import type { NextStep } from "@/lib/people/next-step";
+import type { NextStepView } from "@/lib/decisions/presentation";
+import { OwnerChip } from "@/lib/ui/owner-chip";
 import { formatCurrency } from "@/lib/dashboard/format";
 
 // Next step and Value are both short, fixed-feeling strings ("Follow up
@@ -66,11 +67,15 @@ function ValueCell({ value }: { value?: OpenLeadValueSummary }) {
   return <span className="text-right text-sm font-medium tabular-nums text-ink">{formatCurrency(value.knownValue)}</span>;
 }
 
-function NextStepCell({ nextStep }: { nextStep?: NextStep | null }) {
-  if (!nextStep) return <span className="text-sm text-ink-4">—</span>;
+/** Batch 3: whose move it is, then what it is - the same owner and words as Today and the Person page (lib/decisions/presentation.ts). */
+function NextStepCell({ nextStep }: { nextStep?: NextStepView | null }) {
+  if (!nextStep) return <span className="text-sm text-ink-4">Nothing in motion</span>;
   return (
-    <span className="flex min-w-0 flex-col">
-      <span className={`truncate text-sm ${nextStep.attention ? "font-medium text-warning-text" : "text-ink-2"}`}>{nextStep.label}</span>
+    <span className="flex min-w-0 flex-col gap-0.5">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <OwnerChip owner={nextStep.owner} urgent={nextStep.needsYou} />
+        <span className={`truncate text-sm ${nextStep.needsYou ? "font-medium text-ink" : "text-ink-2"}`}>{nextStep.headline}</span>
+      </span>
       {nextStep.detail ? <span className="truncate text-xs text-ink-3">{nextStep.detail}</span> : null}
     </span>
   );
@@ -106,7 +111,7 @@ export function PeopleTable({
   /** Present only for a contact with a still-open (not won/lost) lead - see app/(app)/people/page.tsx's own header comment for how this is derived. */
   temperatureByContactId?: Map<string, LeadTemperature>;
   valueByContactId?: Map<string, OpenLeadValueSummary>;
-  nextStepByContactId?: Map<string, NextStep | null>;
+  nextStepByContactId?: Map<string, NextStepView | null>;
 }) {
   if (contacts.length === 0) {
     return (
@@ -126,7 +131,7 @@ export function PeopleTable({
         <TableHeadCell>Lead</TableHeadCell>
         <TableHeadCell>Status</TableHeadCell>
         <TableHeadCell align="right">Value</TableHeadCell>
-        <TableHeadCell>Next step</TableHeadCell>
+        <TableHeadCell>Who acts next</TableHeadCell>
         <span />
       </Table>
       <TableBody>
@@ -136,7 +141,7 @@ export function PeopleTable({
           const value = valueByContactId?.get(contact.id);
           const nextStep = nextStepByContactId?.get(contact.id);
           return (
-            <TableRow key={contact.id} href={`/people/${contact.id}`} columns={ROW_GRID} tone={nextStep?.attention ? "warning" : "neutral"}>
+            <TableRow key={contact.id} href={`/people/${contact.id}`} columns={ROW_GRID} tone={nextStep?.needsYou ? "warning" : "neutral"}>
               <span className="flex min-w-0 items-center gap-3">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inset text-xs font-semibold text-ink-2 inset-ring inset-ring-line">
                   {contactInitials(contact)}
@@ -213,8 +218,9 @@ export function PeopleTable({
                     ) : null}
                   </span>
                   {nextStep ? (
-                    <span className={`mt-0.5 block truncate text-xs ${nextStep.attention ? "font-medium text-warning-text" : "text-ink-3"}`}>
-                      {nextStep.label}
+                    <span className="mt-1 flex min-w-0 items-center gap-1.5">
+                      <OwnerChip owner={nextStep.owner} urgent={nextStep.needsYou} />
+                      <span className={`truncate text-xs ${nextStep.needsYou ? "font-medium text-ink" : "text-ink-3"}`}>{nextStep.headline}</span>
                     </span>
                   ) : null}
                 </span>

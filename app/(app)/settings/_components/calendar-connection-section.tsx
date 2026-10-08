@@ -5,6 +5,7 @@ import { Calendar } from "lucide-react";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
 import { errorBannerClass, successBannerClass, primaryButtonAutoClass, secondaryButtonAutoClass, destructiveButtonAutoClass, inputClass, labelClass } from "@/lib/ui/form";
 import { metaClass, subsectionTitleClass } from "@/lib/ui/typography";
+import { formatDateTime } from "@/lib/format/datetime";
 import type { SafeCalendarConnection } from "@/lib/calendar/connection";
 import type { CalendarListItem } from "@/lib/calendar/provider";
 import { selectCalendarAction, disconnectCalendarAction, checkCalendarHealthAction, type SettingsActionState } from "../actions";
@@ -19,7 +20,7 @@ const STATUS_TONE: Record<SafeCalendarConnection["status"], BadgeTone> = {
 
 const STATUS_LABEL: Record<SafeCalendarConnection["status"], string> = {
   connected: "Connected",
-  error: "Needs attention",
+  error: "Needs Attention",
   disconnected: "Disconnected",
 };
 
@@ -43,10 +44,12 @@ export function CalendarConnectionSection({
   connection,
   availableCalendars,
   canEdit,
+  timeZone,
 }: {
   connection: SafeCalendarConnection | null;
   availableCalendars: CalendarListItem[];
   canEdit: boolean;
+  timeZone?: string | null;
 }) {
   const [selectState, selectFormAction, isSelecting] = useActionState(selectCalendarAction, initialState);
   const [disconnectState, disconnectFormAction, isDisconnecting] = useActionState(disconnectCalendarAction, initialState);
@@ -85,7 +88,7 @@ export function CalendarConnectionSection({
                   {connection.accountEmail ? <span className="text-ink-2">{connection.accountEmail}</span> : null}
                 </div>
                 {connection.calendarName ? <p className={metaClass}>Using calendar: {connection.calendarName}</p> : null}
-                {connection.lastSyncedAt ? <p className={metaClass}>Last checked {new Date(connection.lastSyncedAt).toLocaleString()}</p> : null}
+                {connection.lastSyncedAt ? <p className={metaClass}>Last checked {formatDateTime(connection.lastSyncedAt, timeZone)}</p> : null}
                 {connection.status === "error" && connection.lastError ? <p className="text-xs text-warning-text">{connection.lastError}</p> : null}
               </div>
 

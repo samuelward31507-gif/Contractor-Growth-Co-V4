@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getRequestMembership, getRequestSupabase } from "@/lib/auth/request-context";
-import { Phone, MessageCircle, Briefcase, CalendarClock, FileSearch, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles, ArrowRight, AlertCircle, FileX2, Receipt } from "lucide-react";
+import { Phone, MessageCircle, Briefcase, CalendarClock, FileSearch, Flame, MessagesSquare, Wallet, CalendarCheck2, Sparkles, FileX2, Receipt } from "lucide-react";
 import { getContact, getContacts } from "@/lib/contacts/queries";
 import { getContactRelationshipCounts } from "@/lib/contacts/duplicates";
 import { getContactLeads, OPEN_LEAD_STATUSES } from "@/lib/leads/queries";
@@ -45,10 +45,14 @@ import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../../estimates/_com
 import { JOB_STATUS_TONE, JOB_STATUS_ICON } from "../../jobs/_components/status";
 import { INVOICE_STATUS_TONE, INVOICE_STATUS_ICON, INVOICE_STATUS_LABELS } from "../../invoices/_components/status";
 import { buildPersonTimeline, formatTimelineTimestamp } from "@/lib/people/timeline";
-import { findPersonNextStep } from "@/lib/people/next-step";
+import { derivePersonLifecycle, findPersonNextStep } from "@/lib/people/next-step";
+import { presentNextStep } from "@/lib/decisions/presentation";
+import { getEstimateContactReach, getSurfaceDecisionContext } from "@/lib/decisions/surface-context";
+import { CONTACT_LIFECYCLE_LABEL, CONTACT_LIFECYCLE_TONE, contactLifecycleFromCanonical } from "@/lib/customers/lifecycle-stage";
 import { loadLifecyclePolicy } from "@/lib/people/lifecycle-policy";
 import { getWaitingConversationIds } from "@/lib/conversations/waiting";
 import { CreateEstimateButton } from "./_components/create-estimate-button";
+import { PersonNextStep } from "./_components/person-next-step";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 // Phase 2-13 (D3): the shared registry labels - every type, never a raw code.
 import { OPPORTUNITY_TYPE_LABEL } from "@/lib/decisions/registry";
@@ -184,34 +188,46 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
   // `.in("job_id", jobIds)` read (see getReviewRequestsForJobs's own
   // comment) rather than a full org fetch filtered in memory - this page
   // only needs this one person's own jobs' requests.
-  const [stageHistories, conversationMessages, reviewRequests, referralRequests, lifecyclePolicy] = await Promise.all([
+  const [stageHistories, conversationMessages, reviewRequests, referralRequests, lifecyclePolicy, actorContext, estimateReach] = await Promise.all([
     Promise.all(leads.map((lead) => getLeadStageHistory(supabase, membership.organizationId, lead.id))),
     Promise.all(conversations.map((conversation) => getMessages(supabase, membership.organizationId, conversation.id))),
     getReviewRequestsForJobs(supabase, membership.organizationId, jobIds),
     getReferralRequestsForJobs(supabase, membership.organizationId, jobIds),
     loadLifecyclePolicy(supabase, membership.organizationId),
+    // Batch 3 (core daily loop): who acts on the next step - Today's own
+    // decision context and estimate reachability (lib/decisions/surface-context.ts).
+    getSurfaceDecisionContext(supabase, membership.organizationId, { waitingConversationIds: waiting.ids, timeZone: timeZone ?? null }),
+    getEstimateContactReach(supabase, membership.organizationId),
   ]);
   const stageHistoryByLeadId = new Map(leads.map((lead, index) => [lead.id, stageHistories[index]]));
   const messages = conversationMessages.flat();
 
   const timeline = buildPersonTimeline({ leads, stageHistoryByLeadId, appointments, estimates, jobs, messages, reviewRequests, referralRequests, timeZone });
   // Final Batch 3: from the canonical lifecycle of this person's own rows (lib/people/next-step.ts).
+  // Batch 3 (core daily loop): the lifecycle is derived once and handed to
+  // findPersonNextStep (its own `lifecycle` input), so the header badge, the
+  // next step and its owner all read the same answer.
+  const personRows = { contactId: contact.id, leads, appointments, estimates, jobs, invoices, messages, reviewRequests, referralRequests, policy: lifecyclePolicy };
+  const canonicalLifecycle = derivePersonLifecycle(personRows);
   const nextStep = findPersonNextStep({
-    contactId: contact.id,
-    leads,
-    appointments,
-    estimates,
-    jobs,
-    invoices,
-    messages,
-    reviewRequests,
-    referralRequests,
-    policy: lifecyclePolicy,
+    ...personRows,
     conversations,
     waitingConversationIds: waiting.ids,
     timeZone,
     jobsEnabled: membership.vertical === "contractor",
+    lifecycle: canonicalLifecycle,
   });
+  const nextView = presentNextStep(nextStep, canonicalLifecycle, {
+    contactId: contact.id,
+    contactPhone: estimateReach.get(contact.id)?.phone ?? contact.phone,
+    contactSmsOptOut: estimateReach.get(contact.id)?.smsOptOut ?? null,
+    conversations,
+    waitingConversationIds: waiting.ids,
+    estimates,
+    openOpportunities,
+    context: actorContext,
+  });
+  const relationshipStage = contactLifecycleFromCanonical(canonicalLifecycle);
   const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
 
   const openLeadCount = leads.filter((lead) => lead.status !== "won" && lead.status !== "lost").length;
@@ -262,13 +278,21 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
     : [null, null];
 
   const mostRecentOpenConversation = conversations.find((conversation) => conversation.status === "open") ?? conversations[0] ?? null;
+  // Batch 3: Text opens this person's text conversation in the Inbox, where
+  // the reply composer sends through the one business path
+  // (sendConversationMessage -> evaluateStaffOutboundGate ->
+  // sendOutboundMessage: the business number, opt-out, live/payment and
+  // pause checks). Never an sms: link to the owner's own phone. The open
+  // thread first; otherwise the most recent one (it can be reopened there).
+  const smsConversation =
+    conversations.find((conversation) => conversation.channel === "sms" && conversation.status === "open") ?? conversations.find((conversation) => conversation.channel === "sms") ?? null;
 
   return (
     <div className="flex flex-1 flex-col">
       <DetailHeader
-        eyebrow="Contact"
+        eyebrow="Person"
         backHref="/people"
-        backLabel="Back to Contacts"
+        backLabel="Back to People"
         avatar={
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-inset text-base font-medium text-ink-2 inset-ring inset-ring-line">
             {contactInitials(contact)}
@@ -276,32 +300,41 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
         }
         title={name}
         subtitle={contact.company_name ?? undefined}
-        badges={<Badge tone={lifecycleStatusTone} icon={Sparkles}>{lifecycleStatus}</Badge>}
+        badges={
+          <>
+            <Badge tone={CONTACT_LIFECYCLE_TONE[relationshipStage]}>{CONTACT_LIFECYCLE_LABEL[relationshipStage]}</Badge>
+            <Badge tone={lifecycleStatusTone} icon={Sparkles}>{lifecycleStatus}</Badge>
+          </>
+        }
         action={
           // Phase 3's own spec: Call and Text immediately at the top,
           // alongside identity - not buried in a sidebar contact card.
-          // Call and Text both hand off to the owner's own phone (tel:/sms:)
-          // and only render when a real phone number exists - Trackpr has no
-          // in-app compose, so Text must never imply it sends from here.
-          // Without a phone, the most relevant real conversation is still
-          // one click away, labeled for what that page actually does.
-          <div className="flex items-center gap-2">
+          // Call hands off to the owner's phone (tel:). Batch 3: Text opens
+          // the person's text conversation in the Inbox (see smsConversation
+          // above) - the business number and every outbound safeguard - and
+          // says plainly when there is no text conversation to open yet.
+          <div className="flex flex-wrap items-center gap-2">
             {contact.phone ? (
               <a href={`tel:${contact.phone}`} className={`${primaryButtonAutoClass} gap-1.5`}>
                 <Phone className="h-4 w-4" aria-hidden />
                 Call
               </a>
             ) : null}
-            {contact.phone ? (
-              <a href={`sms:${contact.phone}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
+            {smsConversation ? (
+              <Link href={`/conversations/${smsConversation.id}`} aria-label={`Text ${name} from your business number`} className={`${secondaryButtonAutoClass} gap-1.5`}>
                 <MessageCircle className="h-4 w-4" aria-hidden />
                 Text
-              </a>
+              </Link>
             ) : mostRecentOpenConversation ? (
               <Link href={`/conversations/${mostRecentOpenConversation.id}`} className={`${secondaryButtonAutoClass} gap-1.5`}>
                 <MessageCircle className="h-4 w-4" aria-hidden />
                 Open conversation
               </Link>
+            ) : contact.phone ? (
+              <span className="inline-flex max-w-56 items-center gap-1.5 text-xs text-ink-3">
+                <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                No text conversation yet - one starts when they text your business number or Trackpr follows up.
+              </span>
             ) : null}
             {/* Final Major Product Build: Schedule links to the real
                 calendar (never a fabricated per-contact booking dialog - the
@@ -350,31 +383,7 @@ export default async function PersonDetailPage({ params }: PageProps<"/people/[i
       />
 
       <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
-        {nextStep ? (
-          <div
-            className={`flex flex-wrap items-center justify-between gap-4 rounded-lg border px-5 py-4 ${
-              nextStep.attention ? "border-warning-border bg-warning-muted" : "border-line bg-surface"
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <span
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-                  nextStep.attention ? "bg-warning-muted text-warning-text" : "bg-accent-muted text-accent-text"
-                }`}
-              >
-                {nextStep.attention ? <AlertCircle className="h-4 w-4" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
-              </span>
-              <div>
-                <p className="text-xs font-medium text-ink-3">What happens next</p>
-                <p className="text-sm font-semibold text-ink">{nextStep.label}</p>
-                {nextStep.detail ? <p className="text-xs text-ink-3">{nextStep.detail}</p> : null}
-              </div>
-            </div>
-            <Link href={nextStep.href} className="shrink-0 text-sm font-medium text-ink hover:underline">
-              View
-            </Link>
-          </div>
-        ) : null}
+        <PersonNextStep nextView={nextView} personName={name} />
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
           <div className="flex flex-col gap-6 lg:col-span-2">

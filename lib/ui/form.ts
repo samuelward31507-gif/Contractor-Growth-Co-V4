@@ -15,24 +15,39 @@
 //     focus shows a ring for keyboard focus only (`focus-visible`), disabled
 //     is a plain 50% fade - no off-palette tints.
 
-const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1";
+// Batch 1 (Cinder design foundation): the website's design language moves
+// into these same parts, still without per-page edits -
+//   - Primary is the ink pill (dark ink fill, light text, fully rounded),
+//     the Cinder site's own primary. Pine is no longer the CTA color - it
+//     stays the success/healthy/active signal (Badge "success", StatusDot
+//     "healthy"). Ember is never a fill.
+//   - Secondary and destructive are pills too; ghost (row and icon actions)
+//     keeps the 8px radius so dense rows stay tight.
+//   - Focus is one treatment everywhere: a 2px ember outline, offset 2px
+//     (decided globally in app/globals.css - FOCUS_RING below only removes
+//     the browser default so that rule is the one that shows).
+//   - A trailing ArrowRight nudges 2px on hover.
+
+const FOCUS_RING = "focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus";
 const DISABLED = "disabled:cursor-not-allowed disabled:opacity-50";
-const TRANSITION = "transition-colors duration-150";
-const SIZE_MD = "min-h-11 px-3.5 py-2 text-sm sm:min-h-9";
-const SIZE_SM = "min-h-11 px-2.5 py-1.5 text-xs sm:min-h-8";
-const BASE = `inline-flex items-center justify-center gap-1.5 rounded-lg font-medium ${TRANSITION} ${FOCUS_RING} ${DISABLED}`;
+const TRANSITION = "transition-[background-color,border-color,box-shadow,color] duration-150";
+const SIZE_MD = "min-h-11 px-4 py-2 text-sm sm:min-h-9";
+const SIZE_SM = "min-h-11 px-3 py-1.5 text-xs sm:min-h-8";
+const BASE = `inline-flex items-center justify-center gap-1.5 font-medium ${TRANSITION} ${FOCUS_RING} ${DISABLED}`;
+const PILL = "rounded-full";
+const ARROW_NUDGE = "[&_svg.lucide-arrow-right]:transition-transform [&_svg.lucide-arrow-right]:duration-150 hover:[&_svg.lucide-arrow-right]:translate-x-0.5";
 
-const PRIMARY = `bg-accent text-accent-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_1px_2px_rgba(9,83,63,0.28)] hover:bg-accent-strong active:bg-accent-strong focus-visible:ring-accent/40`;
-const SECONDARY = `border border-line-strong bg-surface text-ink shadow-control hover:bg-hover active:bg-selected focus-visible:ring-ink/15`;
-const GHOST = `text-ink-2 hover:bg-hover hover:text-ink active:bg-selected focus-visible:ring-ink/15`;
-const DESTRUCTIVE = `bg-danger text-danger-foreground hover:bg-danger-strong active:bg-danger-strong focus-visible:ring-danger/40`;
-const DESTRUCTIVE_GHOST = `text-danger hover:bg-danger-muted active:bg-danger-muted focus-visible:ring-danger/30`;
+const PRIMARY = `${PILL} ${ARROW_NUDGE} bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(13,21,18,0.2)] hover:bg-primary-hover active:bg-primary-hover`;
+const SECONDARY = `${PILL} ${ARROW_NUDGE} border border-line-strong bg-surface text-ink shadow-control hover:border-ink/40 hover:bg-hover active:bg-selected`;
+const GHOST = `rounded-lg text-ink-2 hover:bg-hover hover:text-ink active:bg-selected`;
+const DESTRUCTIVE = `${PILL} bg-danger text-danger-foreground hover:bg-danger-strong active:bg-danger-strong`;
+const DESTRUCTIVE_GHOST = `rounded-lg text-danger hover:bg-danger-muted active:bg-danger-muted`;
 
-// Inputs, selects, textareas and search fields. Focus meets the accent, the
-// same color every primary action uses, so a user's own cursor is always
-// on-brand. min-h rather than h, so textareas keep growing.
+// Inputs, selects, textareas and search fields. Batch 1: focus is the same
+// ember the rest of the app uses (border plus the global 2px outline, see
+// app/globals.css). min-h rather than h, so textareas keep growing.
 export const inputClass =
-  "w-full min-h-11 rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink shadow-control placeholder:text-ink-4 transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:cursor-not-allowed disabled:bg-inset disabled:text-ink-3 sm:min-h-9";
+  "w-full min-h-11 rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink shadow-control placeholder:text-ink-4 transition-colors duration-150 focus:border-focus focus:outline-2 focus:outline-offset-0 focus:outline-focus disabled:cursor-not-allowed disabled:bg-inset disabled:text-ink-3 sm:min-h-9";
 
 export const labelClass = "text-sm font-medium text-ink-2";
 
@@ -45,7 +60,7 @@ export const errorBannerClass = "rounded-lg border border-danger-border bg-dange
 export const successBannerClass = "rounded-lg border border-accent-border bg-accent-muted px-3.5 py-2.5 text-sm text-accent-text";
 
 // Legacy name kept for existing callers - identical to primaryButtonAutoClass
-// since the accent became the app-wide primary color.
+// (Batch 1: the ink pill, like every primary action).
 export const accentButtonAutoClass = `${BASE} ${SIZE_MD} ${PRIMARY}`;
 
 export const secondaryButtonClass = `${BASE} ${SIZE_MD} w-full ${SECONDARY}`;

@@ -22,7 +22,7 @@ test("invoice and payment entities get labels and links; a payment links to its 
 });
 
 test("money audit metadata reads as number · amount · method · resulting status", () => {
-  assert.equal(describeMetadata({ number: 7, amount: 1300.25, method: "check", invoice_status_after: "partially_paid", invoice_id: "inv-1" }), "INV-000007 · $1,300.25 · Check · now Partially paid");
+  assert.equal(describeMetadata({ number: 7, amount: 1300.25, method: "check", invoice_status_after: "partially_paid", invoice_id: "inv-1" }), "INV-000007 · $1,300.25 · Check · now Partially Paid");
   assert.equal(describeMetadata({ number: 7, total: 1400, job_id: "job-1", job_amount_updated: true }), "INV-000007 · $1,400");
   assert.equal(describeMetadata({ number: 3, total: 500, previous_status: "sent", reason: "wrong amount" }), "INV-000003 · $500 · Reason: wrong amount");
   assert.equal(describeMetadata({ number: 3, total: 500, due_date: "2026-10-31" }), "INV-000003 · $500 · due 2026-10-31");

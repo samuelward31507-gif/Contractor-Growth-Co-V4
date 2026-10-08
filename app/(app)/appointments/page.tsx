@@ -86,7 +86,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps<"/app
         description="Every appointment in one list - upcoming, today and past."
         action={
           <div className="flex flex-wrap items-center gap-3">
-            <ScheduleViewSwitcher active="list" hrefs={{ day: "/schedule?view=day", week: "/schedule?view=week", month: "/schedule?view=month", list: "/schedule?view=list" }} />
+            <ScheduleViewSwitcher active="list" hrefs={{ agenda: "/schedule", day: "/schedule?view=day", week: "/schedule?view=week", month: "/schedule?view=month", list: "/schedule?view=list" }} />
             <AddAppointmentButton contacts={contacts} leads={leads} />
           </div>
         }

@@ -1,5 +1,6 @@
 import { isSameCalendarDay } from "@/lib/appointments/format";
 import type { ConversationChannel, ConversationStatus, MessageDirection, MessageSenderType } from "./queries";
+import { STATUS_DOT_TONE_CLASS } from "@/lib/ui/status-vocabulary";
 
 export const CHANNEL_LABELS: Record<ConversationChannel, string> = {
   sms: "SMS",
@@ -16,32 +17,34 @@ export const STATUS_LABELS: Record<ConversationStatus, string> = {
 // Rendered as a small dot next to plain text (see status-badge.tsx), not a
 // filled pill - consistent with the Leads/Appointments dot convention.
 export const STATUS_DOT_CLASS: Record<ConversationStatus, string> = {
-  open: "bg-emerald-500",
-  closed: "bg-slate-300",
+  open: STATUS_DOT_TONE_CLASS.success,
+  closed: STATUS_DOT_TONE_CLASS.muted,
 };
 
 // Labels for who authored a message. There is no per-user identity on
 // messages (no user_id column), so a staff-authored message is always
 // generically "You" - that's what the schema actually supports.
+// Batch 3: an AI-sent message is Trackpr talking for the business - named
+// as such ("Trackpr"), never as the machinery behind it ("AI").
 export const SENDER_LABELS: Record<MessageSenderType, string> = {
   customer: "Customer",
-  ai: "AI",
+  ai: "Trackpr",
   user: "You",
   system: "System",
 };
 
 export const SENDER_INITIALS: Record<MessageSenderType, string> = {
   customer: "C",
-  ai: "AI",
+  ai: "T",
   user: "Y",
   system: "S",
 };
 
 export const SENDER_AVATAR_CLASS: Record<MessageSenderType, string> = {
-  customer: "bg-slate-700",
-  ai: "bg-blue-600",
-  user: "bg-slate-900",
-  system: "bg-slate-400",
+  customer: "bg-ink-3",
+  ai: "bg-brand-strong",
+  user: "bg-ink",
+  system: STATUS_DOT_TONE_CLASS.neutral,
 };
 
 export const DIRECTION_LABELS: Record<MessageDirection, string> = {

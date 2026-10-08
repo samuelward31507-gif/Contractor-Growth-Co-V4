@@ -1,4 +1,5 @@
 import type { EstimateStatus } from "./queries";
+import { STATUS_DOT_TONE_CLASS } from "@/lib/ui/status-vocabulary";
 
 export const STATUS_LABELS: Record<EstimateStatus, string> = {
   draft: "Draft",
@@ -12,10 +13,10 @@ export const STATUS_LABELS: Record<EstimateStatus, string> = {
 // Same restrained palette convention as lib/leads/format.ts: neutral for the
 // working pipeline, one accent each for the closed outcomes.
 export const STATUS_DOT_CLASS: Record<EstimateStatus, string> = {
-  draft: "bg-slate-400",
-  sent: "bg-blue-500",
-  accepted: "bg-emerald-500",
-  declined: "bg-red-400",
-  cancelled: "bg-slate-300",
-  expired: "bg-amber-500",
+  draft: STATUS_DOT_TONE_CLASS.neutral,
+  sent: STATUS_DOT_TONE_CLASS.progress,
+  accepted: STATUS_DOT_TONE_CLASS.success,
+  declined: STATUS_DOT_TONE_CLASS.danger,
+  cancelled: STATUS_DOT_TONE_CLASS.muted,
+  expired: STATUS_DOT_TONE_CLASS.attention,
 };

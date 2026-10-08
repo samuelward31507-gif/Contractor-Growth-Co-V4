@@ -74,18 +74,19 @@ test("watchdog: degraded, unreadable heartbeat and the watchdog itself failing a
 test("liveness: healthy -> 200; stale / never-ran scheduler -> 503; unreadable database -> 503 with scheduler unknown", async () => {
   const now = Date.parse("2026-10-10T15:00:00.000Z");
   const fresh = await evaluateLiveness(async () => new Date(now - 10 * 60_000).toISOString(), now);
-  assert.deepEqual({ status: fresh.status, ok: fresh.body.ok, checks: fresh.body.checks }, { status: 200, ok: true, checks: { app: "ok", database: "ok", scheduler: "ok" } });
+  // Batch 4 (operations hardening): checks also carry the separate, informational automation check (batch4-ops.test.ts).
+  assert.deepEqual({ status: fresh.status, ok: fresh.body.ok, checks: fresh.body.checks }, { status: 200, ok: true, checks: { app: "ok", database: "ok", scheduler: "ok", automation: "unknown" } });
   const stale = await evaluateLiveness(async () => new Date(now - HEALTH_CHECK_STALE_THRESHOLD_MS - 1).toISOString(), now);
   assert.deepEqual({ status: stale.status, scheduler: stale.body.checks.scheduler }, { status: 503, scheduler: "stale" });
   const never = await evaluateLiveness(async () => null, now);
   assert.deepEqual({ status: never.status, scheduler: never.body.checks.scheduler }, { status: 503, scheduler: "stale" });
   const down = await evaluateLiveness(async () => { throw new Error("db down"); }, now);
-  assert.deepEqual({ status: down.status, checks: down.body.checks, lastHeartbeatAt: down.body.lastHeartbeatAt }, { status: 503, checks: { app: "ok", database: "unavailable", scheduler: "unknown" }, lastHeartbeatAt: null });
+  assert.deepEqual({ status: down.status, checks: down.body.checks, lastHeartbeatAt: down.body.lastHeartbeatAt }, { status: 503, checks: { app: "ok", database: "unavailable", scheduler: "unknown", automation: "unknown" }, lastHeartbeatAt: null });
 });
 
 test("the public liveness route returns only booleans + the heartbeat time, never caches, and does no automation work", () => {
   const route = readFileSync("app/api/health/route.ts", "utf8");
   assert.match(route, /"cache-control": "no-store"/);
-  assert.match(route, /\.from\("automation_health_check_runs"\)\s*\n\s*\.select\("checked_at"\)/);
+  assert.match(route, /\.from\("automation_health_check_runs"\)\s*\n\s*\.select\("checked_at, stuck_count"\)/);
   assert.doesNotMatch(route, /dispatch|processDueRetries|failTimedOut|insert\(|update\(|organization_id/);
 });

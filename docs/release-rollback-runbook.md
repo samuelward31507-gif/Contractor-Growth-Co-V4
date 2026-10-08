@@ -131,7 +131,7 @@ Staff sends from the inbox are manual and are not affected by these switches. A 
 
 ## 7. Checking health (after a release, a rollback, or recovery)
 
-1. **Liveness:** `GET https://<canonical>/api/health` returns `200` with `"checks":{"app":"ok","database":"ok","scheduler":"ok"}`. A `503` says which check failed.
+1. **Liveness:** `GET https://<canonical>/api/health` returns `200` with `"checks":{"app":"ok","database":"ok","scheduler":"ok",...}`. A `503` says which check failed. `checks.automation` / `automationOk` are informational and never change the status code: `"degraded"` means the last health tick found executions stuck past their callback (see step 4 and the Agency Command Center); `"unknown"` means the scheduler isn't fresh, so no tick can vouch for now.
 2. **Scheduler (Supabase SQL):**
 
    ```sql
@@ -151,6 +151,10 @@ Staff sends from the inbox are manual and are not affected by these switches. A 
    - `scheduler_degraded`, `scheduler_heartbeat_unreadable`, `scheduler_watchdog_failed`
    - `cron_secret_missing`
    - `stripe_event_mode_mismatch`
+   - `health_tick_phase_errors` (field `phases`): a tick phase finished but could not do part of its work (e.g. the retry classifier could not read failed executions). The tick reports `degraded`, never `healthy`.
+   - `health_tick_counts_unavailable` (field `counts`): the tick could not read incident or failed-execution counts; they are reported as `null`, not `0`.
+   - `executions_stopped_retrying` (fields `exhausted`, `notRetryable`, `executionIds`): Trackpr will not retry these on its own; the organization's Today shows each as needing a person.
+   - `route_server_error` / `route_threw` (fields `method`, `path`, `status` or `errorType`, `requestId`): an automation route (`automation.n8n_callback` or `automation.cron.<name>`) answered 5xx or threw. Use `requestId` to find that request's own log lines. Log-only; never emailed.
 5. **Contractor-facing incidents:** the Agency Command Center lists open `automation_incidents` (stuck or failed executions, degraded automations).
 
 ---
