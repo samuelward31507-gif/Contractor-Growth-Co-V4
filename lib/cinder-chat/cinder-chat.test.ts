@@ -104,7 +104,6 @@ test("next steps: every destination is a page or hand-off the site already links
   assert.equal(NEXT_STEPS.get_started.href, "/get-started");
   assert.equal(NEXT_STEPS.demo.href, "/demo");
   assert.equal(NEXT_STEPS.trackpr.href, "/trackpr");
-  assert.match(NEXT_STEPS.talk.href, /^mailto:/);
   assert.ok(fs.existsSync(path.join(ROOT, "app/(cinder)/get-started/page.tsx")));
   for (const key of ["none", "calendar", "https://evil.example", "__proto__", "constructor", 7, null]) assert.equal(resolveNextStep(key), null, String(key));
 });
@@ -344,10 +343,14 @@ test("polish 2: end to end - the HVAC software question records no business type
   assert.deepEqual(recorded, [{ intent: "ready_to_talk", signals: [], nextStepOffered: false }], "lead capture never receives an inferred business type");
 });
 
-test("polish 3: Talk to Cinder keeps the site's destination, presents as the Cinder team, and never prints the address in prose", () => {
-  assert.equal(NEXT_STEPS.talk.href, TALK_HREF, "the destination is unchanged");
-  assert.equal(NEXT_STEPS.talk.label, "Talk with the Cinder team");
-  assert.doesNotMatch(`${NEXT_STEPS.talk.label} ${NEXT_STEPS.talk.description}`, /@|gmail|mailto/i);
+test("no Talk-with-the-team CTA: the email hand-off is never resolved into a button or sent to the browser, and the address never appears in prose", async () => {
+  assert.equal(resolveNextStep("talk"), null);
+  for (const key of ["get_started", "demo", "trackpr"]) assert.doesNotMatch(resolveNextStep(key)?.href ?? "", /^mailto:/, key);
+  const model = fakeModel(ok({ next_step: "talk" }));
+  const response = await handleChat(post({ messages: userTurn("Can I talk to someone?") }), { createMessage: model.createMessage, allow: always });
+  const body = await response.json();
+  assert.equal(body.nextStep, null);
+  assert.ok(!JSON.stringify(body).includes(TALK_HREF) && !JSON.stringify(body).includes("mailto:"));
   const guarded = guardReply(`You can reach the team at ${CONTACT_EMAIL} any time.`);
   assert.equal(guarded.replaced, true);
   assert.ok(!guarded.reply.includes(CONTACT_EMAIL));

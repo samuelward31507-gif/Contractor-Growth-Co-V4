@@ -86,7 +86,7 @@ export function sanitizeStored(value: unknown): ChatMessage[] {
   return messages.slice(-MAX_STORED_MESSAGES);
 }
 
-/** The site's own pages and its mailto hand-off - the only destinations next steps use. */
+/** The site's own pages - the only destinations next steps use. */
 export function isSiteHref(href: string): boolean {
-  return (href.startsWith("/") && !href.startsWith("//")) || href.startsWith("mailto:");
+  return href.startsWith("/") && !href.startsWith("//");
 }

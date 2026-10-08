@@ -26,7 +26,10 @@ export const NEXT_STEPS: Record<Exclude<NextStepKey, "none">, NextStepLink> = {
   trackpr: { key: "trackpr", label: "Explore Trackpr", href: TRACKPR_HREF, description: "The Trackpr product page." },
 };
 
+/** Next steps the chat no longer shows as a button: "talk" (the email hand-off) is not offered as a CTA. */
+const NOT_SHOWN: ReadonlySet<string> = new Set(["talk"]);
+
 export function resolveNextStep(key: unknown): NextStepLink | null {
-  if (typeof key !== "string" || key === "none") return null;
+  if (typeof key !== "string" || key === "none" || NOT_SHOWN.has(key)) return null;
   return Object.prototype.hasOwnProperty.call(NEXT_STEPS, key) ? NEXT_STEPS[key as Exclude<NextStepKey, "none">] : null;
 }
