@@ -348,3 +348,25 @@ body {
     transform: none;
   }
 }
+
+/*
+ * Website assistant motion (app/(cinder)/_components/chat.tsx): the launcher
+ * and panel arrive with a short 200ms rise. Opt-in under no-preference, so
+ * with reduced motion they render in their final state at once.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .ui-rise {
+    animation: ui-rise 0.2s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+}
+
+@keyframes ui-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
