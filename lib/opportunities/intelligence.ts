@@ -90,6 +90,7 @@ export type RecommendedAction =
   | "send_estimate"
   | "follow_up_estimate"
   | "create_job"
+  | "schedule_work"
   | "reactivate"
   | "request_review"
   | "request_referral"
@@ -356,7 +357,7 @@ export async function getPrioritizedOpportunities(supabase: SupabaseClient, orga
 // ranking systems.
 // ---------------------------------------------------------------------------
 
-const CONVERSATION_SIGNAL_KINDS = new Set<AttentionItem["kind"]>(["awaiting_reply", "abandoned_conversation", "overdue_appointment", "awaiting_confirmation"]);
+const CONVERSATION_SIGNAL_KINDS = new Set<AttentionItem["kind"]>(["awaiting_reply", "abandoned_conversation", "overdue_appointment", "awaiting_confirmation", "approved_job_unscheduled"]);
 
 export type PriorityConversationSignal = {
   kind: AttentionItem["kind"];
@@ -378,6 +379,9 @@ const CONVERSATION_SIGNAL_TIER: Partial<Record<AttentionItem["kind"], PriorityTi
   // comment describes), not a "someone is waiting on you right now" signal -
   // tiered accordingly, one step down from the other three.
   abandoned_conversation: "at_risk",
+  // Job scheduling state: committed work the customer already approved and
+  // no date for it yet - the same tier as an accepted estimate with no job.
+  approved_job_unscheduled: "committed_revenue_at_risk",
 };
 
 // CONVERSATION_SIGNAL_ACTION (each signal kind's recommended action) lives

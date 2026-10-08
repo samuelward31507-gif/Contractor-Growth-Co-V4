@@ -20,6 +20,9 @@ import { getLiveInvoiceForJob } from "@/lib/invoices/queries";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { InvoiceSection } from "./_components/invoice-section";
+import { JobScheduleSection } from "./_components/job-schedule-section";
+import { formatDateTime, resolveTimeZone } from "@/lib/format/datetime";
+import { isApprovedJobAwaitingSchedule, jobScheduleInputValues } from "@/lib/jobs/schedule";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">) {
@@ -61,6 +64,10 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
     getOrganizationTimezone(supabase, membership.organizationId),
   ]);
   const today = calendarDateInTimeZone(new Date(), timeZone ?? "UTC");
+  // When the work is scheduled (jobs.scheduled_for), shown and entered in the organization's timezone.
+  const zone = resolveTimeZone(timeZone);
+  const scheduleInputs = jobScheduleInputValues(job.scheduled_for, zone);
+  const zoneName = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longGeneric" }).formatToParts(new Date()).find((part) => part.type === "timeZoneName")?.value ?? zone;
   const leadOptions = leads
     .filter((lead) => lead.id !== job.lead_id)
     .map((lead) => ({ id: lead.id, label: lead.service || `Lead ${lead.id.slice(0, 8)}` }));
@@ -120,6 +127,16 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
               </div>
             ) : null}
           </SectionCard>
+
+          <JobScheduleSection
+            jobId={job.id}
+            scheduledLabel={job.scheduled_for ? formatDateTime(job.scheduled_for, zone) : null}
+            initialDate={scheduleInputs.date}
+            initialTime={scheduleInputs.time}
+            timeZoneLabel={zoneName}
+            canSchedule={job.status === "scheduled" || job.status === "in_progress"}
+            awaitingApprovedSchedule={isApprovedJobAwaitingSchedule(job, job.estimate?.status)}
+          />
 
           <InvoiceSection job={job} invoice={liveInvoice} today={today} />
 

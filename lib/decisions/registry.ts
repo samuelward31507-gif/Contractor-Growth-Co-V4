@@ -34,6 +34,7 @@ export const DECISION_REGISTRY: Record<ReasonCode, RegistryEntry> = {
   appointment_overdue: { problemLabel: "Appointment overdue", actionLabel: "View", defaultAction: "follow_up" },
   appointment_unconfirmed: { problemLabel: "Visit not confirmed", actionLabel: "View", defaultAction: "follow_up" },
   conversation_stalled: { problemLabel: "Conversation went quiet", actionLabel: "View", defaultAction: "follow_up" },
+  approved_job_unscheduled: { problemLabel: "Customer approved — schedule the work", actionLabel: "Schedule the work", defaultAction: "schedule_work" },
 
   estimate_accepted_no_job: { problemLabel: "Accepted, no job yet", actionLabel: "View estimate", defaultAction: "create_job" },
   job_completed_not_invoiced: { problemLabel: "Completed, not invoiced", actionLabel: "Create invoice", defaultAction: "create_invoice" },
@@ -133,6 +134,7 @@ export const ACTION_SENTENCE: Partial<Record<RecommendedAction, string>> = {
   send_estimate: "Send an estimate.",
   follow_up_estimate: "Follow up on the estimate.",
   create_job: "Create the job.",
+  schedule_work: "Set the date for the work.",
   reactivate: "Reach out to reconnect.",
   request_review: "Ask for a review.",
   request_referral: "Ask for a referral.",
@@ -173,6 +175,7 @@ export const DECISION_ATTENTION_LABEL: Record<OperationalExceptionKind | Convers
   automation_retrying: DECISION_REGISTRY[REASON_CODE_BY_EXCEPTION_KIND.automation_retrying].problemLabel,
   awaiting_reply: DECISION_REGISTRY[REASON_CODE_BY_SIGNAL_KIND.awaiting_reply].problemLabel,
   overdue_appointment: DECISION_REGISTRY[REASON_CODE_BY_SIGNAL_KIND.overdue_appointment].problemLabel,
+  approved_job_unscheduled: DECISION_REGISTRY[REASON_CODE_BY_SIGNAL_KIND.approved_job_unscheduled].problemLabel,
   awaiting_confirmation: DECISION_REGISTRY[REASON_CODE_BY_SIGNAL_KIND.awaiting_confirmation].problemLabel,
   abandoned_conversation: DECISION_REGISTRY[REASON_CODE_BY_SIGNAL_KIND.abandoned_conversation].problemLabel,
 };

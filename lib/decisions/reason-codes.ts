@@ -17,6 +17,8 @@ export type ReasonCode =
   | "appointment_overdue"
   | "appointment_unconfirmed"
   | "conversation_stalled"
+  // Live job state: the customer approved, the work is not scheduled yet.
+  | "approved_job_unscheduled"
   // Persisted opportunities.
   | "estimate_accepted_no_job"
   | "job_completed_not_invoiced"
@@ -34,7 +36,7 @@ export type ReasonCode =
   | "referral_request_needed";
 
 export type OperationalExceptionKind = Extract<AttentionItem["kind"], "human_escalation" | "calendar_disconnected" | "automation_needs_attention" | "automation_retrying">;
-export type ConversationSignalKind = Extract<AttentionItem["kind"], "awaiting_reply" | "overdue_appointment" | "awaiting_confirmation" | "abandoned_conversation">;
+export type ConversationSignalKind = Extract<AttentionItem["kind"], "awaiting_reply" | "overdue_appointment" | "awaiting_confirmation" | "abandoned_conversation" | "approved_job_unscheduled">;
 
 export const REASON_CODE_BY_EXCEPTION_KIND: Record<OperationalExceptionKind, ReasonCode> = {
   human_escalation: "human_escalation",
@@ -48,6 +50,7 @@ export const REASON_CODE_BY_SIGNAL_KIND: Record<ConversationSignalKind, ReasonCo
   overdue_appointment: "appointment_overdue",
   awaiting_confirmation: "appointment_unconfirmed",
   abandoned_conversation: "conversation_stalled",
+  approved_job_unscheduled: "approved_job_unscheduled",
 };
 
 export const REASON_CODE_BY_OPPORTUNITY_TYPE: Record<OpportunityType, ReasonCode> = {

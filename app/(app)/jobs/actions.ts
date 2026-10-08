@@ -12,6 +12,8 @@ import { emitLeadStageChanged } from "@/lib/automation/lead-stage-history";
 import { resolveLeadForIntake } from "@/lib/leads/intake";
 import { getJob } from "@/lib/jobs/queries";
 import { parseJobEditInput } from "@/lib/jobs/edit-input";
+import { parseJobSchedule } from "@/lib/jobs/schedule";
+import { getOrganizationTimezone } from "@/lib/settings/queries";
 
 /**
  * Job status transitions, plus (Growth System Completion Pass 1) direct job
@@ -29,6 +31,8 @@ export type JobActionResult = { ok: true; id?: string } | { ok: false; error: st
 export type CreateJobFormState = { error?: string; success?: boolean; id?: string };
 
 export type UpdateJobFormState = { error?: string; success?: boolean; id?: string };
+
+export type ScheduleJobFormState = { error?: string; success?: boolean };
 
 async function requireOrganization() {
   const supabase = await createClient();
@@ -187,6 +191,46 @@ export async function updateJob(_prevState: UpdateJobFormState, formData: FormDa
   revalidatePath("/today");
   revalidatePath(`/jobs/${id}`);
   return { success: true, id: data.id };
+}
+
+/**
+ * Sets, changes or clears when the work is scheduled with the customer
+ * (jobs.scheduled_for - see lib/jobs/schedule.ts). The date and time are the
+ * organization's wall-clock time, converted the way appointments convert
+ * theirs. Status is never touched: 'scheduled' keeps meaning "not started".
+ * Only an active job (scheduled / in progress) can be scheduled. The
+ * organization comes from the session (requireOrganization) and the update
+ * is filtered on it, on top of the jobs_update RLS and payment-gate policies,
+ * so one organization can never write another's job.
+ */
+export async function scheduleJob(_prevState: ScheduleJobFormState, formData: FormData): Promise<ScheduleJobFormState> {
+  const jobId = String(formData.get("jobId") ?? "").trim();
+  if (!jobId) return { error: "This job could not be found." };
+  const clearing = formData.get("intent") === "clear";
+
+  const { supabase, organizationId } = await requireOrganization();
+  const timeZone = await getOrganizationTimezone(supabase, organizationId);
+  const parsed = clearing ? { scheduledFor: null } : parseJobSchedule(String(formData.get("date") ?? ""), String(formData.get("time") ?? ""), timeZone);
+  if (parsed.error !== undefined) return { error: parsed.error };
+  if (!clearing && parsed.scheduledFor === null) return { error: "Enter both a date and a time." };
+
+  const { data, error } = await supabase
+    .from("jobs")
+    .update({ scheduled_for: parsed.scheduledFor })
+    .eq("id", jobId)
+    .eq("organization_id", organizationId)
+    .in("status", ["scheduled", "in_progress"])
+    .select("id")
+    .maybeSingle();
+
+  if (error) return { error: "We couldn't save the schedule." };
+  if (!data) return { error: "This job could not be found or can no longer be scheduled." };
+
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/today");
+  revalidatePath("/money");
+  revalidatePath("/people");
+  return { success: true };
 }
 
 /**

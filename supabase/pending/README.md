@@ -434,3 +434,11 @@ One nullable column, `public.leads.sms_consent` (`null` | `granted` | `declined`
 ### Status
 
 Not applied to TEST or Production. Apply to an environment BEFORE deploying the Batch 2 code there: the gate reads the column and fails closed (blocks lead-scoped automated SMS) where it is missing, and the capture route's lead insert would fail.
+
+## job_scheduled_for.sql (job scheduling state - not applied anywhere)
+
+One nullable column, `public.jobs.scheduled_for` (`timestamp with time zone`, no default, no backfill): when the contractor has scheduled the work with the customer. It is independent of `jobs.status`, where `scheduled` keeps meaning "not started" (an accepted estimate creates its job as `scheduled` with `scheduled_for` null). The contractor sets, changes or clears it on the job page as a date and time in the organization's timezone, converted with the same `zonedWallTimeToUtc` appointments use. Today's "Customer approved — schedule the work" item and the person's next step read it live (nothing is persisted for them). RLS is unchanged: the existing `jobs_select` / `jobs_update` and payment-gate policies cover the new column. Must be applied before the code that selects it is deployed (`lib/jobs/queries.ts` reads it on every job read). `job_scheduled_for_rollback.sql` drops the column (run by a person - it contains DROP, and only after code that no longer reads it is deployed). Validated with `scratch/validate-job-scheduled-for.mjs` (idempotent apply, column type/nullability/no default, existing rows null, set/change/clear, rollback).
+
+### Status
+
+Not applied to TEST or Production. Apply to an environment BEFORE deploying the job-scheduling code there: every job read selects the column and fails where it is missing.

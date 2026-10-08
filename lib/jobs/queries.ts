@@ -40,6 +40,8 @@ export type Job = {
   status: JobStatus;
   started_at: string | null;
   completed_at: string | null;
+  /** When the work is scheduled with the customer (null = not scheduled yet). Independent of status - see lib/jobs/schedule.ts. */
+  scheduled_for: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -52,7 +54,7 @@ export type Job = {
 // lib/estimates/queries.ts's ESTIMATE_COLUMNS convention: Supabase's
 // type-level select parser needs the literal type to infer typed columns.
 const JOB_COLUMNS =
-  "id, organization_id, contact_id, lead_id, estimate_id, title, amount, status, started_at, completed_at, notes, created_at, updated_at, contact:contacts(id, first_name, last_name, company_name, phone, email), lead:leads(id, service, status, temperature), estimate:estimates(id, title, status, amount)";
+  "id, organization_id, contact_id, lead_id, estimate_id, title, amount, status, started_at, completed_at, scheduled_for, notes, created_at, updated_at, contact:contacts(id, first_name, last_name, company_name, phone, email), lead:leads(id, service, status, temperature), estimate:estimates(id, title, status, amount)";
 
 type Embedded<T> = T | T[] | null;
 

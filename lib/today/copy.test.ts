@@ -37,6 +37,8 @@ const ATTENTION_KINDS = [
   "awaiting_confirmation",
   "abandoned_conversation",
   "accepted_estimate_no_job",
+  // Job scheduling state
+  "approved_job_unscheduled",
   "uncontacted_lead",
   "cancelled_appointment_no_rebooking",
   "completed_job_no_review_request",

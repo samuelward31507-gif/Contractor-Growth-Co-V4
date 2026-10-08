@@ -29,7 +29,7 @@ const opp = (type: OpportunityType, overrides: Partial<Opportunity> = {}): Oppor
   ...overrides,
 });
 
-test("the 22 approved reason codes, and the exact stored type / kind each one maps from", () => {
+test("the 23 approved reason codes, and the exact stored type / kind each one maps from", () => {
   assert.deepEqual(reasonCodes.REASON_CODE_BY_EXCEPTION_KIND, {
     human_escalation: "human_escalation",
     calendar_disconnected: "calendar_sync_failed",
@@ -42,6 +42,8 @@ test("the 22 approved reason codes, and the exact stored type / kind each one ma
     overdue_appointment: "appointment_overdue",
     awaiting_confirmation: "appointment_unconfirmed",
     abandoned_conversation: "conversation_stalled",
+    // Job scheduling state
+    approved_job_unscheduled: "approved_job_unscheduled",
   });
   assert.deepEqual(reasonCodes.REASON_CODE_BY_OPPORTUNITY_TYPE, {
     accepted_estimate_no_job: "estimate_accepted_no_job",
@@ -60,9 +62,9 @@ test("the 22 approved reason codes, and the exact stored type / kind each one ma
     completed_job_no_referral_request: "referral_request_needed",
   });
   const all = [...Object.values(reasonCodes.REASON_CODE_BY_EXCEPTION_KIND), ...Object.values(reasonCodes.REASON_CODE_BY_SIGNAL_KIND), ...Object.values(reasonCodes.REASON_CODE_BY_OPPORTUNITY_TYPE)];
-  assert.equal(all.length, 22);
-  assert.equal(new Set(all).size, 22, "one reason code per source");
-  assert.deepEqual(Object.keys(registry.DECISION_REGISTRY).sort(), [...all].sort(), "the registry covers exactly the 22 codes");
+  assert.equal(all.length, 23);
+  assert.equal(new Set(all).size, 23, "one reason code per source");
+  assert.deepEqual(Object.keys(registry.DECISION_REGISTRY).sort(), [...all].sort(), "the registry covers exactly the 23 codes");
 });
 
 test("opportunity problem labels (Today rows and By type headings) are the pre-2-2 strings, re-exported unchanged", () => {
@@ -175,7 +177,7 @@ test("default actions - opportunity types and signal kinds - are the pre-2-2 val
     completed_job_no_review_request: "request_review",
     completed_job_no_referral_request: "request_referral",
   });
-  assert.deepEqual(registry.CONVERSATION_SIGNAL_ACTION, { awaiting_reply: "respond", overdue_appointment: "follow_up", awaiting_confirmation: "follow_up", abandoned_conversation: "follow_up" });
+  assert.deepEqual(registry.CONVERSATION_SIGNAL_ACTION, { awaiting_reply: "respond", overdue_appointment: "follow_up", awaiting_confirmation: "follow_up", abandoned_conversation: "follow_up", approved_job_unscheduled: "schedule_work" });
   assert.equal(registry.DECISION_REGISTRY.human_escalation.defaultAction, null);
   assert.equal(registry.DECISION_REGISTRY.calendar_sync_failed.defaultAction, null);
 });
@@ -188,6 +190,7 @@ test("sentence construction: the action phrases, and reason + supporting + count
     send_estimate: "Send an estimate.",
     follow_up_estimate: "Follow up on the estimate.",
     create_job: "Create the job.",
+    schedule_work: "Set the date for the work.",
     reactivate: "Reach out to reconnect.",
     request_review: "Ask for a review.",
     request_referral: "Ask for a referral.",

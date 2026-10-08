@@ -70,7 +70,7 @@ function busyDayClient(): SupabaseClient {
   };
   const builder = (result: Result) => {
     const b: Record<string, unknown> = {};
-    for (const name of ["select", "eq", "in", "not", "order"]) b[name] = () => b;
+    for (const name of ["select", "eq", "in", "not", "is", "order"]) b[name] = () => b;
     b.limit = () => Promise.resolve(result);
     b.range = () => Promise.resolve(result);
     b.maybeSingle = () => Promise.resolve(result);

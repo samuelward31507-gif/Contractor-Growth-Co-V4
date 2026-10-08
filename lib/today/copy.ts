@@ -33,6 +33,7 @@ export const ATTENTION_COPY: Record<AttentionItem["kind"], { label: string; tone
   awaiting_confirmation: { label: DECISION_ATTENTION_LABEL.awaiting_confirmation, tone: "urgent" },
   no_show: { label: "No-show", tone: "urgent" },
   accepted_estimate_no_job: { label: "They said yes, nothing scheduled", tone: "urgent" },
+  approved_job_unscheduled: { label: DECISION_ATTENTION_LABEL.approved_job_unscheduled, tone: "urgent" },
 
   // Phase 0 (Foundation Trust), item 5: "temperature" is a plain manual
   // field (set directly on the lead form, or hardcoded to "cold" for every

@@ -204,7 +204,7 @@ mock.module(lib("lib/notifications/founder.ts"), {
   },
 });
 mock.module(lib("lib/settings/queries.ts"), {
-  namedExports: { getBusinessHours: async () => [], getOrganizationTimezone: async () => "UTC", getAiSettings: async () => ({ ai_enabled: true }), getBusinessProfile: async () => null },
+  namedExports: { getBusinessHours: async () => [], getBookingSettings: async () => null, getOrganizationTimezone: async () => "UTC", getAiSettings: async () => ({ ai_enabled: true }), getBusinessProfile: async () => null },
 });
 mock.module("next/cache", { namedExports: { revalidatePath: () => undefined } });
 mock.module("next/navigation", { namedExports: { redirect: () => { throw new Error("redirect"); } } });

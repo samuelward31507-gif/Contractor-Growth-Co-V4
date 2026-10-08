@@ -9,6 +9,7 @@ import { calendarDateInTimeZone, formatInvoiceNumber, formatMoney, isOverdue } f
 import { INVOICING_LIVE_AT } from "@/lib/invoices/summary";
 import { readCustomerReactivationConfig, readEstimateFollowupConfig } from "@/lib/automation/settings";
 import { deriveLifecycleStage, type LifecycleResult } from "@/lib/lifecycle/derive";
+import { isApprovedJobAwaitingSchedule } from "@/lib/jobs/schedule";
 import type { LifecyclePolicy, LifecycleSnapshot } from "@/lib/lifecycle/snapshot";
 
 export type NextStep = { label: string; detail?: string; href: string; attention: boolean };
@@ -103,7 +104,8 @@ export function derivePersonLifecycle(input: PersonLifecycleInput): LifecycleRes
 
 export type PersonNextStepInput = Omit<PersonLifecycleInput, "estimates" | "jobs"> & {
   estimates: Pick<Estimate, "id" | "lead_id" | "status" | "sent_at" | "expires_at" | "created_at" | "title">[];
-  jobs: Pick<Job, "id" | "lead_id" | "estimate_id" | "status" | "created_at" | "completed_at" | "title">[];
+  /** scheduled_for is optional: a caller that did not read it keeps the plain job step (never treated as unscheduled). */
+  jobs: (Pick<Job, "id" | "lead_id" | "estimate_id" | "status" | "created_at" | "completed_at" | "title"> & Partial<Pick<Job, "scheduled_for">>)[];
   conversations: Pick<Conversation, "id" | "status">[];
   /**
    * Phase 2-13 (§3): the open conversations waiting on the business - the
@@ -138,6 +140,10 @@ export function findPersonNextStep(params: PersonNextStepInput): NextStep | null
   switch (lifecycle.stage) {
     case "job_active": {
       const active = job(primaryId);
+      // Job scheduling state: the customer approved, the job exists, and the work has not been scheduled yet.
+      if (active && isApprovedJobAwaitingSchedule({ status: active.status, estimate_id: active.estimate_id, scheduled_for: active.scheduled_for }, estimate(active.estimate_id)?.status)) {
+        return { label: "Schedule the work", detail: `Customer approved · ${active.title}`, href: `/jobs/${active.id}`, attention: true };
+      }
       return { label: "Job in progress", detail: active?.title, href: active ? `/jobs/${active.id}` : personHref, attention: false };
     }
     case "won": {

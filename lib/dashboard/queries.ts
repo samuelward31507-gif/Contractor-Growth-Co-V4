@@ -8,6 +8,7 @@ import { getOpenOpportunities } from "@/lib/opportunities/queries";
 import { cache } from "react";
 import { getDashboardConversationAttention, getDashboardRecordAttention, type DashboardRecordAttention } from "./sql";
 import { loadAutomationAttention } from "@/lib/automation/execution-visibility";
+import { isApprovedJobAwaitingSchedule } from "@/lib/jobs/schedule";
 
 /**
  * Q7 (pre-launch lead-leak audit): a lead below "hot" temperature but at or
@@ -168,6 +169,13 @@ export type AttentionItem = {
     // remain deliberately unrepresented here, unchanged from before this
     // pass - they still duplicate hot_lead/high_value_lead/pending_estimate.
     | "accepted_estimate_no_job"
+    // Job scheduling state: the customer approved the estimate, its job
+    // exists, and the work has not been scheduled yet (jobs.scheduled_for is
+    // null while the job is still 'scheduled', i.e. not started - see
+    // lib/jobs/schedule.ts). Directly computed from live job state on every
+    // load, never persisted - it clears the moment a date is set, the work
+    // starts, or the job is completed or cancelled.
+    | "approved_job_unscheduled"
     | "uncontacted_lead"
     | "cancelled_appointment_no_rebooking"
     | "completed_job_no_review_request"
@@ -346,7 +354,7 @@ export async function getDashboardData(
 ): Promise<DashboardData> {
   const sqlConversationAttention = options.conversationAttention === "sql";
   const sqlRecordAttention = options.recordAttention === "sql";
-  const [leadsResult, appointmentsResult, estimatesResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities, sqlAttention, sqlRecord, legacyEvidence, automationAttention] = await Promise.all([
+  const [leadsResult, appointmentsResult, estimatesResult, auditResult, calendarConnection, escalationIncidentsResult, conversations, lastMessages, openOpportunities, sqlAttention, sqlRecord, legacyEvidence, automationAttention, unscheduledJobsResult] = await Promise.all([
     sqlRecordAttention ? SKIPPED_READ : supabase
       .from("leads")
       .select("id, status, temperature, estimated_value, service, created_at, contacts(first_name, last_name)")
@@ -422,6 +430,20 @@ export async function getDashboardData(
     // ones Trackpr is still retrying - from workflow_executions' durable
     // outcome/retry state. Never throws (empty on any read error).
     loadAutomationAttention(supabase, organizationId),
+    // Job scheduling state: jobs created from an estimate whose work has not
+    // been scheduled yet - still 'scheduled' (not started) with no
+    // scheduled_for. The estimate's status is embedded so the shared rule
+    // (isApprovedJobAwaitingSchedule) confirms the acceptance. Bounded and
+    // org-scoped like every other read here; jobs_select RLS applies too.
+    supabase
+      .from("jobs")
+      .select("id, title, amount, status, estimate_id, scheduled_for, created_at, estimate:estimates(status), contact:contacts(first_name, last_name)")
+      .eq("organization_id", organizationId)
+      .eq("status", "scheduled")
+      .is("scheduled_for", null)
+      .not("estimate_id", "is", null)
+      .order("created_at", { ascending: true })
+      .limit(25),
   ]);
 
   const leads = leadsResult.data ?? [];
@@ -437,7 +459,7 @@ export async function getDashboardData(
   // own doc comment for the exact, disclosed scope (5 of 9 total reads).
   // Phase 2E: a failed dashboard_record_attention stands in for all three
   // reads it replaces (leads, appointments, estimates).
-  const partialDataSourceCount = [leadsResult, appointmentsResult, estimatesResult, auditResult, escalationIncidentsResult].filter((result) => result.error != null).length + (sqlRecord?.failed ? 3 : 0);
+  const partialDataSourceCount = [leadsResult, appointmentsResult, estimatesResult, auditResult, escalationIncidentsResult, unscheduledJobsResult].filter((result) => result.error != null).length + (sqlRecord?.failed ? 3 : 0);
   const partialData = partialDataSourceCount > 0;
 
   const now = Date.now();
@@ -737,6 +759,21 @@ export async function getDashboardData(
   // Excludes any lead already represented by hotLeads/highValueLeads above
   // (see hotOrHighValueLeadIds' own comment) - the same underlying lead
   // never appears as two separate attention items.
+  // Job scheduling state: one item per approved job whose work has not been
+  // scheduled - keyed by the job, so a job can never appear twice.
+  type UnscheduledJobRow = { id: string; title: string; amount: number | null; status: string; estimate_id: string | null; scheduled_for: string | null; estimate: { status: string } | { status: string }[] | null; contact: ContactRef };
+  const approvedJobsUnscheduled: AttentionItem[] = ((unscheduledJobsResult.data ?? []) as UnscheduledJobRow[])
+    .filter((job) => isApprovedJobAwaitingSchedule(job, (Array.isArray(job.estimate) ? job.estimate[0] : job.estimate)?.status))
+    .slice(0, 5)
+    .map((job) => ({
+      id: `approved-job-${job.id}`,
+      kind: "approved_job_unscheduled" as const,
+      title: contactName(job.contact) ?? job.title,
+      detail: "The customer approved this estimate.",
+      value: job.amount != null ? formatCurrency(job.amount) : null,
+      href: `/jobs/${job.id}`,
+    }));
+
   const uncontactedLeadOpportunities: AttentionItem[] = openOpportunities
     .filter((opportunity) => opportunity.type === "uncontacted_lead" && !hotOrHighValueLeadIds.has(opportunity.sourceEntityId))
     .slice(0, 5)
@@ -853,6 +890,7 @@ export async function getDashboardData(
     ...awaitingConfirmation,
     ...noShowOpportunities,
     ...acceptedEstimateNoJobOpportunities,
+    ...approvedJobsUnscheduled,
     ...uncontactedLeadOpportunities,
     ...hotLeads,
     ...highValueLeads,
