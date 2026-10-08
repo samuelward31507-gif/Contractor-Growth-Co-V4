@@ -5,7 +5,7 @@ import { LifecycleInstrument } from "./lifecycle";
 import { TrackprShowcase } from "./trackpr-showcase";
 import { Reveal } from "./reveal";
 import { Badge, Button, CONTAINER, Eyebrow, H2, Section, TextLink } from "./ui";
-import { FUTURE_VERTICALS, PILLARS, SIGN_IN_HREF, STAGES, TALK_HREF, TRACKPR_ANSWERS, TRACKPR_DEMO_HREF, TRACKPR_HREF, WHY } from "./content";
+import { FUTURE_VERTICALS, PILLARS, GET_STARTED_HREF, SIGN_IN_HREF, STAGES, TRACKPR_ANSWERS, TRACKPR_DEMO_HREF, TRACKPR_HREF, WHY } from "./content";
 
 const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent";
 
@@ -43,8 +43,8 @@ export function Hero() {
           Cinder connects every step between a new opportunity and a final payment — so less revenue slips through the gaps.
         </p>
         <div className="cinder-rise mt-9 flex flex-col gap-3 sm:mt-10 sm:flex-row sm:items-center" style={{ animationDelay: "180ms" }}>
-          <Button href={TALK_HREF} arrow size="lg">
-            Talk to Cinder
+          <Button href={GET_STARTED_HREF} arrow size="lg">
+            Get started
           </Button>
           <Button href={TRACKPR_HREF} variant="secondary" size="lg">
             Explore Trackpr
@@ -394,8 +394,8 @@ export function FinalCta() {
               Start with the lifecycle your business already runs. Cinder makes it visible, connected and actionable.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Button href={TALK_HREF} variant="inverse" arrow size="lg">
-                Talk to Cinder
+              <Button href={GET_STARTED_HREF} variant="inverse" arrow size="lg">
+                Get started
               </Button>
               <Button href={TRACKPR_HREF} variant="inverse-secondary" size="lg">
                 See Trackpr

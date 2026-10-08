@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { TALK_HREF } from "../_components/content";
 import { TrackprAvailability, TrackprCta, TrackprHero, TrackprLifecycle, TrackprProductShowcase, TrackprQuestions } from "../_components/trackpr-product";
 
 const TITLE = "Trackpr — The first revenue operating system from Cinder";
@@ -45,7 +44,7 @@ export default function TrackprPage() {
       <TrackprQuestions />
       <TrackprLifecycle />
       <TrackprAvailability />
-      <TrackprCta talkHref={TALK_HREF} />
+      <TrackprCta />
     </>
   );
 }

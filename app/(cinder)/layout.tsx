@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { CinderNav } from "./_components/nav";
 import { CinderFooter } from "./_components/footer";
 import { CinderChat } from "./_components/chat";
-import { SITE_URL, TALK_HREF } from "./_components/content";
+import { SITE_URL } from "./_components/content";
 
 const TITLE = "Cinder Revenue Company | Revenue Systems";
 const DESCRIPTION =
@@ -70,7 +70,7 @@ export default function CinderLayout({ children }: { children: ReactNode }) {
       >
         Skip to content
       </a>
-      <CinderNav talkHref={TALK_HREF} />
+      <CinderNav />
       <main id="main" className="flex-1">
         {children}
       </main>

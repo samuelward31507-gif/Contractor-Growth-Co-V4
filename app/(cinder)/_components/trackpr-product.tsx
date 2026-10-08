@@ -5,7 +5,7 @@ import { TrackprShowcase } from "./trackpr-showcase";
 import { TrackprTile } from "./sections";
 import { Reveal } from "./reveal";
 import { Badge, Button, CONTAINER, H2, Section } from "./ui";
-import { FUTURE_VERTICALS, TRACKPR_DEMO_HREF } from "./content";
+import { FUTURE_VERTICALS, GET_STARTED_HREF, TRACKPR_DEMO_HREF } from "./content";
 
 /**
  * /trackpr - Trackpr's product page on the Cinder site.
@@ -21,8 +21,6 @@ import { FUTURE_VERTICALS, TRACKPR_DEMO_HREF } from "./content";
  * Reactivation, Old Customer Reactivation). No customers, results,
  * pricing or integrations beyond those are claimed.
  */
-
-export const GET_STARTED_HREF = "/get-started";
 
 const QUESTIONS = [
   {
@@ -214,7 +212,7 @@ export function TrackprAvailability() {
   );
 }
 
-export function TrackprCta({ talkHref }: { talkHref: string }) {
+export function TrackprCta() {
   return (
     <section aria-labelledby="trackpr-cta-title" className="bg-cinder-night text-cinder-on-night">
       <div className={`${CONTAINER} py-24 sm:py-32`}>
@@ -232,9 +230,6 @@ export function TrackprCta({ talkHref }: { talkHref: string }) {
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
               <Button href={GET_STARTED_HREF} variant="inverse" arrow size="lg">
                 Get started with Trackpr
-              </Button>
-              <Button href={talkHref} variant="inverse-secondary" size="lg">
-                Talk to Cinder
               </Button>
             </div>
             <Link href="/" className="group mt-8 inline-flex items-center gap-1.5 rounded text-sm text-cinder-on-night-3 transition-colors hover:text-cinder-on-night focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent-on-night">

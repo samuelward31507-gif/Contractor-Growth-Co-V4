@@ -262,7 +262,19 @@ test("product access: existing Trackpr users can sign in from the Cinder nav (de
   const trackpr = sections.slice(sections.indexOf("export function Trackpr("), sections.indexOf("export function WhyCinder"));
   assert.match(trackpr, /<Link href=\{SIGN_IN_HREF\}[\s\S]*?Sign in to Trackpr\s*<\/Link>/);
   assert.match(trackpr, /Explore Trackpr[\s\S]*Try the interactive demo/);
-  assert.match(nav, /See Trackpr[\s\S]*Talk to Cinder/);
+  assert.match(nav, /See Trackpr[\s\S]*Get started/);
+  // No "Talk to Cinder" email CTA anywhere on the site: the conversion path is /get-started.
+  for (const file of ["nav.tsx", "sections.tsx", "trackpr-product.tsx"]) {
+    const source = read(`app/(cinder)/_components/${file}`);
+    assert.doesNotMatch(source, /Talk to Cinder|TALK_HREF|talkHref/, file);
+  }
+  assert.doesNotMatch(read("app/(cinder)/layout.tsx"), /TALK_HREF|talkHref/);
+  assert.doesNotMatch(read("app/(cinder)/trackpr/page.tsx"), /TALK_HREF|talkHref/);
+  assert.equal((nav.match(/<Button href=\{GET_STARTED_HREF\}/g) ?? []).length, 2, "desktop and mobile nav both lead to /get-started");
+  const hero = sections.slice(sections.indexOf("export function Hero"), sections.indexOf("export function Platform"));
+  assert.match(hero, /<Button href=\{GET_STARTED_HREF\} arrow size="lg">\s*Get started\s*<\/Button>/);
+  assert.match(sections.slice(sections.indexOf("export function FinalCta")), /<Button href=\{GET_STARTED_HREF\} variant="inverse" arrow size="lg">\s*Get started\s*<\/Button>/);
+  assert.match(read("app/(cinder)/_components/content.ts"), /export const GET_STARTED_HREF = "\/get-started";/);
   // No separate product login route on the marketing site.
   assert.ok(!exists("app/(cinder)/trackpr/login"));
 });

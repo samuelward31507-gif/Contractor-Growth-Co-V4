@@ -5,13 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, LogIn } from "lucide-react";
 import { CinderLogo } from "./logo";
 import { Button } from "./ui";
-import { NAV_LINKS, SIGN_IN_HREF, TRACKPR_HREF } from "./content";
+import { GET_STARTED_HREF, NAV_LINKS, SIGN_IN_HREF, TRACKPR_HREF } from "./content";
 
 const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent";
 
 /**
  * The Cinder site navigation: logo left, the four section links centred,
- * "See Trackpr" and the primary "Talk to Cinder" right, with "Sign in" -
+ * "See Trackpr" and the primary "Get started" right, with "Sign in" -
  * product access to the Trackpr application at /login - set apart from the
  * marketing actions by a hairline and a log-in glyph. The bar sits on the
  * canvas with no border until the page scrolls.
@@ -20,10 +20,9 @@ const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visi
  * pinned at its foot. It is a disclosure (button + aria-expanded +
  * aria-controls) that closes on Escape, on a link and on resize to desktop,
  * returning focus to its toggle; the page behind does not scroll while it
- * is open. `talkHref` comes from the server layout, so the contact address
- * (an environment value) is resolved once on the server.
+ * is open.
  */
-export function CinderNav({ talkHref }: { talkHref: string }) {
+export function CinderNav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -91,8 +90,8 @@ export function CinderNav({ talkHref }: { talkHref: string }) {
             <LogIn className="h-4 w-4 text-cinder-ink-3" strokeWidth={1.75} aria-hidden />
             Sign in
           </Link>
-          <Button href={talkHref} arrow>
-            Talk to Cinder
+          <Button href={GET_STARTED_HREF} arrow>
+            Get started
           </Button>
         </div>
 
@@ -140,8 +139,8 @@ export function CinderNav({ talkHref }: { talkHref: string }) {
             <span className="hidden whitespace-nowrap font-mono text-[10.5px] uppercase tracking-[0.12em] text-cinder-ink-3 min-[360px]:inline">Existing users</span>
           </Link>
           <div className="mt-auto grid gap-3 pt-10">
-            <Button href={talkHref} arrow size="lg">
-              Talk to Cinder
+            <Button href={GET_STARTED_HREF} arrow size="lg">
+              Get started
             </Button>
             <Button href={TRACKPR_HREF} variant="secondary" size="lg">
               See Trackpr

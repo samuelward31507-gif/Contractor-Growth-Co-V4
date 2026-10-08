@@ -16,6 +16,8 @@ export const TRACKPR_HREF = "/trackpr";
 export const TRACKPR_DEMO_HREF = "/demo";
 /** Product access for existing Trackpr users - the application's own sign-in page. */
 export const SIGN_IN_HREF = "/login";
+/** The site's conversion path: the intake page where a business tells Cinder about itself. */
+export const GET_STARTED_HREF = "/get-started";
 export const TALK_HREF = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Talk to Cinder")}`;
 
 export const NAV_LINKS = [
