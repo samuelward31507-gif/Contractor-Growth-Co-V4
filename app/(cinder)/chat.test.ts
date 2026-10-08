@@ -93,8 +93,9 @@ test("state: restored storage is untrusted - malformed entries, foreign links an
   assert.equal(restored[1].nextStep, null);
   assert.equal(restored[3].nextStep?.href, "/get-started");
   assert.deepEqual(sanitizeStored("not an array"), []);
-  for (const href of ["/get-started", "mailto:team@example.com"]) assert.equal(isSiteHref(href), true, href);
-  for (const href of ["//evil.example", "https://evil.example", "javascript:alert(1)"]) assert.equal(isSiteHref(href), false, href);
+  assert.equal(isSiteHref("/get-started"), true);
+  // No email hand-off button: a mailto from the server or an older stored session is never rendered.
+  for (const href of ["//evil.example", "https://evil.example", "javascript:alert(1)", "mailto:team@example.com"]) assert.equal(isSiteHref(href), false, href);
 });
 
 // ---------------------------------------------------------------------------
@@ -164,8 +165,8 @@ test("accessibility: labelled dialog, live log, labelled controls, Escape to clo
   assert.match(CHAT, /<span className="sr-only">You: <\/span>/);
   assert.match(CHAT, /<span className="sr-only">Cinder assistant: <\/span>/);
   assert.match(CHAT, /aria-label="Cinder assistant is typing"/);
-  // An email hand-off says so - the visitor hears "opens your email app", not an address.
-  assert.match(CHAT, /aria-label=\{`\$\{step\.label\} \(opens your email app\)`\}/);
+  // The chat renders no email hand-off: next steps are site links only.
+  assert.doesNotMatch(CHAT, /mailto:|opens your email app|Talk with the Cinder team/);
   assert.match(CHAT, /focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cinder-accent/);
   // The message field shows focus as one 2px ember ring on its pill (never a second box inside it).
   assert.match(CHAT, /focus-within:ring-2 focus-within:ring-cinder-accent/);

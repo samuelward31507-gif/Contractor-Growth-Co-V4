@@ -382,11 +382,7 @@ function NextStepButton({ step }: { step: ChatNextStep }) {
       <ArrowRight className="h-3.5 w-3.5 text-cinder-accent transition-transform duration-150 motion-safe:group-hover:translate-x-0.5" strokeWidth={1.75} aria-hidden />
     </>
   );
-  return step.href.startsWith("mailto:") ? (
-    <a href={step.href} onClick={onClick} className={className} aria-label={`${step.label} (opens your email app)`}>
-      {inner}
-    </a>
-  ) : (
+  return (
     <Link href={step.href} onClick={onClick} className={className}>
       {inner}
     </Link>
