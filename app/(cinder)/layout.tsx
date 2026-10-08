@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { CinderNav } from "./_components/nav";
 import { CinderFooter } from "./_components/footer";
+import { CinderChat } from "./_components/chat";
 import { SITE_URL, TALK_HREF } from "./_components/content";
 
 const TITLE = "Cinder Revenue Company | Revenue Systems";
@@ -74,6 +75,8 @@ export default function CinderLayout({ children }: { children: ReactNode }) {
         {children}
       </main>
       <CinderFooter />
+      {/* The website assistant - mounted once here so the conversation carries across the site's pages. */}
+      <CinderChat />
     </div>
   );
 }
