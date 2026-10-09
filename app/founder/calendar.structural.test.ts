@@ -78,8 +78,9 @@ test("home command center: quick actions for each type, priorities, today, needs
   const HOME = read("app/founder/page.tsx");
   for (const label of ['label="Task" defaultKind="task"', 'label="Meeting" defaultKind="meeting"', 'label="Event" defaultKind="event"', 'label="Follow-up" defaultKind="follow_up"']) assert.ok(HOME.includes(label), label);
   for (const title of ['title="Today\'s priorities"', 'title="Today"', 'title="Needs attention"', 'title="Coming up"']) assert.ok(HOME.includes(title), title);
-  assert.match(HOME, /buildDailyPlan\(\{ items, deals, focus, now, timeZone, todayKey \}\)/, "one plan decides every section (no duplicates)");
-  assert.match(HOME, /href=\{`\/founder\/deals\?deal=\$\{deal\.id\}`\}/);
+  assert.match(HOME, /buildFounderBriefing\(\{ items, deals, focus, now, timeZone, todayKey, /, "one briefing decides every section (no duplicates)");
+  assert.doesNotMatch(HOME, /buildDailyPlan\(/, "no second, competing plan on the page");
+  assert.match(HOME, /<Link href=\{entry\.href\}/, "deal rows link to the deal (dealHref -> /founder/deals?deal=)");
   assert.match(HOME, /calendarHref\("week", todayKey\)/);
   assert.match(HOME, /MRR \(actual, manual\)/, "MRR is labelled as the actual manually recorded figure");
   assert.doesNotMatch(HOME, /<StatGrid/, "figures are one compact line, not a wall of cards");

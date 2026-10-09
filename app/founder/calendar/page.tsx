@@ -32,6 +32,10 @@ export default async function FounderCalendarPage({ searchParams }: { searchPara
   const entriesByDay: Record<string, DayEntry[]> = {};
   for (const [day, entries] of placed) entriesByDay[day] = entries.map((e: { item: { id: string }; allDay: boolean; continued: boolean }) => ({ id: e.item.id, allDay: e.allDay, continued: e.continued }));
   const itemCount = itemsResult.ok ? itemsResult.data.inRange.length : 0;
+  // ?item= opens that item's details (where a recommendation links). Only an id
+  // among the founder's own loaded items is honoured; anything else is ignored.
+  const requestedItem = typeof params.item === "string" ? params.item : null;
+  const openItemId = itemsResult.ok && requestedItem && [...itemsResult.data.inRange, ...itemsResult.data.unscheduled].some((item) => item.id === requestedItem) ? requestedItem : null;
 
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
@@ -70,6 +74,7 @@ export default async function FounderCalendarPage({ searchParams }: { searchPara
             <p className="text-sm text-ink-3">Nothing on the calendar for this {view} yet. Use New item, or the + on any day.</p>
           ) : null}
           <CalendarView
+            key={openItemId ?? "calendar"}
             view={view}
             anchor={anchor}
             days={range.days}
@@ -80,6 +85,7 @@ export default async function FounderCalendarPage({ searchParams }: { searchPara
             deals={deals}
             timeZone={timeZone}
             nowIso={now.toISOString()}
+            initialItemId={openItemId}
           />
         </>
       )}

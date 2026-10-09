@@ -10,6 +10,7 @@ import { getFounderDeals, getFounderFocus, getFounderItems, getFounderReviews } 
 import { DEAL_STAGE_LABELS, SCHEDULED_KINDS, addDaysKey, dayRange, isDateKey, sortByTimeThenPriority, toDealOptions, type FounderDeal } from "@/lib/founder/model";
 import { prioritiesFor, reviewDay } from "@/lib/founder/daily";
 import { formatDateKey, formatMoney } from "@/lib/founder/format";
+import { buildEndOfDaySummary } from "@/lib/founder/intelligence";
 import { requireFounderPage, LoadFailed } from "../_components/page-parts";
 import { ReviewForm } from "../_components/review-form";
 import { ItemList } from "../_components/item-list";
@@ -49,7 +50,7 @@ export default async function FounderReviewPage({ searchParams }: { searchParams
     getFounderReviews(supabase, userId, 60),
     getFounderItems(supabase, userId, since),
     getFounderDeals(supabase, userId),
-    getFounderFocus(supabase, userId, tomorrowKey, tomorrowKey),
+    getFounderFocus(supabase, userId, requested, tomorrowKey),
   ]);
   const reviews = reviewsResult.ok ? reviewsResult.data : [];
   const review = reviews.find((r) => r.reviewDate === requested) ?? null;
@@ -59,6 +60,7 @@ export default async function FounderReviewPage({ searchParams }: { searchParams
   const closeout = reviewDay({ items, deals, dayKey: requested, timeZone });
   const tomorrowPriorities = focusResult.ok ? prioritiesFor(items, focusResult.data.focus, tomorrowKey) : [];
   const candidates = sortByTimeThenPriority(items.filter((item) => item.completedAt == null && !SCHEDULED_KINDS.includes(item.kind) && !tomorrowPriorities.includes(item)));
+  const summary = buildEndOfDaySummary({ items, deals, focus: focusResult.ok ? focusResult.data.focus : [], dayKey: requested, timeZone });
   const nowIso = now.toISOString();
   const { pipeline } = closeout;
   const pipelineCount = pipeline.created.length + pipeline.won.length + pipeline.lost.length + pipeline.updated.length;
@@ -76,6 +78,14 @@ export default async function FounderReviewPage({ searchParams }: { searchParams
       </form>
 
       {!itemsResult.ok ? <LoadFailed what="Your tasks" /> : null}
+
+      {/* The day in one line - only what the records confirm (completions stamped that day, items still open, deal edits, priorities as set). */}
+      {itemsResult.ok && dealsResult.ok && focusResult.ok ? (
+        <section aria-labelledby="day-summary" className="rounded-xl border border-line bg-surface px-4 py-3">
+          <h2 id="day-summary" className={SUBHEAD}>{isToday ? "Today so far" : "That day"}</h2>
+          <p className="mt-1 text-sm text-ink">{summary.sentence}</p>
+        </section>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SectionCard title={`1. Done ${dayName}`} description={itemsResult.ok ? `${closeout.completed.length} item${closeout.completed.length === 1 ? "" : "s"} completed` : undefined}>

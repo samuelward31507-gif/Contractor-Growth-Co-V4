@@ -21,7 +21,7 @@ const CAPTURE = read("app/founder/_components/quick-capture.tsx");
 test("both pages re-check founder access and read only the founder's own data", () => {
   for (const page of [HOME, REVIEW]) assert.match(page, /await requireFounderPage\(\)/);
   assert.match(HOME, /getFounderFocus\(supabase, userId, todayKey, todayKey\)/);
-  assert.match(REVIEW, /getFounderFocus\(supabase, userId, tomorrowKey, tomorrowKey\)/);
+  assert.match(REVIEW, /getFounderFocus\(supabase, userId, requested, tomorrowKey\)/, "the reviewed day (for the summary) through tomorrow (for priorities) - one bounded read");
   assert.match(read("lib/founder/queries.ts"), /\.select\("id, focus_date, focus_rank"\)\s*\.eq\("owner_id", ownerId\)/);
 });
 

@@ -36,6 +36,7 @@ export function CalendarView({
   deals,
   timeZone,
   nowIso,
+  initialItemId = null,
 }: {
   view: View;
   anchor: string;
@@ -47,8 +48,10 @@ export function CalendarView({
   deals: DealOption[];
   timeZone: string;
   nowIso: string;
+  /** Open this item's details on arrival (the page has already checked it is one of the loaded items). */
+  initialItemId?: string | null;
 }) {
-  const [selected, setSelected] = useState<FounderItem | null>(null);
+  const [selected, setSelected] = useState<FounderItem | null>(() => (initialItemId ? ([...items, ...unscheduled].find((item) => item.id === initialItemId) ?? null) : null));
   const [creating, setCreating] = useState<ItemDefaults | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const byId = new Map([...items, ...unscheduled].map((item) => [item.id, item]));
