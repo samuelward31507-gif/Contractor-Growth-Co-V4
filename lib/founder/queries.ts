@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActivityChannel, DealActivity, DealActivityKind } from "./sales";
+import { HANDOFF_COLUMNS, isMissingHandoffTable, toHandoff, type ClientHandoff } from "./handoff";
 import type { DealFit, DealSource, DealStage, FounderDeal, FounderItem, FounderReview, ItemKind, MrrEntry, MrrKind, Priority } from "./model";
 
 /**
@@ -156,6 +157,17 @@ export async function getFounderDealActivities(supabase: SupabaseClient, ownerId
 /** 42P01 / PGRST205: the table isn't there (migration not applied). */
 function isMissingRelation(error: { code?: string; message?: string }): boolean {
   return error.code === "42P01" || error.code === "PGRST205" || (/founder_deal_activities/.test(error.message ?? "") && /does not exist|could not find/i.test(error.message ?? ""));
+}
+
+/**
+ * The founder's own client handoffs (agency_client_handoff.sql) - status and
+ * the fields they supplied; never Agency client records. `available: false`
+ * when the tables aren't on this database yet.
+ */
+export async function getFounderHandoffs(supabase: SupabaseClient, ownerId: string): Promise<Loaded<{ available: boolean; handoffs: ClientHandoff[] }>> {
+  const { data, error } = await supabase.from("agency_client_handoffs").select(HANDOFF_COLUMNS).eq("founder_owner_id", ownerId).order("prepared_at", { ascending: false }).limit(500);
+  if (error) return isMissingHandoffTable(error) ? { ok: true, data: { available: false, handoffs: [] } } : { ok: false };
+  return { ok: true, data: { available: true, handoffs: (data as Parameters<typeof toHandoff>[0][]).map(toHandoff) } };
 }
 
 export async function getFounderMrrEntries(supabase: SupabaseClient, ownerId: string): Promise<Loaded<MrrEntry[]>> {

@@ -7,7 +7,8 @@ import { EmptyState } from "@/lib/ui/empty-state";
 import { Badge } from "@/lib/ui/badge";
 import { inputClass, secondaryButtonAutoClass } from "@/lib/ui/form";
 import { SectionCard } from "@/lib/ui/section-card";
-import { getFounderDealActivities, getFounderDeals, getFounderItems } from "@/lib/founder/queries";
+import { getFounderDealActivities, getFounderDeals, getFounderHandoffs, getFounderItems } from "@/lib/founder/queries";
+import { handoffState, type HandoffState } from "@/lib/founder/handoff";
 import { DEAL_FIT_LABELS, DEAL_SOURCE_LABELS, DEAL_STAGES, DEAL_STAGE_LABELS, OPEN_DEAL_STAGES, filterDeals, isOverdue, itemTime, localDateKey, pipelineSummary, sortByTimeThenPriority, toDealOptions, type DealStage, type FounderDeal, type FounderItem } from "@/lib/founder/model";
 import { METRIC_PERIODS, buildSalesMetrics, buildSalesToday, periodRange, type MetricPeriod } from "@/lib/founder/sales";
 import { calendarHref } from "@/lib/founder/calendar";
@@ -18,12 +19,13 @@ import { AddItemButton } from "../_components/add-item-button";
 import { KindIcon } from "../_components/kind-icon";
 import { ActivityTimeline } from "../_components/activity-timeline";
 import { SalesMetricsPanel, SalesTodayPanel } from "../_components/sales-panels";
+import { HandoffBadge, HandoffPanel } from "../_components/handoff-panel";
 import type { DealOption } from "../_components/item-dialog";
 
 type StageFilter = DealStage | "open" | "all";
 const STAGE_FILTERS: { id: StageFilter; label: string }[] = [{ id: "open", label: "Open" }, { id: "all", label: "All" }, ...DEAL_STAGES.map((stage) => ({ id: stage, label: DEAL_STAGE_LABELS[stage] }))];
 
-function DealCard({ deal, timeZone, todayKey, now, linked, dealOptions }: { deal: FounderDeal; timeZone: string; todayKey: string; now: Date; linked: FounderItem[]; dealOptions: DealOption[] }) {
+function DealCard({ deal, timeZone, todayKey, now, linked, dealOptions, handoff }: { deal: FounderDeal; timeZone: string; todayKey: string; now: Date; linked: FounderItem[]; dealOptions: DealOption[]; handoff: HandoffState | null }) {
   const profile = [deal.trade, deal.location, deal.source ? DEAL_SOURCE_LABELS[deal.source] : null, deal.fit ? DEAL_FIT_LABELS[deal.fit] : null].filter(Boolean).join(" · ");
   const followUpOverdue = deal.nextActionAt != null && new Date(deal.nextActionAt) < now && OPEN_DEAL_STAGES.includes(deal.stage);
   return (
@@ -41,6 +43,11 @@ function DealCard({ deal, timeZone, todayKey, now, linked, dealOptions }: { deal
         ) : null}
       </div>
       {deal.stage === "won" && deal.wonSetupFee != null ? <p className="mt-1 text-xs text-ink-3">+ {formatMoney(deal.wonSetupFee, deal.currency)} setup agreed</p> : null}
+      {handoff ? (
+        <Link href={`/founder/deals?deal=${encodeURIComponent(deal.id)}`} className="mt-1.5 inline-block" aria-label={`Client handoff for ${deal.name}`}>
+          <HandoffBadge state={handoff} />
+        </Link>
+      ) : null}
       {deal.stage === "won" && deal.wonOn ? <p className="mt-1.5 text-xs text-ink-3">Won {formatDateKey(deal.wonOn, { month: "short", day: "numeric", year: "numeric" })}</p> : null}
       {deal.stage === "lost" && deal.lostReason ? <p className="mt-1.5 text-xs text-ink-3">Lost: {deal.lostReason}</p> : null}
       <p className="mt-1 text-xs text-ink-4">{deal.lastActivityAt ? `Last activity ${formatDay(deal.lastActivityAt, timeZone)}` : "No activity recorded"}</p>
@@ -93,11 +100,15 @@ export default async function FounderDealsPage({ searchParams }: { searchParams:
   const stage = (STAGE_FILTERS.find((f) => f.id === params.stage)?.id ?? "open") as StageFilter;
   const { supabase, userId, timeZone, now, todayKey, monthKey } = await requireFounderPage();
   const period = (METRIC_PERIODS.find((p) => String(p) === params.period) ?? 30) as MetricPeriod;
-  const [result, itemsResult, activitiesResult] = await Promise.all([
+  const [result, itemsResult, activitiesResult, handoffsResult] = await Promise.all([
     getFounderDeals(supabase, userId),
     getFounderItems(supabase, userId, new Date(now.getTime() - 30 * 86_400_000).toISOString()),
     getFounderDealActivities(supabase, userId),
+    getFounderHandoffs(supabase, userId),
   ]);
+  const handoffs = handoffsResult.ok ? handoffsResult.data.handoffs : [];
+  const handoffsAvailable = handoffsResult.ok && handoffsResult.data.available;
+  const handoffFor = (deal: FounderDeal): HandoffState | null => (handoffsAvailable ? handoffState(deal, handoffs) : null);
   const deals = result.ok ? result.data : [];
   const activities = activitiesResult.ok ? activitiesResult.data.activities : [];
   const historyAvailable = activitiesResult.ok && activitiesResult.data.available;
@@ -177,6 +188,8 @@ export default async function FounderDealsPage({ searchParams }: { searchParams:
               <Link href="/founder/deals" className="font-medium underline underline-offset-2">Show all deals</Link>
             </p>
           ) : null}
+          {focused && !handoffsResult.ok ? <LoadFailed what="This deal's client handoff" /> : null}
+          {focused && handoffsAvailable ? <HandoffPanel deal={focused} state={handoffState(focused, handoffs)} timeZone={timeZone} /> : null}
           {focused && activitiesResult.ok ? (
             <SectionCard title="History" description={focused.enteredStage ? `Added at ${DEAL_STAGE_LABELS[focused.enteredStage]} on ${formatDay(focused.createdAt, timeZone)}. Everything below was recorded.` : undefined}>
               {historyAvailable ? (
@@ -205,7 +218,7 @@ export default async function FounderDealsPage({ searchParams }: { searchParams:
                       {inColumn.length ? (
                         <ul className="mt-1 space-y-2">
                           {inColumn.map((deal) => (
-                            <DealCard key={deal.id} deal={deal} timeZone={timeZone} todayKey={todayKey} now={now} linked={openItemsByDeal.get(deal.id) ?? []} dealOptions={dealOptions} />
+                            <DealCard key={deal.id} deal={deal} timeZone={timeZone} todayKey={todayKey} now={now} linked={openItemsByDeal.get(deal.id) ?? []} dealOptions={dealOptions} handoff={deal.stage === "won" || handoffs.some((h) => h.dealId === deal.id) ? handoffFor(deal) : null} />
                           ))}
                         </ul>
                       ) : (

@@ -124,6 +124,8 @@ test("a non-founder is refused by every action and nothing is written", async ()
     await actions.changeFounderDealStage("theirs-deal", { toStage: "replied", requestId: REQ, expectedUpdatedAt: "v1" }),
     await actions.logFounderDealActivity("theirs-deal", { kind: "outreach", occurredAt: "2026-10-01T09:00", requestId: REQ }),
     await actions.voidFounderDealActivity(REQ, "wrong"),
+    await actions.prepareClientHandoff("theirs-deal", { requestId: REQ, scope: "Lead response automation" }),
+    await actions.cancelFounderClientHandoff(REQ, "wrong"),
     await actions.deleteFounderDeal("theirs-deal"),
     await actions.createFounderMrrEntry({ month: "2026-10", kind: "new", amount: "1" }),
     await actions.deleteFounderMrrEntry("theirs-mrr"),
@@ -253,6 +255,48 @@ test("logging activity: past only, optional atomic stage advance needs the loade
   assert.equal((await actions.voidFounderDealActivity("not-a-uuid", "x")).ok, false);
   assert.equal((await actions.voidFounderDealActivity(REQ, "Logged on the wrong deal")).ok, true);
   assert.deepEqual(rpcCall(2), { name: "founder_void_deal_activity", args: { p_activity_id: REQ, p_reason: "Logged on the wrong deal" } });
+});
+
+test("client handoff: only a won deal with terms and contact; scope required; nothing reaches the database until complete", async () => {
+  store.founder_deals.push(
+    { id: "open", owner_id: ME, name: "Open", stage: "negotiation", won_setup_fee: null, won_monthly_fee: null, contact_name: "Dana", contact_email: "d@x.co", contact_phone: null },
+    { id: "nocontact", owner_id: ME, name: "No contact", stage: "won", won_setup_fee: 2500, won_monthly_fee: 1497, contact_name: null, contact_email: null, contact_phone: null },
+    { id: "ready", owner_id: ME, name: "Ready", stage: "won", won_setup_fee: 2500, won_monthly_fee: 1497, contact_name: "Dana", contact_email: null, contact_phone: "555-0100" },
+  );
+  const scope = "Lead response automation and monthly reporting";
+  assert.deepEqual(await actions.prepareClientHandoff("open", { requestId: REQ, scope }), { ok: false, error: "Before handing off, add: the deal must be won; agreed setup and monthly fees." });
+  assert.deepEqual(await actions.prepareClientHandoff("nocontact", { requestId: REQ, scope }), { ok: false, error: "Before handing off, add: a decision-maker name; a contact email or phone." });
+  assert.deepEqual(await actions.prepareClientHandoff("ready", { requestId: REQ, scope: "short" }), { ok: false, error: "Describe the agreed scope (at least 10 characters)." });
+  assert.equal((await actions.prepareClientHandoff("ready", { scope })).ok, false, "a request id is required");
+  assert.deepEqual(await actions.prepareClientHandoff("theirs-deal", { requestId: REQ, scope }), { ok: false, error: "That deal could not be found." });
+  assert.deepEqual(rpcCalls, []);
+  rpcResponse = { data: { status: "prepared", handoff_id: REQ, handoff_status: "prepared" }, error: null };
+  assert.deepEqual(await actions.prepareClientHandoff("ready", { requestId: REQ, scope: `  ${scope}  ` }), { ok: true, status: "prepared", handoffId: REQ });
+  assert.deepEqual(rpcCall(0), { name: "founder_prepare_client_handoff", args: { p_request_id: REQ, p_deal_id: "ready", p_scope: scope } });
+  rpcResponse = { data: { status: "exists", handoff_id: REQ2, handoff_status: "prepared" }, error: null };
+  assert.deepEqual(await actions.prepareClientHandoff("ready", { requestId: REQ, scope }), { ok: true, status: "exists", handoffId: REQ2 }, "a second request reports the existing handoff");
+  for (const key of ["stage", "won_setup_fee", "contact_name", "contact_email"]) assert.ok(store.founder_deals.find((r) => r.id === "ready")![key] !== undefined, "the deal is only read");
+  assert.equal(store.agency_clients, undefined, "no client is created from the founder side");
+});
+
+test("client handoff: database refusals become clear messages; cancel needs a reason", async () => {
+  store.founder_deals.push({ id: "ready", owner_id: ME, name: "Ready", stage: "won", won_setup_fee: 1, won_monthly_fee: 1, contact_name: "Dana", contact_email: "d@x.co", contact_phone: null });
+  const scope = "Lead response automation";
+  rpcResponse = { data: null, error: { code: "FS422", message: "before handing off, add: a written scope (at least 10 characters)" } };
+  assert.deepEqual(await actions.prepareClientHandoff("ready", { requestId: REQ, scope }), { ok: false, error: "Before handing off, add: a written scope (at least 10 characters)." });
+  rpcResponse = { data: null, error: { code: "PGRST202", message: "x" } };
+  assert.deepEqual(await actions.prepareClientHandoff("ready", { requestId: REQ, scope }), { ok: false, error: "Client handoff isn't enabled on this database yet." });
+  rpcResponse = { data: null, error: { code: "XX000", message: "internal detail" } };
+  assert.deepEqual(await actions.prepareClientHandoff("ready", { requestId: REQ, scope }), { ok: false, error: "We couldn't complete the handoff step. Please try again - nothing was saved twice." });
+  const calls = rpcCalls.length;
+  assert.equal((await actions.cancelFounderClientHandoff(REQ, "  ")).ok, false);
+  assert.equal((await actions.cancelFounderClientHandoff("nope", "x")).ok, false);
+  assert.equal(rpcCalls.length, calls);
+  rpcResponse = { data: { status: "cancelled" }, error: null };
+  assert.deepEqual(await actions.cancelFounderClientHandoff(REQ, "Client asked to wait"), { ok: true, status: "cancelled", handoffId: REQ });
+  assert.deepEqual(rpcCall(calls), { name: "cancel_client_handoff", args: { p_handoff_id: REQ, p_reason: "Client asked to wait" } });
+  rpcResponse = { data: null, error: { code: "FS422", message: "this handoff is confirmed - the Agency client already exists" } };
+  assert.deepEqual(await actions.cancelFounderClientHandoff(REQ, "x"), { ok: false, error: "This handoff is confirmed - the Agency client already exists." });
 });
 
 test("MRR entries are always stored as manual; reviews upsert one per day", async () => {

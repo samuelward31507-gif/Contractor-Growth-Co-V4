@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getFounderContext, type FounderContext } from "@/lib/founder/access";
 import { SCHEDULED_KINDS, addDaysKey, dayRange, isDateKey, localDateKey, parseDealInput, parseItemInput, parseLocalDateTime, parseMrrInput, parseReviewInput, toLocalInputValue, type DealInput, type DealStage } from "@/lib/founder/model";
 import { parseActivityInput, parseStageChange } from "@/lib/founder/sales";
+import { handoffMissing, parseScope } from "@/lib/founder/handoff";
 import { isAllDayEvent, isEndOfDayDue } from "@/lib/founder/calendar";
 import { MAX_DAILY_PRIORITIES } from "@/lib/founder/daily";
 import { isMissingFocusColumn, toItem } from "@/lib/founder/queries";
@@ -371,6 +372,70 @@ export async function voidFounderDealActivity(activityId: string, reason: string
   if (error) return { ok: false, error: error.code === "FS404" ? "That entry could not be found." : salesError(error) };
   refresh();
   return salesResult(data);
+}
+
+// --- client handoff ---------------------------------------------------------------------
+
+export type HandoffActionResult = { ok: true; status: "prepared" | "duplicate" | "exists" | "cancelled"; handoffId: string | null } | { ok: false; error: string };
+
+function handoffError(error: { code?: string; message?: string }): string {
+  switch (error.code) {
+    case "FS404":
+      return "That deal could not be found.";
+    case "FS409":
+    case "FS422": {
+      const message = (error.message ?? "").trim();
+      return message ? `${message[0].toUpperCase()}${message.slice(1)}.` : "That isn't possible right now.";
+    }
+    case "42883":
+    case "PGRST202":
+      return "Client handoff isn't enabled on this database yet.";
+    default:
+      return "We couldn't complete the handoff step. Please try again - nothing was saved twice.";
+  }
+}
+
+/**
+ * Prepares a client handoff for a won deal: copies only the agreed fields
+ * (company, contact, setup + monthly fee, currency) plus the scope written
+ * here. It creates no client - an agency admin confirms separately. The
+ * request id makes a retry or double-submit return the same handoff.
+ */
+export async function prepareClientHandoff(dealId: string, fields: Fields): Promise<HandoffActionResult> {
+  const ctx = await founder();
+  if (!ctx) return NOT_AVAILABLE;
+  const requestId = clientIdOf(fields.requestId);
+  if (!requestId) return { ok: false, error: "Please reopen the form and try again." };
+  const { data: deal } = await ctx.supabase
+    .from("founder_deals")
+    .select("id, stage, won_setup_fee, won_monthly_fee, contact_name, contact_email, contact_phone")
+    .eq("id", dealId)
+    .eq("owner_id", ctx.userId)
+    .maybeSingle();
+  if (!deal) return { ok: false, error: "That deal could not be found." };
+  const d = deal as { stage: DealStage; won_setup_fee: number | null; won_monthly_fee: number | null; contact_name: string | null; contact_email: string | null; contact_phone: string | null };
+  const missing = handoffMissing({ stage: d.stage, wonSetupFee: d.won_setup_fee, wonMonthlyFee: d.won_monthly_fee, contactName: d.contact_name, contactEmail: d.contact_email, contactPhone: d.contact_phone });
+  if (missing.length) return { ok: false, error: `Before handing off, add: ${missing.join("; ")}.` };
+  const scope = parseScope(fields.scope);
+  if (!scope.ok) return scope;
+  const { data, error } = await ctx.supabase.rpc("founder_prepare_client_handoff", { p_request_id: requestId, p_deal_id: dealId, p_scope: scope.value });
+  if (error) return { ok: false, error: handoffError(error) };
+  refresh();
+  const r = (data ?? {}) as { status?: string; handoff_id?: string };
+  return { ok: true, status: r.status === "duplicate" || r.status === "exists" ? r.status : "prepared", handoffId: r.handoff_id ?? null };
+}
+
+/** Cancels a prepared (not yet confirmed) handoff, with a reason. The record is kept; a new one can be prepared. */
+export async function cancelFounderClientHandoff(handoffId: string, reason: string): Promise<HandoffActionResult> {
+  const ctx = await founder();
+  if (!ctx) return NOT_AVAILABLE;
+  if (!UUID.test(handoffId)) return { ok: false, error: "That handoff could not be found." };
+  const trimmed = String(reason ?? "").trim();
+  if (!trimmed || trimmed.length > 500) return { ok: false, error: "Say why the handoff is being cancelled (up to 500 characters)." };
+  const { data, error } = await ctx.supabase.rpc("cancel_client_handoff", { p_handoff_id: handoffId, p_reason: trimmed });
+  if (error) return { ok: false, error: error.code === "FS404" ? "That handoff could not be found." : handoffError(error) };
+  refresh();
+  return { ok: true, status: (data as { status?: string } | null)?.status === "duplicate" ? "duplicate" : "cancelled", handoffId };
 }
 
 // --- MRR ----------------------------------------------------------------------------
