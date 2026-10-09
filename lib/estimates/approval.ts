@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAutomationEventAsService } from "@/lib/automation/events";
 import { emitEstimateLifecycleEventAsService } from "@/lib/automation/estimates";
 import { emitJobCreatedFromEstimateAsService } from "@/lib/automation/jobs";
+import { getEstimateDetails, NO_ESTIMATE_DETAILS, type EstimateDetails } from "@/lib/estimates/details";
 
 /**
  * Quote Approval Links (V1): the service-side logic behind the public
@@ -48,6 +49,16 @@ export type PublicEstimate = {
   expiresAt: string | null;
   organizationName: string;
   organizationPhone: string | null;
+  /** The business's own contact details from Settings - each shown only when set. */
+  organizationEmail: string | null;
+  organizationWebsite: string | null;
+  /** One line ("12 Main St, Seattle, WA 98101"), or null when no part is set. */
+  organizationAddress: string | null;
+  /** Who the quote is prepared for: the estimate's contact (name, then company). */
+  customerName: string | null;
+  customerCompany: string | null;
+  /** Quote number, itemization, scope and terms - see lib/estimates/details.ts. */
+  details: EstimateDetails;
 };
 
 // Phase 1A review: `notes` is deliberately NOT selected here. The estimate
@@ -56,8 +67,26 @@ export type PublicEstimate = {
 // for the customer, so the public page must never read it. The customer
 // sees title, amount, sent/expiry dates, the business name and phone, and
 // nothing else.
+// The customer-visible scope of work and terms (estimate_quote_details) are
+// separate columns written for the customer, and are read separately by
+// getEstimateDetails so a database without them still renders the quote.
+// The contact's name is the customer's own; their phone and email are not
+// selected - the page has no reason to echo them back.
 const PUBLIC_ESTIMATE_COLUMNS =
-  "id, organization_id, title, amount, status, sent_at, responded_at, expires_at, organization:organizations(name, sms_phone_number)";
+  "id, organization_id, title, amount, status, sent_at, responded_at, expires_at, organization:organizations(name, sms_phone_number, phone, email, website, address, city, state, zip), contact:contacts(first_name, last_name, company_name)";
+
+type RawOrganization = {
+  name: string;
+  sms_phone_number: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+};
+type RawContact = { first_name: string | null; last_name: string | null; company_name: string | null };
 
 type RawRow = {
   id: string;
@@ -68,7 +97,23 @@ type RawRow = {
   sent_at: string | null;
   responded_at: string | null;
   expires_at: string | null;
-  organization: { name: string; sms_phone_number: string | null } | { name: string; sms_phone_number: string | null }[] | null;
+  organization: RawOrganization | RawOrganization[] | null;
+  contact?: RawContact | RawContact[] | null;
+};
+
+const one = <T,>(value: T | T[] | null | undefined): T | null => (Array.isArray(value) ? (value[0] ?? null) : (value ?? null));
+const clean = (value: string | null | undefined): string | null => (value && value.trim() ? value.trim() : null);
+
+/** "12 Main St, Seattle, WA 98101" from whichever parts are set. */
+export function formatOrganizationAddress(org: Pick<RawOrganization, "address" | "city" | "state" | "zip">): string | null {
+  const region = [clean(org.state), clean(org.zip)].filter(Boolean).join(" ");
+  const parts = [clean(org.address), clean(org.city), region || null].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
+}
+
+type ApprovalLookupOptions = {
+  /** The decision path needs only status and identity - skip the details reads. */
+  withDetails?: boolean;
 };
 
 function isPastExpiry(estimate: Pick<PublicEstimate, "expiresAt">): boolean {
@@ -81,7 +126,7 @@ function isPastExpiry(estimate: Pick<PublicEstimate, "expiresAt">): boolean {
  * sent to the customer, so its link must behave as if it does not exist -
  * exposing a draft through a leaked token would show unfinished pricing.
  */
-export async function getEstimateByApprovalToken(service: SupabaseClient, token: string): Promise<PublicEstimate | null> {
+export async function getEstimateByApprovalToken(service: SupabaseClient, token: string, options: ApprovalLookupOptions = {}): Promise<PublicEstimate | null> {
   if (!token || token.length < 10) return null;
 
   const { data } = await service
@@ -92,8 +137,14 @@ export async function getEstimateByApprovalToken(service: SupabaseClient, token:
 
   if (!data || data.status === "draft") return null;
 
-  const organization = Array.isArray(data.organization) ? (data.organization[0] ?? null) : data.organization;
+  const organization = one(data.organization);
   if (!organization) return null;
+  const contact = one(data.contact);
+  const contactName = contact ? [clean(contact.first_name), clean(contact.last_name)].filter(Boolean).join(" ") : "";
+
+  // The token resolved this one estimate; its details are read for exactly
+  // that estimate and organization, and fall back to none on any error.
+  const details = options.withDetails === false ? NO_ESTIMATE_DETAILS : await getEstimateDetails(service, data.organization_id, data.id);
 
   return {
     id: data.id,
@@ -105,7 +156,13 @@ export async function getEstimateByApprovalToken(service: SupabaseClient, token:
     respondedAt: data.responded_at,
     expiresAt: data.expires_at,
     organizationName: organization.name,
-    organizationPhone: organization.sms_phone_number,
+    organizationPhone: clean(organization.sms_phone_number) ?? clean(organization.phone),
+    organizationEmail: clean(organization.email),
+    organizationWebsite: clean(organization.website),
+    organizationAddress: formatOrganizationAddress(organization),
+    customerName: contactName || null,
+    customerCompany: contact ? clean(contact.company_name) : null,
+    details,
   };
 }
 
@@ -132,7 +189,7 @@ export async function respondToEstimateByToken(
   token: string,
   decision: ApprovalDecision,
 ): Promise<ApprovalOutcome> {
-  const estimate = await getEstimateByApprovalToken(service, token);
+  const estimate = await getEstimateByApprovalToken(service, token, { withDetails: false });
   if (!estimate) return "not_found";
   if (estimate.status !== "sent") return "already_responded";
   if (isPastExpiry(estimate)) return "expired";

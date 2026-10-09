@@ -20,6 +20,8 @@ import { headers } from "next/headers";
 import { resolveCustomerLinkBaseUrl, buildEstimateApprovalUrl } from "@/lib/estimates/approval-link";
 import { ESTIMATE_STATUS_TONE, ESTIMATE_STATUS_ICON } from "../_components/status";
 import { EstimateActions } from "./_components/estimate-actions";
+import { QuoteDetailsEditor } from "./_components/quote-details-editor";
+import { formatQuoteNumber, getEstimateDetails } from "@/lib/estimates/details";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 export default async function EstimateDetailPage({ params }: PageProps<"/estimates/[id]">) {
@@ -36,10 +38,11 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
     redirect("/onboarding");
   }
 
-  const [estimate, contacts, leads] = await Promise.all([
+  const [estimate, contacts, leads, details] = await Promise.all([
     getEstimate(supabase, membership.organizationId, id),
     getContacts(supabase, membership.organizationId),
     getLeads(supabase, membership.organizationId),
+    getEstimateDetails(supabase, membership.organizationId, id),
   ]);
 
   if (!estimate) {
@@ -82,7 +85,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
         and a decision.
       */}
       <DetailHeader
-        eyebrow="Estimate"
+        eyebrow={details.number != null ? `Estimate · ${formatQuoteNumber(details.number)}` : "Estimate"}
         backHref="/money?browse=estimates"
         backLabel="Back to Estimates"
         title={estimate.title}
@@ -92,7 +95,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
             {ESTIMATE_STATUS_LABELS[estimate.status]}
           </Badge>
         }
-        action={<EstimateActions estimate={estimate} contacts={contacts} leads={leads} hasJob={Boolean(job)} />}
+        action={<EstimateActions estimate={estimate} contacts={contacts} leads={leads} hasJob={Boolean(job)} amountFromLineItems={details.lineItems.length > 0} />}
         meta={
           <div>
             <p className="text-xs font-medium text-ink-3">Amount</p>
@@ -156,6 +159,13 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
               </div>
             ) : null}
             <ApprovalLinkRow status={estimate.status} url={approvalUrl} />
+          </SectionCard>
+
+          <SectionCard
+            title="Customer quote"
+            description={estimate.status === "draft" ? "What the customer reads before approving. Locked once the quote is sent." : "Exactly what the customer was sent."}
+          >
+            <QuoteDetailsEditor estimateId={estimate.id} editable={estimate.status === "draft"} details={details} amount={estimate.amount} />
           </SectionCard>
 
           {estimate.lead ? (

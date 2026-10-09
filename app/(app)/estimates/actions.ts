@@ -11,6 +11,7 @@ import { resolveCustomerLinkBaseUrl } from "@/lib/estimates/approval-link";
 import { emitJobCreatedFromEstimate } from "@/lib/automation/jobs";
 import { findRecentDuplicateEstimate } from "@/lib/estimates/duplicate-guard";
 import { getJobByEstimateId } from "@/lib/jobs/queries";
+import { getLineItemSubtotal } from "@/lib/estimates/details";
 
 export type EstimateActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -165,13 +166,17 @@ export async function updateEstimate(_prevState: EstimateFormState, formData: Fo
   const contactValid = await verifyContactInOrganization(supabase, organizationId, input.contactId);
   if (!contactValid) return { error: "Select a valid contact." };
 
+  // An itemized quote's total is its line-item subtotal - the amount field
+  // can't set a different figure than the items the customer will read.
+  const lineItemSubtotal = await getLineItemSubtotal(supabase, organizationId, id);
+
   const { data, error: updateError } = await supabase
     .from("estimates")
     .update({
       contact_id: input.contactId,
       lead_id: input.leadId,
       title: input.title,
-      amount: input.amount,
+      amount: lineItemSubtotal ?? input.amount,
       notes: input.notes,
       expires_at: input.expiresAt,
     })
@@ -200,9 +205,13 @@ export async function updateEstimate(_prevState: EstimateFormState, formData: Fo
 export async function sendEstimate(estimateId: string): Promise<EstimateSendResult> {
   const { supabase, organizationId } = await requireOrganization();
 
+  // An itemized quote goes out with its total equal to the line-item
+  // subtotal, in the same write that sends it.
+  const lineItemSubtotal = await getLineItemSubtotal(supabase, organizationId, estimateId);
+
   const { data, error } = await supabase
     .from("estimates")
-    .update({ status: "sent", sent_at: new Date().toISOString() })
+    .update({ status: "sent", sent_at: new Date().toISOString(), ...(lineItemSubtotal != null ? { amount: lineItemSubtotal } : {}) })
     .eq("id", estimateId)
     .eq("organization_id", organizationId)
     .eq("status", "draft")

@@ -22,6 +22,7 @@ export function EstimateDialog({
   leads,
   estimate,
   defaultContactId,
+  amountFromLineItems = false,
   onClose,
 }: {
   mode: "create" | "edit";
@@ -30,6 +31,8 @@ export function EstimateDialog({
   estimate?: Estimate;
   /** Pre-selects the contact picker in create mode - see AddEstimateButton's own comment for why. Ignored in edit mode (the estimate's own contact always wins). */
   defaultContactId?: string;
+  /** Edit mode of an itemized estimate: the amount is the line-item subtotal (updateEstimate enforces it), so it is shown read-only. */
+  amountFromLineItems?: boolean;
   onClose: () => void;
 }) {
   const action = mode === "create" ? createEstimate : updateEstimate;
@@ -95,9 +98,16 @@ export function EstimateDialog({
                 step="0.01"
                 inputMode="decimal"
                 defaultValue={estimate?.amount ?? ""}
+                readOnly={amountFromLineItems}
+                aria-describedby={amountFromLineItems ? "amount-from-items" : undefined}
                 className={inputClass}
                 placeholder="0.00"
               />
+              {amountFromLineItems ? (
+                <p id="amount-from-items" className="text-xs text-ink-3">
+                  Set by the line items.
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
               <label htmlFor="expiresAt" className={labelClass}>

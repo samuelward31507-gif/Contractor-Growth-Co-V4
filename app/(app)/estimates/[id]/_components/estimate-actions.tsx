@@ -50,12 +50,15 @@ export function EstimateActions({
   contacts,
   leads,
   hasJob = false,
+  amountFromLineItems = false,
 }: {
   estimate: Estimate;
   contacts: Contact[];
   leads: Lead[];
   /** Final Batch 3: an accepted estimate with no job offers "Create Job" (the existing estimate -> job path). */
   hasJob?: boolean;
+  /** The estimate is itemized: its amount is the line-item subtotal, not typed in Edit. */
+  amountFromLineItems?: boolean;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmKind | null>(null);
@@ -150,6 +153,7 @@ export function EstimateActions({
           estimate={estimate}
           contacts={contacts}
           leads={leads}
+          amountFromLineItems={amountFromLineItems}
           onClose={() => {
             setEditOpen(false);
             router.refresh();

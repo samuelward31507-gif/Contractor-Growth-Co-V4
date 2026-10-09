@@ -39,6 +39,26 @@ const DEMO_ESTIMATE: PublicEstimate = {
   expiresAt: new Date(Date.now() + 25 * 24 * 60 * 60 * 1000).toISOString(),
   organizationName: "Ridgeline Roofing",
   organizationPhone: "+12065550142",
+  organizationEmail: null,
+  organizationWebsite: null,
+  organizationAddress: null,
+  customerName: "Sample Customer",
+  customerCompany: null,
+  // Sample figures only (the page is bannered as a demo); they sum to the amount above.
+  details: {
+    number: 1001,
+    scopeOfWork: "Sample scope: remove the existing roof down to the deck, replace damaged decking as needed, and install a new architectural shingle roof with ice and water shield at the eaves and a continuous ridge vent.",
+    terms: "Sample terms: this is a demonstration quote. Real quotes show the terms the contractor writes.",
+    lineItems: [
+      { id: "demo-1", position: 0, description: "Tear-off and disposal of existing roofing", quantity: 24, unit: "sq", unitPrice: 95 },
+      { id: "demo-2", position: 1, description: "Architectural shingles, installed", quantity: 24, unit: "sq", unitPrice: 340 },
+      { id: "demo-3", position: 2, description: "Ice and water shield", quantity: 6, unit: "roll", unitPrice: 110 },
+      { id: "demo-4", position: 3, description: "Ridge vent", quantity: 40, unit: "lf", unitPrice: 12.5 },
+      { id: "demo-5", position: 4, description: "Dumpster and haul-away", quantity: 1, unit: null, unitPrice: 800 },
+    ],
+    lineItemsAvailable: true,
+    textFieldsAvailable: true,
+  },
 };
 
 export default async function QuoteApprovalPage({ params }: { params: Promise<{ token: string }> }) {
