@@ -135,7 +135,8 @@ test("contractor editor: line items, scope and terms are editable only on a draf
   const PAGE_DETAIL = read("app/(app)/estimates/[id]/page.tsx");
   const EDITOR = read("app/(app)/estimates/[id]/_components/quote-details-editor.tsx");
   const ACTIONS = read("app/(app)/estimates/quote-details-actions.ts");
-  assert.match(PAGE_DETAIL, /<QuoteDetailsEditor estimateId=\{estimate\.id\} editable=\{estimate\.status === "draft"\} details=\{details\} amount=\{estimate\.amount\} \/>/);
+  // Keyed by the saved scope/terms, so an edit made in the Edit Estimate dialog remounts the editor with fresh values (no stale overwrite).
+  assert.match(PAGE_DETAIL, /<QuoteDetailsEditor key=\{`\$\{details\.scopeOfWork \?\? ""\}\\u0000\$\{details\.terms \?\? ""\}`\} estimateId=\{estimate\.id\} editable=\{estimate\.status === "draft"\} details=\{details\} amount=\{estimate\.amount\} \/>/);
   assert.match(PAGE_DETAIL, /getEstimateDetails\(supabase, membership\.organizationId, id\)/);
   assert.match(EDITOR, /!details\.lineItemsAvailable \? \(/);
   assert.match(EDITOR, /if \(!details\.textFieldsAvailable\) return null;/);

@@ -11,7 +11,7 @@ import { resolveCustomerLinkBaseUrl } from "@/lib/estimates/approval-link";
 import { emitJobCreatedFromEstimate } from "@/lib/automation/jobs";
 import { findRecentDuplicateEstimate } from "@/lib/estimates/duplicate-guard";
 import { getJobByEstimateId } from "@/lib/jobs/queries";
-import { getLineItemSubtotal } from "@/lib/estimates/details";
+import { getLineItemSubtotal, parseQuoteTextForm, saveQuoteTextFields } from "@/lib/estimates/details";
 
 export type EstimateActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -28,7 +28,11 @@ export type EstimateFormState = {
   error?: string;
   success?: boolean;
   id?: string;
+  /** The estimate saved, but something secondary (scope/terms) didn't - shown to the user, never swallowed. */
+  warning?: string;
 };
+
+const QUOTE_TEXT_NOT_SAVED = "The estimate was saved, but its scope of work and terms couldn't be saved. Open the estimate and try again.";
 
 async function requireOrganization() {
   const supabase = await createClient();
@@ -113,6 +117,8 @@ function parseEstimateForm(formData: FormData): ParsedEstimateForm {
 export async function createEstimate(_prevState: EstimateFormState, formData: FormData): Promise<EstimateFormState> {
   const { input, error } = parseEstimateForm(formData);
   if (error || !input) return { error: error ?? "Enter estimate details." };
+  const quoteText = parseQuoteTextForm(formData);
+  if (!quoteText.ok) return { error: quoteText.error };
 
   const { supabase, organizationId } = await requireOrganization();
 
@@ -144,6 +150,16 @@ export async function createEstimate(_prevState: EstimateFormState, formData: Fo
 
   if (insertError || !data) return { error: "We couldn't create this estimate. Please try again." };
 
+  // Customer-facing scope/terms are a separate, draft-guarded write (see
+  // saveQuoteTextFields) - only when the contractor wrote something.
+  if (quoteText.value && (quoteText.value.scopeOfWork || quoteText.value.terms)) {
+    const saved = await saveQuoteTextFields(supabase, organizationId, data.id, quoteText.value);
+    if (!saved) {
+      revalidatePath("/money");
+      return { success: true, id: data.id, warning: QUOTE_TEXT_NOT_SAVED };
+    }
+  }
+
   revalidatePath("/money");
   return { success: true, id: data.id };
 }
@@ -160,6 +176,8 @@ export async function updateEstimate(_prevState: EstimateFormState, formData: Fo
 
   const { input, error } = parseEstimateForm(formData);
   if (error || !input) return { error: error ?? "Enter estimate details." };
+  const quoteText = parseQuoteTextForm(formData);
+  if (!quoteText.ok) return { error: quoteText.error };
 
   const { supabase, organizationId } = await requireOrganization();
 
@@ -188,6 +206,11 @@ export async function updateEstimate(_prevState: EstimateFormState, formData: Fo
 
   if (updateError) return { error: "We couldn't update this estimate." };
   if (!data) return { error: "This estimate could not be found or is no longer a draft." };
+
+  if (quoteText.value && !(await saveQuoteTextFields(supabase, organizationId, id, quoteText.value))) {
+    revalidatePath(`/estimates/${id}`);
+    return { error: QUOTE_TEXT_NOT_SAVED };
+  }
 
   revalidatePath("/money");
   revalidatePath(`/estimates/${id}`);

@@ -440,7 +440,18 @@ export default async function LeadDetailPage({ params }: PageProps<"/leads/[id]"
                 </div>
 
                 <div>
-                  <h3 className={sectionLabelClass}>Estimates</h3>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className={sectionLabelClass}>Estimates</h3>
+                    {/* Opens Create Estimate for this lead's contact with this lead selected; the new draft then opens in the estimate editor. */}
+                    {lead.contact_id ? (
+                      <Link
+                        href={`/money?browse=estimates&new=estimate&contactId=${encodeURIComponent(lead.contact_id)}&leadId=${encodeURIComponent(lead.id)}`}
+                        className="inline-flex min-h-11 items-center text-xs font-medium text-ink-2 hover:text-ink sm:min-h-0"
+                      >
+                        New estimate
+                      </Link>
+                    ) : null}
+                  </div>
                   {estimates.length === 0 ? (
                     <p className="mt-2 text-sm text-ink-3">No estimates prepared for this lead yet.</p>
                   ) : (

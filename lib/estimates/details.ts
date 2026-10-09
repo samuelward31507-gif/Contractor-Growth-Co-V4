@@ -162,3 +162,37 @@ export async function getLineItemSubtotal(supabase: SupabaseClient, organization
   if (error || !Array.isArray(data) || data.length === 0) return null;
   return lineItemsSubtotal((data as { quantity: number | string; unit_price: number | string }[]).map((row) => ({ quantity: Number(row.quantity), unitPrice: Number(row.unit_price) })));
 }
+
+export type QuoteTextFields = { scopeOfWork: string | null; terms: string | null };
+
+/**
+ * Reads the customer-facing Scope of Work and Terms from an estimate form.
+ * `value: null` means the form didn't include the fields at all (nothing to
+ * save); otherwise each is trimmed text or null (cleared).
+ */
+export function parseQuoteTextForm(formData: FormData): { ok: true; value: QuoteTextFields | null } | { ok: false; error: string } {
+  if (!formData.has("scopeOfWork") && !formData.has("terms")) return { ok: true, value: null };
+  const scope = parseQuoteText(formData.get("scopeOfWork"), "scope of work");
+  if (!scope.ok) return scope;
+  const terms = parseQuoteText(formData.get("terms"), "terms");
+  if (!terms.ok) return terms;
+  return { ok: true, value: { scopeOfWork: scope.value, terms: terms.value } };
+}
+
+/**
+ * Saves Scope of Work and Terms on a DRAFT estimate of this organization.
+ * Written separately from the estimate's other fields so a database without
+ * the columns (estimate_quote_details not yet applied) still saves the rest
+ * of the estimate - the caller reports the failure instead of losing it.
+ */
+export async function saveQuoteTextFields(supabase: SupabaseClient, organizationId: string, estimateId: string, fields: QuoteTextFields): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("estimates")
+    .update({ scope_of_work: fields.scopeOfWork, terms: fields.terms })
+    .eq("id", estimateId)
+    .eq("organization_id", organizationId)
+    .eq("status", "draft")
+    .select("id")
+    .maybeSingle();
+  return !error && Boolean(data);
+}

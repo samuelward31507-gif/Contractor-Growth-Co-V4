@@ -16,6 +16,7 @@ import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/lib/ui/d
 import type { Contact } from "@/lib/contacts/queries";
 import type { Lead } from "@/lib/leads/queries";
 import type { Estimate } from "@/lib/estimates/queries";
+import type { QuoteTextFields } from "@/lib/estimates/details";
 import { EstimateDialog } from "../../_components/estimate-dialog";
 import { cancelEstimate, createJobFromAcceptedEstimate, markEstimateAccepted, markEstimateDeclined, sendEstimate } from "../../actions";
 
@@ -51,6 +52,7 @@ export function EstimateActions({
   leads,
   hasJob = false,
   amountFromLineItems = false,
+  quoteText,
 }: {
   estimate: Estimate;
   contacts: Contact[];
@@ -59,6 +61,8 @@ export function EstimateActions({
   hasJob?: boolean;
   /** The estimate is itemized: its amount is the line-item subtotal, not typed in Edit. */
   amountFromLineItems?: boolean;
+  /** Saved scope/terms for the edit dialog; null when the database doesn't have them yet. */
+  quoteText?: QuoteTextFields | null;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmKind | null>(null);
@@ -154,6 +158,7 @@ export function EstimateActions({
           contacts={contacts}
           leads={leads}
           amountFromLineItems={amountFromLineItems}
+          quoteText={quoteText}
           onClose={() => {
             setEditOpen(false);
             router.refresh();

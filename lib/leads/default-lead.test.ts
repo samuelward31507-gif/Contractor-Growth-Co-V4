@@ -54,7 +54,8 @@ test("wiring: estimate (new only) and job dialogs opt in and say \"No lead\"; ap
   assert.match(picker, /emptyLabel = "No lead \(general appointment\)"/);
   assert.match(picker, /<option value="">\{emptyLabel\}<\/option>/);
   assert.match(read("app/(app)/appointments/_components/appointment-dialog.tsx"), /<LeadPicker leads=\{leads\} contactId=\{contactId\} defaultLeadId=\{appointment\?\.lead_id\} \/>/);
-  assert.match(read("app/(app)/estimates/_components/estimate-dialog.tsx"), /<LeadPicker leads=\{leads\} contactId=\{contactId\} defaultLeadId=\{estimate \? estimate\.lead_id : undefined\} defaultToNewestOpenLead=\{!estimate\} emptyLabel="No lead" \/>/);
+  // A new estimate opened from a lead's page names that lead explicitly; otherwise a new one defaults to the newest open lead. An edit always keeps its own lead.
+  assert.match(read("app/(app)/estimates/_components/estimate-dialog.tsx"), /<LeadPicker leads=\{leads\} contactId=\{contactId\} defaultLeadId=\{estimate \? estimate\.lead_id : defaultLeadId\} defaultToNewestOpenLead=\{!estimate && !defaultLeadId\} emptyLabel="No lead" \/>/);
   assert.match(read("app/(app)/jobs/_components/job-dialog.tsx"), /<LeadPicker leads=\{leads\} contactId=\{contactId\} defaultToNewestOpenLead emptyLabel="No lead" \/>/);
 });
 

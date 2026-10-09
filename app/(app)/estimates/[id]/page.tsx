@@ -95,7 +95,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
             {ESTIMATE_STATUS_LABELS[estimate.status]}
           </Badge>
         }
-        action={<EstimateActions estimate={estimate} contacts={contacts} leads={leads} hasJob={Boolean(job)} amountFromLineItems={details.lineItems.length > 0} />}
+        action={<EstimateActions estimate={estimate} contacts={contacts} leads={leads} hasJob={Boolean(job)} amountFromLineItems={details.lineItems.length > 0} quoteText={details.textFieldsAvailable ? { scopeOfWork: details.scopeOfWork, terms: details.terms } : null} />}
         meta={
           <div>
             <p className="text-xs font-medium text-ink-3">Amount</p>
@@ -165,7 +165,7 @@ export default async function EstimateDetailPage({ params }: PageProps<"/estimat
             title="Customer quote"
             description={estimate.status === "draft" ? "What the customer reads before approving. Locked once the quote is sent." : "Exactly what the customer was sent."}
           >
-            <QuoteDetailsEditor estimateId={estimate.id} editable={estimate.status === "draft"} details={details} amount={estimate.amount} />
+            <QuoteDetailsEditor key={`${details.scopeOfWork ?? ""}\u0000${details.terms ?? ""}`} estimateId={estimate.id} editable={estimate.status === "draft"} details={details} amount={estimate.amount} />
           </SectionCard>
 
           {estimate.lead ? (

@@ -24,6 +24,8 @@ export function AddEstimateButton({ contacts, leads }: { contacts: Contact[]; le
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(() => searchParams.get("new") === "estimate");
   const defaultContactId = searchParams.get("contactId") ?? undefined;
+  // The lead page's "New estimate" also names the lead it's for.
+  const defaultLeadId = searchParams.get("leadId") ?? undefined;
 
   function close() {
     setOpen(false);
@@ -33,6 +35,7 @@ export function AddEstimateButton({ contacts, leads }: { contacts: Contact[]; le
       const rest = new URLSearchParams(searchParams.toString());
       rest.delete("new");
       rest.delete("contactId");
+      rest.delete("leadId");
       const query = rest.toString();
       router.replace(query ? `${pathname}?${query}` : pathname);
     }
@@ -52,7 +55,7 @@ export function AddEstimateButton({ contacts, leads }: { contacts: Contact[]; le
         <Plus aria-hidden className="h-4 w-4" />
         New Estimate
       </button>
-      {open ? <EstimateDialog mode="create" contacts={contacts} leads={leads} defaultContactId={defaultContactId} onClose={close} /> : null}
+      {open ? <EstimateDialog mode="create" contacts={contacts} leads={leads} defaultContactId={defaultContactId} defaultLeadId={defaultLeadId} onClose={close} /> : null}
     </>
   );
 }
