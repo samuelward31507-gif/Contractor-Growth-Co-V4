@@ -18,6 +18,7 @@ test("the most specific item wins; section roots match only themselves (plus the
   assert.equal(label("/agency/costs"), "Costs");
   assert.equal(label("/founder"), "Home");
   assert.equal(label("/founder/deals"), "Deals");
+  assert.equal(label("/founder/calendar"), "Calendar");
   assert.equal(label("/founder/tasks"), "Tasks & events");
   assert.equal(label("/agency/unknown"), null, "an unknown agency path is not Overview");
   assert.equal(label("/agencyx"), null, "prefix matching is by path segment");

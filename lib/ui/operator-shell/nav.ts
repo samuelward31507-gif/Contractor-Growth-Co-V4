@@ -13,6 +13,7 @@ export type OperatorIconName =
   | "DollarSign"
   | "Receipt"
   | "Sun"
+  | "CalendarDays"
   | "ListChecks"
   | "Handshake"
   | "LineChart"
@@ -62,6 +63,7 @@ export const FOUNDER_NAV_GROUP: OperatorNavGroup = {
   label: "Founder",
   items: [
     { href: "/founder", label: "Home", icon: "Sun", exact: true },
+    { href: "/founder/calendar", label: "Calendar", icon: "CalendarDays" },
     { href: "/founder/tasks", label: "Tasks & events", icon: "ListChecks" },
     { href: "/founder/deals", label: "Deals", icon: "Handshake" },
     { href: "/founder/metrics", label: "MRR & metrics", icon: "LineChart" },

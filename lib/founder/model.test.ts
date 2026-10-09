@@ -60,7 +60,7 @@ test("items: validation, events need a start, end after start, tasks drop event 
   assert.equal(parseItemInput({ kind: "task", title: "x".repeat(301) }, TZ).ok, false);
 });
 
-const item = (over: Partial<FounderItem>): FounderItem => ({ id: Math.random().toString(36), kind: "task", title: "t", notes: null, priority: "medium", dueAt: null, startsAt: null, endsAt: null, completedAt: null, dealId: null, createdAt: "2026-10-01T00:00:00Z", ...over });
+const item = (over: Partial<FounderItem>): FounderItem => ({ id: Math.random().toString(36), kind: "task", title: "t", notes: null, priority: "medium", dueAt: null, startsAt: null, endsAt: null, completedAt: null, dealId: null, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z", ...over });
 
 test("views: today includes overdue; events are never overdue; upcoming is the next 14 days; undated items are open", () => {
   const now = new Date("2026-10-09T18:00:00Z"); // noon in Denver

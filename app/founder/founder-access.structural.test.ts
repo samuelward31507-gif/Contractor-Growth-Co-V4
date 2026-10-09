@@ -36,7 +36,13 @@ test("every exported server action resolves founder access before anything else"
     assert.match(body.slice(0, 200), /const ctx = await founder\(\);\s*if \(!ctx\) return NOT_AVAILABLE;/, name);
   }
   // Every update/delete is scoped to the caller's own rows.
-  assert.equal((actions.match(/\.(update|delete)\(/g) ?? []).length, (actions.match(/\.eq\("owner_id", ctx\.userId\)\s*\.select/g) ?? []).length + 1, "each write filters owner_id (setFounderItemCompleted builds its query in two steps)");
+  // Every update/delete is scoped to the caller's own rows: the owner filter follows each write in the same statement.
+  const writes = [...actions.matchAll(/\.(update|delete)\(/g)];
+  assert.equal(writes.length, 7, "item update, complete, delete; deal update, move, delete; MRR delete");
+  for (const write of writes) {
+    const statement = actions.slice(write.index, actions.indexOf(";", write.index));
+    assert.match(statement, /\.eq\("owner_id", ctx\.userId\)/, `owner filter on: ${statement.slice(0, 80)}`);
+  }
 });
 
 test("access resolution fails closed, and founder access is separate from agency admin", () => {

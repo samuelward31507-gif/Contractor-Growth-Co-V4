@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Check, Pencil, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Check, Handshake, Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/lib/ui/badge";
 import { ITEM_KIND_LABELS, PRIORITY_LABELS, SCHEDULED_KINDS, isOverdue, type FounderItem } from "@/lib/founder/model";
 import { formatDateTime, formatTime } from "@/lib/founder/format";
@@ -76,7 +77,12 @@ export function ItemList({ items, deals, timeZone, nowIso, timeOnly = false }: {
                   ) : (
                     <span>· No date</span>
                   )}
-                  {item.dealId && dealName.get(item.dealId) ? <span>· {dealName.get(item.dealId)}</span> : null}
+                  {item.dealId && dealName.get(item.dealId) ? (
+                    <Link href={`/founder/deals?deal=${item.dealId}`} className="inline-flex items-center gap-1 font-medium text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-ink">
+                      · <Handshake className="h-3 w-3" aria-hidden />
+                      {dealName.get(item.dealId)}
+                    </Link>
+                  ) : null}
                   {overdue ? <Badge tone="danger">Overdue</Badge> : null}
                   {item.priority === "high" && !done ? <Badge tone="warning">{PRIORITY_LABELS.high} priority</Badge> : null}
                 </div>

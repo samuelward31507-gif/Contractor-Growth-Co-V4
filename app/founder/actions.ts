@@ -32,19 +32,51 @@ async function dealBelongsToFounder(ctx: FounderContext, dealId: string | null):
 
 // --- tasks and events --------------------------------------------------------
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Creates an item. A form may send `clientId` (a UUID generated when the
+ * dialog opened): it becomes the row's id, so a double-submit or a retry
+ * after a dropped response finds the same row instead of creating a
+ * duplicate.
+ */
 export async function createFounderItem(fields: Fields): Promise<FounderActionResult> {
   const ctx = await founder();
   if (!ctx) return NOT_AVAILABLE;
   const parsed = parseItemInput(fields, ctx.timeZone);
   if (!parsed.ok) return parsed;
   if (!(await dealBelongsToFounder(ctx, parsed.value.dealId))) return { ok: false, error: "That deal could not be found." };
+  const clientId = typeof fields.clientId === "string" && UUID.test(fields.clientId) ? fields.clientId.toLowerCase() : null;
+  if (clientId) {
+    const { data: existing } = await ctx.supabase.from("founder_items").select("id").eq("id", clientId).eq("owner_id", ctx.userId).maybeSingle();
+    if (existing) return { ok: true, id: existing.id };
+  }
   const v = parsed.value;
   const { data, error } = await ctx.supabase
     .from("founder_items")
-    .insert({ owner_id: ctx.userId, kind: v.kind, title: v.title, notes: v.notes, priority: v.priority, due_at: v.dueAt, starts_at: v.startsAt, ends_at: v.endsAt, deal_id: v.dealId })
+    .insert({
+      ...(clientId ? { id: clientId } : {}),
+      owner_id: ctx.userId,
+      kind: v.kind,
+      title: v.title,
+      notes: v.notes,
+      priority: v.priority,
+      due_at: v.dueAt,
+      starts_at: v.startsAt,
+      ends_at: v.endsAt,
+      deal_id: v.dealId,
+      completed_at: v.completed ? new Date().toISOString() : null,
+    })
     .select("id")
     .single();
-  if (error || !data) return { ok: false, error: "We couldn't save that. Please try again." };
+  if (error || !data) {
+    // A concurrent duplicate submit lost the race on the primary key - the item exists.
+    if (clientId && (error as { code?: string } | null)?.code === "23505") {
+      const { data: existing } = await ctx.supabase.from("founder_items").select("id").eq("id", clientId).eq("owner_id", ctx.userId).maybeSingle();
+      if (existing) return { ok: true, id: existing.id };
+    }
+    return { ok: false, error: "We couldn't save that. Please try again." };
+  }
   refresh();
   return { ok: true, id: data.id };
 }
@@ -54,6 +86,15 @@ export async function quickCaptureFounderItem(title: string): Promise<FounderAct
   return createFounderItem({ kind: "task", title, priority: "medium" });
 }
 
+const STALE_ITEM_ERROR = "This item changed since you opened it. Close and reopen it to see the latest version, then make your change again.";
+
+/**
+ * Edits (and reschedules) an item. When the form sends `expectedUpdatedAt`
+ * - the item's updated_at as it was loaded - the write only applies if the
+ * row is still that version, so two open dialogs can't silently overwrite
+ * each other. A `completed` field sets or clears completion (keeping the
+ * original completion time when it was already complete).
+ */
 export async function updateFounderItem(id: string, fields: Fields): Promise<FounderActionResult> {
   const ctx = await founder();
   if (!ctx) return NOT_AVAILABLE;
@@ -61,15 +102,23 @@ export async function updateFounderItem(id: string, fields: Fields): Promise<Fou
   if (!parsed.ok) return parsed;
   if (!(await dealBelongsToFounder(ctx, parsed.value.dealId))) return { ok: false, error: "That deal could not be found." };
   const v = parsed.value;
-  const { data, error } = await ctx.supabase
+
+  const { data: current, error: readError } = await ctx.supabase.from("founder_items").select("id, completed_at, updated_at").eq("id", id).eq("owner_id", ctx.userId).maybeSingle();
+  if (readError) return { ok: false, error: "We couldn't save that. Please try again." };
+  if (!current) return { ok: false, error: "That item could not be found." };
+  const expected = typeof fields.expectedUpdatedAt === "string" && fields.expectedUpdatedAt ? fields.expectedUpdatedAt : null;
+  if (expected && current.updated_at !== expected) return { ok: false, error: STALE_ITEM_ERROR };
+
+  const completedAt = v.completed === null ? current.completed_at : v.completed ? (current.completed_at ?? new Date().toISOString()) : null;
+  let query = ctx.supabase
     .from("founder_items")
-    .update({ kind: v.kind, title: v.title, notes: v.notes, priority: v.priority, due_at: v.dueAt, starts_at: v.startsAt, ends_at: v.endsAt, deal_id: v.dealId })
+    .update({ kind: v.kind, title: v.title, notes: v.notes, priority: v.priority, due_at: v.dueAt, starts_at: v.startsAt, ends_at: v.endsAt, deal_id: v.dealId, completed_at: completedAt })
     .eq("id", id)
-    .eq("owner_id", ctx.userId)
-    .select("id")
-    .maybeSingle();
+    .eq("owner_id", ctx.userId);
+  if (expected) query = query.eq("updated_at", expected);
+  const { data, error } = await query.select("id").maybeSingle();
   if (error) return { ok: false, error: "We couldn't save that. Please try again." };
-  if (!data) return { ok: false, error: "That item could not be found." };
+  if (!data) return { ok: false, error: expected ? STALE_ITEM_ERROR : "That item could not be found." };
   refresh();
   return { ok: true, id: data.id };
 }

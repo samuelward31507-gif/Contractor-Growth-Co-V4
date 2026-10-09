@@ -6,7 +6,7 @@ import { Panel } from "@/lib/ui/section-card";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { segmentedItemClass, segmentedTrackClass } from "@/lib/ui/segmented";
 import { getFounderDeals, getFounderItems } from "@/lib/founder/queries";
-import { ITEM_VIEWS, filterItems, isOpenDeal, isOverdue, type ItemView } from "@/lib/founder/model";
+import { ITEM_VIEWS, filterItems, isOverdue, type ItemView, toDealOptions } from "@/lib/founder/model";
 import { requireFounderPage, LoadFailed } from "../_components/page-parts";
 import { ItemList } from "../_components/item-list";
 import { AddItemButton } from "../_components/add-item-button";
@@ -26,7 +26,7 @@ export default async function FounderTasksPage({ searchParams }: { searchParams:
   const { supabase, userId, timeZone, now, today } = await requireFounderPage();
   const since = new Date(today.start.getTime() - 30 * 86_400_000).toISOString();
   const [itemsResult, dealsResult] = await Promise.all([getFounderItems(supabase, userId, since), getFounderDeals(supabase, userId)]);
-  const deals = dealsResult.ok ? dealsResult.data.filter(isOpenDeal).map((deal) => ({ id: deal.id, name: deal.name })) : [];
+  const deals = dealsResult.ok ? toDealOptions(dealsResult.data) : [];
   const items = itemsResult.ok ? filterItems(itemsResult.data, view, now, today) : [];
   const overdueCount = itemsResult.ok ? itemsResult.data.filter((item) => isOverdue(item, now)).length : 0;
 

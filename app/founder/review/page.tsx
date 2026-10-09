@@ -6,7 +6,7 @@ import { SectionCard } from "@/lib/ui/section-card";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { inputClass, secondaryButtonAutoClass } from "@/lib/ui/form";
 import { getFounderDeals, getFounderItems, getFounderReviews } from "@/lib/founder/queries";
-import { dayRange, filterItems, isOpenDeal } from "@/lib/founder/model";
+import { dayRange, filterItems, toDealOptions } from "@/lib/founder/model";
 import { formatDateKey } from "@/lib/founder/format";
 import { requireFounderPage, LoadFailed } from "../_components/page-parts";
 import { ReviewForm } from "../_components/review-form";
@@ -30,7 +30,7 @@ export default async function FounderReviewPage({ searchParams }: { searchParams
   const items = itemsResult.ok ? itemsResult.data : [];
   const completedThatDay = items.filter((item) => item.completedAt != null && new Date(item.completedAt) >= day.start && new Date(item.completedAt) < day.end);
   const overdue = filterItems(items, "overdue", now, today);
-  const deals = dealsResult.ok ? dealsResult.data.filter(isOpenDeal).map((deal) => ({ id: deal.id, name: deal.name })) : [];
+  const deals = dealsResult.ok ? toDealOptions(dealsResult.data) : [];
 
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>

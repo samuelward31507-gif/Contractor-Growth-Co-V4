@@ -54,6 +54,8 @@ export type FounderItem = {
   completedAt: string | null;
   dealId: string | null;
   createdAt: string;
+  /** For optimistic concurrency: an edit is saved only if the item hasn't changed since it was loaded. */
+  updatedAt: string;
 };
 
 export type FounderDeal = {
@@ -210,8 +212,38 @@ function oneOf<T extends string>(raw: unknown, allowed: readonly T[], fallback: 
   return (allowed as readonly string[]).includes(value) ? { ok: true, value: value as T } : { ok: false, error: `Choose a valid ${label}.` };
 }
 
-export type ItemInput = { kind: ItemKind; title: string; notes: string | null; priority: Priority; dueAt: string | null; startsAt: string | null; endsAt: string | null; dealId: string | null };
+export type ItemInput = {
+  kind: ItemKind;
+  title: string;
+  notes: string | null;
+  priority: Priority;
+  dueAt: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  dealId: string | null;
+  /** null when the form had no completion field (create, or an older client) - completion is left as it is. */
+  completed: boolean | null;
+};
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const truthy = (value: unknown) => value === true || value === "true" || value === "on";
+
+/** A valid calendar date (YYYY-MM-DD) - no rollover (2026-02-31 is invalid). */
+export function isDateKey(value: unknown): value is string {
+  if (typeof value !== "string" || !DATE_ONLY.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * Validates a task, follow-up, deadline, event or meeting.
+ *   - Tasks, follow-ups and deadlines have an optional due date/time and no
+ *     start or end (a date with no time = due by the end of that day).
+ *   - Events and meetings need a start; the end is optional and must be
+ *     after the start. `allDay` events take dates (YYYY-MM-DD, end
+ *     inclusive) and are stored as local midnight to the following local
+ *     midnight, which is how the calendar recognizes them as all-day.
+ */
 export function parseItemInput(raw: Record<string, unknown>, timeZone: string): Parsed<ItemInput> {
   const kind = oneOf(raw.kind, ITEM_KINDS, "task", "type");
   if (!kind.ok) return kind;
@@ -221,15 +253,44 @@ export function parseItemInput(raw: Record<string, unknown>, timeZone: string): 
   if (!notes.ok) return notes;
   const priority = oneOf(raw.priority, PRIORITIES, "medium", "priority");
   if (!priority.ok) return priority;
-  const dueAt = parseLocalDateTime(raw.dueAt, timeZone);
-  if (!dueAt.ok) return dueAt;
-  const startsAt = parseLocalDateTime(raw.startsAt, timeZone);
-  if (!startsAt.ok) return startsAt;
-  const endsAt = parseLocalDateTime(raw.endsAt, timeZone);
-  if (!endsAt.ok) return endsAt;
   const scheduled = SCHEDULED_KINDS.includes(kind.value);
-  if (scheduled && !startsAt.value) return { ok: false, error: "Add a start time for an event or meeting." };
-  if (endsAt.value && (!startsAt.value || endsAt.value < startsAt.value)) return { ok: false, error: "The end must be after the start." };
+
+  let dueAt: string | null = null;
+  let startsAt: string | null = null;
+  let endsAt: string | null = null;
+  if (scheduled && truthy(raw.allDay)) {
+    const startDate = String(raw.startDate ?? "").trim();
+    if (!isDateKey(startDate)) return { ok: false, error: "Choose the day of this event." };
+    const endText = String(raw.endDate ?? "").trim();
+    const endDate = endText || startDate;
+    if (!isDateKey(endDate)) return { ok: false, error: "Choose a valid end day." };
+    if (endDate < startDate) return { ok: false, error: "The end day can't be before the start day." };
+    startsAt = dayRange(startDate, timeZone).start.toISOString();
+    endsAt = dayRange(endDate, timeZone).end.toISOString();
+  } else if (scheduled) {
+    const start = parseLocalDateTime(raw.startsAt, timeZone);
+    if (!start.ok) return start;
+    if (!start.value) return { ok: false, error: "Add a start time for an event or meeting." };
+    const end = parseLocalDateTime(raw.endsAt, timeZone);
+    if (!end.ok) return end;
+    if (end.value && end.value <= start.value) return { ok: false, error: "The end must be after the start." };
+    startsAt = start.value;
+    endsAt = end.value;
+  } else {
+    // The dialog sends a due date plus an optional time; older callers send dueAt.
+    let dueRaw: unknown = raw.dueAt;
+    if (raw.dueDate !== undefined) {
+      const dueDate = String(raw.dueDate ?? "").trim();
+      const dueTime = String(raw.dueTime ?? "").trim();
+      if (dueTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(dueTime)) return { ok: false, error: "Enter a valid due time." };
+      if (dueTime && !dueDate) return { ok: false, error: "Choose a due date for that time." };
+      dueRaw = dueDate ? (dueTime ? `${dueDate}T${dueTime}` : dueDate) : "";
+    }
+    const due = parseLocalDateTime(dueRaw, timeZone);
+    if (!due.ok) return due;
+    dueAt = due.value;
+  }
+
   const dealId = String(raw.dealId ?? "").trim();
   return {
     ok: true,
@@ -238,10 +299,11 @@ export function parseItemInput(raw: Record<string, unknown>, timeZone: string): 
       title: title.value as string,
       notes: notes.value,
       priority: priority.value,
-      dueAt: scheduled ? null : dueAt.value,
-      startsAt: startsAt.value,
-      endsAt: endsAt.value,
+      dueAt,
+      startsAt,
+      endsAt,
       dealId: dealId || null,
+      completed: "completed" in raw ? truthy(raw.completed) : null,
     },
   };
 }
@@ -528,4 +590,13 @@ export function mrrSnapshot(entries: MrrEntry[], currentMonth: string) {
   const [month] = mrrHistory(entries, currentMonth, currentMonth);
   const previous = mrrHistory(entries, addMonthsKey(currentMonth, -1), addMonthsKey(currentMonth, -1))[0];
   return { ...month, previousMrr: previous.mrr };
+}
+
+/**
+ * Deals as the item dialog offers them: every deal, with won/lost marked
+ * closed. The dialog lists open deals plus whatever deal the item is already
+ * linked to, so editing an item linked to a closed deal never unlinks it.
+ */
+export function toDealOptions(deals: Pick<FounderDeal, "id" | "name" | "stage">[]): { id: string; name: string; closed: boolean }[] {
+  return deals.map((deal) => ({ id: deal.id, name: deal.name, closed: !isOpenDeal(deal) }));
 }

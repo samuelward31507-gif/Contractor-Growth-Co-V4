@@ -6,16 +6,20 @@ import { StatCard, StatGrid } from "@/lib/ui/stat-card";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { Badge } from "@/lib/ui/badge";
 import { inputClass, secondaryButtonAutoClass } from "@/lib/ui/form";
-import { getFounderDeals } from "@/lib/founder/queries";
-import { DEAL_STAGES, DEAL_STAGE_LABELS, OPEN_DEAL_STAGES, filterDeals, pipelineSummary, type DealStage, type FounderDeal } from "@/lib/founder/model";
-import { formatDateKey, formatDateTime, formatMoney } from "@/lib/founder/format";
+import { getFounderDeals, getFounderItems } from "@/lib/founder/queries";
+import { DEAL_STAGES, DEAL_STAGE_LABELS, OPEN_DEAL_STAGES, filterDeals, isOverdue, itemTime, localDateKey, pipelineSummary, sortByTimeThenPriority, toDealOptions, type DealStage, type FounderDeal, type FounderItem } from "@/lib/founder/model";
+import { calendarHref } from "@/lib/founder/calendar";
+import { formatDateKey, formatDateTime, formatDay, formatMoney } from "@/lib/founder/format";
 import { requireFounderPage, LoadFailed } from "../_components/page-parts";
 import { AddDealButton, DealControls } from "../_components/deal-controls";
+import { AddItemButton } from "../_components/add-item-button";
+import { KindIcon } from "../_components/kind-icon";
+import type { DealOption } from "../_components/item-dialog";
 
 type StageFilter = DealStage | "open" | "all";
 const STAGE_FILTERS: { id: StageFilter; label: string }[] = [{ id: "open", label: "Open" }, { id: "all", label: "All" }, ...DEAL_STAGES.map((stage) => ({ id: stage, label: DEAL_STAGE_LABELS[stage] }))];
 
-function DealCard({ deal, timeZone, todayKey, now }: { deal: FounderDeal; timeZone: string; todayKey: string; now: Date }) {
+function DealCard({ deal, timeZone, todayKey, now, linked, dealOptions }: { deal: FounderDeal; timeZone: string; todayKey: string; now: Date; linked: FounderItem[]; dealOptions: DealOption[] }) {
   const followUpOverdue = deal.nextActionAt != null && new Date(deal.nextActionAt) < now && OPEN_DEAL_STAGES.includes(deal.stage);
   return (
     <li className="rounded-lg border border-line bg-surface p-3">
@@ -38,8 +42,32 @@ function DealCard({ deal, timeZone, todayKey, now }: { deal: FounderDeal; timeZo
           {deal.nextActionAt ? ` · ${formatDateTime(deal.nextActionAt, timeZone)}` : ""}
         </p>
       ) : null}
-      <div className="mt-2 border-t border-line pt-2">
+      {linked.length ? (
+        <ul className="mt-2 space-y-0.5" aria-label={`Open items for ${deal.name}`}>
+          {linked.slice(0, 3).map((item) => {
+            const at = itemTime(item);
+            return (
+              <li key={item.id} className="flex items-center gap-1.5 text-xs text-ink-2">
+                <KindIcon kind={item.kind} className="h-3 w-3 text-ink-3" />
+                <span className="truncate">{item.title}</span>
+                {at ? (
+                  <Link href={calendarHref("day", localDateKey(new Date(at), timeZone))} className={`ml-auto shrink-0 tabular-nums hover:underline ${isOverdue(item, now) ? "font-medium text-danger-text" : "text-ink-3"}`}>
+                    {formatDay(at, timeZone)}
+                  </Link>
+                ) : (
+                  <span className="ml-auto shrink-0 text-ink-4">No date</span>
+                )}
+              </li>
+            );
+          })}
+          {linked.length > 3 ? <li className="text-xs text-ink-3">+{linked.length - 3} more open</li> : null}
+        </ul>
+      ) : null}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-1 border-t border-line pt-2">
         <DealControls deal={deal} timeZone={timeZone} todayKey={todayKey} />
+        {OPEN_DEAL_STAGES.includes(deal.stage) ? (
+          <AddItemButton label="Follow-up" defaultKind="follow_up" defaults={{ dealId: deal.id, date: todayKey }} deals={dealOptions} timeZone={timeZone} variant="secondary" />
+        ) : null}
       </div>
     </li>
   );
@@ -51,11 +79,21 @@ export default async function FounderDealsPage({ searchParams }: { searchParams:
   const query = typeof params.q === "string" ? params.q.slice(0, 200) : "";
   const stage = (STAGE_FILTERS.find((f) => f.id === params.stage)?.id ?? "open") as StageFilter;
   const { supabase, userId, timeZone, now, todayKey, monthKey } = await requireFounderPage();
-  const result = await getFounderDeals(supabase, userId);
+  const [result, itemsResult] = await Promise.all([getFounderDeals(supabase, userId), getFounderItems(supabase, userId, new Date(now.getTime() - 30 * 86_400_000).toISOString())]);
   const deals = result.ok ? result.data : [];
+  const dealOptions = toDealOptions(deals);
   const summary = pipelineSummary(deals, monthKey);
-  const visible = filterDeals(deals, query, stage);
-  const columns = (stage === "open" ? OPEN_DEAL_STAGES : stage === "all" ? [...DEAL_STAGES] : [stage]) as DealStage[];
+  // ?deal= focuses one deal (where an item's "linked deal" link lands), whatever its stage.
+  const focusId = typeof params.deal === "string" ? params.deal : null;
+  const focused = focusId ? deals.find((deal) => deal.id === focusId) ?? null : null;
+  const visible = focused ? [focused] : filterDeals(deals, query, stage);
+  const columns = (focused ? [focused.stage] : stage === "open" ? OPEN_DEAL_STAGES : stage === "all" ? [...DEAL_STAGES] : [stage]) as DealStage[];
+  const openItemsByDeal = new Map<string, FounderItem[]>();
+  if (itemsResult.ok) {
+    for (const item of sortByTimeThenPriority(itemsResult.data.filter((i) => i.completedAt == null && i.dealId))) {
+      openItemsByDeal.set(item.dealId as string, [...(openItemsByDeal.get(item.dealId as string) ?? []), item]);
+    }
+  }
   const qs = (next: Partial<{ q: string; stage: string }>) => {
     const sp = new URLSearchParams();
     const q = next.q ?? query;
@@ -103,6 +141,18 @@ export default async function FounderDealsPage({ searchParams }: { searchParams:
             </nav>
           </div>
 
+          {focusId && !focused ? (
+            <p role="status" className="text-sm text-ink-3">
+              That deal isn&rsquo;t in your pipeline (it may have been deleted). <Link href="/founder/deals" className="font-medium text-ink-2 underline">Show all deals</Link>
+            </p>
+          ) : null}
+          {focused ? (
+            <p role="status" className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
+              Showing <span className="font-medium text-ink">{focused.name}</span> ({DEAL_STAGE_LABELS[focused.stage]}).
+              <Link href="/founder/deals" className="font-medium underline underline-offset-2">Show all deals</Link>
+            </p>
+          ) : null}
+          {!itemsResult.ok ? <LoadFailed what="Items linked to your deals" /> : null}
           {deals.length === 0 ? (
             <EmptyState icon={Handshake} title="No deals yet" description="Add your first deal to start tracking the pipeline, next actions and follow-ups." />
           ) : visible.length === 0 ? (
@@ -121,7 +171,7 @@ export default async function FounderDealsPage({ searchParams }: { searchParams:
                       {inColumn.length ? (
                         <ul className="mt-1 space-y-2">
                           {inColumn.map((deal) => (
-                            <DealCard key={deal.id} deal={deal} timeZone={timeZone} todayKey={todayKey} now={now} />
+                            <DealCard key={deal.id} deal={deal} timeZone={timeZone} todayKey={todayKey} now={now} linked={openItemsByDeal.get(deal.id) ?? []} dealOptions={dealOptions} />
                           ))}
                         </ul>
                       ) : (
