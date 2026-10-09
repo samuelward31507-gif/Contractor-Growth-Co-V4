@@ -27,6 +27,8 @@ export type InvoiceDeliveryView = {
   blockedMessage: string | null;
   maskedPhone: string | null;
   lastDeliveredLabel: string | null;
+  /** The text links to online card payment when it is available; otherwise to the invoice to view only. */
+  cardPayment: boolean;
 };
 
 /**
@@ -143,7 +145,7 @@ export function InvoiceActions({ invoice, delivery }: { invoice: InvoiceActionsI
             Send {formatInvoiceNumber(invoice.number)} {isResend ? "again?" : "to the customer?"}
           </DialogTitle>
           <DialogDescription>
-            We&apos;ll text {delivery.maskedPhone ?? "the customer"} the invoice number, balance due, due date and a secure payment link.
+            We&apos;ll text {delivery.maskedPhone ?? "the customer"} the invoice number, balance due, due date and {delivery.cardPayment ? "a secure payment link" : "a link to view the invoice (online card payment isn't set up, so it asks them to contact you to pay)"}.
             {isResend ? ` It was last sent ${delivery.lastDeliveredLabel}, so the customer will get another text.` : ""}
           </DialogDescription>
           {error ? (

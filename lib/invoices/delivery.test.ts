@@ -102,8 +102,13 @@ beforeEach(() => {
 
 test("wording: the approved initial-delivery text with the business name, invoice number, balance, due date and payment link", () => {
   assert.equal(
-    composeInvoiceDeliveryMessage({ businessName: "Acme Roofing", invoiceNumber: 123, balanceDue: 450, dueDate: "2026-10-19", paymentUrl: `${BASE_URL}/pay/${TOKEN}` }),
+    composeInvoiceDeliveryMessage({ businessName: "Acme Roofing", invoiceNumber: 123, balanceDue: 450, dueDate: "2026-10-19", invoiceUrl: `${BASE_URL}/pay/${TOKEN}`, cardPayment: true }),
     `Acme Roofing: Invoice INV-000123 for $450 is ready. It's due Oct 19, 2026. Pay securely: ${BASE_URL}/pay/${TOKEN} Reply STOP to opt out.`,
+  );
+  // Without online card payment the same invoice page is offered to view - never "Pay securely".
+  assert.equal(
+    composeInvoiceDeliveryMessage({ businessName: "Acme Roofing", invoiceNumber: 123, balanceDue: 450, dueDate: null, invoiceUrl: `${BASE_URL}/pay/${TOKEN}`, cardPayment: false }),
+    `Acme Roofing: Invoice INV-000123 for $450 is ready. View it here: ${BASE_URL}/pay/${TOKEN} Reply STOP to opt out.`,
   );
   assert.equal(formatDueDate("2026-01-01"), "Jan 1, 2026", "a calendar date never shifts a day across time zones");
   assert.equal(maskPhone(PHONE), "•••• 0123");
@@ -156,7 +161,6 @@ test("blocked: each failed precondition sends nothing, records nothing and retur
     ["contact belongs to another organization", { contacts: [{ ...CONTACT, organization_id: "org-2" }] }, "no_contact"],
     ["no phone", { contacts: [{ ...CONTACT, phone: null, phone_normalized: null }] }, "no_phone"],
     ["opted out", { contacts: [{ ...CONTACT, sms_opt_out: true }] }, "opted_out"],
-    ["Stripe Connect not ready", { organizations: [{ ...ORG, stripe_connect_charges_enabled: false }] }, "link_not_accepting"],
     ["malformed token", { invoices: [{ ...INVOICE, payment_token: "not-a-token" }] }, "link_unavailable"],
   ];
   for (const [name, overrides, reason] of cases) {
@@ -169,11 +173,42 @@ test("blocked: each failed precondition sends nothing, records nothing and retur
 });
 
 test("blocked: an organization whose payment isn't active, or no app base URL, never sends a link", async () => {
-  for (const context of [{ ...CONTEXT, paymentStatus: "suspended" }, { ...CONTEXT, baseUrl: null }]) {
+  const cases: [Record<string, unknown>, keyof typeof DELIVERY_BLOCK_MESSAGE, Partial<World>?][] = [
+    [{ ...CONTEXT, paymentStatus: "suspended" }, "subscription_inactive"],
+    [{ ...CONTEXT, paymentStatus: null }, "subscription_inactive"],
+    [{ ...CONTEXT, baseUrl: null }, "link_unavailable"],
+    // Without Stripe Connect the inactive subscription and missing base URL still block.
+    [{ ...CONTEXT, paymentStatus: "suspended" }, "subscription_inactive", { organizations: [{ ...ORG, stripe_connect_account_id: null, stripe_connect_charges_enabled: false }] }],
+    [{ ...CONTEXT, baseUrl: null }, "link_unavailable", { organizations: [{ ...ORG, stripe_connect_account_id: null, stripe_connect_charges_enabled: false }] }],
+  ];
+  for (const [context, reason, overrides] of cases) {
+    sends.length = 0;
     const { emitted, emitLifecycleEvent } = emitRecorder();
-    const result = await deliverInvoiceToCustomer(fakeSupabase(world()), "org-1", "inv-1", context, { emitLifecycleEvent });
-    assert.equal(result.ok, false);
+    const result = await deliverInvoiceToCustomer(fakeSupabase(world(overrides)), "org-1", "inv-1", context as typeof CONTEXT, { emitLifecycleEvent });
+    assert.deepEqual(result, { ok: false, error: DELIVERY_BLOCK_MESSAGE[reason] }, reason);
     assert.deepEqual([sends.length, emitted.length], [0, 0]);
+  }
+});
+
+test("no Stripe Connect: the invoice is still delivered, linking to the invoice to view - never offering card payment - and the payment link itself stays unavailable", async () => {
+  const noConnect: [string, Row][] = [
+    ["never connected", { ...ORG, stripe_connect_account_id: null, stripe_connect_charges_enabled: false, stripe_connect_payouts_enabled: false, stripe_connect_details_submitted: false }],
+    ["onboarding incomplete (charges disabled)", { ...ORG, stripe_connect_charges_enabled: false }],
+  ];
+  for (const [name, org] of noConnect) {
+    sends.length = 0;
+    const { emitted, emitLifecycleEvent } = emitRecorder();
+    const w = world({ organizations: [org] });
+    const result = await deliverInvoiceToCustomer(fakeSupabase(w), "org-1", "inv-1", CONTEXT, { emitLifecycleEvent, now: () => new Date("2026-10-09T12:00:00Z") });
+    assert.deepEqual(result, { ok: true, deliveredAt: "2026-10-09T12:00:00.000Z" }, name);
+    assert.equal(sends.length, 1, name);
+    assert.equal(sends[0].body, `Acme Roofing: Invoice INV-000123 for $450 is ready. It's due Oct 19, 2026. View it here: ${BASE_URL}/pay/${TOKEN} Reply STOP to opt out.`, name);
+    assert.doesNotMatch(sends[0].body, /Pay securely|pay by card|payment link/i, `${name}: never claims online payment`);
+    assert.equal(emitted.length, 1, `${name}: the delivery is recorded`);
+    // The page says what will be sent; the copy-payment-link rule is unchanged (still not_accepting).
+    assert.deepEqual(await getInvoiceDeliveryState(fakeSupabase(w), "org-1", "inv-1", CONTEXT), { blockedReason: null, maskedPhone: "•••• 0123", lastDeliveredAt: null, cardPayment: false }, name);
+    const { describePaymentLink } = await import(lib("lib/payments/payment-link.ts"));
+    assert.deepEqual(describePaymentLink({ invoiceStatus: "sent", token: TOKEN, paymentStatus: "active", connect: { accountId: org.stripe_connect_account_id as string | null, chargesEnabled: false }, baseUrl: BASE_URL }), { kind: "not_accepting" }, `${name}: no payment link without Stripe`);
   }
 });
 
@@ -204,9 +239,9 @@ test("page state: sendable shows the masked number and the latest successful del
     { organization_id: "org-1", event_type: "invoice.delivered", entity_type: "invoice", entity_id: "inv-1", created_at: "2026-10-08T10:00:00Z" },
     { organization_id: "org-2", event_type: "invoice.delivered", entity_type: "invoice", entity_id: "inv-1", created_at: "2026-10-09T10:00:00Z" },
   ] });
-  assert.deepEqual(await getInvoiceDeliveryState(fakeSupabase(w), "org-1", "inv-1", CONTEXT), { blockedReason: null, maskedPhone: "•••• 0123", lastDeliveredAt: "2026-10-08T10:00:00Z" });
+  assert.deepEqual(await getInvoiceDeliveryState(fakeSupabase(w), "org-1", "inv-1", CONTEXT), { blockedReason: null, maskedPhone: "•••• 0123", lastDeliveredAt: "2026-10-08T10:00:00Z", cardPayment: true });
   const blocked = await getInvoiceDeliveryState(fakeSupabase(world({ contacts: [{ ...CONTACT, sms_opt_out: true }] })), "org-1", "inv-1", CONTEXT);
-  assert.deepEqual(blocked, { blockedReason: "opted_out", maskedPhone: null, lastDeliveredAt: null });
+  assert.deepEqual(blocked, { blockedReason: "opted_out", maskedPhone: null, lastDeliveredAt: null, cardPayment: null });
 });
 
 // ---------------------------------------------------------------------------
@@ -232,4 +267,7 @@ test("UI: Send to customer / Send again behind a confirmation dialog, disabled w
   assert.match(ui, /dialog === "send" && delivery/);
   assert.match(ui, /run\(\(\) => sendInvoiceToCustomer\(invoice\.id\)\)/);
   assert.match(ui, /Last sent to customer \{delivery\.lastDeliveredLabel\}/);
+  // The confirmation says what the text links to: card payment only when it's available.
+  assert.match(ui, /delivery\.cardPayment \? "a secure payment link" : "a link to view the invoice/);
+  assert.match(fs.readFileSync(path.join(process.cwd(), "app/(app)/invoices/[id]/page.tsx"), "utf8"), /cardPayment: deliveryState\.cardPayment === true/);
 });

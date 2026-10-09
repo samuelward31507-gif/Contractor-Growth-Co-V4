@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { describePaymentLink, type PaymentLinkView } from "@/lib/payments/payment-link";
+import { buildPaymentUrl, describePaymentLink } from "@/lib/payments/payment-link";
 import { getOrganizationConnectStatus } from "@/lib/payments/connect";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
 import { sendOutboundMessage } from "@/lib/messaging/outbound";
@@ -17,10 +17,16 @@ import { formatInvoiceNumber, formatMoney, type InvoiceStatus } from "./domain";
  * explicit organization filter decide what can be read and written, and the
  * database payment gate applies. Everything is re-read immediately before
  * sending: the invoice must be sent or partially paid with a balance, the
- * contact must exist with a phone and not have opted out, and the payment
- * link must be usable (describePaymentLink "ready" - the same rule the
- * contractor's copy-link row and the pay page use). Nothing is sent without
- * a usable link. The send goes through sendOutboundMessage (opt-out
+ * contact must exist with a phone and not have opted out, and the invoice
+ * link must be usable. The link is always the public /pay/<token> invoice
+ * page. Card payment is a separate question: only when describePaymentLink
+ * is "ready" (Stripe Connect charges enabled and an active subscription -
+ * the same rule the copy-link row, the pay page and Checkout use) does the
+ * text offer to "Pay securely". Without Stripe Connect the same page shows
+ * the invoice and asks the customer to contact the business to pay, so the
+ * text only says "View it here" - delivering an invoice never requires
+ * Stripe, and never claims online payment that isn't there. An inactive
+ * Trackpr subscription still blocks sending. The send goes through sendOutboundMessage (opt-out
  * enforced again there, message recorded) - never a raw provider call - and
  * only a successful send records invoice.delivered. Automation pause does
  * not apply: this is a person's own action, not an automation.
@@ -36,7 +42,7 @@ export type InvoiceDeliveryBlockReason =
   | "no_contact"
   | "no_phone"
   | "opted_out"
-  | "link_not_accepting"
+  | "subscription_inactive"
   | "link_unavailable";
 
 export const DELIVERY_BLOCK_MESSAGE: Record<InvoiceDeliveryBlockReason, string> = {
@@ -46,7 +52,7 @@ export const DELIVERY_BLOCK_MESSAGE: Record<InvoiceDeliveryBlockReason, string> 
   no_contact: "Add a customer to this invoice's job before sending it.",
   no_phone: "Add a phone number for this customer before sending.",
   opted_out: "This customer has opted out of text messages.",
-  link_not_accepting: "Connect Stripe to accept card payments before sending a payment link.",
+  subscription_inactive: "Sending invoices is paused while your Trackpr subscription is inactive.",
   link_unavailable: "A payment link isn't available for this invoice right now.",
 };
 
@@ -61,10 +67,14 @@ export function formatDueDate(date: string): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, day)));
 }
 
-/** The approved initial-delivery wording. */
-export function composeInvoiceDeliveryMessage(input: { businessName: string; invoiceNumber: number; balanceDue: number; dueDate: string | null; paymentUrl: string }): string {
+/**
+ * The approved initial-delivery wording. "Pay securely" only when the link can
+ * take a card payment; otherwise the same invoice page is offered to view.
+ */
+export function composeInvoiceDeliveryMessage(input: { businessName: string; invoiceNumber: number; balanceDue: number; dueDate: string | null; invoiceUrl: string; cardPayment: boolean }): string {
   const due = input.dueDate ? ` It's due ${formatDueDate(input.dueDate)}.` : "";
-  return `${input.businessName}: Invoice ${formatInvoiceNumber(input.invoiceNumber)} for ${formatMoney(input.balanceDue)} is ready.${due} Pay securely: ${input.paymentUrl} Reply STOP to opt out.`;
+  const link = input.cardPayment ? `Pay securely: ${input.invoiceUrl}` : `View it here: ${input.invoiceUrl}`;
+  return `${input.businessName}: Invoice ${formatInvoiceNumber(input.invoiceNumber)} for ${formatMoney(input.balanceDue)} is ready.${due} ${link} Reply STOP to opt out.`;
 }
 
 /** "•••• 0100" - enough for the contractor to recognize the number, without showing it in full. */
@@ -73,12 +83,9 @@ export function maskPhone(phone: string): string {
   return digits.length >= 4 ? `•••• ${digits.slice(-4)}` : "••••";
 }
 
-type Ready = { ok: true; invoice: InvoiceRow; contact: ContactRow; balanceDue: number; paymentUrl: string };
+/** cardPayment: the link can take a card payment (Stripe Connect ready); otherwise it shows the invoice only. */
+type Ready = { ok: true; invoice: InvoiceRow; contact: ContactRow; balanceDue: number; invoiceUrl: string; cardPayment: boolean };
 type Blocked = { ok: false; reason: InvoiceDeliveryBlockReason };
-
-function linkBlock(view: PaymentLinkView): InvoiceDeliveryBlockReason {
-  return view.kind === "not_accepting" ? "link_not_accepting" : "link_unavailable";
-}
 
 /** Re-reads the invoice, contact and payment link and decides whether a send is allowed right now. */
 async function checkDeliverable(supabase: SupabaseClient, organizationId: string, invoiceId: string, context: { paymentStatus: string | null | undefined; baseUrl: string | null }): Promise<Ready | Blocked> {
@@ -101,11 +108,15 @@ async function checkDeliverable(supabase: SupabaseClient, organizationId: string
   if (!(contact.phone_normalized ?? contact.phone)) return { ok: false, reason: "no_phone" };
   if (contact.sms_opt_out) return { ok: false, reason: "opted_out" };
 
+  if (context.paymentStatus !== "active") return { ok: false, reason: "subscription_inactive" };
+
   const connect = await getOrganizationConnectStatus(supabase, organizationId);
   const link = describePaymentLink({ invoiceStatus: invoice.status, token: invoice.payment_token, paymentStatus: context.paymentStatus, connect, baseUrl: context.baseUrl });
-  if (link.kind !== "ready") return { ok: false, reason: linkBlock(link) };
-
-  return { ok: true, invoice, contact, balanceDue, paymentUrl: link.url };
+  if (link.kind === "ready") return { ok: true, invoice, contact, balanceDue, invoiceUrl: link.url, cardPayment: true };
+  // No Stripe Connect: the same /pay/<token> page still shows the invoice (and how to reach the business) - view only.
+  const viewUrl = link.kind === "not_accepting" && context.baseUrl && invoice.payment_token ? buildPaymentUrl(context.baseUrl, invoice.payment_token) : null;
+  if (!viewUrl) return { ok: false, reason: "link_unavailable" };
+  return { ok: true, invoice, contact, balanceDue, invoiceUrl: viewUrl, cardPayment: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +130,8 @@ export type InvoiceDeliveryState = {
   maskedPhone: string | null;
   /** When the latest successful "Send to customer" happened, or null if never. */
   lastDeliveredAt: string | null;
+  /** True when the text would offer card payment; false when it links to the invoice to view only; null when blocked. */
+  cardPayment: boolean | null;
 };
 
 export async function getInvoiceDeliveryState(
@@ -128,8 +141,8 @@ export async function getInvoiceDeliveryState(
   context: { paymentStatus: string | null | undefined; baseUrl: string | null },
 ): Promise<InvoiceDeliveryState> {
   const [check, lastDelivered] = await Promise.all([checkDeliverable(supabase, organizationId, invoiceId, context), getLastInvoiceDeliveryAt(supabase, organizationId, invoiceId)]);
-  if (check.ok) return { blockedReason: null, maskedPhone: maskPhone((check.contact.phone_normalized ?? check.contact.phone)!), lastDeliveredAt: lastDelivered };
-  return { blockedReason: check.reason, maskedPhone: null, lastDeliveredAt: lastDelivered };
+  if (check.ok) return { blockedReason: null, maskedPhone: maskPhone((check.contact.phone_normalized ?? check.contact.phone)!), lastDeliveredAt: lastDelivered, cardPayment: check.cardPayment };
+  return { blockedReason: check.reason, maskedPhone: null, lastDeliveredAt: lastDelivered, cardPayment: null };
 }
 
 /** The latest successful delivery - the newest invoice.delivered event for this invoice. */
@@ -162,12 +175,12 @@ export async function deliverInvoiceToCustomer(
 ): Promise<InvoiceDeliveryResult> {
   const check = await checkDeliverable(supabase, organizationId, invoiceId, context);
   if (!check.ok) return { ok: false, error: DELIVERY_BLOCK_MESSAGE[check.reason] };
-  const { invoice, contact, balanceDue, paymentUrl } = check;
+  const { invoice, contact, balanceDue, invoiceUrl, cardPayment } = check;
 
   const conversation = await findOrCreateOpenConversation(supabase, organizationId, contact.id, "sms");
   if (!conversation) return { ok: false, error: "We couldn't open a conversation with this customer. Please try again." };
 
-  const body = composeInvoiceDeliveryMessage({ businessName: context.businessName?.trim() || "Your contractor", invoiceNumber: invoice.number, balanceDue, dueDate: invoice.due_date, paymentUrl });
+  const body = composeInvoiceDeliveryMessage({ businessName: context.businessName?.trim() || "Your contractor", invoiceNumber: invoice.number, balanceDue, dueDate: invoice.due_date, invoiceUrl, cardPayment });
   const send = await sendOutboundMessage(supabase, { organizationId, contactId: contact.id, conversationId: conversation.id, channel: "sms", senderType: "user", body, sendSmsFn: deps.sendSmsFn });
   if (!send.ok) {
     // The provider's own message is never surfaced (it can echo the number); opt-out raced in since the check is reported as such.

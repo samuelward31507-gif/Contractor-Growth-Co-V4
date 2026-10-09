@@ -70,6 +70,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         blockedMessage: deliveryState.blockedReason ? DELIVERY_BLOCK_MESSAGE[deliveryState.blockedReason] : null,
         maskedPhone: deliveryState.maskedPhone,
         lastDeliveredLabel: deliveryState.lastDeliveredAt ? formatContactDate(deliveryState.lastDeliveredAt) : null,
+        cardPayment: deliveryState.cardPayment === true,
       }
     : undefined;
   const label = formatInvoiceNumber(invoice.number);
