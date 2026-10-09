@@ -19,6 +19,7 @@ import { PaymentLinkRow } from "./_components/payment-link-row";
 import { getInvoicePaymentLink } from "@/lib/payments/payment-link";
 import { getInvoiceDeliveryState, DELIVERY_BLOCK_MESSAGE } from "@/lib/invoices/delivery";
 import { resolveAppBaseUrl } from "@/lib/automation/sms";
+import { canSimulateSmsDelivery } from "@/lib/messaging/simulated-delivery";
 
 /**
  * Phase 1B-3: the invoice record. Every money figure on this page is read
@@ -71,6 +72,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         maskedPhone: deliveryState.maskedPhone,
         lastDeliveredLabel: deliveryState.lastDeliveredAt ? formatContactDate(deliveryState.lastDeliveredAt) : null,
         cardPayment: deliveryState.cardPayment === true,
+        // Test environments with no SMS provider only - never true in production.
+        simulationAvailable: canSimulateSmsDelivery(),
       }
     : undefined;
   const label = formatInvoiceNumber(invoice.number);

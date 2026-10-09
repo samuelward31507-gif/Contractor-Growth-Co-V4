@@ -6,7 +6,7 @@ import { MessageSquare, Send, Wallet } from "lucide-react";
 import { destructiveButtonAutoClass, destructiveGhostButtonAutoClass, errorBannerClass, ghostButtonClass, inputClass, labelClass, primaryButtonAutoClass, secondaryButtonAutoClass } from "@/lib/ui/form";
 import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
 import { canIssue, canVoid, formatInvoiceNumber, formatMoney, type InvoiceStatus } from "@/lib/invoices/domain";
-import { issueInvoice, sendInvoiceToCustomer, voidInvoice } from "../../actions";
+import { issueInvoice, sendInvoiceToCustomer, simulateInvoiceSendToCustomer, voidInvoice } from "../../actions";
 import { RecordPaymentDialog } from "./record-payment-dialog";
 
 export type InvoiceActionsInvoice = {
@@ -29,6 +29,8 @@ export type InvoiceDeliveryView = {
   lastDeliveredLabel: string | null;
   /** The text links to online card payment when it is available; otherwise to the invoice to view only. */
   cardPayment: boolean;
+  /** Test environment with no SMS provider: offer "Simulate send (no SMS)". The server re-checks. */
+  simulationAvailable: boolean;
 };
 
 /**
@@ -51,10 +53,12 @@ export function InvoiceActions({ invoice, delivery }: { invoice: InvoiceActionsI
   const [issueDueDate, setIssueDueDate] = useState(invoice.dueDate ?? "");
   const [voidReason, setVoidReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [simulatedNotice, setSimulatedNotice] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  function run(action: () => Promise<{ ok: boolean; error?: string }>) {
+  function run(action: () => Promise<{ ok: boolean; error?: string; simulated?: true }>) {
     setError(null);
+    setSimulatedNotice(false);
     startTransition(async () => {
       const result = await action();
       if (!result.ok) {
@@ -62,6 +66,7 @@ export function InvoiceActions({ invoice, delivery }: { invoice: InvoiceActionsI
         return;
       }
       setDialog(null);
+      if (result.simulated) setSimulatedNotice(true);
       router.refresh();
     });
   }
@@ -103,6 +108,11 @@ export function InvoiceActions({ invoice, delivery }: { invoice: InvoiceActionsI
 
       {showSend && sendBlocked ? <p className="text-xs text-ink-3">{sendBlocked}</p> : null}
       {showSend && delivery?.lastDeliveredLabel ? <p className="text-xs text-ink-3">Last sent to customer {delivery.lastDeliveredLabel}</p> : null}
+      {simulatedNotice ? (
+        <p role="status" className="text-xs font-medium text-warning-text">
+          Simulated send: no SMS was delivered and the customer was not contacted. It&apos;s recorded on their conversation as SIMULATED.
+        </p>
+      ) : null}
 
       {error && dialog === null ? (
         <p className={errorBannerClass} role="alert">
@@ -148,6 +158,11 @@ export function InvoiceActions({ invoice, delivery }: { invoice: InvoiceActionsI
             We&apos;ll text {delivery.maskedPhone ?? "the customer"} the invoice number, balance due, due date and {delivery.cardPayment ? "a secure payment link" : "a link to view the invoice (online card payment isn't set up, so it asks them to contact you to pay)"}.
             {isResend ? ` It was last sent ${delivery.lastDeliveredLabel}, so the customer will get another text.` : ""}
           </DialogDescription>
+          {delivery.simulationAvailable ? (
+            <p className="mt-3 rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-text">
+              Test environment: SMS isn&apos;t configured here, so Send text can&apos;t deliver. Simulate send records the message as SIMULATED on the customer&apos;s conversation without texting anyone.
+            </p>
+          ) : null}
           {error ? (
             <p className={`mt-4 ${errorBannerClass}`} role="alert">
               {error}
@@ -157,6 +172,11 @@ export function InvoiceActions({ invoice, delivery }: { invoice: InvoiceActionsI
             <button type="button" onClick={() => setDialog(null)} className={ghostButtonClass} disabled={isPending}>
               Cancel
             </button>
+            {delivery.simulationAvailable ? (
+              <button type="button" disabled={isPending} onClick={() => run(() => simulateInvoiceSendToCustomer(invoice.id))} className={secondaryButtonAutoClass}>
+                {isPending ? "Simulating…" : "Simulate send (no SMS)"}
+              </button>
+            ) : null}
             <button type="button" disabled={isPending} onClick={() => run(() => sendInvoiceToCustomer(invoice.id))} className={primaryButtonAutoClass}>
               {isPending ? "Sending…" : "Send text"}
             </button>

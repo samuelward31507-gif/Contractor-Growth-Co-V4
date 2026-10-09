@@ -20,6 +20,7 @@ import {
 } from "@/lib/invoices/service";
 import { deliverInvoiceToCustomer, type InvoiceDeliveryResult } from "@/lib/invoices/delivery";
 import { resolveAppBaseUrl } from "@/lib/automation/sms";
+import { canSimulateSmsDelivery } from "@/lib/messaging/simulated-delivery";
 
 /**
  * Phase 1B-2 (Close the Money Loop): the Server Action surface for invoices
@@ -108,6 +109,23 @@ export async function reverseCustomerPayment(paymentId: string, notes?: string |
 export async function sendInvoiceToCustomer(invoiceId: string): Promise<InvoiceDeliveryResult> {
   const { supabase, organizationId, paymentStatus, organizationName } = await requireOrganization();
   const result = await deliverInvoiceToCustomer(supabase, organizationId, invoiceId, { paymentStatus, baseUrl: resolveAppBaseUrl(), businessName: organizationName });
+  if (result.ok) revalidateInvoiceSurfaces(invoiceId, null);
+  return result;
+}
+
+/**
+ * Test environments only: the same "Send to customer" checks and message,
+ * recorded on the customer's thread as SIMULATED - no SMS is sent, no phone
+ * is contacted and nothing counts as delivered (lib/messaging/
+ * simulated-delivery.ts). Refused unless canSimulateSmsDelivery()
+ * (non-production deployment with no SMS provider configured); the outbound
+ * path re-checks the same rule. A separate, explicit action - the normal send
+ * never falls back to it.
+ */
+export async function simulateInvoiceSendToCustomer(invoiceId: string): Promise<InvoiceDeliveryResult> {
+  if (!canSimulateSmsDelivery()) return { ok: false, error: "Simulated sending is only available in a test environment without SMS configured." };
+  const { supabase, organizationId, paymentStatus, organizationName } = await requireOrganization();
+  const result = await deliverInvoiceToCustomer(supabase, organizationId, invoiceId, { paymentStatus, baseUrl: resolveAppBaseUrl(), businessName: organizationName, simulate: true });
   if (result.ok) revalidateInvoiceSurfaces(invoiceId, null);
   return result;
 }

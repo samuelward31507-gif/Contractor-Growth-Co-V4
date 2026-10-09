@@ -22,9 +22,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const lib = (relative: string) => pathToFileURL(path.join(process.cwd(), relative)).href;
 
-type SendCall = { organizationId: string; contactId: string; conversationId?: string | null; channel?: string; senderType?: string; body: string };
+type SendCall = { organizationId: string; contactId: string; conversationId?: string | null; channel?: string; senderType?: string; body: string; simulate?: true; simulationEnv?: unknown };
 const sends: SendCall[] = [];
-let sendResult: { ok: true; messageId: string; conversationId: string; providerMessageId: string } | { ok: false; error: string; messageId: string | null; conversationId: string | null; providerUnconfigured?: true; providerErrorCode?: string; recipientOptedOut?: true } = { ok: true, messageId: "msg-1", conversationId: "conv-1", providerMessageId: "SM1" };
+let sendResult: { ok: true; messageId: string; conversationId: string; providerMessageId: string; simulated?: true } | { ok: false; error: string; messageId: string | null; conversationId: string | null; providerUnconfigured?: true; providerErrorCode?: string; recipientOptedOut?: true } = { ok: true, messageId: "msg-1", conversationId: "conv-1", providerMessageId: "SM1" };
 
 mock.module(lib("lib/messaging/outbound.ts"), {
   namedExports: {
@@ -254,6 +254,58 @@ test("failure diagnostics: the server log names an actionable cause (and provide
     console.error = original;
   }
   assert.equal(deliveryFailureCause({ ok: false, error: "x", messageId: "m", conversationId: "c", recipientOptedOut: true }), "recipient_opted_out");
+});
+
+test("simulated send: the same checks and message, passed to the outbound path as simulate - no invoice.delivered, and the result says simulated", async () => {
+  sendResult = { ok: true, messageId: "msg-sim", conversationId: "conv-1", providerMessageId: "sim_x", simulated: true };
+  const { emitted, emitLifecycleEvent } = emitRecorder();
+  const simulationEnv = { VERCEL_ENV: "preview" };
+  const result = await deliverInvoiceToCustomer(fakeSupabase(world()), "org-1", "inv-1", { ...CONTEXT, simulate: true }, { emitLifecycleEvent, simulationEnv: simulationEnv as unknown as NodeJS.ProcessEnv, now: () => new Date("2026-10-09T12:00:00Z") });
+  assert.deepEqual(result, { ok: true, deliveredAt: "2026-10-09T12:00:00.000Z", simulated: true });
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].simulate, true);
+  assert.equal(sends[0].simulationEnv, simulationEnv);
+  assert.equal(sends[0].body, `Acme Roofing: Invoice INV-000123 for $450 is ready. It's due Oct 19, 2026. Pay securely: ${BASE_URL}/pay/${TOKEN} Reply STOP to opt out.`, "the exact message a real send would use");
+  assert.equal(emitted.length, 0, "a simulation is never recorded as a delivery");
+});
+
+test("simulated send keeps every safeguard: opt-out, inactive subscription, wrong status and another organization's invoice still block before anything is recorded", async () => {
+  sendResult = { ok: true, messageId: "msg-sim", conversationId: "conv-1", providerMessageId: "sim_x", simulated: true };
+  const cases: [Partial<World>, Record<string, unknown>, keyof typeof DELIVERY_BLOCK_MESSAGE][] = [
+    [{ contacts: [{ ...CONTACT, sms_opt_out: true }] }, {}, "opted_out"],
+    [{}, { paymentStatus: "suspended" }, "subscription_inactive"],
+    [{ invoices: [{ ...INVOICE, status: "draft" }] }, {}, "status_ineligible"],
+    [{ invoices: [{ ...INVOICE, organization_id: "org-2" }] }, {}, "not_found"],
+  ];
+  for (const [overrides, context, reason] of cases) {
+    sends.length = 0;
+    const { emitted, emitLifecycleEvent } = emitRecorder();
+    const result = await deliverInvoiceToCustomer(fakeSupabase(world(overrides)), "org-1", "inv-1", { ...CONTEXT, ...context, simulate: true }, { emitLifecycleEvent });
+    assert.deepEqual(result, { ok: false, error: DELIVERY_BLOCK_MESSAGE[reason] }, reason);
+    assert.deepEqual([sends.length, emitted.length], [0, 0], reason);
+  }
+});
+
+test("a normal send never asks for simulation", async () => {
+  const { emitLifecycleEvent } = emitRecorder();
+  await deliverInvoiceToCustomer(fakeSupabase(world()), "org-1", "inv-1", CONTEXT, { emitLifecycleEvent });
+  assert.equal(sends.length, 1);
+  assert.equal("simulate" in sends[0], false);
+});
+
+test("structure: the simulate action refuses outside a simulation environment before reading anything, and the UI offers it only when the page says it's available", () => {
+  const action = fs.readFileSync(path.join(process.cwd(), "app/(app)/invoices/actions.ts"), "utf8");
+  const body = action.slice(action.indexOf("export async function simulateInvoiceSendToCustomer"));
+  assert.ok(body.indexOf("if (!canSimulateSmsDelivery())") < body.indexOf("await requireOrganization()"), "the environment guard runs first");
+  assert.match(body, /await requireOrganization\(\);/, "still the signed-in member's own session and organization");
+  assert.match(body, /simulate: true \}\);/);
+  assert.doesNotMatch(action, /createServiceRoleClient/);
+  const ui = fs.readFileSync(path.join(process.cwd(), "app/(app)/invoices/[id]/_components/invoice-actions.tsx"), "utf8");
+  assert.match(ui, /\{delivery\.simulationAvailable \? \(\s*<button[\s\S]{0,120}?onClick=\{\(\) => run\(\(\) => simulateInvoiceSendToCustomer\(invoice\.id\)\)\}/);
+  assert.match(ui, /"Simulate send \(no SMS\)"/);
+  assert.match(ui, /Simulated send: no SMS was delivered and the customer was not contacted\./);
+  const page = fs.readFileSync(path.join(process.cwd(), "app/(app)/invoices/[id]/page.tsx"), "utf8");
+  assert.match(page, /simulationAvailable: canSimulateSmsDelivery\(\),/);
 });
 
 // ---------------------------------------------------------------------------

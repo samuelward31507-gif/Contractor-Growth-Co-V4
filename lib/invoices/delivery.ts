@@ -179,14 +179,15 @@ export function deliveryFailureCause(send: Extract<SendOutboundMessageResult, { 
   return "send_failed";
 }
 
-export type InvoiceDeliveryResult = { ok: true; deliveredAt: string } | { ok: false; error: string };
+/** simulated: recorded as SIMULATED in a test environment - no text was sent and nothing counts as delivered. */
+export type InvoiceDeliveryResult = { ok: true; deliveredAt: string; simulated?: true } | { ok: false; error: string };
 
 export async function deliverInvoiceToCustomer(
   supabase: SupabaseClient,
   organizationId: string,
   invoiceId: string,
-  context: { paymentStatus: string | null | undefined; baseUrl: string | null; businessName: string | null },
-  deps: { sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>; emitLifecycleEvent?: EmitInvoiceLifecycleEvent; now?: () => Date } = {},
+  context: { paymentStatus: string | null | undefined; baseUrl: string | null; businessName: string | null; simulate?: true },
+  deps: { sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>; emitLifecycleEvent?: EmitInvoiceLifecycleEvent; now?: () => Date; simulationEnv?: NodeJS.ProcessEnv } = {},
 ): Promise<InvoiceDeliveryResult> {
   const check = await checkDeliverable(supabase, organizationId, invoiceId, context);
   if (!check.ok) return { ok: false, error: DELIVERY_BLOCK_MESSAGE[check.reason] };
@@ -196,12 +197,16 @@ export async function deliverInvoiceToCustomer(
   if (!conversation) return { ok: false, error: "We couldn't open a conversation with this customer. Please try again." };
 
   const body = composeInvoiceDeliveryMessage({ businessName: context.businessName?.trim() || "Your contractor", invoiceNumber: invoice.number, balanceDue, dueDate: invoice.due_date, invoiceUrl, cardPayment });
-  const send = await sendOutboundMessage(supabase, { organizationId, contactId: contact.id, conversationId: conversation.id, channel: "sms", senderType: "user", body, sendSmsFn: deps.sendSmsFn });
+  const send = await sendOutboundMessage(supabase, { organizationId, contactId: contact.id, conversationId: conversation.id, channel: "sms", senderType: "user", body, sendSmsFn: deps.sendSmsFn, ...(context.simulate ? { simulate: true as const, simulationEnv: deps.simulationEnv } : {}) });
   if (!send.ok) {
     // The provider's own message is never surfaced (it can echo the number); opt-out raced in since the check is reported as such.
     console.error("[invoices] Send to customer failed", { organizationId, invoiceId, messageId: send.messageId, cause: deliveryFailureCause(send), providerErrorCode: send.providerErrorCode ?? null });
     return { ok: false, error: "The text couldn't be sent. Please try again." };
   }
+
+  // A simulated send is recorded on the thread (status 'logged', SIMULATED) but is never a delivery:
+  // no invoice.delivered, so "Last sent to customer" and anything keyed on delivery are unaffected.
+  if (send.simulated) return { ok: true, deliveredAt: (deps.now ?? (() => new Date()))().toISOString(), simulated: true };
 
   await (deps.emitLifecycleEvent ?? emitInvoiceLifecycleEvent)(supabase, {
     eventType: "invoice.delivered",

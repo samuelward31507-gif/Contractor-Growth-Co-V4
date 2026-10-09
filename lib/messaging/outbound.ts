@@ -3,6 +3,7 @@ import { findOrCreateOpenConversation, type ConversationChannel, type MessageSen
 import { sendSms, type SendSmsInput, type SendSmsResult } from "@/lib/automation/sms";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { writeSmsOptOut } from "@/lib/messaging/opt-out";
+import { canSimulateSmsDelivery, SIMULATED_SMS_STATUS_REASON, simulatedSmsProviderMessageId } from "@/lib/messaging/simulated-delivery";
 
 /**
  * Final Batch 2: Twilio's "attempt to send to unsubscribed recipient" - the
@@ -29,10 +30,26 @@ export type SendOutboundMessageInput = {
    * or hitting Twilio's trial-account restrictions.
    */
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>;
+  /**
+   * Record the message as SIMULATED instead of sending it (lib/messaging/
+   * simulated-delivery.ts). Only an explicit contractor test action passes
+   * this; it is refused unless canSimulateSmsDelivery() (non-production and
+   * no SMS provider configured), and the provider is never called.
+   */
+  simulate?: true;
+  /** Test seam only: the environment canSimulateSmsDelivery reads (defaults to process.env). */
+  simulationEnv?: NodeJS.ProcessEnv;
 };
 
 export type SendOutboundMessageResult =
-  | { ok: true; messageId: string; conversationId: string; providerMessageId: string }
+  | {
+      ok: true;
+      messageId: string;
+      conversationId: string;
+      providerMessageId: string;
+      /** The message was recorded as SIMULATED (status 'logged', sim_ id) - nothing was sent to anyone. */
+      simulated?: true;
+    }
   | {
       ok: false;
       error: string;
@@ -134,6 +151,31 @@ export async function sendOutboundMessage(
       messageId: blocked?.id ?? null,
       conversationId: conversation.id,
     };
+  }
+
+  if (input.simulate) {
+    // Re-checked here, not only by the caller: never simulate in production or where a real provider is configured.
+    if (!canSimulateSmsDelivery(input.simulationEnv)) {
+      return { ok: false, error: "Simulated delivery isn't available in this environment.", messageId: null, conversationId: conversation.id };
+    }
+    const simulatedId = simulatedSmsProviderMessageId(crypto.randomUUID());
+    const { data: simulated, error: simulatedError } = await supabase
+      .from("messages")
+      .insert({
+        organization_id: input.organizationId,
+        conversation_id: conversation.id,
+        direction: "outbound",
+        sender_type: senderType,
+        body: input.body,
+        status: "logged",
+        status_reason: SIMULATED_SMS_STATUS_REASON,
+        provider_message_id: simulatedId,
+        workflow_execution_id: input.workflowExecutionId ?? null,
+      })
+      .select("id")
+      .single();
+    if (simulatedError || !simulated) return { ok: false, error: "Could not record the outbound message.", messageId: null, conversationId: conversation.id };
+    return { ok: true, simulated: true, messageId: simulated.id, conversationId: conversation.id, providerMessageId: simulatedId };
   }
 
   const { data: queued, error: insertError } = await supabase

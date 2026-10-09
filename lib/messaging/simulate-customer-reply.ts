@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { matchSmsKeyword } from "@/lib/messaging/keywords";
 import { processInboundCustomerMessage } from "@/lib/messaging/inbound-customer-message";
+import { isMessagingSimulationEnvironment, SIMULATED_PROVIDER_MESSAGE_ID_PREFIX } from "@/lib/messaging/simulated-delivery";
 
 /**
  * TEST-only "Simulate Customer Reply": records a customer's inbound SMS reply
@@ -16,8 +17,7 @@ import { processInboundCustomerMessage } from "@/lib/messaging/inbound-customer-
  * HELP reply, so a simulated message containing one is refused outright.
  */
 
-/** Prefix that marks a stored message as simulated, never a real Twilio SID ("SM…"/"MM…"). */
-export const SIMULATED_PROVIDER_MESSAGE_ID_PREFIX = "sim_";
+export { SIMULATED_PROVIDER_MESSAGE_ID_PREFIX } from "@/lib/messaging/simulated-delivery";
 
 export const SIMULATED_REPLY_MAX_LENGTH = 1600;
 
@@ -30,8 +30,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * is always false.
  */
 export function isCustomerReplySimulationEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.VERCEL_ENV) return env.VERCEL_ENV === "preview" || env.VERCEL_ENV === "development";
-  return env.NODE_ENV !== "production";
+  return isMessagingSimulationEnvironment(env);
 }
 
 /** Deterministic per form submission, so a double-submit resolves to the same message/event. */

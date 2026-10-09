@@ -15,6 +15,7 @@
 // bottom imperatively on mount/update instead, which is the standard,
 // reliably-clipped pattern for this kind of thread.
 
+import { isSimulatedMessage } from "@/lib/messaging/simulated-delivery";
 import { useEffect, useRef } from "react";
 import { AlertTriangle, Check, CheckCheck, Clock } from "lucide-react";
 import {
@@ -69,6 +70,15 @@ function DeliveryStatus({ message }: { message: Message }) {
   }
 
   if (message.status === "logged") {
+    // A test-environment simulated send (lib/messaging/simulated-delivery.ts): recorded, never sent.
+    if (message.direction === "outbound" && isSimulatedMessage(message)) {
+      return (
+        <span className="inline-flex items-center gap-1 font-medium text-warning-text" title={message.status_reason ?? undefined}>
+          <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+          Simulated, not sent
+        </span>
+      );
+    }
     return <span className="italic text-ink-3">{label}</span>;
   }
 

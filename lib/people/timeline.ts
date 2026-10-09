@@ -1,3 +1,4 @@
+import { isSimulatedMessage } from "@/lib/messaging/simulated-delivery";
 import type { LucideIcon } from "lucide-react";
 import { CalendarClock, UserPlus, Send, MessageCircle, ArrowRightLeft, Briefcase, Ban, CalendarCheck2, CalendarX2, PlayCircle, Star, Share2 } from "lucide-react";
 import type { Lead, LeadStatus } from "@/lib/leads/queries";
@@ -212,8 +213,10 @@ export function buildPersonTimeline(params: {
  * failed, a queued one is still sending, and a logged entry is an internal
  * note that never reached the customer.
  */
-export function messageTimelineLabel(message: { direction: string; status: string | null; sender_type: string }): string {
+export function messageTimelineLabel(message: { direction: string; status: string | null; sender_type: string; provider_message_id?: string | null }): string {
   if (message.direction === "inbound") return "Customer replied";
+  // A test-environment simulated send: recorded, never sent (lib/messaging/simulated-delivery.ts).
+  if (message.status === "logged" && isSimulatedMessage({ provider_message_id: message.provider_message_id })) return "Simulated text (not sent)";
   if (message.status === "logged") return "Note added";
   const who = message.sender_type === "ai" ? "Automated follow-up" : message.sender_type === "system" ? "System message" : "Your message";
   if (message.status === "failed" || message.status === "undelivered") return `${who} failed to send`;

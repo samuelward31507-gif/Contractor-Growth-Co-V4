@@ -22,6 +22,7 @@ const lib = (relative: string) => pathToFileURL(path.join(process.cwd(), relativ
 
 type Row = Record<string, unknown>;
 let messages: Row[] = [];
+let optedOut = false;
 const outcomes: Row[] = [];
 
 // recordProviderOutcome's own service-role client: capture the update it records.
@@ -51,7 +52,7 @@ function session(): SupabaseClient {
     from(table: string) {
       const b: Record<string, unknown> = {};
       for (const name of ["select", "eq"]) b[name] = () => b;
-      b.maybeSingle = async () => ({ data: table === "contacts" ? { phone: PHONE, phone_normalized: PHONE, sms_opt_out: false } : null, error: null });
+      b.maybeSingle = async () => ({ data: table === "contacts" ? { phone: PHONE, phone_normalized: PHONE, sms_opt_out: optedOut } : null, error: null });
       b.insert = (row: Row) => ({
         select: () => ({
           single: async () => {
@@ -70,6 +71,67 @@ const input = (sendSmsFn: unknown) => ({ organizationId: "org-1", contactId: "co
 beforeEach(() => {
   messages = [];
   outcomes.length = 0;
+  optedOut = false;
+});
+
+const PREVIEW = { VERCEL: "1", VERCEL_ENV: "preview", NODE_ENV: "production" } as unknown as NodeJS.ProcessEnv;
+const PRODUCTION = { VERCEL: "1", VERCEL_ENV: "production", NODE_ENV: "production" } as unknown as NodeJS.ProcessEnv;
+const TWILIO = { TWILIO_ACCOUNT_SID: "AC_test", TWILIO_AUTH_TOKEN: "token", TWILIO_FROM_NUMBER: "+15555550100" };
+
+function providerSpy() {
+  const calls: unknown[] = [];
+  return { calls, fn: async (call: unknown) => (calls.push(call), { ok: true as const, providerMessageId: "SM_should_not_happen" }) };
+}
+
+test("simulated (Preview, no SMS provider): the message is recorded as SIMULATED - status logged, sim_ id, explicit reason - and the provider is never called", async () => {
+  const spy = providerSpy();
+  const result = await sendOutboundMessage(session(), { ...input(spy.fn), simulate: true, simulationEnv: PREVIEW });
+  assert.equal(spy.calls.length, 0, "no provider call");
+  assert.equal(result.ok, true);
+  assert.equal((result as { simulated?: true }).simulated, true);
+  assert.match((result as { providerMessageId: string }).providerMessageId, /^sim_[0-9a-f-]{36}$/);
+  assert.equal(messages.length, 1);
+  const row = messages[0];
+  assert.equal(row.status, "logged", "never 'sent' or 'delivered'");
+  assert.equal(row.direction, "outbound");
+  assert.equal(row.organization_id, "org-1");
+  assert.equal(row.provider_message_id, (result as { providerMessageId: string }).providerMessageId);
+  assert.match(String(row.status_reason), /^SIMULATED: no SMS was sent and no phone was contacted/);
+  assert.equal(row.body, BODY, "the exact message that would have been sent stays auditable");
+  assert.deepEqual(outcomes, [], "no provider outcome is recorded - nothing was sent");
+});
+
+test("simulation is refused in Production and wherever a real SMS provider is configured: no row, no provider call", async () => {
+  for (const [name, environment] of [
+    ["Vercel Production", PRODUCTION],
+    ["self-hosted production build", { NODE_ENV: "production" }],
+    ["Preview with a configured provider", { ...PREVIEW, ...TWILIO }],
+  ] as [string, NodeJS.ProcessEnv][]) {
+    messages = [];
+    const spy = providerSpy();
+    const result = await sendOutboundMessage(session(), { ...input(spy.fn), simulate: true, simulationEnv: environment });
+    assert.deepEqual(result, { ok: false, error: "Simulated delivery isn't available in this environment.", messageId: null, conversationId: "conv-1" }, name);
+    assert.deepEqual([messages.length, spy.calls.length], [0, 0], name);
+  }
+});
+
+test("opt-out still wins over simulation: an opted-out contact is recorded as blocked, never as simulated", async () => {
+  optedOut = true;
+  const spy = providerSpy();
+  const result = await sendOutboundMessage(session(), { ...input(spy.fn), simulate: true, simulationEnv: PREVIEW });
+  assert.equal(result.ok, false);
+  assert.equal(spy.calls.length, 0);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].status, "failed");
+  assert.equal(messages[0].provider_message_id, undefined);
+});
+
+test("a normal send never falls back to simulation: without a provider it still fails as unconfigured", async () => {
+  const result = await sendOutboundMessage(session(), input(async () => ({ ok: false, error: "SMS delivery is not configured for this environment.", unconfigured: true })));
+  assert.equal(result.ok, false);
+  assert.equal((result as { providerUnconfigured?: true }).providerUnconfigured, true);
+  assert.equal(messages[0].status, "queued", "inserted as a real send attempt, then marked failed");
+  assert.deepEqual(outcomes, [{ status: "failed", status_reason: "SMS delivery is not configured for this environment." }]);
 });
 
 test("no SMS credentials in this environment: the failure is flagged providerUnconfigured, with no provider code, and the row records the reason", async () => {
