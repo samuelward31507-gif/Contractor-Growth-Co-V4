@@ -38,7 +38,7 @@ test("every exported server action resolves founder access before anything else"
   // Every update/delete is scoped to the caller's own rows.
   // Every update/delete is scoped to the caller's own rows: the owner filter follows each write in the same statement.
   const writes = [...actions.matchAll(/\.(update|delete)\(/g)];
-  assert.equal(writes.length, 7, "item update, complete, delete; deal update, move, delete; MRR delete");
+  assert.equal(writes.length, 11, "item update, complete, delete, move-to-day; deal update, move, delete; MRR delete; priority set, remove, re-rank");
   for (const write of writes) {
     const statement = actions.slice(write.index, actions.indexOf(";", write.index));
     assert.match(statement, /\.eq\("owner_id", ctx\.userId\)/, `owner filter on: ${statement.slice(0, 80)}`);

@@ -9,7 +9,8 @@ import { saveFounderReview } from "../actions";
 const FIELDS = [
   { name: "wins", label: "Wins", placeholder: "What moved forward today?" },
   { name: "blockers", label: "Blockers", placeholder: "What's stuck, and what would unstick it?" },
-  { name: "prioritiesNext", label: "Tomorrow's priorities", placeholder: "The few things that matter most tomorrow" },
+  // Tomorrow's three outcomes are set as structured priorities above the form; this stays as free text.
+  { name: "prioritiesNext", label: "Notes for tomorrow", placeholder: "Context for tomorrow morning - who to call first, what to prepare" },
   { name: "notes", label: "Notes", placeholder: "Anything else worth keeping" },
 ] as const;
 

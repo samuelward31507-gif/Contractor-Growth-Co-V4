@@ -6,7 +6,8 @@ import Link from "next/link";
 import { Check, Handshake, Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/lib/ui/badge";
 import { ITEM_KIND_LABELS, PRIORITY_LABELS, SCHEDULED_KINDS, isOverdue, type FounderItem } from "@/lib/founder/model";
-import { formatDateTime, formatTime } from "@/lib/founder/format";
+import { formatDateTime, formatDay, formatTime } from "@/lib/founder/format";
+import { isAllDayEvent, isEndOfDayDue } from "@/lib/founder/calendar";
 import { deleteFounderItem, setFounderItemCompleted } from "../actions";
 import { ItemDialog, type DealOption } from "./item-dialog";
 
@@ -71,8 +72,18 @@ export function ItemList({ items, deals, timeZone, nowIso, timeOnly = false }: {
                   {when ? (
                     <span className={`tabular-nums ${overdue ? "font-medium text-danger-text" : ""}`}>
                       · {scheduled ? "" : "Due "}
-                      {timeOnly ? formatTime(when, timeZone) : formatDateTime(when, timeZone)}
-                      {scheduled && item.endsAt ? `–${formatTime(item.endsAt, timeZone)}` : ""}
+                      {isAllDayEvent(item, timeZone)
+                        ? timeOnly
+                          ? "All day"
+                          : `${formatDay(when, timeZone)}, all day`
+                        : isEndOfDayDue(item, timeZone)
+                          ? timeOnly
+                            ? "by end of day"
+                            : `${formatDay(when, timeZone)} (end of day)`
+                          : timeOnly
+                            ? formatTime(when, timeZone)
+                            : formatDateTime(when, timeZone)}
+                      {scheduled && item.endsAt && !isAllDayEvent(item, timeZone) ? `–${formatTime(item.endsAt, timeZone)}` : ""}
                     </span>
                   ) : (
                     <span>· No date</span>

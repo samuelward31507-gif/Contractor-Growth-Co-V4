@@ -74,13 +74,15 @@ test("the item dialog prevents duplicates and lost updates, and never drops a cl
   assert.match(DIALOG, /name="completed"/);
 });
 
-test("home planner: quick actions, today, needs attention, coming up, and a path to the calendar and deals", () => {
+test("home command center: quick actions for each type, priorities, today, needs attention, coming up, compact figures", () => {
   const HOME = read("app/founder/page.tsx");
-  for (const label of ['label="New task" defaultKind="task"', 'label="Schedule meeting" defaultKind="meeting"', 'label="Add follow-up" defaultKind="follow_up"']) assert.ok(HOME.includes(label), label);
-  for (const title of ['title="Today"', 'title="Needs attention"', 'title="Coming up"']) assert.ok(HOME.includes(title), title);
+  for (const label of ['label="Task" defaultKind="task"', 'label="Meeting" defaultKind="meeting"', 'label="Event" defaultKind="event"', 'label="Follow-up" defaultKind="follow_up"']) assert.ok(HOME.includes(label), label);
+  for (const title of ['title="Today\'s priorities"', 'title="Today"', 'title="Needs attention"', 'title="Coming up"']) assert.ok(HOME.includes(title), title);
+  assert.match(HOME, /buildDailyPlan\(\{ items, deals, focus, now, timeZone, todayKey \}\)/, "one plan decides every section (no duplicates)");
   assert.match(HOME, /href=\{`\/founder\/deals\?deal=\$\{deal\.id\}`\}/);
   assert.match(HOME, /calendarHref\("week", todayKey\)/);
-  assert.match(HOME, /dayRange\(comingDays\[2\], timeZone\)\.end/, "DST-safe day boundaries");
+  assert.match(HOME, /MRR \(actual, manual\)/, "MRR is labelled as the actual manually recorded figure");
+  assert.doesNotMatch(HOME, /<StatGrid/, "figures are one compact line, not a wall of cards");
 });
 
 test("deals: a follow-up created from a deal keeps the link; ?deal= focuses one deal; linked items are shown", () => {

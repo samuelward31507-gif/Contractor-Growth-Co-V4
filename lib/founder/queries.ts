@@ -90,3 +90,30 @@ export async function getFounderCalendarItems(supabase: SupabaseClient, ownerId:
   const inRange = [...overlapping, ...(due.data as ItemRow[])].filter((row) => (seen.has(row.id) ? false : (seen.add(row.id), true))).map(toItem);
   return { ok: true, data: { inRange, unscheduled: (undated.data as ItemRow[]).map(toItem) } };
 }
+
+/** One item marked as a daily priority (supabase/pending/founder_daily_focus.sql). */
+export type DailyFocus = { itemId: string; date: string; rank: number };
+
+/** True for Postgres "undefined column" - the daily-focus migration isn't applied yet. */
+export function isMissingFocusColumn(error: { code?: string; message?: string } | null): boolean {
+  return Boolean(error && (error.code === "42703" || /focus_(date|rank)/.test(error.message ?? "")));
+}
+
+/**
+ * Daily priorities for local days [fromKey, toKey], owner-scoped. Read
+ * separately from the items so a database without the focus columns still
+ * loads every founder page: `available: false` means "not enabled yet",
+ * while any other error is a load failure.
+ */
+export async function getFounderFocus(supabase: SupabaseClient, ownerId: string, fromKey: string, toKey: string): Promise<Loaded<{ available: boolean; focus: DailyFocus[] }>> {
+  const { data, error } = await supabase
+    .from("founder_items")
+    .select("id, focus_date, focus_rank")
+    .eq("owner_id", ownerId)
+    .gte("focus_date", fromKey)
+    .lte("focus_date", toKey)
+    .order("focus_date", { ascending: true })
+    .order("focus_rank", { ascending: true });
+  if (error) return isMissingFocusColumn(error) ? { ok: true, data: { available: false, focus: [] } } : { ok: false };
+  return { ok: true, data: { available: true, focus: (data as { id: string; focus_date: string; focus_rank: number }[]).map((r) => ({ itemId: r.id, date: r.focus_date, rank: Number(r.focus_rank) })) } };
+}
