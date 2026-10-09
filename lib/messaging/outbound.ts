@@ -57,6 +57,14 @@ export type SendOutboundMessageResult =
        */
       recipientOptedOut?: true;
       optOutPersisted?: boolean;
+      /**
+       * Set when the provider was never contacted because this environment has
+       * no SMS credentials (sendSms "unconfigured"). Diagnostic only - lets a
+       * caller log an actionable cause without any message text.
+       */
+      providerUnconfigured?: true;
+      /** The provider's own error code (e.g. Twilio 21608) when it rejected the send - a code only, never its message. */
+      providerErrorCode?: string;
     };
 
 /**
@@ -204,7 +212,14 @@ export async function sendOutboundMessage(
       status_reason: result.error,
       ...(result.providerErrorCode ? { provider_error_code: result.providerErrorCode } : {}),
     });
-    return { ok: false, error: result.error, messageId: queued.id, conversationId: conversation.id };
+    return {
+      ok: false,
+      error: result.error,
+      messageId: queued.id,
+      conversationId: conversation.id,
+      ...(result.unconfigured ? { providerUnconfigured: true as const } : {}),
+      ...(result.providerErrorCode ? { providerErrorCode: result.providerErrorCode } : {}),
+    };
   }
 
   await recordProviderOutcome(queued.id, input.organizationId, { status: "sent", provider_message_id: result.providerMessageId });

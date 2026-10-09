@@ -24,7 +24,7 @@ const lib = (relative: string) => pathToFileURL(path.join(process.cwd(), relativ
 
 type SendCall = { organizationId: string; contactId: string; conversationId?: string | null; channel?: string; senderType?: string; body: string };
 const sends: SendCall[] = [];
-let sendResult: { ok: true; messageId: string; conversationId: string; providerMessageId: string } | { ok: false; error: string; messageId: string | null; conversationId: string | null } = { ok: true, messageId: "msg-1", conversationId: "conv-1", providerMessageId: "SM1" };
+let sendResult: { ok: true; messageId: string; conversationId: string; providerMessageId: string } | { ok: false; error: string; messageId: string | null; conversationId: string | null; providerUnconfigured?: true; providerErrorCode?: string; recipientOptedOut?: true } = { ok: true, messageId: "msg-1", conversationId: "conv-1", providerMessageId: "SM1" };
 
 mock.module(lib("lib/messaging/outbound.ts"), {
   namedExports: {
@@ -33,7 +33,7 @@ mock.module(lib("lib/messaging/outbound.ts"), {
 });
 
 const delivery: typeof import("./delivery") = await import(lib("lib/invoices/delivery.ts"));
-const { deliverInvoiceToCustomer, getInvoiceDeliveryState, composeInvoiceDeliveryMessage, formatDueDate, maskPhone, DELIVERY_BLOCK_MESSAGE } = delivery;
+const { deliverInvoiceToCustomer, getInvoiceDeliveryState, composeInvoiceDeliveryMessage, formatDueDate, maskPhone, DELIVERY_BLOCK_MESSAGE, deliveryFailureCause } = delivery;
 
 const TOKEN = "a".repeat(48);
 const BASE_URL = "https://app.example.test";
@@ -227,6 +227,33 @@ test("a failed or blocked send (e.g. opt-out raced in, provider error) records n
   } finally {
     console.error = original;
   }
+});
+
+test("failure diagnostics: the server log names an actionable cause (and provider code) - the contractor still sees the generic error, and no phone, token, link or provider text is logged", async () => {
+  const cases: [typeof sendResult, string, string | null][] = [
+    [{ ok: false, error: "SMS delivery is not configured for this environment.", messageId: "msg-1", conversationId: "conv-1", providerUnconfigured: true }, "sms_not_configured", null],
+    [{ ok: false, error: `The SMS provider rejected the request. To ${PHONE}`, messageId: "msg-2", conversationId: "conv-1", providerErrorCode: "21608" }, "provider_rejected", "21608"],
+    [{ ok: false, error: "The destination phone number is not a valid E.164 number.", messageId: "msg-3", conversationId: "conv-1" }, "send_failed", null],
+    [{ ok: false, error: "Could not record the outbound message.", messageId: null, conversationId: "conv-1" }, "not_recorded", null],
+  ];
+  const original = console.error;
+  try {
+    for (const [result, cause, code] of cases) {
+      sendResult = result;
+      const logged: unknown[][] = [];
+      console.error = (...args: unknown[]) => void logged.push(args);
+      const { emitted, emitLifecycleEvent } = emitRecorder();
+      const outcome = await deliverInvoiceToCustomer(fakeSupabase(world()), "org-1", "inv-1", CONTEXT, { emitLifecycleEvent });
+      assert.deepEqual(outcome, { ok: false, error: "The text couldn't be sent. Please try again." }, cause);
+      assert.equal(emitted.length, 0, cause);
+      assert.deepEqual(logged, [["[invoices] Send to customer failed", { organizationId: "org-1", invoiceId: "inv-1", messageId: (result as { messageId: string | null }).messageId, cause, providerErrorCode: code }]], cause);
+      const text = JSON.stringify(logged);
+      for (const secret of [PHONE, TOKEN, "/pay/", "rejected the request", "View it here", "Pay securely"]) assert.ok(!text.includes(secret), `${cause}: ${secret}`);
+    }
+  } finally {
+    console.error = original;
+  }
+  assert.equal(deliveryFailureCause({ ok: false, error: "x", messageId: "m", conversationId: "c", recipientOptedOut: true }), "recipient_opted_out");
 });
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildPaymentUrl, describePaymentLink } from "@/lib/payments/payment-link";
 import { getOrganizationConnectStatus } from "@/lib/payments/connect";
 import { findOrCreateOpenConversation } from "@/lib/conversations/queries";
-import { sendOutboundMessage } from "@/lib/messaging/outbound";
+import { sendOutboundMessage, type SendOutboundMessageResult } from "@/lib/messaging/outbound";
 import { emitInvoiceLifecycleEvent, type EmitInvoiceLifecycleEvent } from "@/lib/automation/invoices";
 import type { SendSmsInput, SendSmsResult } from "@/lib/automation/sms";
 import { formatInvoiceNumber, formatMoney, type InvoiceStatus } from "./domain";
@@ -164,6 +164,21 @@ export async function getLastInvoiceDeliveryAt(supabase: SupabaseClient, organiz
 // Send
 // ---------------------------------------------------------------------------
 
+/**
+ * Why a send failed, for the server log only - the contractor still sees the
+ * generic error. A fixed category plus the provider's error code; never the
+ * message body, phone number, link/token or the provider's own text.
+ */
+export type InvoiceDeliveryFailureCause = "sms_not_configured" | "provider_rejected" | "recipient_opted_out" | "not_recorded" | "send_failed";
+
+export function deliveryFailureCause(send: Extract<SendOutboundMessageResult, { ok: false }>): InvoiceDeliveryFailureCause {
+  if (send.providerUnconfigured) return "sms_not_configured";
+  if (send.recipientOptedOut) return "recipient_opted_out";
+  if (send.providerErrorCode) return "provider_rejected";
+  if (!send.messageId) return "not_recorded";
+  return "send_failed";
+}
+
 export type InvoiceDeliveryResult = { ok: true; deliveredAt: string } | { ok: false; error: string };
 
 export async function deliverInvoiceToCustomer(
@@ -184,7 +199,7 @@ export async function deliverInvoiceToCustomer(
   const send = await sendOutboundMessage(supabase, { organizationId, contactId: contact.id, conversationId: conversation.id, channel: "sms", senderType: "user", body, sendSmsFn: deps.sendSmsFn });
   if (!send.ok) {
     // The provider's own message is never surfaced (it can echo the number); opt-out raced in since the check is reported as such.
-    console.error("[invoices] Send to customer failed", { organizationId, invoiceId });
+    console.error("[invoices] Send to customer failed", { organizationId, invoiceId, messageId: send.messageId, cause: deliveryFailureCause(send), providerErrorCode: send.providerErrorCode ?? null });
     return { ok: false, error: "The text couldn't be sent. Please try again." };
   }
 
