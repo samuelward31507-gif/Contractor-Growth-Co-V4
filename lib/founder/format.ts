@@ -1,8 +1,14 @@
 /** Display helpers for the Founder Command Center - every time shown in the founder's own zone. */
 
-export function formatMoney(value: number): string {
+export function formatMoney(value: number, currency = "USD"): string {
   const hasCents = Math.round(value * 100) % 100 !== 0;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: hasCents ? 2 : 0 }).format(value);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: hasCents ? 2 : 0 }).format(value);
+}
+
+/** Per-currency totals as one line ("$2,500 · €900"), never added across currencies. Empty -> null. */
+export function formatTotals(totals: Record<string, number>): string | null {
+  const keys = Object.keys(totals).sort();
+  return keys.length ? keys.map((currency) => formatMoney(totals[currency], currency)).join(" · ") : null;
 }
 
 /** +$1,200 / −$300 / $0 - for MRR movements. */

@@ -38,11 +38,14 @@ test("every exported server action resolves founder access before anything else"
   // Every update/delete is scoped to the caller's own rows.
   // Every update/delete is scoped to the caller's own rows: the owner filter follows each write in the same statement.
   const writes = [...actions.matchAll(/\.(update|delete)\(/g)];
-  assert.equal(writes.length, 11, "item update, complete, delete, move-to-day; deal update, move, delete; MRR delete; priority set, remove, re-rank");
+  assert.equal(writes.length, 10, "item update, complete, delete, move-to-day; deal update, delete; MRR delete; priority set, remove, re-rank (deal stages move only through the database functions)");
   for (const write of writes) {
     const statement = actions.slice(write.index, actions.indexOf(";", write.index));
     assert.match(statement, /\.eq\("owner_id", ctx\.userId\)/, `owner filter on: ${statement.slice(0, 80)}`);
   }
+  // Sales history is written only through the founder_* database functions (which re-check the founder and the deal's owner).
+  assert.deepEqual([...actions.matchAll(/\.rpc\("(\w+)"/g)].map((m) => m[1]).sort(), ["founder_change_deal_stage", "founder_log_deal_activity", "founder_void_deal_activity"]);
+  assert.doesNotMatch(actions, /from\("founder_deal_activities"\)/, "no direct reads or writes of the history from actions");
 });
 
 test("access resolution fails closed, and founder access is separate from agency admin", () => {

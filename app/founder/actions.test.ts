@@ -19,10 +19,19 @@ const lib = (relative: string) => pathToFileURL(path.join(process.cwd(), relativ
 
 type Row = Record<string, unknown>;
 const ME = "founder-1";
+const REQ = "11111111-1111-4111-8111-111111111111";
+const REQ2 = "22222222-2222-4222-8222-222222222222";
 const OTHER = "founder-2";
 let store: Record<string, Row[]> = {};
 let ids = 0;
 let caller: string | null = ME;
+/** Database functions called (name + args), and what the next call returns. */
+let rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
+/** Read through a function: assert.deepEqual(rpcCalls, []) narrows the variable itself. */
+const rpcCall = (i: number) => rpcCalls[i];
+let rpcResponse: { data: unknown; error: unknown } = { data: { status: "recorded", updated_at: "v2" }, error: null };
+/** Makes the next write of this kind on this table fail with `error` (e.g. a foreign-key refusal). */
+let failNext: { table: string; op: "delete" | "update" | "insert"; error: { code: string; message?: string } } | null = null;
 
 class Query {
   private filters: ((row: Row) => boolean)[] = [];
@@ -46,6 +55,12 @@ class Query {
   maybeSingle() { return this.run(); }
   private async run(): Promise<{ data: unknown; error: unknown }> {
     const table = (store[this.table] ??= []);
+    const op = this.insertRows ? "insert" : this.deleting ? "delete" : this.patch ? "update" : null;
+    if (failNext && failNext.table === this.table && failNext.op === op) {
+      const error = failNext.error;
+      failNext = null;
+      return { data: null, error };
+    }
     if (this.insertRows) {
       const row = this.insertRows[0];
       if (this.upsertConflict) {
@@ -65,7 +80,13 @@ class Query {
     return { data: rows[0] ? { ...rows[0] } : null, error: null };
   }
 }
-const db = { from: (table: string) => new Query(table) };
+const db = {
+  from: (table: string) => new Query(table),
+  rpc: async (name: string, args: Record<string, unknown>) => {
+    rpcCalls.push({ name, args });
+    return rpcResponse;
+  },
+};
 
 mock.module(lib("lib/founder/access.ts"), {
   namedExports: { getFounderContext: async () => (caller ? { supabase: db, userId: caller, email: "f@example.com", timeZone: "America/Denver" } : null) },
@@ -77,9 +98,12 @@ const actions = await import(lib("app/founder/actions.ts"));
 beforeEach(() => {
   ids = 0;
   caller = ME;
+  rpcCalls = [];
+  rpcResponse = { data: { status: "recorded", updated_at: "v2" }, error: null };
+  failNext = null;
   store = {
     founder_items: [{ id: "theirs-item", owner_id: OTHER, kind: "task", title: "Theirs", completed_at: null }],
-    founder_deals: [{ id: "theirs-deal", owner_id: OTHER, name: "Their deal", stage: "lead" }],
+    founder_deals: [{ id: "theirs-deal", owner_id: OTHER, name: "Their deal", stage: "negotiation", updated_at: "v1" }],
     founder_mrr_entries: [{ id: "theirs-mrr", owner_id: OTHER, month: "2026-10-01", kind: "new", amount: 1 }],
     founder_reviews: [],
   };
@@ -97,7 +121,9 @@ test("a non-founder is refused by every action and nothing is written", async ()
     await actions.deleteFounderItem("theirs-item"),
     await actions.createFounderDeal({ name: "x" }),
     await actions.updateFounderDeal("theirs-deal", { name: "x" }),
-    await actions.moveFounderDealStage("theirs-deal", "contacted"),
+    await actions.changeFounderDealStage("theirs-deal", { toStage: "replied", requestId: REQ, expectedUpdatedAt: "v1" }),
+    await actions.logFounderDealActivity("theirs-deal", { kind: "outreach", occurredAt: "2026-10-01T09:00", requestId: REQ }),
+    await actions.voidFounderDealActivity(REQ, "wrong"),
     await actions.deleteFounderDeal("theirs-deal"),
     await actions.createFounderMrrEntry({ month: "2026-10", kind: "new", amount: "1" }),
     await actions.deleteFounderMrrEntry("theirs-mrr"),
@@ -106,6 +132,7 @@ test("a non-founder is refused by every action and nothing is written", async ()
     assert.deepEqual(result, refused);
   }
   assert.equal(JSON.stringify(store), before);
+  assert.deepEqual(rpcCalls, [], "no database function is even called");
 });
 
 test("tasks: create (owned by the caller), quick capture, edit, complete once, reopen, delete", async () => {
@@ -138,31 +165,94 @@ test("another founder's rows can't be read, changed, completed, deleted or linke
   assert.deepEqual(await actions.setFounderItemCompleted("theirs-item", true), { ok: false, error: "That item could not be found." });
   assert.deepEqual(await actions.deleteFounderItem("theirs-item"), { ok: false, error: "That item could not be found." });
   assert.deepEqual(await actions.updateFounderDeal("theirs-deal", { name: "x" }), { ok: false, error: "That deal could not be found." });
-  assert.deepEqual(await actions.moveFounderDealStage("theirs-deal", "contacted"), { ok: false, error: "That deal could not be found." });
+  assert.deepEqual(await actions.changeFounderDealStage("theirs-deal", { toStage: "replied", requestId: REQ, expectedUpdatedAt: "v1" }), { ok: false, error: "That deal could not be found." });
+  assert.deepEqual(await actions.logFounderDealActivity("theirs-deal", { kind: "outreach", occurredAt: "2026-10-01T09:00", requestId: REQ }), { ok: false, error: "That deal could not be found." });
+  assert.deepEqual(rpcCalls, [], "another founder's deal never reaches the database functions");
   assert.deepEqual(await actions.deleteFounderDeal("theirs-deal"), { ok: false, error: "That deal could not be found." });
   assert.deepEqual(await actions.deleteFounderMrrEntry("theirs-mrr"), { ok: false, error: "That entry could not be found." });
   assert.deepEqual(await actions.createFounderItem({ title: "Link", dealId: "theirs-deal" }), { ok: false, error: "That deal could not be found." });
   assert.equal(JSON.stringify(store), before);
 });
 
-test("deals: create, edit, move stage; won only through the form with amount and date", async () => {
-  const created = await actions.createFounderDeal({ name: "Acme Roofing", stage: "lead", expectedMrr: "299", nextAction: "Send pricing", nextActionAt: "2026-10-10T09:00" });
+test("deals: create at an open stage (duplicate-safe), details-only edits with a required version check", async () => {
+  assert.deepEqual(await actions.createFounderDeal({ name: "Instant win", stage: "won" }), { ok: false, error: "Choose a valid starting stage." });
+  const fields = { name: "Acme Roofing", stage: "qualified", trade: "Roofing", source: "referral", expectedSetupFee: "2,500", expectedMrr: "1497", nextAction: "Send intro", nextActionAt: "2026-10-10T09:00", clientId: REQ };
+  const created = await actions.createFounderDeal(fields);
   assert.equal(created.ok, true);
-  const row = store.founder_deals.find((r) => r.name === "Acme Roofing")!;
-  assert.equal(row.owner_id, ME);
-  assert.equal(row.expected_mrr, 299);
-  assert.equal((await actions.moveFounderDealStage(row.id as string, "meeting_booked")).ok, true);
-  assert.equal(row.stage, "meeting_booked");
-  assert.equal((await actions.moveFounderDealStage(row.id as string, "won")).ok, false, "won needs the amount and date");
-  assert.equal((await actions.moveFounderDealStage(row.id as string, "closed")).ok, false);
-  assert.equal(row.stage, "meeting_booked");
-  assert.equal((await actions.updateFounderDeal(row.id as string, { name: "Acme Roofing", stage: "won", wonAmount: "299", wonOn: "2026-10-09" })).ok, true);
-  assert.equal(row.stage, "won");
-  assert.equal(row.won_amount, 299);
-  assert.equal(row.won_on, "2026-10-09");
-  assert.equal((await actions.moveFounderDealStage(row.id as string, "negotiation")).ok, true);
-  assert.equal(row.won_amount, null, "reopening clears the won figures");
-  assert.equal((await actions.deleteFounderDeal(row.id as string)).ok, true);
+  assert.deepEqual(await actions.createFounderDeal(fields), created, "the same clientId again finds the same deal");
+  const mine = store.founder_deals.filter((r) => r.owner_id === ME);
+  assert.equal(mine.length, 1);
+  const row = mine[0];
+  assert.deepEqual([row.id, row.stage, row.trade, row.source, row.expected_setup_fee, row.expected_mrr, row.currency], [REQ, "qualified", "Roofing", "referral", 2500, 1497, "USD"]);
+  for (const key of ["won_setup_fee", "won_monthly_fee", "won_amount", "won_on", "lost_reason", "last_activity_at"]) assert.ok(!(key in row), `create never writes ${key}`);
+  row.updated_at = "v1";
+
+  const stale = { ok: false, error: "This deal changed since you opened it. Close and reopen it to see the latest version, then try again." };
+  assert.deepEqual(await actions.updateFounderDeal(REQ, { name: "Acme" }), stale, "no version = refused");
+  assert.deepEqual(await actions.updateFounderDeal(REQ, { name: "Acme", expectedUpdatedAt: "v0" }), stale);
+  assert.equal(row.name, "Acme Roofing");
+  assert.equal((await actions.updateFounderDeal(REQ, { name: "Acme", stage: "won", wonSetupFee: "1", expectedUpdatedAt: "v1" })).ok, true);
+  assert.deepEqual([row.name, row.stage, "won_setup_fee" in row], ["Acme", "qualified", false], "edits never change the stage or outcome");
+});
+
+test("deal deletion: a deal with recorded history is refused with a clear way forward", async () => {
+  store.founder_deals.push({ id: "mine", owner_id: ME, name: "Mine", stage: "outreach" });
+  failNext = { table: "founder_deals", op: "delete", error: { code: "23503" } };
+  assert.deepEqual(await actions.deleteFounderDeal("mine"), { ok: false, error: "This deal has recorded sales history, so it can't be deleted. Mark it lost instead." });
+  assert.ok(store.founder_deals.some((r) => r.id === "mine"));
+  assert.equal((await actions.deleteFounderDeal("mine")).ok, true, "a deal with no history can be deleted");
+});
+
+test("stage changes: request id and loaded version required; terms/reason validated before the database is called", async () => {
+  store.founder_deals.push({ id: "mine", owner_id: ME, name: "Mine", stage: "negotiation", updated_at: "v1" });
+  assert.equal((await actions.changeFounderDealStage("mine", { toStage: "replied", expectedUpdatedAt: "v1" })).ok, false, "no request id");
+  assert.equal((await actions.changeFounderDealStage("mine", { toStage: "replied", requestId: REQ })).ok, false, "no version");
+  assert.deepEqual(await actions.changeFounderDealStage("mine", { toStage: "won", requestId: REQ, expectedUpdatedAt: "v1" }), { ok: false, error: "Enter the agreed setup fee." });
+  assert.deepEqual(await actions.changeFounderDealStage("mine", { toStage: "lost", requestId: REQ, expectedUpdatedAt: "v1" }), { ok: false, error: "Enter why the deal was lost." });
+  assert.deepEqual(rpcCalls, []);
+  const won = await actions.changeFounderDealStage("mine", { toStage: "won", setupFee: "2500", monthlyFee: "1497", currency: "usd", wonOn: "2026-10-01", requestId: REQ, expectedUpdatedAt: "v1" });
+  assert.deepEqual(won, { ok: true, status: "recorded", updatedAt: "v2" });
+  assert.deepEqual(rpcCall(0), {
+    name: "founder_change_deal_stage",
+    args: { p_request_id: REQ, p_deal_id: "mine", p_to_stage: "won", p_expected_updated_at: "v1", p_occurred_at: null, p_setup_fee: 2500, p_monthly_fee: 1497, p_currency: "USD", p_won_on: "2026-10-01", p_reason: null },
+  });
+  assert.equal(store.founder_deals.find((r) => r.id === "mine")!.stage, "negotiation", "the action never writes the stage itself - only the database function does");
+});
+
+test("stage changes: database refusals become clear messages; a retry reports duplicate", async () => {
+  store.founder_deals.push({ id: "mine", owner_id: ME, name: "Mine", stage: "replied", updated_at: "v1" });
+  const move = () => actions.changeFounderDealStage("mine", { toStage: "meeting_booked", requestId: REQ, expectedUpdatedAt: "v1" });
+  rpcResponse = { data: null, error: { code: "FS409", message: "the deal changed since it was loaded" } };
+  assert.deepEqual(await move(), { ok: false, error: "This deal changed since you opened it. Close and reopen it to see the latest version, then try again." });
+  rpcResponse = { data: null, error: { code: "FS422", message: "reopen the deal before changing its outcome" } };
+  assert.deepEqual(await move(), { ok: false, error: "Reopen the deal before changing its outcome." });
+  rpcResponse = { data: null, error: { code: "PGRST202", message: "Could not find the function" } };
+  assert.deepEqual(await move(), { ok: false, error: "Sales history isn't enabled on this database yet." });
+  rpcResponse = { data: null, error: { code: "XX000", message: "internal detail that must not leak" } };
+  assert.deepEqual(await move(), { ok: false, error: "We couldn't record that. Please try again." });
+  rpcResponse = { data: { status: "duplicate", updated_at: "v2" }, error: null };
+  assert.deepEqual(await move(), { ok: true, status: "duplicate", updatedAt: "v2" });
+  store.founder_deals.find((r) => r.id === "mine")!.stage = "meeting_booked";
+  assert.deepEqual(await move(), { ok: true, status: "duplicate", updatedAt: "v2" }, "a retry after the change applied still reaches the database, which reports the duplicate");
+});
+
+test("logging activity: past only, optional atomic stage advance needs the loaded version", async () => {
+  store.founder_deals.push({ id: "mine", owner_id: ME, name: "Mine", stage: "outreach", updated_at: "v1" });
+  assert.equal((await actions.logFounderDealActivity("mine", { kind: "reply_received", occurredAt: "2999-01-01T09:00", requestId: REQ })).ok, false);
+  assert.equal((await actions.logFounderDealActivity("mine", { kind: "reply_received", occurredAt: "2026-10-01T09:00", requestId: REQ, advance: "on" })).ok, false, "advancing without a version is refused");
+  assert.deepEqual(rpcCalls, []);
+  assert.equal((await actions.logFounderDealActivity("mine", { kind: "reply_received", occurredAt: "2026-10-01T09:00", channel: "email", requestId: REQ, advance: "on", expectedUpdatedAt: "v1" })).ok, true);
+  assert.deepEqual(rpcCall(0), {
+    name: "founder_log_deal_activity",
+    args: { p_request_id: REQ, p_deal_id: "mine", p_kind: "reply_received", p_occurred_at: "2026-10-01T15:00:00.000Z", p_channel: "email", p_summary: null, p_scheduled_for: null, p_to_stage: "replied", p_expected_updated_at: "v1" },
+  });
+  assert.equal((await actions.logFounderDealActivity("mine", { kind: "note", occurredAt: "2026-10-01T09:00", requestId: REQ2, summary: "Asked about pricing" })).ok, true);
+  assert.equal(rpcCall(1).args.p_to_stage, null);
+  assert.equal(rpcCall(1).args.p_expected_updated_at, null, "no stage move = no version needed");
+  assert.equal((await actions.voidFounderDealActivity(REQ, " ")).ok, false, "void needs a reason");
+  assert.equal((await actions.voidFounderDealActivity("not-a-uuid", "x")).ok, false);
+  assert.equal((await actions.voidFounderDealActivity(REQ, "Logged on the wrong deal")).ok, true);
+  assert.deepEqual(rpcCall(2), { name: "founder_void_deal_activity", args: { p_activity_id: REQ, p_reason: "Logged on the wrong deal" } });
 });
 
 test("MRR entries are always stored as manual; reviews upsert one per day", async () => {

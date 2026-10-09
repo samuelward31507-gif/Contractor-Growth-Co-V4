@@ -9,18 +9,29 @@
  * every figure is labelled as manual where it is shown.
  */
 
-export const DEAL_STAGES = ["lead", "contacted", "meeting_booked", "demo_proposal", "negotiation", "won", "lost"] as const;
+export const DEAL_STAGES = ["identified", "qualified", "outreach", "replied", "meeting_booked", "meeting_held", "proposal_sent", "negotiation", "won", "lost"] as const;
 export type DealStage = (typeof DEAL_STAGES)[number];
 export const DEAL_STAGE_LABELS: Record<DealStage, string> = {
-  lead: "Lead",
-  contacted: "Contacted",
+  identified: "Identified",
+  qualified: "Qualified",
+  outreach: "Outreach",
+  replied: "Replied",
   meeting_booked: "Meeting booked",
-  demo_proposal: "Demo / proposal",
+  meeting_held: "Meeting held",
+  proposal_sent: "Proposal sent",
   negotiation: "Negotiation",
   won: "Won",
   lost: "Lost",
 };
-export const OPEN_DEAL_STAGES: DealStage[] = ["lead", "contacted", "meeting_booked", "demo_proposal", "negotiation"];
+export const OPEN_DEAL_STAGES: DealStage[] = ["identified", "qualified", "outreach", "replied", "meeting_booked", "meeting_held", "proposal_sent", "negotiation"];
+
+export const DEAL_SOURCES = ["outbound", "referral", "inbound", "network", "event", "partner", "other"] as const;
+export type DealSource = (typeof DEAL_SOURCES)[number];
+export const DEAL_SOURCE_LABELS: Record<DealSource, string> = { outbound: "Outbound", referral: "Referral", inbound: "Inbound", network: "Network", event: "Event", partner: "Partner", other: "Other" };
+export const DEAL_FITS = ["strong", "possible", "poor"] as const;
+export type DealFit = (typeof DEAL_FITS)[number];
+export const DEAL_FIT_LABELS: Record<DealFit, string> = { strong: "Strong fit", possible: "Possible fit", poor: "Poor fit" };
+export const DEFAULT_CURRENCY = "USD";
 
 export const ITEM_KINDS = ["task", "follow_up", "deadline", "event", "meeting"] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
@@ -63,13 +74,31 @@ export type FounderDeal = {
   name: string;
   contactName: string | null;
   contactEmail: string | null;
+  contactPhone: string | null;
+  source: DealSource | null;
+  trade: string | null;
+  location: string | null;
+  website: string | null;
+  fit: DealFit | null;
   stage: DealStage;
+  currency: string;
+  /** Expected one-time setup fee (before the deal is won). */
+  expectedSetupFee: number | null;
+  /** Expected monthly fee (before the deal is won). */
   expectedMrr: number | null;
   nextAction: string | null;
   nextActionAt: string | null;
-  wonAmount: number | null;
+  /** Agreed terms when won - contracted, not collected. */
+  wonSetupFee: number | null;
+  wonMonthlyFee: number | null;
   wonOn: string | null;
   lostReason: string | null;
+  lostOn: string | null;
+  /** The stage the deal was created at: a snapshot, not evidence of earlier stages. */
+  enteredStage: DealStage | null;
+  stageChangedAt: string | null;
+  /** When the latest recorded activity happened (null = none recorded). */
+  lastActivityAt: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -188,16 +217,16 @@ export function toLocalInputValue(iso: string | null, timeZone: string): string 
 
 // --- parsing --------------------------------------------------------------------
 
-type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
+export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
-function text(raw: unknown, max: number, label: string, required = false): Parsed<string | null> {
+export function text(raw: unknown, max: number, label: string, required = false): Parsed<string | null> {
   const value = String(raw ?? "").replace(/\r\n/g, "\n").trim();
   if (required && !value) return { ok: false, error: `Enter ${label}.` };
   if (value.length > max) return { ok: false, error: `Keep ${label} under ${max} characters.` };
   return { ok: true, value: value || null };
 }
 
-function money(raw: unknown, label: string, required = false): Parsed<number | null> {
+export function money(raw: unknown, label: string, required = false): Parsed<number | null> {
   const cleaned = String(raw ?? "").trim().replace(/[$,\s]/g, "");
   if (!cleaned) return required ? { ok: false, error: `Enter ${label}.` } : { ok: true, value: null };
   const value = Number(cleaned);
@@ -206,7 +235,7 @@ function money(raw: unknown, label: string, required = false): Parsed<number | n
   return { ok: true, value: Math.round(value * 100) / 100 };
 }
 
-function oneOf<T extends string>(raw: unknown, allowed: readonly T[], fallback: T | null, label: string): Parsed<T> {
+export function oneOf<T extends string>(raw: unknown, allowed: readonly T[], fallback: T | null, label: string): Parsed<T> {
   const value = String(raw ?? "").trim();
   if (!value && fallback) return { ok: true, value: fallback };
   return (allowed as readonly string[]).includes(value) ? { ok: true, value: value as T } : { ok: false, error: `Choose a valid ${label}.` };
@@ -312,16 +341,41 @@ export type DealInput = {
   name: string;
   contactName: string | null;
   contactEmail: string | null;
-  stage: DealStage;
+  contactPhone: string | null;
+  source: DealSource | null;
+  trade: string | null;
+  location: string | null;
+  website: string | null;
+  fit: DealFit | null;
+  currency: string;
+  expectedSetupFee: number | null;
   expectedMrr: number | null;
   nextAction: string | null;
   nextActionAt: string | null;
-  wonAmount: number | null;
-  wonOn: string | null;
-  lostReason: string | null;
   notes: string | null;
+  /** Only used when creating: the open stage the deal is entered at. Stage changes after that are recorded separately. */
+  stage: DealStage;
 };
 
+/** Optional choice from a list: blank = null. */
+function optional<T extends string>(raw: unknown, allowed: readonly T[], label: string): Parsed<T | null> {
+  const value = String(raw ?? "").trim();
+  if (!value) return { ok: true, value: null };
+  return (allowed as readonly string[]).includes(value) ? { ok: true, value: value as T } : { ok: false, error: `Choose a valid ${label}.` };
+}
+
+/** A three-letter currency code (blank = the default). */
+export function parseCurrency(raw: unknown): Parsed<string> {
+  const value = String(raw ?? "").trim().toUpperCase();
+  if (!value) return { ok: true, value: DEFAULT_CURRENCY };
+  return /^[A-Z]{3}$/.test(value) ? { ok: true, value } : { ok: false, error: "Enter a three-letter currency code, like USD." };
+}
+
+/**
+ * A deal's details. The stage is only taken when creating (an open stage -
+ * a deal is never created already won or lost); after that every stage
+ * change, win and loss is recorded through the sales history (sales.ts).
+ */
 export function parseDealInput(raw: Record<string, unknown>, timeZone: string): Parsed<DealInput> {
   const name = text(raw.name, 200, "the company or deal name", true);
   if (!name.ok) return name;
@@ -330,43 +384,52 @@ export function parseDealInput(raw: Record<string, unknown>, timeZone: string): 
   const contactEmail = text(raw.contactEmail, 320, "the email");
   if (!contactEmail.ok) return contactEmail;
   if (contactEmail.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.value)) return { ok: false, error: "Enter a valid email." };
-  const stage = oneOf(raw.stage, DEAL_STAGES, "lead", "stage");
-  if (!stage.ok) return stage;
-  const expectedMrr = money(raw.expectedMrr, "the expected MRR");
+  const contactPhone = text(raw.contactPhone, 40, "the phone number");
+  if (!contactPhone.ok) return contactPhone;
+  if (contactPhone.value && !/^[0-9+().\-\s x]{7,40}$/i.test(contactPhone.value)) return { ok: false, error: "Enter a valid phone number." };
+  const source = optional(raw.source, DEAL_SOURCES, "source");
+  if (!source.ok) return source;
+  const trade = text(raw.trade, 100, "the trade");
+  if (!trade.ok) return trade;
+  const location = text(raw.location, 200, "the location");
+  if (!location.ok) return location;
+  const website = text(raw.website, 300, "the website");
+  if (!website.ok) return website;
+  const fit = optional(raw.fit, DEAL_FITS, "fit");
+  if (!fit.ok) return fit;
+  const currency = parseCurrency(raw.currency);
+  if (!currency.ok) return currency;
+  const expectedSetupFee = money(raw.expectedSetupFee, "the expected setup fee");
+  if (!expectedSetupFee.ok) return expectedSetupFee;
+  const expectedMrr = money(raw.expectedMrr, "the expected monthly fee");
   if (!expectedMrr.ok) return expectedMrr;
   const nextAction = text(raw.nextAction, 500, "the next action");
   if (!nextAction.ok) return nextAction;
   const nextActionAt = parseLocalDateTime(raw.nextActionAt, timeZone);
   if (!nextActionAt.ok) return nextActionAt;
-  const lostReason = text(raw.lostReason, 500, "the reason");
-  if (!lostReason.ok) return lostReason;
   const notes = text(raw.notes, 5000, "the notes");
   if (!notes.ok) return notes;
-
-  let wonAmount: number | null = null;
-  let wonOn: string | null = null;
-  if (stage.value === "won") {
-    const amount = money(raw.wonAmount, "the won amount", true);
-    if (!amount.ok) return amount;
-    const date = String(raw.wonOn ?? "").trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) return { ok: false, error: "Enter the date the deal was won." };
-    wonAmount = amount.value;
-    wonOn = date;
-  }
+  const stage = oneOf(raw.stage, OPEN_DEAL_STAGES, "identified", "starting stage");
+  if (!stage.ok) return stage;
   return {
     ok: true,
     value: {
       name: name.value as string,
       contactName: contactName.value,
       contactEmail: contactEmail.value,
-      stage: stage.value,
+      contactPhone: contactPhone.value,
+      source: source.value,
+      trade: trade.value,
+      location: location.value,
+      website: website.value,
+      fit: fit.value,
+      currency: currency.value,
+      expectedSetupFee: expectedSetupFee.value,
       expectedMrr: expectedMrr.value,
       nextAction: nextAction.value,
       nextActionAt: nextActionAt.value,
-      wonAmount,
-      wonOn,
-      lostReason: stage.value === "lost" ? lostReason.value : null,
       notes: notes.value,
+      stage: stage.value,
     },
   };
 }
@@ -478,17 +541,37 @@ export function dealsNeedingFollowUp(deals: FounderDeal[], todayEnd: Date): Foun
     .sort((a, b) => ((a.nextActionAt as string) < (b.nextActionAt as string) ? -1 : 1));
 }
 
+/** Amounts per currency, rounded to cents. */
+export type CurrencyTotals = Record<string, number>;
+
+export function addToTotals(totals: CurrencyTotals, currency: string, amount: number): void {
+  totals[currency] = Math.round(((totals[currency] ?? 0) + amount) * 100) / 100;
+}
+
+/**
+ * The pipeline as it stands now (a snapshot of current stages). Won terms
+ * are what was agreed (contracted), per currency - never collected money.
+ */
 export function pipelineSummary(deals: FounderDeal[], monthKey: string) {
   const open = deals.filter(isOpenDeal);
   const wonThisMonth = deals.filter((deal) => deal.stage === "won" && deal.wonOn != null && deal.wonOn.slice(0, 7) === monthKey.slice(0, 7));
   const expected = open.filter((deal) => deal.expectedMrr != null);
+  const openExpectedMonthly: CurrencyTotals = {};
+  for (const deal of expected) addToTotals(openExpectedMonthly, deal.currency, deal.expectedMrr as number);
+  const wonSetup: CurrencyTotals = {};
+  const wonMonthly: CurrencyTotals = {};
+  for (const deal of wonThisMonth) {
+    addToTotals(wonSetup, deal.currency, deal.wonSetupFee ?? 0);
+    addToTotals(wonMonthly, deal.currency, deal.wonMonthlyFee ?? 0);
+  }
   return {
     openCount: open.length,
-    /** Sum of expected MRR across open deals that have one - null when none do. */
-    openExpectedMrr: expected.length ? centsSum(expected.map((deal) => deal.expectedMrr as number)) : null,
+    /** Expected monthly fees across open deals that have one, per currency - empty when none do. */
+    openExpectedMonthly,
     openWithoutValue: open.length - expected.length,
     wonThisMonthCount: wonThisMonth.length,
-    wonThisMonthAmount: centsSum(wonThisMonth.map((deal) => deal.wonAmount ?? 0)),
+    wonThisMonthSetup: wonSetup,
+    wonThisMonthMonthly: wonMonthly,
     byStage: Object.fromEntries(DEAL_STAGES.map((stage) => [stage, deals.filter((deal) => deal.stage === stage).length])) as Record<DealStage, number>,
   };
 }
@@ -499,7 +582,7 @@ export function filterDeals(deals: FounderDeal[], query: string, stage: DealStag
     if (stage === "open" && !isOpenDeal(deal)) return false;
     if (stage !== "open" && stage !== "all" && deal.stage !== stage) return false;
     if (!term) return true;
-    return [deal.name, deal.contactName, deal.contactEmail, deal.nextAction, deal.notes].some((value) => value?.toLowerCase().includes(term));
+    return [deal.name, deal.contactName, deal.contactEmail, deal.contactPhone, deal.trade, deal.location, deal.nextAction, deal.notes].some((value) => value?.toLowerCase().includes(term));
   });
 }
 

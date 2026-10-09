@@ -11,10 +11,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDailyPlan, prioritiesFor, reviewDay } from "./daily";
 import type { FounderDeal, FounderItem } from "./model";
+import { DEAL_DEFAULTS } from "./test-fixtures";
 
 const TZ = "America/Denver";
 const item = (o: Partial<FounderItem> & { title: string }): FounderItem => ({ id: o.title, kind: "task", notes: null, priority: "medium", dueAt: null, startsAt: null, endsAt: null, completedAt: null, dealId: null, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z", ...o });
-const deal = (o: Partial<FounderDeal> & { name: string }): FounderDeal => ({ id: o.name, contactName: null, contactEmail: null, stage: "lead", expectedMrr: null, nextAction: "Call", nextActionAt: null, wonAmount: null, wonOn: null, lostReason: null, notes: null, createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z", ...o });
+const deal = (o: Partial<FounderDeal> & { name: string }): FounderDeal => ({ ...DEAL_DEFAULTS, id: o.name, nextAction: "Call", ...o });
 const titles = (list: { title: string }[]) => list.map((i) => i.title);
 
 // Friday Oct 9 2026, 2:00pm in Denver (MDT, UTC-6).
@@ -109,7 +110,7 @@ test("end-of-day review: done that day, still open, still overdue, and what chan
   ];
   const deals = [
     deal({ name: "New", createdAt: "2026-10-09T16:00:00Z", updatedAt: "2026-10-09T16:00:00Z" }),
-    deal({ name: "Closed", stage: "won", wonOn: TODAY, wonAmount: 500, updatedAt: "2026-10-09T19:00:00Z" }),
+    deal({ name: "Closed", stage: "won", wonOn: TODAY, wonSetupFee: 0, wonMonthlyFee: 500, updatedAt: "2026-10-09T19:00:00Z" }),
     deal({ name: "Dropped", stage: "lost", updatedAt: "2026-10-09T19:00:00Z" }),
     deal({ name: "Touched", stage: "negotiation", updatedAt: "2026-10-09T21:00:00Z" }),
     deal({ name: "Quiet", updatedAt: "2026-10-01T00:00:00Z" }),

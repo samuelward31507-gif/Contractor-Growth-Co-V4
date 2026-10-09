@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DealStage, FounderDeal, FounderItem, FounderReview, ItemKind, MrrEntry, MrrKind, Priority } from "./model";
+import type { ActivityChannel, DealActivity, DealActivityKind } from "./sales";
+import type { DealFit, DealSource, DealStage, FounderDeal, FounderItem, FounderReview, ItemKind, MrrEntry, MrrKind, Priority } from "./model";
 
 /**
  * Founder Command Center reads. Every query filters on owner_id explicitly
@@ -11,19 +12,76 @@ import type { DealStage, FounderDeal, FounderItem, FounderReview, ItemKind, MrrE
 export type Loaded<T> = { ok: true; data: T } | { ok: false };
 
 type ItemRow = { id: string; kind: ItemKind; title: string; notes: string | null; priority: Priority; due_at: string | null; starts_at: string | null; ends_at: string | null; completed_at: string | null; deal_id: string | null; created_at: string; updated_at: string };
-type DealRow = { id: string; name: string; contact_name: string | null; contact_email: string | null; stage: DealStage; expected_mrr: number | string | null; next_action: string | null; next_action_at: string | null; won_amount: number | string | null; won_on: string | null; lost_reason: string | null; notes: string | null; created_at: string; updated_at: string };
+type DealRow = {
+  id: string;
+  name: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  source: DealSource | null;
+  trade: string | null;
+  location: string | null;
+  website: string | null;
+  fit: DealFit | null;
+  stage: DealStage;
+  currency: string;
+  expected_setup_fee: number | string | null;
+  expected_mrr: number | string | null;
+  next_action: string | null;
+  next_action_at: string | null;
+  won_setup_fee: number | string | null;
+  won_monthly_fee: number | string | null;
+  won_on: string | null;
+  lost_reason: string | null;
+  lost_on: string | null;
+  entered_stage: DealStage | null;
+  stage_changed_at: string | null;
+  last_activity_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
 type MrrRow = { id: string; month: string; kind: MrrKind; amount: number | string; is_forecast: boolean; customer: string | null; description: string | null; created_at: string };
 type ReviewRow = { id: string; review_date: string; wins: string | null; blockers: string | null; priorities_next: string | null; notes: string | null; updated_at: string };
 
 const num = (value: number | string | null): number | null => (value == null ? null : Number(value));
 
 export const toItem = (r: ItemRow): FounderItem => ({ id: r.id, kind: r.kind, title: r.title, notes: r.notes, priority: r.priority, dueAt: r.due_at, startsAt: r.starts_at, endsAt: r.ends_at, completedAt: r.completed_at, dealId: r.deal_id, createdAt: r.created_at, updatedAt: r.updated_at });
-export const toDeal = (r: DealRow): FounderDeal => ({ id: r.id, name: r.name, contactName: r.contact_name, contactEmail: r.contact_email, stage: r.stage, expectedMrr: num(r.expected_mrr), nextAction: r.next_action, nextActionAt: r.next_action_at, wonAmount: num(r.won_amount), wonOn: r.won_on, lostReason: r.lost_reason, notes: r.notes, createdAt: r.created_at, updatedAt: r.updated_at });
+export const toDeal = (r: DealRow): FounderDeal => ({
+  id: r.id,
+  name: r.name,
+  contactName: r.contact_name,
+  contactEmail: r.contact_email,
+  contactPhone: r.contact_phone,
+  source: r.source,
+  trade: r.trade,
+  location: r.location,
+  website: r.website,
+  fit: r.fit,
+  stage: r.stage,
+  currency: r.currency,
+  expectedSetupFee: num(r.expected_setup_fee),
+  expectedMrr: num(r.expected_mrr),
+  nextAction: r.next_action,
+  nextActionAt: r.next_action_at,
+  wonSetupFee: num(r.won_setup_fee),
+  wonMonthlyFee: num(r.won_monthly_fee),
+  wonOn: r.won_on,
+  lostReason: r.lost_reason,
+  lostOn: r.lost_on,
+  enteredStage: r.entered_stage,
+  stageChangedAt: r.stage_changed_at,
+  lastActivityAt: r.last_activity_at,
+  notes: r.notes,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
+});
 export const toMrr = (r: MrrRow): MrrEntry => ({ id: r.id, month: r.month, kind: r.kind, amount: Number(r.amount), isForecast: r.is_forecast, customer: r.customer, description: r.description, createdAt: r.created_at });
 export const toReview = (r: ReviewRow): FounderReview => ({ id: r.id, reviewDate: r.review_date, wins: r.wins, blockers: r.blockers, prioritiesNext: r.priorities_next, notes: r.notes, updatedAt: r.updated_at });
 
 const ITEM_COLUMNS = "id, kind, title, notes, priority, due_at, starts_at, ends_at, completed_at, deal_id, created_at, updated_at";
-const DEAL_COLUMNS = "id, name, contact_name, contact_email, stage, expected_mrr, next_action, next_action_at, won_amount, won_on, lost_reason, notes, created_at, updated_at";
+const DEAL_COLUMNS =
+  "id, name, contact_name, contact_email, contact_phone, source, trade, location, website, fit, stage, currency, expected_setup_fee, expected_mrr, next_action, next_action_at, won_setup_fee, won_monthly_fee, won_on, lost_reason, lost_on, entered_stage, stage_changed_at, last_activity_at, notes, created_at, updated_at";
 const MRR_COLUMNS = "id, month, kind, amount, is_forecast, customer, description, created_at";
 const REVIEW_COLUMNS = "id, review_date, wins, blockers, priorities_next, notes, updated_at";
 
@@ -41,6 +99,63 @@ export async function getFounderDeals(supabase: SupabaseClient, ownerId: string)
   const { data, error } = await supabase.from("founder_deals").select(DEAL_COLUMNS).eq("owner_id", ownerId).order("updated_at", { ascending: false }).limit(2000);
   if (error) return { ok: false };
   return { ok: true, data: (data as DealRow[]).map(toDeal) };
+}
+
+type ActivityRow = {
+  id: string;
+  deal_id: string;
+  kind: DealActivityKind;
+  occurred_at: string;
+  channel: ActivityChannel | null;
+  scheduled_for: string | null;
+  summary: string | null;
+  from_stage: DealStage | null;
+  to_stage: DealStage | null;
+  setup_fee: number | string | null;
+  monthly_fee: number | string | null;
+  currency: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  recorded_at: string;
+};
+export const toActivity = (r: ActivityRow): DealActivity => ({
+  id: r.id,
+  dealId: r.deal_id,
+  kind: r.kind,
+  occurredAt: r.occurred_at,
+  channel: r.channel,
+  scheduledFor: r.scheduled_for,
+  summary: r.summary,
+  fromStage: r.from_stage,
+  toStage: r.to_stage,
+  setupFee: num(r.setup_fee),
+  monthlyFee: num(r.monthly_fee),
+  currency: r.currency,
+  voidedAt: r.voided_at,
+  voidReason: r.void_reason,
+  recordedAt: r.recorded_at,
+});
+const ACTIVITY_COLUMNS = "id, deal_id, kind, occurred_at, channel, scheduled_for, summary, from_stage, to_stage, setup_fee, monthly_fee, currency, voided_at, void_reason, recorded_at";
+export const MAX_ACTIVITIES = 5000;
+
+/**
+ * The founder's recorded sales history (founder_sales_os.sql), newest first,
+ * bounded. `available: false` when the table doesn't exist yet on this
+ * database, so pages can say so instead of showing an empty history.
+ */
+export async function getFounderDealActivities(supabase: SupabaseClient, ownerId: string, options: { dealId?: string; limit?: number } = {}): Promise<Loaded<{ available: boolean; activities: DealActivity[]; truncated: boolean }>> {
+  const limit = Math.min(options.limit ?? MAX_ACTIVITIES, MAX_ACTIVITIES);
+  let query = supabase.from("founder_deal_activities").select(ACTIVITY_COLUMNS).eq("owner_id", ownerId);
+  if (options.dealId) query = query.eq("deal_id", options.dealId);
+  const { data, error } = await query.order("occurred_at", { ascending: false }).order("recorded_at", { ascending: false }).limit(limit + 1);
+  if (error) return isMissingRelation(error) ? { ok: true, data: { available: false, activities: [], truncated: false } } : { ok: false };
+  const rows = data as ActivityRow[];
+  return { ok: true, data: { available: true, activities: rows.slice(0, limit).map(toActivity), truncated: rows.length > limit } };
+}
+
+/** 42P01 / PGRST205: the table isn't there (migration not applied). */
+function isMissingRelation(error: { code?: string; message?: string }): boolean {
+  return error.code === "42P01" || error.code === "PGRST205" || (/founder_deal_activities/.test(error.message ?? "") && /does not exist|could not find/i.test(error.message ?? ""));
 }
 
 export async function getFounderMrrEntries(supabase: SupabaseClient, ownerId: string): Promise<Loaded<MrrEntry[]>> {

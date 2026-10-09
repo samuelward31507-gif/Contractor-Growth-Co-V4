@@ -6,36 +6,44 @@ import { StatCard, StatGrid } from "@/lib/ui/stat-card";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { Badge } from "@/lib/ui/badge";
 import { inputClass, secondaryButtonAutoClass } from "@/lib/ui/form";
-import { getFounderDeals, getFounderItems } from "@/lib/founder/queries";
-import { DEAL_STAGES, DEAL_STAGE_LABELS, OPEN_DEAL_STAGES, filterDeals, isOverdue, itemTime, localDateKey, pipelineSummary, sortByTimeThenPriority, toDealOptions, type DealStage, type FounderDeal, type FounderItem } from "@/lib/founder/model";
+import { SectionCard } from "@/lib/ui/section-card";
+import { getFounderDealActivities, getFounderDeals, getFounderItems } from "@/lib/founder/queries";
+import { DEAL_FIT_LABELS, DEAL_SOURCE_LABELS, DEAL_STAGES, DEAL_STAGE_LABELS, OPEN_DEAL_STAGES, filterDeals, isOverdue, itemTime, localDateKey, pipelineSummary, sortByTimeThenPriority, toDealOptions, type DealStage, type FounderDeal, type FounderItem } from "@/lib/founder/model";
+import { METRIC_PERIODS, buildSalesMetrics, buildSalesToday, periodRange, type MetricPeriod } from "@/lib/founder/sales";
 import { calendarHref } from "@/lib/founder/calendar";
-import { formatDateKey, formatDateTime, formatDay, formatMoney } from "@/lib/founder/format";
+import { formatDateKey, formatDateTime, formatDay, formatMoney, formatTotals } from "@/lib/founder/format";
 import { requireFounderPage, LoadFailed } from "../_components/page-parts";
 import { AddDealButton, DealControls } from "../_components/deal-controls";
 import { AddItemButton } from "../_components/add-item-button";
 import { KindIcon } from "../_components/kind-icon";
+import { ActivityTimeline } from "../_components/activity-timeline";
+import { SalesMetricsPanel, SalesTodayPanel } from "../_components/sales-panels";
 import type { DealOption } from "../_components/item-dialog";
 
 type StageFilter = DealStage | "open" | "all";
 const STAGE_FILTERS: { id: StageFilter; label: string }[] = [{ id: "open", label: "Open" }, { id: "all", label: "All" }, ...DEAL_STAGES.map((stage) => ({ id: stage, label: DEAL_STAGE_LABELS[stage] }))];
 
 function DealCard({ deal, timeZone, todayKey, now, linked, dealOptions }: { deal: FounderDeal; timeZone: string; todayKey: string; now: Date; linked: FounderItem[]; dealOptions: DealOption[] }) {
+  const profile = [deal.trade, deal.location, deal.source ? DEAL_SOURCE_LABELS[deal.source] : null, deal.fit ? DEAL_FIT_LABELS[deal.fit] : null].filter(Boolean).join(" · ");
   const followUpOverdue = deal.nextActionAt != null && new Date(deal.nextActionAt) < now && OPEN_DEAL_STAGES.includes(deal.stage);
   return (
     <li className="rounded-lg border border-line bg-surface p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-ink">{deal.name}</p>
-          {deal.contactName || deal.contactEmail ? <p className="truncate text-xs text-ink-3">{[deal.contactName, deal.contactEmail].filter(Boolean).join(" · ")}</p> : null}
+          {deal.contactName || deal.contactEmail || deal.contactPhone ? <p className="truncate text-xs text-ink-3">{[deal.contactName, deal.contactPhone, deal.contactEmail].filter(Boolean).join(" · ")}</p> : null}
+          {profile ? <p className="truncate text-xs text-ink-3">{profile}</p> : null}
         </div>
-        {deal.stage === "won" && deal.wonAmount != null ? (
-          <Badge tone="success">{formatMoney(deal.wonAmount)}</Badge>
+        {deal.stage === "won" && deal.wonMonthlyFee != null ? (
+          <Badge tone="success">{formatMoney(deal.wonMonthlyFee, deal.currency)}/mo</Badge>
         ) : deal.expectedMrr != null ? (
-          <span className="shrink-0 text-xs font-medium tabular-nums text-ink-2">{formatMoney(deal.expectedMrr)}/mo</span>
+          <span className="shrink-0 text-xs font-medium tabular-nums text-ink-2">{formatMoney(deal.expectedMrr, deal.currency)}/mo</span>
         ) : null}
       </div>
+      {deal.stage === "won" && deal.wonSetupFee != null ? <p className="mt-1 text-xs text-ink-3">+ {formatMoney(deal.wonSetupFee, deal.currency)} setup agreed</p> : null}
       {deal.stage === "won" && deal.wonOn ? <p className="mt-1.5 text-xs text-ink-3">Won {formatDateKey(deal.wonOn, { month: "short", day: "numeric", year: "numeric" })}</p> : null}
       {deal.stage === "lost" && deal.lostReason ? <p className="mt-1.5 text-xs text-ink-3">Lost: {deal.lostReason}</p> : null}
+      <p className="mt-1 text-xs text-ink-4">{deal.lastActivityAt ? `Last activity ${formatDay(deal.lastActivityAt, timeZone)}` : "No activity recorded"}</p>
       {deal.nextAction || deal.nextActionAt ? (
         <p className={`mt-1.5 text-xs ${followUpOverdue ? "font-medium text-danger-text" : "text-ink-2"}`}>
           Next: {deal.nextAction ?? "Follow up"}
@@ -64,7 +72,7 @@ function DealCard({ deal, timeZone, todayKey, now, linked, dealOptions }: { deal
         </ul>
       ) : null}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-1 border-t border-line pt-2">
-        <DealControls deal={deal} timeZone={timeZone} todayKey={todayKey} />
+        <DealControls deal={deal} timeZone={timeZone} todayKey={todayKey} nowIso={now.toISOString()} />
         {OPEN_DEAL_STAGES.includes(deal.stage) ? (
           <AddItemButton label="Follow-up" defaultKind="follow_up" defaults={{ dealId: deal.id, date: todayKey }} deals={dealOptions} timeZone={timeZone} variant="secondary" />
         ) : null}
@@ -73,14 +81,28 @@ function DealCard({ deal, timeZone, todayKey, now, linked, dealOptions }: { deal
   );
 }
 
-/** The sales pipeline: stages Lead → Won/Lost, next actions and follow-ups, search and stage filter. */
+/**
+ * The sales pipeline: what needs doing today (from due dates and recorded
+ * activity), the board (Identified → Won/Lost) with search and stage filter,
+ * a deal's history when one is focused (?deal=), and results measured from
+ * recorded activity, kept apart from the current pipeline snapshot.
+ */
 export default async function FounderDealsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
   const query = typeof params.q === "string" ? params.q.slice(0, 200) : "";
   const stage = (STAGE_FILTERS.find((f) => f.id === params.stage)?.id ?? "open") as StageFilter;
   const { supabase, userId, timeZone, now, todayKey, monthKey } = await requireFounderPage();
-  const [result, itemsResult] = await Promise.all([getFounderDeals(supabase, userId), getFounderItems(supabase, userId, new Date(now.getTime() - 30 * 86_400_000).toISOString())]);
+  const period = (METRIC_PERIODS.find((p) => String(p) === params.period) ?? 30) as MetricPeriod;
+  const [result, itemsResult, activitiesResult] = await Promise.all([
+    getFounderDeals(supabase, userId),
+    getFounderItems(supabase, userId, new Date(now.getTime() - 30 * 86_400_000).toISOString()),
+    getFounderDealActivities(supabase, userId),
+  ]);
   const deals = result.ok ? result.data : [];
+  const activities = activitiesResult.ok ? activitiesResult.data.activities : [];
+  const historyAvailable = activitiesResult.ok && activitiesResult.data.available;
+  const salesToday = buildSalesToday({ deals, activities, items: itemsResult.ok ? itemsResult.data : [], now, timeZone, todayKey });
+  const metrics = buildSalesMetrics({ deals, activities, ...periodRange(todayKey, period), timeZone });
   const dealOptions = toDealOptions(deals);
   const summary = pipelineSummary(deals, monthKey);
   // ?deal= focuses one deal (where an item's "linked deal" link lands), whatever its stage.
@@ -104,18 +126,21 @@ export default async function FounderDealsPage({ searchParams }: { searchParams:
 
   return (
     <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
-      <PageHeader eyebrow="Founder" title="Deals" description="Your own sales pipeline - separate from your clients' leads in Trackpr." action={<AddDealButton timeZone={timeZone} todayKey={todayKey} />} />
+      <PageHeader eyebrow="Founder" title="Deals" description="Your own sales pipeline - separate from your clients' leads in Trackpr." action={<AddDealButton timeZone={timeZone} />} />
 
       {!result.ok ? (
         <LoadFailed what="Your deals" />
       ) : (
         <>
           <StatGrid>
-            <StatCard label="Open deals" value={summary.openCount} description={summary.openWithoutValue ? `${summary.openWithoutValue} without an expected MRR` : "In Lead through Negotiation"} icon={Handshake} />
-            <StatCard label="Open pipeline" value={summary.openExpectedMrr != null ? `${formatMoney(summary.openExpectedMrr)}/mo` : "—"} description="Expected MRR across open deals" />
-            <StatCard label="Won this month" value={summary.wonThisMonthCount} description={summary.wonThisMonthCount ? `${formatMoney(summary.wonThisMonthAmount)} won` : "Nothing won yet this month"} tone="success" />
+            <StatCard label="Open deals" value={summary.openCount} description={summary.openWithoutValue ? `${summary.openWithoutValue} without an expected monthly fee` : "Identified through Negotiation"} icon={Handshake} />
+            <StatCard label="Open pipeline" value={formatTotals(summary.openExpectedMonthly) ? `${formatTotals(summary.openExpectedMonthly)}/mo` : "—"} description="Expected monthly fees (estimates)" />
+            <StatCard label="Won this month" value={summary.wonThisMonthCount} description={summary.wonThisMonthCount ? `${formatTotals(summary.wonThisMonthSetup)} setup + ${formatTotals(summary.wonThisMonthMonthly)}/mo agreed` : "Nothing won yet this month"} tone="success" />
             <StatCard label="Lost" value={summary.byStage.lost} description="All time" />
           </StatGrid>
+
+          {!activitiesResult.ok ? <LoadFailed what="Your sales history" /> : null}
+          {focused ? null : <SalesTodayPanel today={salesToday} timeZone={timeZone} historyAvailable={!activitiesResult.ok || historyAvailable} />}
 
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <form action="/founder/deals" role="search" className="flex w-full gap-2 lg:max-w-sm">
@@ -152,6 +177,15 @@ export default async function FounderDealsPage({ searchParams }: { searchParams:
               <Link href="/founder/deals" className="font-medium underline underline-offset-2">Show all deals</Link>
             </p>
           ) : null}
+          {focused && activitiesResult.ok ? (
+            <SectionCard title="History" description={focused.enteredStage ? `Added at ${DEAL_STAGE_LABELS[focused.enteredStage]} on ${formatDay(focused.createdAt, timeZone)}. Everything below was recorded.` : undefined}>
+              {historyAvailable ? (
+                <ActivityTimeline activities={activities.filter((a) => a.dealId === focused.id)} timeZone={timeZone} />
+              ) : (
+                <p className="text-sm text-ink-3">Sales history isn&rsquo;t enabled on this database yet.</p>
+              )}
+            </SectionCard>
+          ) : null}
           {!itemsResult.ok ? <LoadFailed what="Items linked to your deals" /> : null}
           {deals.length === 0 ? (
             <EmptyState icon={Handshake} title="No deals yet" description="Add your first deal to start tracking the pipeline, next actions and follow-ups." />
@@ -183,6 +217,7 @@ export default async function FounderDealsPage({ searchParams }: { searchParams:
               </div>
             </div>
           )}
+          {focused || !activitiesResult.ok ? null : <SalesMetricsPanel metrics={metrics} period={period} byStage={summary.byStage} timeZone={timeZone} />}
         </>
       )}
     </div>

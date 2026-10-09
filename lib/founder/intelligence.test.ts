@@ -27,11 +27,12 @@ import {
   type Recommendation,
 } from "./intelligence";
 import { localDateKey, type FounderDeal, type FounderItem } from "./model";
+import { DEAL_DEFAULTS } from "./test-fixtures";
 import type { DailyFocus } from "./queries";
 
 const TZ = "America/Denver";
 const item = (o: Partial<FounderItem> & { title: string }): FounderItem => ({ id: o.title, kind: "task", notes: null, priority: "medium", dueAt: null, startsAt: null, endsAt: null, completedAt: null, dealId: null, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z", ...o });
-const deal = (o: Partial<FounderDeal> & { name: string }): FounderDeal => ({ id: o.name, contactName: null, contactEmail: null, stage: "lead", expectedMrr: 500, nextAction: "Call", nextActionAt: "2026-10-30T16:00:00Z", wonAmount: null, wonOn: null, lostReason: null, notes: null, createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-10-08T00:00:00Z", ...o });
+const deal = (o: Partial<FounderDeal> & { name: string }): FounderDeal => ({ ...DEAL_DEFAULTS, id: o.name, expectedMrr: 500, nextAction: "Call", nextActionAt: "2026-10-30T16:00:00Z", updatedAt: "2026-10-08T00:00:00Z", ...o });
 
 // Friday Oct 9 2026, 2:00pm in Denver (MDT, UTC-6).
 const NOW = new Date("2026-10-09T20:00:00Z");
@@ -70,11 +71,11 @@ function mixedDay() {
   ];
   const deals = [
     deal({ name: "Late no step", stage: "negotiation", nextAction: null, nextActionAt: null }),
-    deal({ name: "Early no step", stage: "lead", nextAction: null, nextActionAt: null }),
-    deal({ name: "Follow up now", stage: "demo_proposal", nextAction: "Send proposal", nextActionAt: "2026-10-09T17:00:00Z" }),
-    deal({ name: "Quiet one", stage: "contacted", nextActionAt: "2026-09-01T16:00:00Z", updatedAt: "2026-09-10T16:00:00Z" }), // past follow-up: that rule, not stale
-    deal({ name: "Gone quiet", stage: "contacted", nextActionAt: null, nextAction: "Call", updatedAt: "2026-09-20T16:00:00Z" }), // 19 days, no follow-up date
-    deal({ name: "Won deal", stage: "won", nextAction: null, nextActionAt: null, wonOn: "2026-10-01", wonAmount: 900 }),
+    deal({ name: "Early no step", stage: "identified", nextAction: null, nextActionAt: null }),
+    deal({ name: "Follow up now", stage: "proposal_sent", nextAction: "Send proposal", nextActionAt: "2026-10-09T17:00:00Z" }),
+    deal({ name: "Quiet one", stage: "outreach", nextActionAt: "2026-09-01T16:00:00Z", updatedAt: "2026-09-10T16:00:00Z" }), // past follow-up: that rule, not stale
+    deal({ name: "Gone quiet", stage: "outreach", nextActionAt: null, nextAction: "Call", updatedAt: "2026-09-20T16:00:00Z" }), // 19 days, no follow-up date
+    deal({ name: "Won deal", stage: "won", nextAction: null, nextActionAt: null, wonOn: "2026-10-01", wonSetupFee: 2500, wonMonthlyFee: 900 }),
   ];
   const focus: DailyFocus[] = [
     { itemId: "Hire plan", date: TODAY, rank: 2 },
@@ -234,7 +235,7 @@ test("overdue vs due today: local-day boundaries decide, not the current time", 
 
 test("missing next action: late-stage deals outrank deadlines; early-stage deals come after them", () => {
   const items = [item({ title: "Deadline", kind: "deadline", dueAt: "2026-10-11T23:00:00Z" })];
-  const deals = [deal({ name: "Early", stage: "contacted", nextAction: null, nextActionAt: null }), deal({ name: "Late", stage: "negotiation", nextAction: null, nextActionAt: null })];
+  const deals = [deal({ name: "Early", stage: "outreach", nextAction: null, nextActionAt: null }), deal({ name: "Late", stage: "negotiation", nextAction: null, nextActionAt: null })];
   const b = brief({ items, deals, prioritiesAvailable: false });
   assert.deepEqual(rules(b), ["deal_next_action_late_stage", "deadline_soon", "deal_next_action"]);
   assert.match(b.recommended_actions[0].why, /Negotiation with no next action or follow-up date recorded/);
@@ -410,17 +411,17 @@ test("end-of-day summary: only what the records confirm", () => {
     item({ title: "Tomorrow pick" }),
   ];
   const deals = [
-    deal({ name: "Won today", stage: "won", wonOn: TODAY, wonAmount: 1200.5, updatedAt: "2026-10-09T19:00:00Z" }),
+    deal({ name: "Won today", stage: "won", wonOn: TODAY, wonSetupFee: 1000, wonMonthlyFee: 200.5, updatedAt: "2026-10-09T19:00:00Z" }),
     deal({ name: "New today", createdAt: "2026-10-09T15:00:00Z", updatedAt: "2026-10-09T15:00:00Z" }),
     deal({ name: "Untouched", updatedAt: "2026-10-01T15:00:00Z" }),
   ];
   const focus = [{ itemId: "P1", date: TODAY, rank: 1 }, { itemId: "P2", date: TODAY, rank: 2 }, { itemId: "Tomorrow pick", date: "2026-10-10", rank: 1 }];
   const s = buildEndOfDaySummary({ items, deals, focus, dayKey: TODAY, timeZone: TZ });
   assert.deepEqual(
-    { completed: s.completed, committed: s.committed, committedDone: s.committedDone, unfinished: s.unfinished, stillOverdue: s.stillOverdue, dealChanges: s.dealChanges, wonAmount: s.wonAmount, tomorrowPriorities: s.tomorrowPriorities },
-    { completed: 2, committed: 4, committedDone: 2, unfinished: 1, stillOverdue: 1, dealChanges: 2, wonAmount: 1200.5, tomorrowPriorities: 1 },
+    { completed: s.completed, committed: s.committed, committedDone: s.committedDone, unfinished: s.unfinished, stillOverdue: s.stillOverdue, dealChanges: s.dealChanges, wonSetup: s.wonSetup, wonMonthly: s.wonMonthly, tomorrowPriorities: s.tomorrowPriorities },
+    { completed: 2, committed: 4, committedDone: 2, unfinished: 1, stillOverdue: 1, dealChanges: 2, wonSetup: { USD: 1000 }, wonMonthly: { USD: 200.5 }, tomorrowPriorities: 1 },
   );
-  assert.equal(s.sentence, "2 of 4 commitments done; 2 items completed; 1 still open; 1 overdue from earlier; 2 deal changes ($1,200.50 won); 1 of 3 priorities set for Saturday.");
+  assert.equal(s.sentence, "2 of 4 commitments done; 2 items completed; 1 still open; 1 overdue from earlier; 2 deal changes (won: $1,000 setup + $200.50/mo agreed); 1 of 3 priorities set for Saturday.");
 
   const empty = buildEndOfDaySummary({ items: [], deals: [], focus: [], dayKey: TODAY, timeZone: TZ });
   assert.equal(empty.sentence, "No commitments were set; 0 items completed; no deal changes; no priorities set for Saturday yet.");

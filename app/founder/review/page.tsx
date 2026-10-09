@@ -142,7 +142,7 @@ export default async function FounderReviewPage({ searchParams }: { searchParams
         ) : (
           <ul className="divide-y divide-line">
             {pipeline.won.map((deal) => (
-              <DealLine key={deal.id} deal={deal} note={`Won${deal.wonAmount != null ? ` · ${formatMoney(deal.wonAmount)}` : ""}`} />
+              <DealLine key={deal.id} deal={deal} note={`Won${deal.wonSetupFee != null && deal.wonMonthlyFee != null ? ` · ${formatMoney(deal.wonSetupFee, deal.currency)} setup + ${formatMoney(deal.wonMonthlyFee, deal.currency)}/mo agreed` : ""}`} />
             ))}
             {pipeline.created.map((deal) => (
               <DealLine key={deal.id} deal={deal} note={`New · ${DEAL_STAGE_LABELS[deal.stage]}`} />

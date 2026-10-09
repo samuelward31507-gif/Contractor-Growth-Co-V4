@@ -8,6 +8,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { DEAL_DEFAULTS } from "./test-fixtures";
 import {
   dayRange,
   filterItems,
@@ -84,40 +85,51 @@ test("views: today includes overdue; events are never overdue; upcoming is the n
   assert.deepEqual(titles("done"), ["done"]);
 });
 
-test("deals: required name, valid email and stage; won needs amount and date; lost reason only when lost", () => {
+test("deals: required name, valid contact details, open starting stage only; prospect fields and expected terms validated", () => {
   assert.equal(parseDealInput({ name: "" }, TZ).ok, false);
   assert.equal(parseDealInput({ name: "Acme", contactEmail: "not-an-email" }, TZ).ok, false);
+  assert.equal(parseDealInput({ name: "Acme", contactPhone: "call me" }, TZ).ok, false);
   assert.equal(parseDealInput({ name: "Acme", stage: "closed" }, TZ).ok, false);
-  assert.equal(parseDealInput({ name: "Acme", stage: "won" }, TZ).ok, false, "won without amount/date");
-  const won = parseDealInput({ name: "Acme", stage: "won", wonAmount: "$1,200", wonOn: "2026-10-09", lostReason: "ignored" }, TZ);
-  assert.ok(won.ok);
-  assert.equal(won.value.wonAmount, 1200);
-  assert.equal(won.value.lostReason, null);
-  const open = parseDealInput({ name: "Acme", stage: "negotiation", wonAmount: "5", wonOn: "2026-10-09" }, TZ);
-  assert.ok(open.ok && open.value.wonAmount === null && open.value.wonOn === null, "an open deal carries no won figures");
+  assert.equal(parseDealInput({ name: "Acme", stage: "won" }, TZ).ok, false, "a deal is never created won - the win is recorded with its terms");
+  assert.equal(parseDealInput({ name: "Acme", stage: "lost" }, TZ).ok, false);
+  assert.equal(parseDealInput({ name: "Acme", source: "billboard" }, TZ).ok, false);
+  assert.equal(parseDealInput({ name: "Acme", fit: "great" }, TZ).ok, false);
+  assert.equal(parseDealInput({ name: "Acme", currency: "dollars" }, TZ).ok, false);
   assert.equal(parseDealInput({ name: "Acme", expectedMrr: "-5" }, TZ).ok, false);
+  assert.equal(parseDealInput({ name: "Acme", expectedSetupFee: "1.234" }, TZ).ok, false, "two decimals at most");
+  const ok = parseDealInput({ name: " Acme Roofing ", contactPhone: "(555) 010-2000", source: "referral", fit: "strong", trade: "Roofing", currency: "cad", expectedSetupFee: "$2,500", expectedMrr: "1497", stage: "qualified" }, TZ);
+  assert.ok(ok.ok);
+  assert.deepEqual(
+    [ok.value.name, ok.value.source, ok.value.fit, ok.value.currency, ok.value.expectedSetupFee, ok.value.expectedMrr, ok.value.stage],
+    ["Acme Roofing", "referral", "strong", "CAD", 2500, 1497, "qualified"],
+  );
+  const defaults = parseDealInput({ name: "Birch" }, TZ);
+  assert.ok(defaults.ok && defaults.value.stage === "identified" && defaults.value.currency === "USD" && defaults.value.source === null);
 });
 
-const deal = (over: Partial<FounderDeal>): FounderDeal => ({ id: Math.random().toString(36), name: "d", contactName: null, contactEmail: null, stage: "lead", expectedMrr: null, nextAction: null, nextActionAt: null, wonAmount: null, wonOn: null, lostReason: null, notes: null, createdAt: "", updatedAt: "", ...over });
+const deal = (over: Partial<FounderDeal>): FounderDeal => ({ ...DEAL_DEFAULTS, id: Math.random().toString(36), name: "d", ...over });
 
-test("pipeline: open counts and expected MRR (null when none entered), won this month, follow-ups, search and stage filter", () => {
+test("pipeline: open counts and expected monthly fees per currency (empty when none entered), won terms this month kept split, follow-ups, search and stage filter", () => {
   const deals = [
     deal({ name: "Acme", stage: "negotiation", expectedMrr: 300, nextActionAt: "2026-10-09T15:00:00Z", contactName: "Dana" }),
-    deal({ name: "Birch", stage: "lead" }),
-    deal({ name: "Cobalt", stage: "won", wonAmount: 500, wonOn: "2026-10-02" }),
-    deal({ name: "Dune", stage: "won", wonAmount: 900, wonOn: "2026-09-30" }),
+    deal({ name: "Birch", stage: "identified", trade: "Plumbing" }),
+    deal({ name: "Cobalt", stage: "won", wonSetupFee: 2500, wonMonthlyFee: 500, wonOn: "2026-10-02" }),
+    deal({ name: "Cedar", stage: "won", currency: "CAD", wonSetupFee: 1000, wonMonthlyFee: 700, wonOn: "2026-10-05" }),
+    deal({ name: "Dune", stage: "won", wonSetupFee: 0, wonMonthlyFee: 900, wonOn: "2026-09-30" }),
     deal({ name: "Elm", stage: "lost", nextActionAt: "2026-10-01T00:00:00Z" }),
   ];
   const summary = pipelineSummary(deals, "2026-10-01");
   assert.equal(summary.openCount, 2);
-  assert.equal(summary.openExpectedMrr, 300);
+  assert.deepEqual(summary.openExpectedMonthly, { USD: 300 });
   assert.equal(summary.openWithoutValue, 1);
-  assert.equal(summary.wonThisMonthCount, 1);
-  assert.equal(summary.wonThisMonthAmount, 500);
-  assert.equal(pipelineSummary([deal({ stage: "lead" })], "2026-10-01").openExpectedMrr, null, "no values entered = unknown, not $0");
+  assert.equal(summary.wonThisMonthCount, 2);
+  assert.deepEqual(summary.wonThisMonthSetup, { USD: 2500, CAD: 1000 }, "setup and monthly are never added together, nor across currencies");
+  assert.deepEqual(summary.wonThisMonthMonthly, { USD: 500, CAD: 700 });
+  assert.deepEqual(pipelineSummary([deal({ stage: "identified" })], "2026-10-01").openExpectedMonthly, {}, "no values entered = unknown, not $0");
   assert.deepEqual(dealsNeedingFollowUp(deals, new Date("2026-10-10T06:00:00Z")).map((d) => d.name), ["Acme"], "lost deals never need follow-up");
   assert.deepEqual(filterDeals(deals, "dana", "all").map((d) => d.name), ["Acme"]);
-  assert.deepEqual(filterDeals(deals, "", "won").map((d) => d.name), ["Cobalt", "Dune"]);
+  assert.deepEqual(filterDeals(deals, "plumb", "all").map((d) => d.name), ["Birch"], "search covers trade");
+  assert.deepEqual(filterDeals(deals, "", "won").map((d) => d.name), ["Cobalt", "Cedar", "Dune"]);
   assert.deepEqual(filterDeals(deals, "", "open").map((d) => d.name), ["Acme", "Birch"]);
 });
 

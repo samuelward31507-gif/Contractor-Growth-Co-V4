@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getFounderContext, type FounderContext } from "@/lib/founder/access";
-import { DEAL_STAGES, SCHEDULED_KINDS, addDaysKey, dayRange, isDateKey, parseDealInput, parseItemInput, parseLocalDateTime, parseMrrInput, parseReviewInput, toLocalInputValue, type DealStage } from "@/lib/founder/model";
+import { SCHEDULED_KINDS, addDaysKey, dayRange, isDateKey, localDateKey, parseDealInput, parseItemInput, parseLocalDateTime, parseMrrInput, parseReviewInput, toLocalInputValue, type DealInput, type DealStage } from "@/lib/founder/model";
+import { parseActivityInput, parseStageChange } from "@/lib/founder/sales";
 import { isAllDayEvent, isEndOfDayDue } from "@/lib/founder/calendar";
 import { MAX_DAILY_PRIORITIES } from "@/lib/founder/daily";
 import { isMissingFocusColumn, toItem } from "@/lib/founder/queries";
@@ -17,7 +18,7 @@ import { isMissingFocusColumn, toItem } from "@/lib/founder/queries";
 export type FounderActionResult = { ok: true; id?: string } | { ok: false; error: string };
 type Fields = Record<string, unknown>;
 
-const NOT_AVAILABLE: FounderActionResult = { ok: false, error: "The Founder Command Center isn't available for this account." };
+const NOT_AVAILABLE: { ok: false; error: string } = { ok: false, error: "The Founder Command Center isn't available for this account." };
 
 async function founder(): Promise<FounderContext | null> {
   return getFounderContext();
@@ -162,75 +163,214 @@ export async function deleteFounderItem(id: string): Promise<FounderActionResult
 
 // --- deals ------------------------------------------------------------------------
 
-function dealRow(v: ReturnType<typeof parseDealInput> & { ok: true }) {
-  const d = v.value;
+const STALE_DEAL_ERROR = "This deal changed since you opened it. Close and reopen it to see the latest version, then try again.";
+
+function dealRow(d: DealInput) {
   return {
     name: d.name,
     contact_name: d.contactName,
     contact_email: d.contactEmail,
-    stage: d.stage,
+    contact_phone: d.contactPhone,
+    source: d.source,
+    trade: d.trade,
+    location: d.location,
+    website: d.website,
+    fit: d.fit,
+    currency: d.currency,
+    expected_setup_fee: d.expectedSetupFee,
     expected_mrr: d.expectedMrr,
     next_action: d.nextAction,
     next_action_at: d.nextActionAt,
-    won_amount: d.wonAmount,
-    won_on: d.wonOn,
-    lost_reason: d.lostReason,
     notes: d.notes,
   };
 }
 
+const clientIdOf = (value: unknown): string | null => (typeof value === "string" && UUID.test(value) ? value.toLowerCase() : null);
+
+/**
+ * Creates a deal at an open stage (a deal is never created already won or
+ * lost - wins and losses are recorded with their terms or reason). With a
+ * `clientId` the create is duplicate-safe, like items.
+ */
 export async function createFounderDeal(fields: Fields): Promise<FounderActionResult> {
   const ctx = await founder();
   if (!ctx) return NOT_AVAILABLE;
   const parsed = parseDealInput(fields, ctx.timeZone);
   if (!parsed.ok) return parsed;
-  const { data, error } = await ctx.supabase.from("founder_deals").insert({ owner_id: ctx.userId, ...dealRow(parsed) }).select("id").single();
-  if (error || !data) return { ok: false, error: "We couldn't save this deal. Please try again." };
-  refresh();
-  return { ok: true, id: data.id };
-}
-
-export async function updateFounderDeal(id: string, fields: Fields): Promise<FounderActionResult> {
-  const ctx = await founder();
-  if (!ctx) return NOT_AVAILABLE;
-  const parsed = parseDealInput(fields, ctx.timeZone);
-  if (!parsed.ok) return parsed;
-  const { data, error } = await ctx.supabase.from("founder_deals").update(dealRow(parsed)).eq("id", id).eq("owner_id", ctx.userId).select("id").maybeSingle();
-  if (error) return { ok: false, error: "We couldn't save this deal. Please try again." };
-  if (!data) return { ok: false, error: "That deal could not be found." };
+  const clientId = clientIdOf(fields.clientId);
+  if (clientId) {
+    const { data: existing } = await ctx.supabase.from("founder_deals").select("id").eq("id", clientId).eq("owner_id", ctx.userId).maybeSingle();
+    if (existing) return { ok: true, id: existing.id };
+  }
+  const { data, error } = await ctx.supabase
+    .from("founder_deals")
+    .insert({ ...(clientId ? { id: clientId } : {}), owner_id: ctx.userId, stage: parsed.value.stage, ...dealRow(parsed.value) })
+    .select("id")
+    .single();
+  if (error || !data) {
+    if (clientId && (error as { code?: string } | null)?.code === "23505") {
+      const { data: existing } = await ctx.supabase.from("founder_deals").select("id").eq("id", clientId).eq("owner_id", ctx.userId).maybeSingle();
+      if (existing) return { ok: true, id: existing.id };
+    }
+    return { ok: false, error: "We couldn't save this deal. Please try again." };
+  }
   refresh();
   return { ok: true, id: data.id };
 }
 
 /**
- * Moves an open deal along the pipeline. Won needs an amount and a date, so
- * it goes through the edit form (updateFounderDeal), never a one-click move.
+ * Edits a deal's details (not its stage or outcome - those are recorded with
+ * changeFounderDealStage). `expectedUpdatedAt` is required: the edit only
+ * applies to the version that was loaded.
  */
-export async function moveFounderDealStage(id: string, stage: string): Promise<FounderActionResult> {
+export async function updateFounderDeal(id: string, fields: Fields): Promise<FounderActionResult> {
   const ctx = await founder();
   if (!ctx) return NOT_AVAILABLE;
-  if (!(DEAL_STAGES as readonly string[]).includes(stage) || stage === "won") return { ok: false, error: "Choose a valid stage. To mark a deal won, edit it and enter the amount and date." };
-  const { data, error } = await ctx.supabase
-    .from("founder_deals")
-    .update({ stage: stage as DealStage, won_amount: null, won_on: null })
-    .eq("id", id)
-    .eq("owner_id", ctx.userId)
-    .select("id")
-    .maybeSingle();
-  if (error) return { ok: false, error: "We couldn't move this deal." };
-  if (!data) return { ok: false, error: "That deal could not be found." };
+  // The stage is only chosen at creation; anything sent here is ignored (dealRow never writes it).
+  const parsed = parseDealInput({ ...fields, stage: "" }, ctx.timeZone);
+  if (!parsed.ok) return parsed;
+  const expected = typeof fields.expectedUpdatedAt === "string" && fields.expectedUpdatedAt ? fields.expectedUpdatedAt : null;
+  if (!expected) return (await ownDeal(ctx, id)) ? { ok: false, error: STALE_DEAL_ERROR } : { ok: false, error: "That deal could not be found." };
+  const { data, error } = await ctx.supabase.from("founder_deals").update(dealRow(parsed.value)).eq("id", id).eq("owner_id", ctx.userId).eq("updated_at", expected).select("id").maybeSingle();
+  if (error) return { ok: false, error: "We couldn't save this deal. Please try again." };
+  if (!data) {
+    const { data: exists } = await ctx.supabase.from("founder_deals").select("id").eq("id", id).eq("owner_id", ctx.userId).maybeSingle();
+    return { ok: false, error: exists ? STALE_DEAL_ERROR : "That deal could not be found." };
+  }
   refresh();
   return { ok: true, id: data.id };
 }
 
+/** A deal with recorded history can't be deleted (the history is kept) - mark it lost instead. */
 export async function deleteFounderDeal(id: string): Promise<FounderActionResult> {
   const ctx = await founder();
   if (!ctx) return NOT_AVAILABLE;
   const { data, error } = await ctx.supabase.from("founder_deals").delete().eq("id", id).eq("owner_id", ctx.userId).select("id").maybeSingle();
-  if (error) return { ok: false, error: "We couldn't delete this deal." };
+  if (error) {
+    if ((error as { code?: string }).code === "23503") return { ok: false, error: "This deal has recorded sales history, so it can't be deleted. Mark it lost instead." };
+    return { ok: false, error: "We couldn't delete this deal." };
+  }
   if (!data) return { ok: false, error: "That deal could not be found." };
   refresh();
   return { ok: true, id };
+}
+
+// --- sales history -----------------------------------------------------------------
+
+export type SalesActionResult = { ok: true; status: "recorded" | "duplicate"; updatedAt: string | null } | { ok: false; error: string };
+
+/** Database refusals (supabase/pending/founder_sales_os.sql) as messages. */
+function salesError(error: { code?: string; message?: string }): string {
+  switch (error.code) {
+    case "FS409":
+      return STALE_DEAL_ERROR;
+    case "FS404":
+      return "That deal could not be found.";
+    case "FS422": {
+      const message = (error.message ?? "").trim();
+      return message ? `${message[0].toUpperCase()}${message.slice(1)}.` : "That change isn't allowed.";
+    }
+    case "42883":
+    case "PGRST202":
+      return "Sales history isn't enabled on this database yet.";
+    default:
+      return "We couldn't record that. Please try again.";
+  }
+}
+
+function salesResult(data: unknown): SalesActionResult {
+  const r = (data ?? {}) as { status?: string; updated_at?: string };
+  return { ok: true, status: r.status === "duplicate" ? "duplicate" : "recorded", updatedAt: r.updated_at ?? null };
+}
+
+async function ownDeal(ctx: FounderContext, dealId: string) {
+  const { data } = await ctx.supabase.from("founder_deals").select("id, stage").eq("id", dealId).eq("owner_id", ctx.userId).maybeSingle();
+  return data as { id: string; stage: DealStage } | null;
+}
+
+/**
+ * Records something that happened on a deal (outreach, reply, meeting,
+ * proposal, note...) - optionally moving the deal to the stage it suggests,
+ * atomically. `requestId` (a UUID made when the form opened) makes a retry
+ * or double-submit a no-op.
+ */
+export async function logFounderDealActivity(dealId: string, fields: Fields): Promise<SalesActionResult> {
+  const ctx = await founder();
+  if (!ctx) return NOT_AVAILABLE;
+  const requestId = clientIdOf(fields.requestId);
+  if (!requestId) return { ok: false, error: "Please reopen the form and try again." };
+  const deal = await ownDeal(ctx, dealId);
+  if (!deal) return { ok: false, error: "That deal could not be found." };
+  const parsed = parseActivityInput(fields, deal, ctx.timeZone, new Date());
+  if (!parsed.ok) return parsed;
+  const v = parsed.value;
+  const expected = typeof fields.expectedUpdatedAt === "string" && fields.expectedUpdatedAt ? fields.expectedUpdatedAt : null;
+  if (v.toStage && !expected) return { ok: false, error: STALE_DEAL_ERROR };
+  const { data, error } = await ctx.supabase.rpc("founder_log_deal_activity", {
+    p_request_id: requestId,
+    p_deal_id: dealId,
+    p_kind: v.kind,
+    p_occurred_at: v.occurredAt,
+    p_channel: v.channel,
+    p_summary: v.summary,
+    p_scheduled_for: v.scheduledFor,
+    p_to_stage: v.toStage,
+    p_expected_updated_at: v.toStage ? expected : null,
+  });
+  if (error) return { ok: false, error: salesError(error) };
+  refresh();
+  return salesResult(data);
+}
+
+/**
+ * Moves a deal to another stage and records it, atomically. Won needs the
+ * agreed setup fee, monthly fee, currency and date; lost needs a reason;
+ * closed deals reopen to an open stage first. Stale and duplicate-safe.
+ */
+export async function changeFounderDealStage(dealId: string, fields: Fields): Promise<SalesActionResult> {
+  const ctx = await founder();
+  if (!ctx) return NOT_AVAILABLE;
+  const requestId = clientIdOf(fields.requestId);
+  if (!requestId) return { ok: false, error: "Please reopen the form and try again." };
+  const expected = typeof fields.expectedUpdatedAt === "string" && fields.expectedUpdatedAt ? fields.expectedUpdatedAt : null;
+  if (!expected) return { ok: false, error: STALE_DEAL_ERROR };
+  const deal = await ownDeal(ctx, dealId);
+  if (!deal) return { ok: false, error: "That deal could not be found." };
+  const now = new Date();
+  const parsed = parseStageChange(fields, deal.stage, localDateKey(now, ctx.timeZone), ctx.timeZone, now);
+  if (!parsed.ok) {
+    // A retried request whose change already applied: let the database report it as a duplicate.
+    if (parsed.error !== "The deal is already at that stage.") return parsed;
+  }
+  const v = parsed.ok ? parsed.value : { toStage: String(fields.toStage), occurredAt: null, setupFee: null, monthlyFee: null, currency: null, wonOn: null, reason: null };
+  const { data, error } = await ctx.supabase.rpc("founder_change_deal_stage", {
+    p_request_id: requestId,
+    p_deal_id: dealId,
+    p_to_stage: v.toStage,
+    p_expected_updated_at: expected,
+    p_occurred_at: v.occurredAt,
+    p_setup_fee: v.setupFee,
+    p_monthly_fee: v.monthlyFee,
+    p_currency: v.currency,
+    p_won_on: v.wonOn,
+    p_reason: v.reason,
+  });
+  if (error) return { ok: false, error: salesError(error) };
+  refresh();
+  return salesResult(data);
+}
+
+/** Marks a logged entry as recorded in error (kept, shown struck through). Stage history can't be voided. */
+export async function voidFounderDealActivity(activityId: string, reason: string): Promise<SalesActionResult> {
+  const ctx = await founder();
+  if (!ctx) return NOT_AVAILABLE;
+  if (!UUID.test(activityId)) return { ok: false, error: "That entry could not be found." };
+  const trimmed = String(reason ?? "").trim();
+  if (!trimmed || trimmed.length > 500) return { ok: false, error: "Say why this entry is wrong (up to 500 characters)." };
+  const { data, error } = await ctx.supabase.rpc("founder_void_deal_activity", { p_activity_id: activityId, p_reason: trimmed });
+  if (error) return { ok: false, error: error.code === "FS404" ? "That entry could not be found." : salesError(error) };
+  refresh();
+  return salesResult(data);
 }
 
 // --- MRR ----------------------------------------------------------------------------

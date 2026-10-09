@@ -20,10 +20,10 @@
  * Anthropic key is also Production-only, so a model path could never run
  * on Preview.)
  */
-import { DEAL_STAGE_LABELS, ITEM_KIND_LABELS, SCHEDULED_KINDS, addDaysKey, dayRange, isOpenDeal, itemTime, localDateKey, sortByTimeThenPriority, toLocalInputValue, type DealStage, type FounderDeal, type FounderItem, type Priority } from "./model";
+import { DEAL_STAGE_LABELS, ITEM_KIND_LABELS, SCHEDULED_KINDS, addDaysKey, addToTotals, dayRange, isOpenDeal, itemTime, localDateKey, sortByTimeThenPriority, toLocalInputValue, type CurrencyTotals, type DealStage, type FounderDeal, type FounderItem, type Priority } from "./model";
 import { buildDailyPlan, DEADLINE_WINDOW_DAYS, MAX_DAILY_PRIORITIES, reviewDay, type DailyPlan } from "./daily";
 import { calendarHref, isAllDayEvent, isEndOfDayDue } from "./calendar";
-import { formatDateKey, formatDay, formatMoney, formatTime } from "./format";
+import { formatDateKey, formatDay, formatTime, formatTotals } from "./format";
 import type { DailyFocus } from "./queries";
 
 /** An open deal with no recorded change for this long, and no future follow-up date, is reported as stale. */
@@ -32,7 +32,7 @@ export const STALE_DEAL_DAYS = 14;
 export const PREP_WINDOW_MINUTES = 120;
 export const MAX_RECOMMENDATIONS = 5;
 /** Late-stage deals: closest to revenue, so a missing next action matters most. */
-export const LATE_DEAL_STAGES: DealStage[] = ["meeting_booked", "demo_proposal", "negotiation"];
+export const LATE_DEAL_STAGES: DealStage[] = ["meeting_booked", "meeting_held", "proposal_sent", "negotiation"];
 
 /** The ranking, in order. A recommendation's tier is its rule's position here. */
 export const RECOMMENDATION_TIERS = [
@@ -136,12 +136,21 @@ function compareDeals(a: FounderDeal, b: FounderDeal): number {
   return a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
-/** Open deals with no change for STALE_DEAL_DAYS+ local days and no future follow-up date. */
+/**
+ * The moment a deal was last touched, as recorded: its latest logged sales
+ * activity when there is one, otherwise its last edit (deals from before the
+ * sales history existed, or never logged against).
+ */
+export function lastTouch(deal: Pick<FounderDeal, "lastActivityAt" | "updatedAt">): { at: string; recordedActivity: boolean } {
+  return deal.lastActivityAt ? { at: deal.lastActivityAt, recordedActivity: true } : { at: deal.updatedAt, recordedActivity: false };
+}
+
+/** Open deals not touched (see lastTouch) for STALE_DEAL_DAYS+ local days, with no future follow-up date. */
 export function staleDeals(deals: FounderDeal[], now: Date, timeZone: string): FounderDeal[] {
   const todayKey = localDateKey(now, timeZone);
   return deals
     .filter((deal) => isOpenDeal(deal) && !(deal.nextActionAt && new Date(deal.nextActionAt) >= now))
-    .filter((deal) => daysBetween(localDateKey(new Date(deal.updatedAt), timeZone), todayKey) >= STALE_DEAL_DAYS)
+    .filter((deal) => daysBetween(localDateKey(new Date(lastTouch(deal).at), timeZone), todayKey) >= STALE_DEAL_DAYS)
     .sort(compareDeals);
 }
 
@@ -257,8 +266,9 @@ export function buildFounderBriefing(input: {
   }
 
   for (const deal of stale) {
-    const days = daysBetween(localDateKey(new Date(deal.updatedAt), timeZone), todayKey);
-    add({ rule: "stale_deal", title: `Check in on ${deal.name}`, why: `No change recorded on this deal since ${formatDay(deal.updatedAt, timeZone)} (${plural(days, "day")}), and no upcoming follow-up date.`, suggestion: "It may need a touch - or an update to its stage.", records: [dealRef(deal)], href: dealHref(deal) });
+    const touch = lastTouch(deal);
+    const days = daysBetween(localDateKey(new Date(touch.at), timeZone), todayKey);
+    add({ rule: "stale_deal", title: `Check in on ${deal.name}`, why: `${touch.recordedActivity ? "No sales activity recorded" : "No change recorded on this deal"} since ${formatDay(touch.at, timeZone)} (${plural(days, "day")}), and no upcoming follow-up date.`, suggestion: "It may need a touch - or an update to its stage.", records: [dealRef(deal)], href: dealHref(deal) });
   }
 
   const recommended = rankRecommendations(recs);
@@ -271,7 +281,7 @@ export function buildFounderBriefing(input: {
     ...[...attention.deadlinesSoon].sort(compareItems).map((item): AttentionEntry => ({ id: `deadline_soon:${item.id}`, kind: "deadline_soon", title: item.title, detail: `Deadline ${whenLabel(item, timeZone)}`, suggestion: null, href: href(item), record: itemRef(item) })),
     ...[...attention.dealFollowUps].sort(compareDeals).map((deal): AttentionEntry => ({ id: `deal_follow_up:${deal.id}`, kind: "deal_follow_up", title: deal.name, detail: `${deal.nextAction ?? "Follow up"} - due ${formatDay(deal.nextActionAt as string, timeZone)}`, suggestion: null, href: dealHref(deal), record: dealRef(deal) })),
     ...noNext.map((deal): AttentionEntry => ({ id: `deal_no_next_action:${deal.id}`, kind: "deal_no_next_action", title: deal.name, detail: `${DEAL_STAGE_LABELS[deal.stage]} - no next action recorded`, suggestion: null, href: dealHref(deal), record: dealRef(deal) })),
-    ...stale.map((deal): AttentionEntry => ({ id: `stale_deal:${deal.id}`, kind: "stale_deal", title: deal.name, detail: `No change recorded since ${formatDay(deal.updatedAt, timeZone)}`, suggestion: "May need a touch", href: dealHref(deal), record: dealRef(deal) })),
+    ...stale.map((deal): AttentionEntry => ({ id: `stale_deal:${deal.id}`, kind: "stale_deal", title: deal.name, detail: `${lastTouch(deal).recordedActivity ? "No activity recorded" : "No change recorded"} since ${formatDay(lastTouch(deal).at, timeZone)}`, suggestion: "May need a touch", href: dealHref(deal), record: dealRef(deal) })),
   ];
 
   // ---- review needed: conflicting or incomplete information ----
@@ -282,7 +292,7 @@ export function buildFounderBriefing(input: {
   const dealsById = new Map(deals.map((deal) => [deal.id, deal]));
   for (const deal of deals.filter(isOpenDeal).sort(compareDeals)) {
     if (deal.nextActionAt && !deal.nextAction) review.push({ id: `follow_up_without_action:${deal.id}`, kind: "follow_up_without_action", title: deal.name, detail: `Has a follow-up date (${formatDay(deal.nextActionAt, timeZone)}) but no action written down.`, href: dealHref(deal), records: [dealRef(deal)] });
-    if (LATE_DEAL_STAGES.includes(deal.stage) && deal.expectedMrr == null) review.push({ id: `late_deal_without_value:${deal.id}`, kind: "late_deal_without_value", title: deal.name, detail: `At ${DEAL_STAGE_LABELS[deal.stage]} with no expected MRR recorded.`, href: dealHref(deal), records: [dealRef(deal)] });
+    if (LATE_DEAL_STAGES.includes(deal.stage) && deal.expectedMrr == null) review.push({ id: `late_deal_without_value:${deal.id}`, kind: "late_deal_without_value", title: deal.name, detail: `At ${DEAL_STAGE_LABELS[deal.stage]} with no expected monthly fee recorded.`, href: dealHref(deal), records: [dealRef(deal)] });
   }
   for (const item of sortByTimeThenPriority(items.filter((i) => i.completedAt == null && i.dealId))) {
     const deal = dealsById.get(item.dealId as string);
@@ -326,7 +336,9 @@ export type EndOfDaySummary = {
   unfinished: number;
   stillOverdue: number;
   dealChanges: number;
-  wonAmount: number;
+  /** Agreed (contracted) terms of deals won that day, per currency - not collected money. */
+  wonSetup: CurrencyTotals;
+  wonMonthly: CurrencyTotals;
   tomorrowPriorities: number;
   sentence: string;
 };
@@ -347,14 +359,20 @@ export function buildEndOfDaySummary(input: { items: FounderItem[]; deals: Found
   const tomorrow = addDaysKey(input.dayKey, 1);
   const tomorrowPriorities = input.focus.filter((f) => f.date === tomorrow && byId.has(f.itemId)).length;
   const dealChanges = r.pipeline.created.length + r.pipeline.won.length + r.pipeline.lost.length + r.pipeline.updated.length;
-  const wonAmount = r.pipeline.won.reduce((sum, deal) => sum + Math.round((deal.wonAmount ?? 0) * 100), 0) / 100;
+  const wonSetup: CurrencyTotals = {};
+  const wonMonthly: CurrencyTotals = {};
+  for (const deal of r.pipeline.won) {
+    addToTotals(wonSetup, deal.currency, deal.wonSetupFee ?? 0);
+    addToTotals(wonMonthly, deal.currency, deal.wonMonthlyFee ?? 0);
+  }
+  const wonTerms = r.pipeline.won.length ? `${formatTotals(wonSetup)} setup + ${formatTotals(wonMonthly)}/mo agreed` : null;
   const parts = [
     committed.size ? `${committedDone} of ${committed.size} commitments done` : "no commitments were set",
     plural(r.completed.length, "item completed", "items completed"),
   ];
   if (r.unfinished.length) parts.push(`${r.unfinished.length} still open`);
   if (r.stillOverdue.length) parts.push(`${r.stillOverdue.length} overdue from earlier`);
-  parts.push(dealChanges ? `${plural(dealChanges, "deal change")}${wonAmount ? ` (${formatMoney(wonAmount)} won)` : ""}` : "no deal changes");
+  parts.push(dealChanges ? `${plural(dealChanges, "deal change")}${wonTerms ? ` (won: ${wonTerms})` : ""}` : "no deal changes");
   parts.push(tomorrowPriorities ? `${tomorrowPriorities} of ${MAX_DAILY_PRIORITIES} priorities set for ${formatDateKey(tomorrow, { weekday: "long" })}` : `no priorities set for ${formatDateKey(tomorrow, { weekday: "long" })} yet`);
   return {
     dayKey: input.dayKey,
@@ -364,7 +382,8 @@ export function buildEndOfDaySummary(input: { items: FounderItem[]; deals: Found
     unfinished: r.unfinished.length,
     stillOverdue: r.stillOverdue.length,
     dealChanges,
-    wonAmount,
+    wonSetup,
+    wonMonthly,
     tomorrowPriorities,
     sentence: `${parts[0][0].toUpperCase()}${parts[0].slice(1)}; ${parts.slice(1).join("; ")}.`,
   };
