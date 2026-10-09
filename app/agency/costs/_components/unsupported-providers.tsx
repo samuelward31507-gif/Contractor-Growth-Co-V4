@@ -1,4 +1,5 @@
-import { sectionLabelClass } from "@/lib/ui/typography";
+import { SectionCard } from "@/lib/ui/section-card";
+import { Badge } from "@/lib/ui/badge";
 
 const UNSUPPORTED_PROVIDERS = [
   { name: "Voice", reason: "Trackpr never answers a call today - no billable voice data exists to cost." },
@@ -19,17 +20,18 @@ const UNSUPPORTED_PROVIDERS = [
  */
 export function UnsupportedProviders() {
   return (
-    <div className="mt-8 border-t border-line pt-8">
-      <p className={sectionLabelClass}>Unsupported providers</p>
-      <p className="mt-1.5 text-xs text-ink-3">These are not costed yet - never shown as $0, never estimated.</p>
-      <ul className="mt-3 space-y-2">
+    <SectionCard title="Unsupported providers" description="These are not costed yet - never shown as $0, never estimated.">
+      <ul className="divide-y divide-line">
         {UNSUPPORTED_PROVIDERS.map((provider) => (
-          <li key={provider.name} className="flex items-baseline justify-between gap-4 text-xs">
-            <span className="font-medium text-ink-2">{provider.name}</span>
-            <span className="text-right text-ink-3">{provider.reason}</span>
+          <li key={provider.name} className="flex flex-col gap-1 py-2.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+            <span className="flex items-center gap-2">
+              <span className="text-sm font-medium text-ink">{provider.name}</span>
+              <Badge tone="neutral">Not costed</Badge>
+            </span>
+            <span className="text-xs text-ink-3 sm:text-right">{provider.reason}</span>
           </li>
         ))}
       </ul>
-    </div>
+    </SectionCard>
   );
 }

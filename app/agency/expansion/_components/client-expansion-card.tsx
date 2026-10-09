@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
+import { Badge } from "@/lib/ui/badge";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { formatCount } from "../../_components/format";
 import type { AgencyExpansionOpportunity } from "@/lib/agency/expansion";
@@ -44,6 +45,11 @@ function groupByService(opportunities: AgencyExpansionOpportunity[]): ServiceGro
   return [...byService.values()].sort((a, b) => b.knownValue - a.knownValue || b.count - a.count);
 }
 
+/**
+ * Agency redesign: one bordered block per client inside the page's "Client
+ * opportunities" SectionCard. Same grouping, same values, same single
+ * "Investigate" link to the client's real detail page.
+ */
 export function ClientExpansionCard({
   organizationId,
   organizationName,
@@ -62,46 +68,50 @@ export function ClientExpansionCard({
   const topGroup = groups[0];
 
   return (
-    <div className="border-b border-line py-6 last:border-b-0">
+    <article className="rounded-xl border border-line px-4 py-3.5 sm:px-5 sm:py-4">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <Link href={`/agency/organizations/${organizationId}`} className="text-base font-semibold text-ink hover:underline">
-          {organizationName}
-        </Link>
+        <h3 className="min-w-0">
+          <Link href={`/agency/organizations/${organizationId}`} className="break-words text-[15px] font-semibold text-ink hover:underline">
+            {organizationName}
+          </Link>
+        </h3>
         <span className="text-xs text-ink-3">
           {formatCount(opportunities.length)} open opportunit{opportunities.length === 1 ? "y" : "ies"}
           {knownValue > 0 ? ` · ${formatCurrency(knownValue)} known value` : ""}
         </span>
       </div>
 
-      <div className="mt-3 divide-y divide-line">
+      <ul className="mt-2 divide-y divide-line">
         {groups.map((group) => (
-          <div key={group.service} className="flex items-center justify-between gap-3 py-2">
-            <div>
-              <p className="text-sm font-medium text-ink">{group.service}</p>
+          <li key={group.service} className="flex items-center justify-between gap-3 py-2.5">
+            <div className="min-w-0">
+              <p className="break-words text-sm font-medium text-ink">{group.service}</p>
               <p className="text-xs text-ink-3">
                 {formatCount(group.count)} opportunit{group.count === 1 ? "y" : "ies"}
               </p>
             </div>
-            <p className="shrink-0 text-sm font-medium tabular-nums text-ink">
-              {group.isContextual
-                ? "Context only"
-                : group.knownValue > 0
-                  ? `${formatCurrency(group.knownValue)}${group.hasUnknownValue ? " + unknown" : ""}`
-                  : "Unknown value"}
+            <p className="shrink-0 text-right text-sm font-medium tabular-nums text-ink">
+              {group.isContextual ? (
+                <Badge tone="neutral">Context only</Badge>
+              ) : group.knownValue > 0 ? (
+                `${formatCurrency(group.knownValue)}${group.hasUnknownValue ? " + unknown" : ""}`
+              ) : (
+                <span className="text-ink-3">Unknown value</span>
+              )}
             </p>
-          </div>
+          </li>
         ))}
-      </div>
+      </ul>
 
       {topGroup ? (
         <Link
           href={`/agency/organizations/${organizationId}`}
-          className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent-text hover:underline"
+          className="mt-2 inline-flex min-h-11 items-center gap-1 text-xs font-medium text-accent-text hover:underline sm:min-h-0"
         >
           Investigate {topGroup.service}
           <ChevronRight className="h-3.5 w-3.5" aria-hidden />
         </Link>
       ) : null}
-    </div>
+    </article>
   );
 }

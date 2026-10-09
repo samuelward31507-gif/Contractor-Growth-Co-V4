@@ -1,78 +1,90 @@
 import Link from "next/link";
-import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
-import { Row } from "../../_components/row";
-import { formatCount } from "../../_components/format";
-import { formatCostAmounts } from "./format";
-import type { AgencySmsCostTotals, ClientSmsCostSummary } from "@/lib/agency/costs";
+import { Building2 } from "lucide-react";
+import { SectionCard } from "@/lib/ui/section-card";
+import { EmptyState } from "@/lib/ui/empty-state";
+import { Table, TableBody, TableCell, TableHeadCell, TableRow } from "@/lib/ui/table";
+import { costValue, countValue } from "./format";
+import { QualityBadge } from "./quality-badge";
+import type { ClientSmsCostSummary } from "@/lib/agency/costs";
 
-const QUALITY_LABEL: Record<ClientSmsCostSummary["dataQuality"], string> = {
-  known: "Known",
-  unknown: "Unknown",
-  partial: "Partial",
-};
-
-const QUALITY_TONE: Record<ClientSmsCostSummary["dataQuality"], string> = {
-  known: "text-accent-text",
-  unknown: "text-ink-3",
-  partial: "text-warning",
-};
+const COLUMNS = "grid-cols-[minmax(0,1.4fr)_96px_repeat(3,minmax(0,1fr))]";
 
 /**
- * Trackpr Phase 5D-4 - SMS Cost. A separate section, below the existing AI
- * Cost section (untouched) - never merged into it, never reusing its
- * components. There is no "Unpriced" state here (unlike AI): Twilio's own
- * fetched price is the authoritative cost directly, with no rate_cards
- * lookup involved - a message either has a real, known cost or it doesn't
- * (no provider SID, a permanently failed fetch, or a price Twilio hadn't
- * finalized at the one best-effort attempt this phase makes - automatic
- * reconciliation is explicitly deferred to a future phase).
+ * Trackpr Phase 5D-4 - SMS Cost. A separate section, below the AI cost
+ * section - never merged into it. There is no "Unpriced" state here (unlike
+ * AI): Twilio's own fetched price is the authoritative cost directly, with
+ * no rate_cards lookup involved - a message either has a real, known cost or
+ * it doesn't (no provider SID, a permanently failed fetch, or a price Twilio
+ * hadn't finalized at the one best-effort attempt this phase makes -
+ * automatic reconciliation is explicitly deferred to a future phase).
+ *
+ * Agency redesign: the agency-wide SMS totals moved into the page's
+ * headline StatGrid (CostHeadline); this section is the per-client table.
  */
-export function SmsCostSummary({ totals, clients }: { totals: AgencySmsCostTotals; clients: ClientSmsCostSummary[] }) {
+export function SmsCostSummary({ clients, unavailable }: { clients: ClientSmsCostSummary[]; unavailable: boolean }) {
   const sorted = [...clients].sort((a, b) => b.knownMessageCount + b.unknownMessageCount - (a.knownMessageCount + a.unknownMessageCount));
 
   return (
-    <div className="mt-8 border-t border-line pt-8">
-      <p className={sectionLabelClass}>SMS cost</p>
-      <div className="mt-2 divide-y divide-line">
-        <Row label="Known SMS cost" value={formatCostAmounts(totals.knownCost)} tone="success" />
-        <Row label="Known SMS messages" value={formatCount(totals.knownMessageCount)} description="A real Twilio-confirmed price, for either direction" />
-        <Row label="Unknown SMS messages" value={formatCount(totals.unknownMessageCount)} description="No provider SID, a failed fetch, or a price not yet finalized - never shown as $0" />
-      </div>
-
-      <div className="mt-6">
-        <div className="flex items-baseline justify-between">
-          <p className={sectionLabelClass}>Client SMS cost</p>
-          {clients.length > 0 ? <span className={metaClass}>{clients.length} client{clients.length === 1 ? "" : "s"}</span> : null}
-        </div>
-
-        {sorted.length === 0 ? (
-          <p className="mt-3 text-sm text-ink-3">No managed clients yet.</p>
-        ) : (
-          <div className="mt-2 space-y-3">
+    <SectionCard
+      title="SMS cost by client"
+      description="Twilio's own price per message - no rate card, no estimate. Busiest client first."
+      action={clients.length > 0 ? <span className="shrink-0 text-xs text-ink-3">{clients.length} client{clients.length === 1 ? "" : "s"}</span> : undefined}
+    >
+      {sorted.length === 0 ? (
+        <EmptyState icon={Building2} title="No managed clients yet" description="Once a client organization is connected to the agency, its SMS cost will appear here." />
+      ) : (
+        <>
+          <Table columns={COLUMNS}>
+            <TableHeadCell>Client</TableHeadCell>
+            <TableHeadCell>Data</TableHeadCell>
+            <TableHeadCell align="right">Known cost</TableHeadCell>
+            <TableHeadCell align="right">Known messages</TableHeadCell>
+            <TableHeadCell align="right">Unknown messages</TableHeadCell>
+          </Table>
+          <TableBody>
             {sorted.map((client) => (
-              <div key={client.organizationId} className="rounded-lg border border-line px-5 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <Link href={`/agency/organizations/${client.organizationId}`} className="text-sm font-semibold text-ink hover:underline">
-                    {client.organizationName}
-                  </Link>
-                  <span className={`text-xs font-medium ${QUALITY_TONE[client.dataQuality]}`}>{QUALITY_LABEL[client.dataQuality]}</span>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs">
-                  <span className="text-ink-3">
-                    Known cost <span className="ml-1 font-medium text-ink">{formatCostAmounts(client.knownCost)}</span>
-                  </span>
-                  <span className="text-ink-3">
-                    Known messages <span className="ml-1 font-medium text-ink">{formatCount(client.knownMessageCount)}</span>
-                  </span>
-                  <span className="text-ink-3">
-                    Unknown messages <span className="ml-1 font-medium text-ink">{formatCount(client.unknownMessageCount)}</span>
-                  </span>
-                </div>
-              </div>
+              <TableRow key={client.organizationId} href={`/agency/organizations/${client.organizationId}`} columns={COLUMNS}>
+                <TableCell className="font-medium">{client.organizationName}</TableCell>
+                <span>
+                  <QualityBadge quality={client.dataQuality} unavailable={unavailable} />
+                </span>
+                <TableCell align="right" className="font-medium">
+                  {costValue(client.knownCost, unavailable)}
+                </TableCell>
+                <TableCell align="right">{countValue(client.knownMessageCount, unavailable)}</TableCell>
+                <TableCell align="right">{countValue(client.unknownMessageCount, unavailable)}</TableCell>
+              </TableRow>
             ))}
-          </div>
-        )}
-      </div>
-    </div>
+          </TableBody>
+
+          <ul className="divide-y divide-line lg:hidden">
+            {sorted.map((client) => (
+              <li key={client.organizationId}>
+                <Link
+                  href={`/agency/organizations/${client.organizationId}`}
+                  className="-mx-2 block rounded-md px-2 py-3 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                >
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate text-sm font-medium text-ink">{client.organizationName}</span>
+                    <QualityBadge quality={client.dataQuality} unavailable={unavailable} />
+                  </span>
+                  <span className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-ink-3">
+                    <span className="col-span-2">
+                      Known cost <span className="ml-1 font-medium tabular-nums text-ink">{costValue(client.knownCost, unavailable)}</span>
+                    </span>
+                    <span>
+                      Known <span className="ml-1 font-medium tabular-nums text-ink">{countValue(client.knownMessageCount, unavailable)}</span>
+                    </span>
+                    <span>
+                      Unknown <span className="ml-1 font-medium tabular-nums text-ink">{countValue(client.unknownMessageCount, unavailable)}</span>
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </SectionCard>
   );
 }

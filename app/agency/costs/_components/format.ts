@@ -42,3 +42,19 @@ export function formatCostAmounts(amounts: CostCurrencyAmount[]): string {
   if (amounts.length === 0) return formatCost(0, "usd");
   return amounts.map((entry) => formatCost(entry.amount, entry.currency)).join(" + ");
 }
+
+/**
+ * Agency redesign: shown in place of a figure when its read failed. A failed
+ * cost read returns no rows at all (lib/agency/costs.ts's loaders), so every
+ * figure computed from it - dollar or count - is a placeholder, never a
+ * measured zero.
+ */
+export const UNAVAILABLE = "—";
+
+export function costValue(amounts: CostCurrencyAmount[], unavailable: boolean): string {
+  return unavailable ? UNAVAILABLE : formatCostAmounts(amounts);
+}
+
+export function countValue(value: number, unavailable: boolean): string {
+  return unavailable ? UNAVAILABLE : new Intl.NumberFormat("en-US").format(value);
+}

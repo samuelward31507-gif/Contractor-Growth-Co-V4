@@ -1,15 +1,16 @@
-import Link from "next/link";
-import { AlertCircle, ArrowLeft } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyRevenue } from "@/lib/agency/revenue";
 import type { DateRangeInput } from "@/lib/bi/types";
-import { sectionLabelClass, metaClass } from "@/lib/ui/typography";
+import { metaClass } from "@/lib/ui/typography";
 import { PageHeader } from "@/lib/ui/page-header";
+import { SectionCard } from "@/lib/ui/section-card";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 import { UnauthorizedState } from "../_components/unauthorized-state";
 import { ErrorState } from "../_components/error-state";
 import { RangeSelector, type RevenueRangeKey } from "./_components/range-selector";
-import { RevenueSummary } from "./_components/revenue-summary";
+import { CollectedByCategory, RevenueHeadline } from "./_components/revenue-summary";
 import { ClientRevenueTable } from "./_components/client-revenue-table";
 import { RecentRevenueEvents } from "./_components/recent-revenue-events";
 
@@ -26,6 +27,12 @@ import { RecentRevenueEvents } from "./_components/recent-revenue-events";
  * /agency/revenue/[organizationId] drill-down page - a client's own name
  * here links to the existing /agency/organizations/[organizationId] page
  * instead.
+ *
+ * Agency redesign: the client app's page anatomy (standard page container,
+ * PageHeader, StatGrid, SectionCards, shared table primitives). Data reads,
+ * range handling, authorization and the error path are unchanged. A failed
+ * revenue read (partialData) returns no rows at all, so every figure renders
+ * as "—" with the disclosure banner rather than as a placeholder $0.00.
  */
 const RANGE_PARAM_TO_INPUT: Record<RevenueRangeKey, DateRangeInput> = {
   today: "today",
@@ -40,6 +47,8 @@ function resolveRangeKey(param: string | string[] | undefined): RevenueRangeKey 
   return "lifetime";
 }
 
+const PAGE_CLASS = `${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`;
+
 export default async function AgencyRevenuePage({ searchParams }: { searchParams: Promise<{ range?: string | string[] }> }) {
   const { range: rangeParam } = await searchParams;
   const rangeKey = resolveRangeKey(rangeParam);
@@ -53,7 +62,7 @@ export default async function AgencyRevenuePage({ searchParams }: { searchParams
     result = await getAgencyRevenue(supabase, service, RANGE_PARAM_TO_INPUT[rangeKey]);
   } catch {
     return (
-      <div className="mx-auto flex w-full max-w-[1150px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className={PAGE_CLASS}>
         <ErrorState />
       </div>
     );
@@ -61,7 +70,7 @@ export default async function AgencyRevenuePage({ searchParams }: { searchParams
 
   if (!result.ok) {
     return (
-      <div className="mx-auto flex w-full max-w-[1150px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className={PAGE_CLASS}>
         <UnauthorizedState />
       </div>
     );
@@ -70,54 +79,53 @@ export default async function AgencyRevenuePage({ searchParams }: { searchParams
   const { totals, clients, recentEvents, partialData, range } = result;
 
   return (
-    <div className="mx-auto w-full max-w-[1150px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink">
-        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-        Agency Command Center
-      </Link>
-
-      <div className="mt-3">
-        <PageHeader
-          eyebrow="Finance"
-          title="Revenue"
-          description="Contractor Growth Co.’s own revenue from managed clients, recorded from real Stripe payment events."
-        />
-        <p className={`mt-1 ${metaClass}`}>Period: {range.label}</p>
+    <div className={PAGE_CLASS}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <PageHeader
+            eyebrow="Agency"
+            title="Revenue"
+            description="Contractor Growth Co.’s own revenue from managed clients, recorded from real Stripe payment events."
+          />
+          <p className={`mt-1.5 ${metaClass}`}>Period: {range.label}</p>
+        </div>
+        <RangeSelector active={rangeKey} />
       </div>
 
-      <RangeSelector active={rangeKey} />
-
       {partialData ? (
-        <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+        <div role="status" className="flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <p>Revenue data could not be fully loaded for this period. Figures below may be incomplete - this is different from a genuine $0, which means the data loaded successfully and found no revenue.</p>
+          <p>Revenue data could not be fully loaded for this period, so figures are shown as &ldquo;—&rdquo;. This is different from a genuine $0, which means the data loaded successfully and found no revenue.</p>
         </div>
       ) : null}
 
-      <RevenueSummary totals={totals} />
-      <ClientRevenueTable clients={clients} />
-      <RecentRevenueEvents events={recentEvents} />
+      <RevenueHeadline totals={totals} unavailable={partialData} />
 
-      <div className="mt-8 border-t border-line pt-8">
-        <p className={sectionLabelClass}>About this page</p>
-        <ul className="mt-2 space-y-1.5 text-xs text-ink-3">
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-            Every figure here comes from a real Stripe webhook event Trackpr recorded - never from current subscription pricing, Price IDs, or an estimate.
-          </li>
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-            &ldquo;Uncategorized&rdquo; means the invoice mixed a one-time setup fee with the first recurring charge and could not be honestly split - never guessed into either bucket.
-          </li>
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-            Failed payment attempts are never counted as collected or included in Net collected.
-          </li>
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-            This is Contractor Growth Co.&rsquo;s own revenue from its clients - not contractor/customer job revenue, which is shown separately across the client CRM and never mixed in here.
-          </li>
-        </ul>
+      <div className="flex flex-col gap-6">
+        <CollectedByCategory totals={totals} unavailable={partialData} />
+        <ClientRevenueTable clients={clients} unavailable={partialData} />
+        <RecentRevenueEvents events={recentEvents} unavailable={partialData} />
+
+        <SectionCard title="About this page">
+          <ul className="space-y-1.5 text-xs text-ink-3">
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
+              Every figure here comes from a real Stripe webhook event Trackpr recorded - never from current subscription pricing, Price IDs, or an estimate.
+            </li>
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
+              &ldquo;Uncategorized&rdquo; means the invoice mixed a one-time setup fee with the first recurring charge and could not be honestly split - never guessed into either bucket.
+            </li>
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
+              Failed payment attempts are never counted as collected or included in Net collected.
+            </li>
+            <li className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
+              This is Contractor Growth Co.&rsquo;s own revenue from its clients - not contractor/customer job revenue, which is shown separately across the client CRM and never mixed in here.
+            </li>
+          </ul>
+        </SectionCard>
       </div>
     </div>
   );

@@ -28,22 +28,27 @@ const STATE_ICON: Record<ReadinessItem["state"], typeof CheckCircle2> = {
   disabled_by_intent: Circle,
 };
 
+/** Agency redesign: the state each badge's color and icon show, spoken for screen readers (the visible badge text is only the area name) - the same words as the client detail page's readinessStateLabel. */
+const STATE_SR_LABEL: Record<ReadinessItem["state"], string> = {
+  ready: "ready",
+  not_ready: "not ready",
+  disabled_by_intent: "off by choice",
+};
+
 export function ClientReadinessRow({ client }: { client: AgencyClientReadiness }) {
   return (
-    <div className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <Link
-        href={`/agency/organizations/${client.organizationId}`}
-        className="shrink-0 text-sm font-medium text-ink hover:underline"
-      >
+    <li className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <Link href={`/agency/organizations/${client.organizationId}`} className="min-w-0 shrink-0 break-words text-sm font-medium text-ink hover:underline">
         {client.organizationName}
       </Link>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5 sm:justify-end">
         {client.readiness.items.map((item) => (
           <Badge key={item.key} tone={STATE_TONE[item.state]} icon={STATE_ICON[item.state]}>
             {READINESS_KEY_LABEL[item.key]}
+            <span className="sr-only">: {STATE_SR_LABEL[item.state]}</span>
           </Badge>
         ))}
       </div>
-    </div>
+    </li>
   );
 }

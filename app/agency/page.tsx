@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { AlertCircle, ChevronRight } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { AlertCircle, AlertTriangle, BarChart3, Building2, CalendarCheck, ChevronRight, Coins, HeartPulse, Receipt, TrendingUp, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
@@ -7,8 +8,9 @@ import { getAgencyHealth, type AgencyOrganizationHealth } from "@/lib/agency/hea
 import { getAgencyOnboardingStages, getAgencyRecentActivity, getAgencyOperationsToday } from "@/lib/agency/operations";
 import { getAgencyEscalatedConversations } from "@/lib/agency/communication";
 import { getAgencyNeedsAttentionItems } from "@/lib/agency/needs-attention";
-import { sectionLabelClass, primarySectionTitleClass, metaClass, numericDisplayClass } from "@/lib/ui/typography";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 import { PageHeader } from "@/lib/ui/page-header";
+import { StatCard, StatGrid } from "@/lib/ui/stat-card";
 import type { OnboardingStage } from "@/lib/onboarding/checklist";
 import { UnauthorizedState } from "./_components/unauthorized-state";
 import { ErrorState } from "./_components/error-state";
@@ -18,8 +20,39 @@ import { SystemHealth } from "./_components/system-health";
 import { AgencyActivity } from "./_components/agency-activity";
 import { OnboardingPipeline, type PipelineClient } from "./_components/onboarding-pipeline";
 import { AgencyToolbar } from "./_components/agency-toolbar";
-import { Row } from "./_components/row";
+import { AgencySection } from "./_components/section";
 import { formatCount } from "./_components/format";
+
+const OVERVIEW_EYEBROW = "Agency · Overview";
+const OVERVIEW_TITLE = "Agency Command Center";
+
+/** The deeper agency pages - real routes, each with its own live figures. */
+const INTELLIGENCE_LINKS: { href: string; title: string; description: string; icon: LucideIcon }[] = [
+  {
+    href: "/agency/expansion",
+    title: "Expansion Opportunities",
+    description: "Estimate recovery, reactivation, and other service opportunities across your managed clients.",
+    icon: TrendingUp,
+  },
+  {
+    href: "/agency/usage",
+    title: "Client Usage",
+    description: "Messaging, AI, and automation activity across your managed clients — usage visibility, not billing.",
+    icon: BarChart3,
+  },
+  {
+    href: "/agency/revenue",
+    title: "Revenue",
+    description: "Contractor Growth Co.’s own revenue from managed clients, recorded from real Stripe events.",
+    icon: Receipt,
+  },
+  {
+    href: "/agency/costs",
+    title: "Costs",
+    description: "Provider cost from managed clients - real usage at a real historical rate, never an estimate.",
+    icon: Coins,
+  },
+];
 
 export type AgencyClientFilter = "all" | "attention" | "live" | "onboarding";
 const VALID_FILTERS = new Set<string>(["all", "attention", "live", "onboarding"]);
@@ -47,9 +80,12 @@ function matchesFilter(row: ClientRow, filter: AgencyClientFilter): boolean {
  * Agency Command Center 2.0: the overview still answers the same five
  * questions the Phase-1 redesign built it around - client count, who needs
  * attention, is anything broken, where each client is in onboarding, and
- * what happened recently - via typography and dividers, not a wall of
- * bordered stat cards. This pass adds real operational depth on top of that
- * same foundation: a richer per-issue Needs Attention feed
+ * what happened recently. Agency overview redesign: laid out in the client
+ * app's design system (Money, Today) - the shared page container, a
+ * PageHeader with an eyebrow, the headline figures as a StatGrid of
+ * StatCards, and each section as a titled card - presentation only; every
+ * read, calculation and authorization check below is unchanged. On top of
+ * that foundation: a richer per-issue Needs Attention feed
  * (lib/agency/needs-attention.ts), "today" activity counts, a client
  * operations table with real business counts per row, an onboarding
  * pipeline grouped by real stage, and organization-name search / status
@@ -86,15 +122,18 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
     ]);
   } catch {
     return (
-      <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-        <ErrorState />
+      <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
+        <PageHeader eyebrow={OVERVIEW_EYEBROW} title={OVERVIEW_TITLE} />
+        <ErrorState retryHref="/agency" />
       </div>
     );
   }
 
   if (!metrics.ok || !health.ok || !stages.ok || !activity.ok || !today.ok || !escalations.ok || !needsAttention.ok) {
+    // Never passes agency data into the permission state - only the static page title.
     return (
-      <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
+        <PageHeader eyebrow={OVERVIEW_EYEBROW} title={OVERVIEW_TITLE} />
         <UnauthorizedState />
       </div>
     );
@@ -158,145 +197,109 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
   const pagePartialData = health.partialData || escalations.failed || needsAttention.partialData || snapshotPartialData;
 
   return (
-    <div className="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      {/*
-        Trackpr 2.0 full redesign: the "Needs attention" hero used to sit in
-        a tone-tinted, bordered box - the same "giant colored KPI tile" the
-        redesign brief called out to avoid, now matching Dashboard's own
-        unboxed Pipeline Value treatment (plain typographic display, right-
-        aligned in the PageHeader's action slot) instead. Same accent/danger
-        tokens, same data, no new component - only the container is gone.
-      */}
+    <div className={`${PAGE_CONTAINER_CLASS} gap-8 ${PAGE_MAX_WIDTH_CLASS}`}>
       <PageHeader
-        eyebrow="Overview"
-        title="Agency Command Center"
+        eyebrow={OVERVIEW_EYEBROW}
+        title={OVERVIEW_TITLE}
         description={`Contractor Growth Co. · ${formatCount(metrics.organizations.length)} client organization${metrics.organizations.length === 1 ? "" : "s"}`}
-        action={
-          <div className="sm:text-right">
-            <p className="text-xs font-medium text-ink-3">Needs attention</p>
-            <p className={`mt-1 text-[26px] font-semibold leading-tight tracking-[-0.02em] ${numericDisplayClass} ${hasAttentionClients ? "text-danger-text" : "text-accent-text"}`}>
-              {formatCount(attentionClientCount)}
-            </p>
-            <p className="mt-1 text-xs text-ink-3">
-              {hasAttentionClients ? `client${attentionClientCount === 1 ? "" : "s"} to review` : pagePartialData ? "Some data is unavailable" : "All clients operating normally"}
-            </p>
-          </div>
-        }
       />
 
       {/* Trackpr 2.0, Phase 4C (P2 #1): a real Postgrest error on the
           stuck-execution, calendar-health, or payment/pause read must never
-          silently render as "nothing wrong" in the System Health row below -
-          see getAgencyHealth's own AgencyHealthResult.partialData comment.
-          Phase 3E: also escalations, the feed, and the shared metrics
-          snapshot (pagePartialData above). */}
+          silently render as "nothing wrong" in the System Health section
+          below - see getAgencyHealth's own AgencyHealthResult.partialData
+          comment. Phase 3E: also escalations, the feed, and the shared
+          metrics snapshot (pagePartialData above). */}
       {pagePartialData ? (
-        <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+        <div role="status" className="flex items-start gap-2.5 rounded-xl border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <p>Some information is temporarily unavailable. Please try again.</p>
+          <p>Some information is temporarily unavailable, so figures and lists below may be incomplete - a missing issue doesn&rsquo;t mean everything is fine. Please try again.</p>
         </div>
       ) : null}
 
       {/*
-        Trackpr Phase 5 UI polish: a secondary reference rail, not a second
-        headline - "Needs attention" was removed from this strip since the
-        header hero above now carries that exact number at full visual
-        weight; repeating it here at the same size as "Leads today" would
-        just recreate the duplication the audit flagged. Every other value
-        and its calculation is unchanged.
+        Agency overview redesign: the headline figures as the client app's
+        StatGrid/StatCard (Money, Today) - every value is the same real
+        number the old reference rail and header hero showed, computed the
+        same way above. "Needs attention" counts distinct clients (the shared
+        attention set), never feed items, and links to the real filtered
+        Clients list when there is anyone to review.
       */}
-      <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-line py-4">
-        <Row label="Clients" value={formatCount(allRows.length)} />
-        <Row label="Live" value={formatCount(liveCount)} />
-        <Row label="Setting up" value={formatCount(settingUpCount)} />
-        <Row label="Leads today" value={formatCount(today.leadsToday)} />
-        <Row label="Appointments today" value={formatCount(today.appointmentsToday)} />
-        <Row
-          label="System health"
-          value={`${formatCount(health.incidentRollup.organizationsHealthy)}/${formatCount(allRows.length)} healthy`}
-          tone={health.incidentRollup.organizationsUnhealthy > 0 ? "danger" : health.incidentRollup.organizationsDegraded > 0 ? "warning" : "default"}
-        />
-      </div>
+      <section aria-label="Agency at a glance">
+        <StatGrid columns={5}>
+          <StatCard
+            label="Needs attention"
+            value={formatCount(attentionClientCount)}
+            description={hasAttentionClients ? `client${attentionClientCount === 1 ? "" : "s"} to review` : pagePartialData ? "Some data is unavailable" : "All clients operating normally"}
+            tone={hasAttentionClients ? "danger" : pagePartialData ? "warning" : "success"}
+            icon={AlertTriangle}
+          />
+          <StatCard label="Clients" value={formatCount(allRows.length)} description={`${formatCount(liveCount)} live · ${formatCount(settingUpCount)} setting up`} icon={Building2} />
+          <StatCard label="Leads today" value={formatCount(today.leadsToday)} description="Across every client" icon={UserPlus} />
+          <StatCard label="Appointments today" value={formatCount(today.appointmentsToday)} description="Across every client" icon={CalendarCheck} />
+          <StatCard
+            label="System health"
+            value={`${formatCount(health.incidentRollup.organizationsHealthy)}/${formatCount(allRows.length)}`}
+            description="organizations healthy"
+            tone={health.incidentRollup.organizationsUnhealthy > 0 ? "danger" : health.incidentRollup.organizationsDegraded > 0 ? "warning" : "neutral"}
+            icon={HeartPulse}
+          />
+        </StatGrid>
+      </section>
 
-      <div className="mt-8">
-        <NeedsAttention items={needsAttention.items} />
-      </div>
+      <NeedsAttention items={needsAttention.items} partialData={pagePartialData} />
 
-      <div className="mt-8">
-        <div className="flex items-baseline justify-between">
-          <h2 className={primarySectionTitleClass}>Clients</h2>
-          <span className={metaClass}>{formatCount(allRows.length)}</span>
-        </div>
-        <div className="mt-4">
-          <AgencyToolbar initialQuery={query} initialFilter={filter} />
-        </div>
-        <div className="mt-3">
-          <ClientOperations rows={rows} totalCount={allRows.length} />
-        </div>
-      </div>
+      <AgencySection
+        id="clients"
+        title="Clients"
+        count={allRows.length}
+        description={rows.length === allRows.length ? "Every client organization you manage · open one for its full detail" : `Showing ${formatCount(rows.length)} of ${formatCount(allRows.length)}`}
+      >
+        {allRows.length > 0 ? (
+          <div className="px-4 pb-4 sm:px-5">
+            <AgencyToolbar initialQuery={query} initialFilter={filter} />
+          </div>
+        ) : null}
+        <ClientOperations rows={rows} totalCount={allRows.length} />
+      </AgencySection>
 
       {/*
-        Trackpr Phase 5A/5B/5D-1 links to Expansion, Usage, and Revenue -
-        deliberately NOT live summaries with their own numbers (see below for
-        why), and deliberately NOT the only bordered-card container on the
-        page anymore. Trackpr Phase 5 UI polish: de-weighted from three
-        bordered "dashboard card" boxes to flush, divider-separated rows -
-        the same flush-canvas convention every other section on this page
-        already uses (NeedsAttention, AgencyActivity) - so this reads as a
-        plain navigation list to deeper intelligence, not a second set of
-        headline metrics competing with Clients above it.
+        Trackpr Phase 5A/5B/5D-1 links to Expansion, Usage, Revenue and
+        Costs - deliberately NOT live summaries with their own numbers.
         Computing live numbers here would mean this already-heavy overview
         page (7 parallel agency reads on every load) runs each page's own
         full per-organization fan-out a second time, for numbers whose only
         real destination is that dedicated page. A plain link keeps this
         page's existing query cost unchanged; the real numbers live on
-        /agency/expansion, /agency/usage, and /agency/revenue, each fetched
-        exactly once.
+        /agency/expansion, /agency/usage, /agency/revenue and /agency/costs,
+        each fetched exactly once.
       */}
-      <div className="mt-8 border-t border-line pt-8">
-        <p className={sectionLabelClass}>Deeper intelligence</p>
-        <div className="mt-2 divide-y divide-line">
-          <Link href="/agency/expansion" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-hover">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-ink">Expansion Opportunities</p>
-              <p className="mt-0.5 truncate text-xs text-ink-3">Estimate recovery, reactivation, and other service opportunities across your managed clients.</p>
-            </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
-          </Link>
+      <AgencySection id="deeper-intelligence" title="Deeper intelligence" description="Each opens its own page with the full, live figures.">
+        <ul className="grid grid-cols-1 border-t border-line sm:grid-cols-2">
+          {INTELLIGENCE_LINKS.map((link) => (
+            <li key={link.href} className="border-b border-line last:border-b-0 sm:odd:border-r sm:[&:nth-last-child(-n+2)]:border-b-0">
+              <Link
+                href={link.href}
+                className="group flex h-full min-h-12 items-center gap-3 px-4 py-3.5 transition-colors hover:bg-hover focus:outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/40 sm:px-5"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-inset text-ink-3 inset-ring inset-ring-line">
+                  <link.icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-ink">{link.title}</span>
+                  <span className="mt-0.5 block text-xs text-ink-3">{link.description}</span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </AgencySection>
 
-          <Link href="/agency/usage" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-hover">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-ink">Client Usage</p>
-              <p className="mt-0.5 truncate text-xs text-ink-3">Messaging, AI, and automation activity across your managed clients — usage visibility, not billing.</p>
-            </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
-          </Link>
-
-          <Link href="/agency/revenue" className="group -mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-hover">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-ink">Revenue</p>
-              <p className="mt-0.5 truncate text-xs text-ink-3">Contractor Growth Co.&rsquo;s own revenue from managed clients, recorded from real Stripe events.</p>
-            </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
-          </Link>
-        </div>
-      </div>
-
-      {/*
-        Trackpr Phase 5 UI polish: the secondary/reference tier - Onboarding
-        pipeline, System health, Recent activity - starts with deliberately
-        more separation (mt-14 instead of the mt-8 used everywhere above) so
-        the page reads as two clear weight classes (the core operational
-        workspace above vs. reference detail below), not six identically-
-        spaced sections. No component, data, or internal spacing within this
-        tier was changed - only the gap leading into it.
-      */}
-      <div className="mt-14 border-t border-line pt-8">
-        <p className={sectionLabelClass}>Onboarding pipeline</p>
+      {/* The secondary/reference tier - onboarding and system health side by
+          side on wide screens, then recent activity. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
         <OnboardingPipeline byStage={byStage} />
-      </div>
-
-      <div className="mt-8 border-t border-line pt-8">
         <SystemHealth
           rollup={health.incidentRollup}
           schedulerHeartbeat={health.schedulerHeartbeat}
@@ -307,9 +310,7 @@ export default async function AgencyPage({ searchParams }: PageProps<"/agency">)
         />
       </div>
 
-      <div className="mt-8 border-t border-line pt-8">
-        <AgencyActivity items={activity.items} />
-      </div>
+      <AgencyActivity items={activity.items} />
     </div>
   );
 }

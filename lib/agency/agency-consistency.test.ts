@@ -417,7 +417,7 @@ test("client detail: a per-client partial banner, the shared attention set, Unav
   assert.match(page, /\{clientPartialData \? \(/);
   assert.match(page, /const clientInAttention = needsAttention\.attentionOrganizationIds\.includes\(id\);/);
   assert.match(page, /const escalationCount = escalations\.failed \? null :/);
-  assert.match(page, /\{aiUnavailable \? \(\s*<div className="mt-8 border-t border-line pt-8">\s*<RowGroup label="AI activity">\s*<Row label="Total interactions" value="Unavailable"/);
+  assert.match(page, /<SectionCard title="AI activity"[^>]*>\s*\{aiUnavailable \? \(\s*<MetricList>\s*<Row label="Total interactions" value="Unavailable"/);
   assert.match(page, /\{aiUnavailable \? \([\s\S]*?AI data temporarily unavailable[\s\S]*?\) : metrics\.dataQuality\.aiTokenUsageUnavailable \? \(/);
 });
 

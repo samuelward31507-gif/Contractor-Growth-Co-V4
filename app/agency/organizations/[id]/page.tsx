@@ -1,5 +1,24 @@
 import Link from "next/link";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Circle } from "lucide-react";
+import type { ReactNode } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  Bot,
+  Building,
+  CalendarDays,
+  ChartColumn,
+  CheckCircle2,
+  Circle,
+  FlaskConical,
+  Info,
+  ListChecks,
+  MessageSquare,
+  Settings2,
+  ShieldAlert,
+  Sparkles,
+  UserPlus,
+  Workflow,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { getAgencyBusinessMetrics } from "@/lib/agency/queries";
@@ -14,15 +33,21 @@ import { computeSetupChecklist, ONBOARDING_STAGE_LABEL, type OnboardingStage } f
 import { getBusinessProfile, getServiceAreas } from "@/lib/settings/queries";
 import { formatCurrency, formatRelativeTime } from "@/lib/dashboard/format";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
-import { sectionLabelClass, metaClass, statLabelClass, statValueClass } from "@/lib/ui/typography";
-import { PageHeader } from "@/lib/ui/page-header";
-import { Row, RowGroup } from "../../_components/row";
+import { DetailHeader } from "@/lib/ui/detail-header";
+import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
+import { StatGrid, StatCard } from "@/lib/ui/stat-card";
+import { SectionCard, Panel } from "@/lib/ui/section-card";
+import { StatusLabel, type StatusDotTone } from "@/lib/ui/status-dot";
+import { detailLabelClass, detailValueClass, metaClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { formatRate, formatCount } from "../../_components/format";
 import { UnauthorizedState } from "../../_components/unauthorized-state";
-import { ErrorState } from "../../_components/error-state";
 import { NeedsAttention } from "../../_components/needs-attention";
-import { AutomationsPanel } from "../../_components/automations-panel";
 import { AutomationPauseControl } from "./_components/automation-pause-control";
+import { MetricList, Row, type RowTone } from "./_components/metric-rows";
+import { SectionEmpty } from "./_components/section-empty";
+import { AutomationsTable } from "./_components/automations-table";
+import { IncidentsTable } from "./_components/incidents-table";
+import { StatePage, ClientUnavailableState, ClientLoadErrorState } from "./_components/page-states";
 
 const STAGE_TONE: Record<OnboardingStage, BadgeTone> = {
   new: "neutral",
@@ -60,28 +85,47 @@ const PAYMENT_STATUS_LABEL: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-const PAYMENT_STATUS_TONE: Record<string, "default" | "danger" | "warning" | "success"> = {
+const PAYMENT_STATUS_TONE: Record<string, RowTone> = {
   payment_required: "default",
   active: "success",
   suspended: "danger",
   cancelled: "danger",
 };
 
+/** One label/value pair of the Client card - the same dl grammar the client app's detail pages use (app/(app)/estimates/[id]/page.tsx). */
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className={detailLabelClass}>{label}</dt>
+      <dd className={`${detailValueClass} break-words`}>{children}</dd>
+    </div>
+  );
+}
+
+function DataQualityNote({ children }: { children: ReactNode }) {
+  return (
+    <li className="flex gap-2">
+      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
+      <span>{children}</span>
+    </li>
+  );
+}
+
 /**
- * Agency Command Center UI review: the operational detail page for one
- * managed client, restructured around the information hierarchy Phase 5
- * asks for (identity/status, readiness, configuration, automation,
- * communication, recent activity, operational detail) - via the same
- * typography/divider system as the redesigned overview page, replacing the
- * old stack of bordered SectionCard/StatGrid boxes. Every figure is still
- * read from the exact same already-authorized backend
+ * Agency client detail (design-system pass): the operational detail page
+ * for one managed client, moved onto the client app's detail-page system -
+ * DetailHeader (back link, name, status badges, the automation kill switch
+ * as the header action), the standard page container, a StatGrid for the
+ * at-a-glance numbers, and SectionCards for every grouped section. Every
+ * figure is still read from the exact same already-authorized backend
  * (lib/agency/queries.ts, lib/agency/health.ts, lib/onboarding/checklist.ts,
  * lib/settings/queries.ts) plus one org-scoped getDashboardData call for
  * recent activity - the same function the client dashboard itself calls,
  * reused here for a real (not fabricated) activity feed. No authorization
- * logic changed: an organization id not present in this agency's own
- * resolved list still renders UnauthorizedState, never confirming or
- * denying whether it exists.
+ * logic changed: a caller who is not an agency admin still renders
+ * UnauthorizedState, and an organization id not present in this agency's
+ * own resolved list renders one neutral "not available" state that never
+ * confirms or denies whether it exists.
  */
 export default async function AgencyOrganizationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -107,17 +151,17 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
     ]);
   } catch {
     return (
-      <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-        <ErrorState />
-      </div>
+      <StatePage>
+        <ClientLoadErrorState />
+      </StatePage>
     );
   }
 
   if (!metrics.ok || !health.ok || !today.ok || !escalations.ok || !needsAttention.ok) {
     return (
-      <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <StatePage>
         <UnauthorizedState />
-      </div>
+      </StatePage>
     );
   }
 
@@ -130,9 +174,9 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   // existence of an organization the caller isn't authorized to see.
   if (!org || !orgHealth || !automations.ok) {
     return (
-      <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-        <UnauthorizedState />
-      </div>
+      <StatePage>
+        <ClientUnavailableState />
+      </StatePage>
     );
   }
 
@@ -176,341 +220,321 @@ export default async function AgencyOrganizationDetailPage({ params }: { params:
   const { metrics: m } = org;
   const missingItems = checklist.items.filter((item) => !item.complete);
 
+  // Presentation only: the same three test-lead outcomes the page has always distinguished, each now with a status label.
+  const testOutcome: { tone: StatusDotTone; label: string; detail: string } | null = testLeadOutcome
+    ? testLeadOutcome.executionStatus === "completed" && (testLeadOutcome.blockedReason === null || testLeadOutcome.blockedReason === "organization_not_live")
+      ? { tone: "healthy", label: "Working", detail: "Automation response confirmed working." }
+      : testLeadOutcome.executionStatus === "completed" && testLeadOutcome.blockedReason
+        ? { tone: "attention", label: "Held back", detail: `Response held back (${testLeadOutcome.blockedReason.replace(/_/g, " ")}).` }
+        : { tone: "neutral", label: "Not confirmed", detail: "Still in progress or the automation service was unavailable when last checked." }
+    : null;
+
+  const bookingState = readiness.items.find((i) => i.key === "booking")?.state;
+  const calendarState = readiness.items.find((i) => i.key === "calendar")?.state;
+  // An empty incident list is only a confirmed zero when the health read could read incidents.
+  const incidentsUnreadable = orgHealth.incidentsUnavailable && incidents.length === 0;
+
   return (
-    <div className="mx-auto w-full max-w-[1100px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <Link href="/agency" className="inline-flex items-center gap-1 text-xs font-medium text-ink-3 hover:text-ink">
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-          Agency Command Center
-        </Link>
-        <span className="text-xs text-ink-4">·</span>
-        <Link href="/today" className="text-xs font-medium text-ink-3 hover:text-ink">
-          Back to Trackpr
-        </Link>
-      </div>
+    <div className="flex flex-1 flex-col">
+      <DetailHeader
+        eyebrow="Client"
+        backHref="/agency"
+        backLabel="Back to Agency Command Center"
+        title={org.organizationName}
+        badges={
+          <>
+            <Badge tone={STAGE_TONE[checklist.stage]}>{ONBOARDING_STAGE_LABEL[checklist.stage]}</Badge>
+            {clientInAttention ? (
+              <Badge tone="danger" icon={AlertTriangle}>Needs attention</Badge>
+            ) : (
+              <Badge tone="success" icon={CheckCircle2}>Healthy</Badge>
+            )}
+          </>
+        }
+        action={<AutomationPauseControl organizationId={id} isPaused={isAutomationPaused} />}
+      />
 
-      <div className="mt-3">
-        <PageHeader
-          eyebrow="Client"
-          title={org.organizationName}
-          action={
-            <div className="flex items-center gap-2">
-              <Badge tone={STAGE_TONE[checklist.stage]}>{ONBOARDING_STAGE_LABEL[checklist.stage]}</Badge>
-              {clientInAttention ? (
-                <Badge tone="danger" icon={AlertTriangle}>Needs attention</Badge>
-              ) : (
-                <Badge tone="success" icon={CheckCircle2}>Healthy</Badge>
-              )}
-            </div>
-          }
-        />
-      </div>
-
-      <div className="mt-4">
-        <AutomationPauseControl organizationId={id} isPaused={isAutomationPaused} />
-      </div>
-
-      {clientPartialData ? (
-        <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <p>Some information for this client is temporarily unavailable. Figures marked Unavailable could not be read - they are not zero.</p>
-        </div>
-      ) : null}
-
-      {clientNeedsAttention.length > 0 ? (
-        <div className="mt-8">
-          <NeedsAttention items={clientNeedsAttention} />
-        </div>
-      ) : null}
-
-      {/* Today + Live activity - what changed, surfaced immediately after
-          what needs action and how healthy the client is, before any of the
-          slower-moving setup/business detail below. Today's two numbers get
-          the same large stat treatment as a dashboard KPI (not a Row) since
-          this is meant to be read at a glance, not scanned in a list. This
-          is the last section of the page's primary tier - everything below
-          this point is reference/supporting detail, per the deliberately
-          larger gap that follows. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-line pt-8 sm:grid-cols-[auto_1fr]">
-        <div className="flex gap-8 sm:shrink-0">
-          <div>
-            <p className={statLabelClass}>Leads today</p>
-            <p className={statValueClass}>{formatCount(orgToday?.leadsToday ?? 0)}</p>
+      <div className={`${PAGE_CONTAINER_CLASS} gap-6 ${PAGE_MAX_WIDTH_CLASS}`}>
+        {clientPartialData ? (
+          <div role="status" className="flex items-start gap-2.5 rounded-xl border border-warning-border bg-warning-muted px-4 py-2.5 text-sm text-warning-text">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <p>Some information for this client is temporarily unavailable. Figures marked Unavailable or &ldquo;—&rdquo; could not be read - they are not zero.</p>
           </div>
-          <div>
-            <p className={statLabelClass}>Appointments today</p>
-            <p className={statValueClass}>{formatCount(orgToday?.appointmentsToday ?? 0)}</p>
-          </div>
-        </div>
-        <div className="sm:border-l sm:border-line sm:pl-8">
-          <p className={sectionLabelClass}>Live activity</p>
-          {dashboardData.recentActivity.length === 0 ? (
-            <p className="mt-2 text-sm text-ink-3">No activity yet for this client.</p>
-          ) : (
-            <ul className="mt-2 divide-y divide-line">
-              {dashboardData.recentActivity.slice(0, 5).map((item) => (
-                <li key={item.id} className="flex items-center justify-between gap-4 py-1.5">
-                  <span className="min-w-0 truncate text-sm text-ink-2">{item.message}</span>
-                  <span className="shrink-0 text-xs tabular-nums text-ink-3">{formatRelativeTime(item.timestamp)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-
-      {/*
-        Trackpr 2.0 UI optimization pass: this is the one deliberate tier
-        break on the page (pt-14 instead of the pt-8 used everywhere else,
-        the same "you've left the core workspace" signal already proven on
-        /agency) - everything above this point (identity, pause control,
-        Needs Attention, Today/Live activity) is the primary tier; everything
-        from here down is reference/supporting detail. The lighter
-        border-line dividers used on every subsequent block (instead of
-        border-line) mark them as sub-topics within this one lower tier,
-        not additional tier boundaries of their own. No RowGroup/Row content
-        or data changed - only spacing and divider weight.
-
-        Automation + Communication - operational status side by side.
-      */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-line pt-14 sm:grid-cols-2">
-        <RowGroup label="Automation">
-          {/* Phase 2K: unreadable execution counts show as Unavailable, never as zeros. Stuck has its own read. */}
-          {org.automationFailed ? (
-            <>
-              {["Executions", "Completed", "Failed", "Running"].map((label) => (
-                <Row key={label} label={label} value="Unavailable" tone="warning" />
-              ))}
-            </>
-          ) : (
-            <>
-              <Row label="Executions" value={formatCount(m.automationMetrics.workflowExecutions)} />
-              <Row label="Completed" value={formatCount(m.automationMetrics.successfulWorkflowExecutions)} tone={m.automationMetrics.successfulWorkflowExecutions > 0 ? "success" : "default"} />
-              <Row label="Failed" value={formatCount(m.automationMetrics.failedWorkflowExecutions)} tone={m.automationMetrics.failedWorkflowExecutions > 0 ? "danger" : "default"} />
-              <Row label="Running" value={formatCount(m.automationMetrics.runningWorkflowExecutions)} />
-            </>
-          )}
-          <Row label="Stuck" value={formatCount(orgHealth.stuckExecutionCount)} tone={orgHealth.stuckExecutionCount > 0 ? "warning" : "default"} />
-          {org.automationFailed ? <Row label="Success rate" value="Unavailable" tone="warning" /> : <Row label="Success rate" value={formatRate(m.automationMetrics.automationSuccessRate)} />}
-        </RowGroup>
-        <RowGroup label="Communication">
-          {/* Phase 2J: unreadable message counts show as Unavailable, never as zeros. */}
-          {org.communicationFailed ? (
-            <>
-              {["Inbound", "Outbound", "Delivered", "Failed", "Undelivered", "Queued"].map((label) => (
-                <Row key={label} label={label} value="Unavailable" tone="warning" />
-              ))}
-            </>
-          ) : (
-            <>
-              <Row label="Inbound" value={formatCount(m.communicationMetrics.inboundMessages)} />
-              <Row label="Outbound" value={formatCount(m.communicationMetrics.outboundMessages)} />
-              <Row label="Delivered" value={formatCount(org.messagesByStatus.delivered ?? 0)} />
-              <Row label="Failed" value={formatCount(org.messagesByStatus.failed ?? 0)} tone={(org.messagesByStatus.failed ?? 0) > 0 ? "danger" : "default"} />
-              <Row label="Undelivered" value={formatCount(org.messagesByStatus.undelivered ?? 0)} tone={(org.messagesByStatus.undelivered ?? 0) > 0 ? "warning" : "default"} />
-              <Row label="Queued" value={formatCount(org.messagesByStatus.queued ?? 0)} />
-            </>
-          )}
-          {escalationCount === null ? (
-            <Row label="AI escalations waiting" value="Unavailable" tone="warning" />
-          ) : (
-            <Row
-              label="AI escalations waiting"
-              value={escalationCount > 0 ? formatCount(escalationCount) : "None"}
-              tone={escalationCount > 0 ? "warning" : "default"}
-              description={escalationCount > 0 ? "AI is paused on these conversations until a human replies." : undefined}
-            />
-          )}
-        </RowGroup>
-      </div>
-
-      {/* Automations - real, per-automation operational state (excludes the
-          internal safe-AI safety layer, which is never independently
-          triggered). Never invents an automation that isn't in
-          AUTOMATION_CATALOG. */}
-      <div className="mt-8 border-t border-line pt-8">
-        <p className={sectionLabelClass}>Automations</p>
-        <AutomationsPanel automations={automations.automations} />
-      </div>
-
-      {/* Client + Setup - identity and configuration status side by side, the
-          two things "is this client configured" is actually made of. Secondary
-          business/CRM-style detail from here down - operational state and
-          what changed already surfaced above. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-line pt-8 sm:grid-cols-2">
-        <RowGroup label="Client">
-          <Row label="Owner / contact" value={profile?.owner_name ?? "Not set"} />
-          <Row label="Trade" value={profile?.trade ?? "Not set"} />
-          <Row label="Service area" value={serviceAreas.length > 0 ? serviceAreas.map((a) => a.name).join(", ") : "Not set"} />
-        </RowGroup>
-        <RowGroup label="Setup">
-          <Row
-            label="Payment status"
-            value={PAYMENT_STATUS_LABEL[orgHealth.paymentStatus] ?? orgHealth.paymentStatus}
-            tone={PAYMENT_STATUS_TONE[orgHealth.paymentStatus] ?? "default"}
-          />
-          <Row label="Business hours" value={readiness.items.find((i) => i.key === "hours")?.complete ? "Configured" : "Not configured"} />
-          <Row label="SMS" value={readiness.items.find((i) => i.key === "sms")?.complete ? "Configured" : "Not configured"} />
-          <Row label="Lead capture" value={readiness.items.find((i) => i.key === "leadCapture")?.complete ? "Ready" : "Unavailable"} />
-          <Row label="AI review" value={readiness.items.find((i) => i.key === "ai")?.complete ? "Reviewed" : "Not reviewed"} />
-          <Row label="AI appointment booking" value={readinessStateLabel(readiness.items.find((i) => i.key === "booking")?.state)} tone={readiness.items.find((i) => i.key === "booking")?.state === "not_ready" ? "warning" : "default"} />
-          <Row label="Google Calendar sync" value={readinessStateLabel(readiness.items.find((i) => i.key === "calendar")?.state)} tone={readiness.items.find((i) => i.key === "calendar")?.state === "not_ready" ? "warning" : "default"} />
-          {orgHealth.calendarStatus === "error" ? (
-            <Row label="Calendar connection" value="Disconnected" tone="danger" description={orgHealth.calendarLastError ?? undefined} />
-          ) : null}
-          <Row label="Automation mode" value={readiness.automationMode === "live" ? "Live" : "Test"} tone={readiness.automationMode === "live" ? "success" : "default"} />
-        </RowGroup>
-      </div>
-
-      {/* Readiness - what's still blocking Go Live, if anything. */}
-      <div className="mt-8 border-t border-line pt-8">
-        <p className={sectionLabelClass}>Readiness</p>
-        {missingItems.length === 0 ? (
-          <p className="mt-2 text-sm text-accent-text">Everything required is complete.</p>
-        ) : (
-          <ul className="mt-2 divide-y divide-line">
-            {missingItems.map((item) => (
-              <li key={item.key} className="flex items-center gap-2.5 py-1.5">
-                <Circle className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
-                <p className="text-sm text-ink-2">{item.label}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-        {readiness.status !== "live" ? (
-          <p className={`mt-2 ${metaClass}`}>Go Live is blocked until business profile, business hours, and SMS routing are all configured.</p>
         ) : null}
-      </div>
 
-      {/* Test - the real, most recent onboarding test-lead outcome. */}
-      <div className="mt-8 border-t border-line pt-8">
-        <p className={sectionLabelClass}>Test</p>
-        {testLeadOutcome ? (
-          <div className="mt-2 space-y-1 text-sm text-ink-2">
-            <p>Last run {new Date(testLeadOutcome.createdAt).toLocaleString()}.</p>
-            <p>
-              {testLeadOutcome.executionStatus === "completed" && (testLeadOutcome.blockedReason === null || testLeadOutcome.blockedReason === "organization_not_live")
-                ? "Automation response confirmed working."
-                : testLeadOutcome.executionStatus === "completed" && testLeadOutcome.blockedReason
-                  ? `Response held back (${testLeadOutcome.blockedReason.replace(/_/g, " ")}).`
-                  : "Still in progress or the automation service was unavailable when last checked."}
-            </p>
+        {/* At a glance - every number is a real read; one that could not be read shows "—", never 0. */}
+        <StatGrid columns={4}>
+          <StatCard label="Leads today" value={orgToday ? formatCount(orgToday.leadsToday) : "—"} description={orgToday ? undefined : "Couldn't be read"} icon={UserPlus} />
+          <StatCard label="Appointments today" value={orgToday ? formatCount(orgToday.appointmentsToday) : "—"} description={orgToday ? undefined : "Couldn't be read"} icon={CalendarDays} />
+          <StatCard
+            label="Active incidents"
+            value={incidentsUnreadable ? "—" : formatCount(incidents.length)}
+            description={incidentsUnreadable ? "Couldn't be read" : "Open or acknowledged"}
+            tone={incidents.some((incident) => incident.severity === "critical") ? "danger" : incidents.length > 0 ? "warning" : "neutral"}
+            icon={ShieldAlert}
+          />
+          <StatCard
+            label="AI escalations waiting"
+            value={escalationCount === null ? "—" : formatCount(escalationCount)}
+            description={escalationCount === null ? "Couldn't be read" : escalationCount > 0 ? "AI paused until a human replies" : "None waiting"}
+            tone={escalationCount !== null && escalationCount > 0 ? "warning" : "neutral"}
+            icon={MessageSquare}
+          />
+        </StatGrid>
+
+        {clientNeedsAttention.length > 0 ? (
+          <Panel>
+            <NeedsAttention items={clientNeedsAttention} />
+          </Panel>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+          <div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
+            <SectionCard title="Live activity" description="The latest events in this client's workspace." icon={Activity}>
+              {dashboardData.recentActivity.length === 0 ? (
+                <SectionEmpty
+                  title="No activity yet for this client."
+                  description={
+                    dashboardData.partialData
+                      ? "Some activity sources couldn't be read, so this may not be a confirmed empty feed."
+                      : "New leads, appointments and changes appear here as they happen."
+                  }
+                />
+              ) : (
+                <>
+                  <ul className="divide-y divide-line">
+                    {dashboardData.recentActivity.slice(0, 5).map((item) => (
+                      <li key={item.id} className="flex items-start justify-between gap-4 py-2.5">
+                        <span className="min-w-0 break-words text-sm text-ink-2">{item.message}</span>
+                        <span className="shrink-0 text-xs tabular-nums text-ink-3">{formatRelativeTime(item.timestamp)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {dashboardData.partialData ? <p className={`mt-2 ${metaClass}`}>Some activity sources couldn&apos;t be read, so this list may be incomplete.</p> : null}
+                </>
+              )}
+            </SectionCard>
+
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <SectionCard title="Automation" description="Workflow executions." icon={Workflow}>
+                <MetricList>
+                  {/* Phase 2K: unreadable execution counts show as Unavailable, never as zeros. Stuck has its own read. */}
+                  {org.automationFailed ? (
+                    <>
+                      {["Executions", "Completed", "Failed", "Running"].map((label) => (
+                        <Row key={label} label={label} value="Unavailable" tone="warning" />
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      <Row label="Executions" value={formatCount(m.automationMetrics.workflowExecutions)} />
+                      <Row label="Completed" value={formatCount(m.automationMetrics.successfulWorkflowExecutions)} tone={m.automationMetrics.successfulWorkflowExecutions > 0 ? "success" : "default"} />
+                      <Row label="Failed" value={formatCount(m.automationMetrics.failedWorkflowExecutions)} tone={m.automationMetrics.failedWorkflowExecutions > 0 ? "danger" : "default"} />
+                      <Row label="Running" value={formatCount(m.automationMetrics.runningWorkflowExecutions)} />
+                    </>
+                  )}
+                  <Row label="Stuck" value={formatCount(orgHealth.stuckExecutionCount)} tone={orgHealth.stuckExecutionCount > 0 ? "warning" : "default"} />
+                  {org.automationFailed ? <Row label="Success rate" value="Unavailable" tone="warning" /> : <Row label="Success rate" value={formatRate(m.automationMetrics.automationSuccessRate)} />}
+                </MetricList>
+              </SectionCard>
+
+              <SectionCard title="Communication" description="Messages sent and received." icon={MessageSquare}>
+                <MetricList>
+                  {/* Phase 2J: unreadable message counts show as Unavailable, never as zeros. */}
+                  {org.communicationFailed ? (
+                    <>
+                      {["Inbound", "Outbound", "Delivered", "Failed", "Undelivered", "Queued"].map((label) => (
+                        <Row key={label} label={label} value="Unavailable" tone="warning" />
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      <Row label="Inbound" value={formatCount(m.communicationMetrics.inboundMessages)} />
+                      <Row label="Outbound" value={formatCount(m.communicationMetrics.outboundMessages)} />
+                      <Row label="Delivered" value={formatCount(org.messagesByStatus.delivered ?? 0)} />
+                      <Row label="Failed" value={formatCount(org.messagesByStatus.failed ?? 0)} tone={(org.messagesByStatus.failed ?? 0) > 0 ? "danger" : "default"} />
+                      <Row label="Undelivered" value={formatCount(org.messagesByStatus.undelivered ?? 0)} tone={(org.messagesByStatus.undelivered ?? 0) > 0 ? "warning" : "default"} />
+                      <Row label="Queued" value={formatCount(org.messagesByStatus.queued ?? 0)} />
+                    </>
+                  )}
+                  {escalationCount === null ? (
+                    <Row label="AI escalations waiting" value="Unavailable" tone="warning" />
+                  ) : (
+                    <Row
+                      label="AI escalations waiting"
+                      value={escalationCount > 0 ? formatCount(escalationCount) : "None"}
+                      tone={escalationCount > 0 ? "warning" : "default"}
+                      description={escalationCount > 0 ? "AI is paused on these conversations until a human replies." : undefined}
+                    />
+                  )}
+                </MetricList>
+              </SectionCard>
+            </div>
+
+            {/* Automations - real, per-automation operational state (excludes the
+                internal safe-AI safety layer, which is never independently
+                triggered). Never invents an automation that isn't in
+                AUTOMATION_CATALOG. */}
+            <SectionCard title="Automations" description="Each automation's current health." icon={Bot}>
+              <AutomationsTable automations={automations.automations} />
+            </SectionCard>
+
+            <SectionCard
+              title="Active incidents"
+              description="Open or acknowledged operational incidents."
+              icon={ShieldAlert}
+              action={<span className={`shrink-0 text-right ${metaClass}`}>{incidentsUnreadable ? "Unavailable" : `${incidents.length} open or acknowledged`}</span>}
+            >
+              <IncidentsTable incidents={incidents} unavailable={orgHealth.incidentsUnavailable} />
+            </SectionCard>
+
+            {/* Operational detail - business/estimate/job/appointment figures, grouped as reference rows inside one card. */}
+            <SectionCard title="Business performance" description="Pipeline, estimates, jobs and appointments." icon={ChartColumn}>
+              <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
+                <MetricList label="Business">
+                  <Row label="Leads" value={formatCount(m.leadMetrics.totalLeads)} />
+                  <Row label="Open opportunities" value={formatCount(m.pipelineMetrics.openOpportunityCount)} />
+                  <Row label="Pipeline value" value={formatCurrency(m.pipelineMetrics.pipelineValue)} />
+                  <Row label="Contracted job value" value={formatCurrency(m.jobMetrics.contractedJobValue)} />
+                </MetricList>
+                <MetricList label="Estimates">
+                  <Row label="Sent" value={formatCount(m.estimateMetrics.sentEstimates)} />
+                  <Row label="Accepted" value={formatCount(m.estimateMetrics.acceptedEstimates)} tone="success" />
+                  <Row label="Declined" value={formatCount(m.estimateMetrics.declinedEstimates)} />
+                  <Row label="Acceptance rate" value={formatRate(m.estimateMetrics.estimateAcceptanceRate)} />
+                </MetricList>
+                <MetricList label="Jobs">
+                  <Row label="Scheduled" value={formatCount(m.jobMetrics.scheduledJobs)} />
+                  <Row label="In progress" value={formatCount(m.jobMetrics.inProgressJobs)} />
+                  <Row label="Completed" value={formatCount(m.jobMetrics.completedJobs)} tone="success" />
+                  <Row label="Cancelled" value={formatCount(m.jobMetrics.cancelledJobs)} />
+                  <Row label="Completion rate" value={formatRate(m.jobMetrics.jobCompletionRate)} />
+                </MetricList>
+                <MetricList label="Appointments">
+                  <Row label="Total" value={formatCount(m.appointmentMetrics.totalAppointments)} />
+                  <Row label="Completed" value={formatCount(m.appointmentMetrics.completedAppointments)} tone="success" />
+                  <Row label="Cancelled" value={formatCount(m.appointmentMetrics.cancelledAppointments)} />
+                  <Row label="No-show" value={formatCount(m.appointmentMetrics.noShowAppointments)} />
+                  <Row label="No-show rate" value={formatRate(m.appointmentMetrics.appointmentNoShowRate)} />
+                </MetricList>
+              </div>
+            </SectionCard>
+
+            {/* Phase 3E: a failed AI read keeps the section, marked Unavailable - never hidden as if there were no AI activity. */}
+            <SectionCard title="AI activity" description="AI interactions recorded for this client." icon={Sparkles}>
+              {aiUnavailable ? (
+                <MetricList>
+                  <Row label="Total interactions" value="Unavailable" tone="warning" />
+                </MetricList>
+              ) : Object.keys(org.aiInteractionsByType).length > 0 ? (
+                <MetricList>
+                  <Row label="Total interactions" value={formatCount(m.aiMetrics.aiInteractions)} />
+                  {m.aiMetrics.totalTokensUsed !== null ? (
+                    <Row
+                      label="Tokens used"
+                      value={formatCount(m.aiMetrics.totalTokensUsed)}
+                      description={`${m.aiMetrics.interactionsWithUsageData} of ${m.aiMetrics.aiInteractions} interactions`}
+                    />
+                  ) : null}
+                  {Object.entries(org.aiInteractionsByType)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([type, count]) => (
+                      <Row key={type} label={type} value={formatCount(count)} />
+                    ))}
+                </MetricList>
+              ) : (
+                <SectionEmpty title="No AI activity recorded for this client yet." description="Interactions appear here once the AI handles one of this client's conversations." />
+              )}
+            </SectionCard>
           </div>
-        ) : (
-          <p className="mt-2 text-sm text-ink-3">No test has been attempted yet.</p>
-        )}
-      </div>
 
-      {/* Active incidents - kept as its own list, already the right shape. */}
-      <div className="mt-8 border-t border-line pt-8">
-        <div className="flex items-baseline justify-between">
-          <p className={sectionLabelClass}>Active incidents</p>
-          <span className={metaClass}>{incidents.length} open or acknowledged</span>
-        </div>
-        {incidents.length === 0 ? (
-          <p className="mt-3 text-sm text-ink-3">No active operational incidents for this organization.</p>
-        ) : (
-          <ul className="mt-3 divide-y divide-line">
-            {incidents.map((incident) => (
-              <li key={incident.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-                <div>
-                  <p className="text-sm font-medium text-ink">{incident.title}</p>
-                  <p className="mt-0.5 text-xs text-ink-3">
-                    First seen {new Date(incident.firstSeenAt).toLocaleString()} · {formatCount(incident.occurrenceCount)} occurrence{incident.occurrenceCount === 1 ? "" : "s"}
-                  </p>
+          <div className="flex min-w-0 flex-col gap-6">
+            <SectionCard title="Client" icon={Building}>
+              <dl className="space-y-3">
+                <Fact label="Owner / contact">{profile?.owner_name ?? "Not set"}</Fact>
+                <Fact label="Trade">{profile?.trade ?? "Not set"}</Fact>
+                <Fact label="Service area">{serviceAreas.length > 0 ? serviceAreas.map((a) => a.name).join(", ") : "Not set"}</Fact>
+              </dl>
+            </SectionCard>
+
+            <SectionCard title="Setup" description="Billing and configuration status." icon={Settings2}>
+              <MetricList>
+                <Row
+                  label="Payment status"
+                  value={PAYMENT_STATUS_LABEL[orgHealth.paymentStatus] ?? orgHealth.paymentStatus}
+                  tone={PAYMENT_STATUS_TONE[orgHealth.paymentStatus] ?? "default"}
+                />
+                <Row label="Business hours" value={readiness.items.find((i) => i.key === "hours")?.complete ? "Configured" : "Not configured"} />
+                <Row label="SMS" value={readiness.items.find((i) => i.key === "sms")?.complete ? "Configured" : "Not configured"} />
+                <Row label="Lead capture" value={readiness.items.find((i) => i.key === "leadCapture")?.complete ? "Ready" : "Unavailable"} />
+                <Row label="AI review" value={readiness.items.find((i) => i.key === "ai")?.complete ? "Reviewed" : "Not reviewed"} />
+                <Row label="AI appointment booking" value={readinessStateLabel(bookingState)} tone={bookingState === "not_ready" ? "warning" : "default"} />
+                <Row label="Google Calendar sync" value={readinessStateLabel(calendarState)} tone={calendarState === "not_ready" ? "warning" : "default"} />
+                {orgHealth.calendarStatus === "error" ? (
+                  <Row label="Calendar connection" value="Disconnected" tone="danger" description={orgHealth.calendarLastError ?? undefined} />
+                ) : null}
+                <Row label="Automation mode" value={readiness.automationMode === "live" ? "Live" : "Test"} tone={readiness.automationMode === "live" ? "success" : "default"} />
+              </MetricList>
+            </SectionCard>
+
+            {/* Readiness - what's still blocking Go Live, if anything. */}
+            <SectionCard title="Readiness" description="What is still needed before Go Live." icon={ListChecks}>
+              {missingItems.length === 0 ? (
+                <p className="flex items-center gap-2 text-sm text-accent-text">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+                  Everything required is complete.
+                </p>
+              ) : (
+                <ul className="divide-y divide-line" aria-label="Incomplete setup items">
+                  {missingItems.map((item) => (
+                    <li key={item.key} className="flex items-center gap-2.5 py-2">
+                      <Circle className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
+                      <span className="text-sm text-ink-2">{item.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {readiness.status !== "live" ? (
+                <p className={`mt-3 ${metaClass}`}>Go Live is blocked until business profile, business hours, and SMS routing are all configured.</p>
+              ) : null}
+            </SectionCard>
+
+            {/* Test - the real, most recent onboarding test-lead outcome. */}
+            <SectionCard title="Test lead" description="The most recent onboarding test." icon={FlaskConical}>
+              {testLeadOutcome && testOutcome ? (
+                <div className="space-y-2">
+                  <StatusLabel tone={testOutcome.tone}>{testOutcome.label}</StatusLabel>
+                  <p className="text-sm text-ink-2">{testOutcome.detail}</p>
+                  <p className={metaClass}>Last run {new Date(testLeadOutcome.createdAt).toLocaleString()}.</p>
                 </div>
-                <Badge tone={incident.severity === "critical" ? "danger" : incident.severity === "warning" ? "warning" : "neutral"}>{incident.severity}</Badge>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              ) : (
+                <SectionEmpty title="No test has been attempted yet." description="A test lead is sent during onboarding to confirm the automation responds." />
+              )}
+            </SectionCard>
 
-      {/* Operational detail - business/estimate/job/appointment/AI figures,
-          grouped as reference rows rather than six separate card walls. */}
-      <div className="mt-8 grid grid-cols-1 gap-8 border-t border-line pt-8 sm:grid-cols-2">
-        <RowGroup label="Business">
-          <Row label="Leads" value={formatCount(m.leadMetrics.totalLeads)} />
-          <Row label="Open opportunities" value={formatCount(m.pipelineMetrics.openOpportunityCount)} />
-          <Row label="Pipeline value" value={formatCurrency(m.pipelineMetrics.pipelineValue)} />
-          <Row label="Contracted job value" value={formatCurrency(m.jobMetrics.contractedJobValue)} />
-        </RowGroup>
-        <RowGroup label="Estimates">
-          <Row label="Sent" value={formatCount(m.estimateMetrics.sentEstimates)} />
-          <Row label="Accepted" value={formatCount(m.estimateMetrics.acceptedEstimates)} tone="success" />
-          <Row label="Declined" value={formatCount(m.estimateMetrics.declinedEstimates)} />
-          <Row label="Acceptance rate" value={formatRate(m.estimateMetrics.estimateAcceptanceRate)} />
-        </RowGroup>
-        <RowGroup label="Jobs">
-          <Row label="Scheduled" value={formatCount(m.jobMetrics.scheduledJobs)} />
-          <Row label="In progress" value={formatCount(m.jobMetrics.inProgressJobs)} />
-          <Row label="Completed" value={formatCount(m.jobMetrics.completedJobs)} tone="success" />
-          <Row label="Cancelled" value={formatCount(m.jobMetrics.cancelledJobs)} />
-          <Row label="Completion rate" value={formatRate(m.jobMetrics.jobCompletionRate)} />
-        </RowGroup>
-        <RowGroup label="Appointments">
-          <Row label="Total" value={formatCount(m.appointmentMetrics.totalAppointments)} />
-          <Row label="Completed" value={formatCount(m.appointmentMetrics.completedAppointments)} tone="success" />
-          <Row label="Cancelled" value={formatCount(m.appointmentMetrics.cancelledAppointments)} />
-          <Row label="No-show" value={formatCount(m.appointmentMetrics.noShowAppointments)} />
-          <Row label="No-show rate" value={formatRate(m.appointmentMetrics.appointmentNoShowRate)} />
-        </RowGroup>
-      </div>
-
-      {/* Phase 3E: a failed AI read keeps the section, marked Unavailable - never hidden as if there were no AI activity. */}
-      {aiUnavailable ? (
-        <div className="mt-8 border-t border-line pt-8">
-          <RowGroup label="AI activity">
-            <Row label="Total interactions" value="Unavailable" tone="warning" />
-          </RowGroup>
+            <Panel>
+              <h2 className={`flex items-center gap-2 ${subsectionTitleClass}`}>
+                <Info className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+                Data quality
+              </h2>
+              <ul className="mt-3 space-y-2 text-xs text-ink-3">
+                <DataQualityNote>No payment infrastructure exists - every value figure is quoted/contracted, never confirmed collected money.</DataQualityNote>
+                <DataQualityNote>leads.source is not standardized - source counts, where shown, are never ranked or labeled as best/worst.</DataQualityNote>
+                <DataQualityNote>No stage-transition history exists - rates are current-state or activity-count metrics, never true historical conversion rates.</DataQualityNote>
+                {aiUnavailable ? (
+                  <DataQualityNote>AI data temporarily unavailable - AI counts and token usage could not be read for this client.</DataQualityNote>
+                ) : metrics.dataQuality.aiTokenUsageUnavailable ? (
+                  <DataQualityNote>AI token usage unavailable - not populated by any automation path yet.</DataQualityNote>
+                ) : null}
+              </ul>
+              <p className={`mt-4 border-t border-line pt-3 ${metaClass}`}>
+                <Link href="/today" className="inline-flex min-h-11 items-center font-medium text-ink-2 hover:text-ink sm:min-h-0">
+                  Back to Trackpr
+                </Link>
+              </p>
+            </Panel>
+          </div>
         </div>
-      ) : Object.keys(org.aiInteractionsByType).length > 0 ? (
-        <div className="mt-8 border-t border-line pt-8">
-          <RowGroup label="AI activity">
-            <Row label="Total interactions" value={formatCount(m.aiMetrics.aiInteractions)} />
-            {m.aiMetrics.totalTokensUsed !== null ? (
-              <Row
-                label="Tokens used"
-                value={formatCount(m.aiMetrics.totalTokensUsed)}
-                description={`${m.aiMetrics.interactionsWithUsageData} of ${m.aiMetrics.aiInteractions} interactions`}
-              />
-            ) : null}
-            {Object.entries(org.aiInteractionsByType)
-              .sort(([, a], [, b]) => b - a)
-              .map(([type, count]) => (
-                <Row key={type} label={type} value={formatCount(count)} />
-              ))}
-          </RowGroup>
-        </div>
-      ) : null}
-
-      <div className="mt-8 border-t border-line pt-8">
-        <p className={sectionLabelClass}>Data quality</p>
-        <ul className="mt-2 space-y-1.5 text-xs text-ink-3">
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-            No payment infrastructure exists - every value figure is quoted/contracted, never confirmed collected money.
-          </li>
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-            leads.source is not standardized - source counts, where shown, are never ranked or labeled as best/worst.
-          </li>
-          <li className="flex gap-2">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-            No stage-transition history exists - rates are current-state or activity-count metrics, never true historical conversion rates.
-          </li>
-          {aiUnavailable ? (
-            <li className="flex gap-2">
-              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-              AI data temporarily unavailable - AI counts and token usage could not be read for this client.
-            </li>
-          ) : metrics.dataQuality.aiTokenUsageUnavailable ? (
-            <li className="flex gap-2">
-              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-line-strong" aria-hidden />
-              AI token usage unavailable - not populated by any automation path yet.
-            </li>
-          ) : null}
-        </ul>
       </div>
     </div>
   );

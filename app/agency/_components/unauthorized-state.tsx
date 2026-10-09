@@ -12,7 +12,7 @@ export function UnauthorizedState() {
     <EmptyState
       icon={Lock}
       title="You don't have access to the Agency Command Center."
-      description="This area is restricted to Contractor Growth Co. agency administrators."
+      description="This area is restricted to Contractor Growth Co. agency administrators. If you think you should have access, ask an agency administrator to add you."
     />
   );
 }

@@ -1,19 +1,24 @@
 import Link from "next/link";
-import { ChevronRight, AlertTriangle, Search } from "lucide-react";
-import { RAIL_TONE_CLASS } from "@/lib/ui/badge";
+import { AlertTriangle, Building2 } from "lucide-react";
+import { RAIL_TONE_CLASS, Badge } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
+import { Table, TableBody, TableHeadCell, TableRow } from "@/lib/ui/table";
 import type { ClientUsageSummary } from "@/lib/agency/usage";
 import { formatNullableCount } from "./format";
 import { formatRate, formatCount } from "../../_components/format";
 
 /**
- * Trackpr Phase 5B: mirrors app/agency/_components/client-operations.tsx's
- * exact desktop-grid / mobile-stacked-list pattern (same rail-color
- * convention, same `hidden lg:block` / `lg:hidden` split) rather than a new
- * table primitive - this is the established Agency Command Center list
- * shape, just with usage columns instead of health/stage columns.
+ * Trackpr Phase 5B: the client usage list - desktop table / mobile stacked
+ * list split (`hidden lg:block` / `lg:hidden`), a warning rail on any client
+ * whose own data is partial.
+ *
+ * Agency redesign: the desktop half now renders through the shared table
+ * primitives (lib/ui/table.tsx). Business activity moved under the client
+ * name so the numeric columns keep their room at narrower desktop widths.
+ * Every figure, every "Unavailable" and every "Partial" marker is the same
+ * as before.
  */
-const ROW_GRID = "grid-cols-[minmax(0,1.2fr)_110px_110px_120px_90px_minmax(0,1.3fr)_70px_20px]";
+const COLUMNS = "grid-cols-[minmax(0,1.8fr)_repeat(4,minmax(0,1fr))_88px]";
 
 /**
  * Only reachable when the agency has zero authorized client organizations at
@@ -24,7 +29,7 @@ const ROW_GRID = "grid-cols-[minmax(0,1.2fr)_110px_110px_120px_90px_minmax(0,1.3
 function NoClientsState() {
   return (
     <EmptyState
-      icon={Search}
+      icon={Building2}
       title="No client organizations are connected yet."
       description="Once a client organization is associated with the agency, its usage will appear here."
     />
@@ -38,23 +43,19 @@ export function ClientUsageRows({ clients }: { clients: ClientUsageSummary[] }) 
 
   return (
     <div>
-      <div className="hidden lg:block">
-        <div className={`grid ${ROW_GRID} items-center gap-3 border-b border-l-2 border-l-transparent border-line pl-3 pr-2 pb-3`}>
-          <span className="text-xs text-ink-3">Client</span>
-          <span className="text-right text-xs text-ink-3">Messages</span>
-          <span className="text-right text-xs text-ink-3">AI interactions</span>
-          <span className="text-right text-xs text-ink-3">Automation</span>
-          <span className="text-right text-xs text-ink-3">Missed calls</span>
-          <span className="text-xs text-ink-3">Business activity</span>
-          <span className="text-xs text-ink-3">Data</span>
-          <span />
-        </div>
-        <div className="divide-y divide-line">
-          {clients.map((client) => (
-            <ClientUsageRowDesktop key={client.organizationId} client={client} />
-          ))}
-        </div>
-      </div>
+      <Table columns={COLUMNS}>
+        <TableHeadCell>Client</TableHeadCell>
+        <TableHeadCell align="right">Messages</TableHeadCell>
+        <TableHeadCell align="right">AI interactions</TableHeadCell>
+        <TableHeadCell align="right">Automation</TableHeadCell>
+        <TableHeadCell align="right">Missed calls</TableHeadCell>
+        <TableHeadCell>Data</TableHeadCell>
+      </Table>
+      <TableBody>
+        {clients.map((client) => (
+          <ClientUsageRowDesktop key={client.organizationId} client={client} />
+        ))}
+      </TableBody>
 
       <ul className="divide-y divide-line lg:hidden">
         {clients.map((client) => (
@@ -70,59 +71,62 @@ function operationalSummary(client: ClientUsageSummary): string {
   return `${formatCount(leads)} leads · ${formatCount(appointments)} appts · ${formatCount(estimates)} estimates · ${formatCount(jobs)} jobs`;
 }
 
-function ClientUsageRowDesktop({ client }: { client: ClientUsageSummary }) {
-  const railTone = client.dataQuality.partialData ? "warning" : "neutral";
-
+function PartialBadge() {
   return (
-    <Link
-      href={`/agency/organizations/${client.organizationId}`}
-      className={`group grid ${ROW_GRID} items-center gap-3 rounded-r-md border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-hover ${RAIL_TONE_CLASS[railTone]}`}
-    >
-      <span className="min-w-0 truncate text-sm font-medium text-ink">{client.organizationName}</span>
+    <Badge tone="warning" icon={AlertTriangle}>
+      Partial
+    </Badge>
+  );
+}
 
-      <span className="text-right text-xs tabular-nums text-ink-2">
+const NUMBER_CELL = "min-w-0 text-right text-sm tabular-nums text-ink";
+const SUB_LINE = "block truncate text-[11px] text-ink-3";
+
+function ClientUsageRowDesktop({ client }: { client: ClientUsageSummary }) {
+  return (
+    <TableRow href={`/agency/organizations/${client.organizationId}`} columns={COLUMNS} tone={client.dataQuality.partialData ? "warning" : "neutral"}>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-medium text-ink">{client.organizationName}</span>
+        <span className="block truncate text-xs text-ink-3">{operationalSummary(client)}</span>
+      </span>
+
+      <span className={NUMBER_CELL}>
         {formatCount(client.messaging.total)}
-        <span className="block text-[11px] text-ink-3">
+        <span className={SUB_LINE}>
           {formatCount(client.messaging.inbound)} in / {formatCount(client.messaging.outbound)} out
         </span>
       </span>
 
       {/* Phase 3E: an unreadable AI read shows as Unavailable, never as zero usage. */}
-      <span className="text-right text-xs tabular-nums text-ink-2">
+      <span className={NUMBER_CELL}>
         {client.ai.unavailable ? (
           <span className="text-ink-3">Unavailable</span>
         ) : (
           <>
             {formatCount(client.ai.interactions)}
-            <span className="block text-[11px] text-ink-3">{formatNullableCount(client.ai.tokens)} tokens</span>
+            <span className={SUB_LINE}>{formatNullableCount(client.ai.tokens)} tokens</span>
           </>
         )}
       </span>
 
-      <span className="text-right text-xs tabular-nums text-ink-2">
+      <span className={NUMBER_CELL}>
         {formatCount(client.automation.executions)}
-        <span className="block text-[11px] text-ink-3">{formatRate(client.automation.successRate)} success</span>
+        <span className={SUB_LINE}>{formatRate(client.automation.successRate)} success</span>
       </span>
 
-      <span className="text-right text-xs tabular-nums text-ink-2">
-        {client.voice.missedCalls === null ? <span className="text-ink-3">Unavailable</span> : formatCount(client.voice.missedCalls)}
-      </span>
-
-      <span className="truncate text-xs text-ink-3">{operationalSummary(client)}</span>
+      <span className={NUMBER_CELL}>{client.voice.missedCalls === null ? <span className="text-ink-3">Unavailable</span> : formatCount(client.voice.missedCalls)}</span>
 
       <span>
         {client.dataQuality.partialData ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-warning">
-            <AlertTriangle className="h-3 w-3" aria-hidden />
-            Partial
-          </span>
+          <PartialBadge />
         ) : (
-          <span className="text-xs text-ink-4">—</span>
+          <span className="text-xs text-ink-4">
+            <span aria-hidden>—</span>
+            <span className="sr-only">Complete</span>
+          </span>
         )}
       </span>
-
-      <ChevronRight className="h-4 w-4 shrink-0 justify-self-end text-ink-4 transition-colors group-hover:text-ink-3" aria-hidden />
-    </Link>
+    </TableRow>
   );
 }
 
@@ -131,16 +135,14 @@ function ClientUsageRowMobile({ client }: { client: ClientUsageSummary }) {
 
   return (
     <li>
-      <Link href={`/agency/organizations/${client.organizationId}`} className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 ${RAIL_TONE_CLASS[railTone]}`}>
+      <Link
+        href={`/agency/organizations/${client.organizationId}`}
+        className={`flex items-start gap-3 border-l-2 py-3.5 pl-3 pr-2 transition-colors hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${RAIL_TONE_CLASS[railTone]}`}
+      >
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-2">
             <span className="truncate text-sm font-medium text-ink">{client.organizationName}</span>
-            {client.dataQuality.partialData ? (
-              <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-warning">
-                <AlertTriangle className="h-3 w-3" aria-hidden />
-                Partial
-              </span>
-            ) : null}
+            {client.dataQuality.partialData ? <PartialBadge /> : null}
           </span>
           <span className="mt-1 block text-xs tabular-nums text-ink-3">
             {formatCount(client.messaging.total)} messages · {client.ai.unavailable ? "AI unavailable" : `${formatCount(client.ai.interactions)} AI`} · {formatCount(client.automation.executions)} automation ·{" "}

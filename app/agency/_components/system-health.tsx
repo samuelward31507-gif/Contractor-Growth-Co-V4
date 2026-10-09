@@ -1,13 +1,17 @@
-import { sectionLabelClass } from "@/lib/ui/typography";
+import { StatusLabel } from "@/lib/ui/status-dot";
 import { Row } from "./row";
 import { formatCount } from "./format";
+import { AgencySection } from "./section";
 import type { AgencyIncidentRollup, SchedulerHeartbeat } from "@/lib/agency/health";
 
 /**
- * Agency Command Center UI review: replaces incident-rollup.tsx's six-card
- * StatGrid wall with the same label/value row list every other redesigned
- * section on this page uses. Every number is unchanged, read straight from
- * lib/agency/health.ts's own getAgencyHealth - nothing recomputed here.
+ * Agency Command Center UI review: the label/value row list for system
+ * health. Every number is unchanged, read straight from lib/agency/health.ts's
+ * own getAgencyHealth - nothing recomputed here.
+ *
+ * Agency overview redesign: a card section (AgencySection) whose header
+ * states the overall status in words (StatusLabel - a dot plus a word, never
+ * colour alone).
  */
 export function SystemHealth({
   rollup,
@@ -46,44 +50,59 @@ export function SystemHealth({
     paymentIssueCount > 0 ||
     automationPausedCount > 0;
 
+  const critical = rollup.organizationsUnhealthy > 0 || rollup.criticalIncidents > 0 || paymentIssueCount > 0 || schedulerHeartbeat.stale;
+  const attention = hasIssues || schedulerHeartbeat.unavailable;
+
   return (
-    <div>
-      <p className={sectionLabelClass}>System health</p>
+    <AgencySection
+      id="system-health"
+      title="System health"
+      action={
+        critical ? (
+          <StatusLabel tone="critical">Problems open</StatusLabel>
+        ) : attention ? (
+          <StatusLabel tone="attention">Needs a look</StatusLabel>
+        ) : (
+          <StatusLabel tone="healthy">Operating normally</StatusLabel>
+        )
+      }
+    >
+      <div className="border-t border-line px-4 pb-3 pt-1.5 sm:px-5">
+        {/* Issue counts collapse to a single calm line when there is nothing
+            to report, rather than nine rows that all read "0" - a real
+            problem should stand out immediately, not compete with five other
+            zeroes for the same visual weight. */}
+        {hasIssues ? (
+          <div className="divide-y divide-line">
+            <Row label="Organizations degraded" value={formatCount(rollup.organizationsDegraded)} tone={rollup.organizationsDegraded > 0 ? "warning" : "default"} />
+            <Row label="Organizations unhealthy" value={formatCount(rollup.organizationsUnhealthy)} tone={rollup.organizationsUnhealthy > 0 ? "danger" : "default"} />
+            <Row label="Critical incidents" value={formatCount(rollup.criticalIncidents)} tone={rollup.criticalIncidents > 0 ? "danger" : "default"} />
+            <Row label="Warning incidents" value={formatCount(rollup.warningIncidents)} tone={rollup.warningIncidents > 0 ? "warning" : "default"} />
+            <Row label="SMS delivery failures" value={formatCount(smsFailureCount)} tone={smsFailureCount > 0 ? "warning" : "default"} />
+            {aiEscalationCount === null ? (
+              <Row label="AI escalations waiting" value="Unavailable" tone="warning" />
+            ) : (
+              <Row label="AI escalations waiting" value={formatCount(aiEscalationCount)} tone={aiEscalationCount > 0 ? "warning" : "default"} />
+            )}
+            <Row label="Payment suspended or cancelled" value={formatCount(paymentIssueCount)} tone={paymentIssueCount > 0 ? "danger" : "default"} />
+            <Row label="Automation paused" value={formatCount(automationPausedCount)} tone={automationPausedCount > 0 ? "warning" : "default"} />
+          </div>
+        ) : (
+          <p className="py-2 text-sm text-ink-3">
+            All {formatCount(rollup.organizationsHealthy)} organization{rollup.organizationsHealthy === 1 ? "" : "s"} healthy. No incidents, delivery failures, payment issues, or AI escalations open.
+          </p>
+        )}
 
-      {/* Issue counts collapse to a single calm line when there is nothing
-          to report, rather than nine rows that all read "0" - a real
-          problem should stand out immediately, not compete with five other
-          zeroes for the same visual weight. */}
-      {hasIssues ? (
-        <div className="mt-1.5 divide-y divide-line">
-          <Row label="Organizations degraded" value={formatCount(rollup.organizationsDegraded)} tone={rollup.organizationsDegraded > 0 ? "warning" : "default"} />
-          <Row label="Organizations unhealthy" value={formatCount(rollup.organizationsUnhealthy)} tone={rollup.organizationsUnhealthy > 0 ? "danger" : "default"} />
-          <Row label="Critical incidents" value={formatCount(rollup.criticalIncidents)} tone={rollup.criticalIncidents > 0 ? "danger" : "default"} />
-          <Row label="Warning incidents" value={formatCount(rollup.warningIncidents)} tone={rollup.warningIncidents > 0 ? "warning" : "default"} />
-          <Row label="SMS delivery failures" value={formatCount(smsFailureCount)} tone={smsFailureCount > 0 ? "warning" : "default"} />
-          {aiEscalationCount === null ? (
-            <Row label="AI escalations waiting" value="Unavailable" tone="warning" />
-          ) : (
-            <Row label="AI escalations waiting" value={formatCount(aiEscalationCount)} tone={aiEscalationCount > 0 ? "warning" : "default"} />
-          )}
-          <Row label="Payment suspended or cancelled" value={formatCount(paymentIssueCount)} tone={paymentIssueCount > 0 ? "danger" : "default"} />
-          <Row label="Automation paused" value={formatCount(automationPausedCount)} tone={automationPausedCount > 0 ? "warning" : "default"} />
+        <div className="mt-2 divide-y divide-line border-t border-line">
+          <Row
+            label="Scheduler last ran"
+            value={heartbeatValue}
+            tone={schedulerHeartbeat.unavailable ? "warning" : schedulerHeartbeat.stale ? "danger" : "default"}
+            description={schedulerHeartbeat.unavailable ? "The scheduler heartbeat could not be read." : schedulerHeartbeat.stale ? "Stale - scheduled follow-ups may be delayed." : undefined}
+          />
+          <Row label="n8n" value="External" description="Not independently monitored" />
         </div>
-      ) : (
-        <p className="mt-2 text-sm text-ink-3">
-          All {formatCount(rollup.organizationsHealthy)} organization{rollup.organizationsHealthy === 1 ? "" : "s"} healthy. No incidents, delivery failures, payment issues, or AI escalations open.
-        </p>
-      )}
-
-      <div className="mt-4 divide-y divide-line border-t border-line pt-1">
-        <Row
-          label="Scheduler last ran"
-          value={heartbeatValue}
-          tone={schedulerHeartbeat.unavailable ? "warning" : schedulerHeartbeat.stale ? "danger" : "default"}
-          description={schedulerHeartbeat.unavailable ? "The scheduler heartbeat could not be read." : schedulerHeartbeat.stale ? "Stale - scheduled follow-ups may be delayed." : undefined}
-        />
-        <Row label="n8n" value="External" description="Not independently monitored" />
       </div>
-    </div>
+    </AgencySection>
   );
 }
