@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAgencyHandoffs } from "@/lib/agency/handoffs";
@@ -10,6 +11,8 @@ import { formatMoney } from "@/lib/founder/format";
 import { UnauthorizedState } from "../_components/unauthorized-state";
 import { ErrorState } from "../_components/error-state";
 import { HandoffControls } from "./_components/handoff-controls";
+import { LIFECYCLE_LABELS } from "@/lib/agency/delivery";
+import { STAGE_TONE } from "../delivery/_components/stage";
 
 const TZ = "America/Denver";
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -62,7 +65,7 @@ export default async function AgencyHandoffsPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Agency clients" description="Created by confirming a handoff. Onboarding and linking a Trackpr account come next and are separate steps.">
+          <SectionCard title="Agency clients" description="Created by confirming a handoff. Open a client to start onboarding and track delivery.">
             {result.clients.length === 0 ? (
               <EmptyState icon={UserPlus} title="No Agency clients yet" description="Confirm a handoff above to create the first one." />
             ) : (
@@ -70,7 +73,9 @@ export default async function AgencyHandoffsPage() {
                 {result.clients.map((c) => (
                   <li key={c.id} className="flex flex-wrap items-start justify-between gap-2 py-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-ink">{c.name}</p>
+                      <Link href={`/agency/delivery/${c.id}`} className="text-sm font-semibold text-ink hover:underline">
+                        {c.name}
+                      </Link>
                       <p className="text-xs text-ink-3">
                         {c.contactName} · {[c.contactEmail, c.contactPhone].filter(Boolean).join(" · ")}
                       </p>
@@ -79,7 +84,7 @@ export default async function AgencyHandoffsPage() {
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      <Badge tone="neutral">Onboarding not started</Badge>
+                      <Badge tone={STAGE_TONE[c.status] ?? "neutral"}>{LIFECYCLE_LABELS[c.status] ?? c.status}</Badge>
                       {c.organizationId ? null : <Badge tone="neutral">No Trackpr account linked</Badge>}
                     </div>
                   </li>

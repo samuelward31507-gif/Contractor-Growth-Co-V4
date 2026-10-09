@@ -18,7 +18,8 @@ export type OperatorIconName =
   | "Handshake"
   | "LineChart"
   | "NotebookPen"
-  | "UserPlus";
+  | "UserPlus"
+  | "ClipboardList";
 
 export type OperatorNavItem = {
   href: string;
@@ -53,6 +54,7 @@ export const AGENCY_NAV_GROUP: OperatorNavGroup = {
   items: [
     { href: "/agency", label: "Overview", icon: "LayoutDashboard", exact: true, activeFor: ["/agency/organizations"] },
     { href: "/agency/handoffs", label: "Client handoffs", icon: "UserPlus" },
+    { href: "/agency/delivery", label: "Delivery", icon: "ClipboardList" },
     { href: "/agency/expansion", label: "Expansion", icon: "TrendingUp" },
     { href: "/agency/usage", label: "Usage", icon: "Activity" },
     { href: "/agency/revenue", label: "Revenue", icon: "DollarSign" },

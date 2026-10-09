@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HANDOFF_COLUMNS, isMissingHandoffTable, toHandoff, type ClientHandoff } from "@/lib/founder/handoff";
 import { isAgencyAdmin } from "./queries";
+import type { LifecycleStatus } from "./delivery";
 
 /**
  * Agency client handoffs and the Agency clients confirmed from them
@@ -8,8 +9,9 @@ import { isAgencyAdmin } from "./queries";
  * session client: RLS lets only agency admins see agency_clients, and the
  * admin check here runs first so a non-admin gets "unauthorized", never an
  * empty list. Agency clients are the Agency's own records - not Trackpr
- * organizations (organizationId stays empty until a separate linking step)
- * and not contractor customers.
+ * organizations (organizationId stays empty until an explicit linking step
+ * on the delivery page) and not contractor customers. Delivery itself
+ * (lifecycle, tasks, launch) lives in lib/agency/delivery*.ts.
  */
 export type AgencyClient = {
   id: string;
@@ -21,7 +23,7 @@ export type AgencyClient = {
   monthlyFee: number;
   currency: string;
   scope: string;
-  status: "onboarding_not_started";
+  status: LifecycleStatus;
   organizationId: string | null;
   sourceDealId: string | null;
   sourceHandoffId: string | null;
@@ -39,7 +41,7 @@ type ClientRow = {
   monthly_fee: number | string;
   currency: string;
   scope: string;
-  status: "onboarding_not_started";
+  status: LifecycleStatus;
   organization_id: string | null;
   source_deal_id: string | null;
   source_handoff_id: string | null;

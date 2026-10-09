@@ -16,6 +16,8 @@ test("the most specific item wins; section roots match only themselves (plus the
   assert.equal(label("/agency/organizations/abc"), "Overview", "a client detail page belongs to Overview");
   assert.equal(label("/agency/revenue"), "Revenue");
   assert.equal(label("/agency/handoffs"), "Client handoffs");
+  assert.equal(label("/agency/delivery"), "Delivery");
+  assert.equal(label("/agency/delivery/abc"), "Delivery", "a delivery client page belongs to Delivery");
   assert.equal(label("/agency/costs"), "Costs");
   assert.equal(label("/founder"), "Home");
   assert.equal(label("/founder/deals"), "Deals");
