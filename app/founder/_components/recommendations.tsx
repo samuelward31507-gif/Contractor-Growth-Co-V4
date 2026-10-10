@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Lightbulb } from "lucide-react";
 import { primaryButtonAutoClass } from "@/lib/ui/form";
-import type { Recommendation } from "@/lib/founder/intelligence";
+import type { CoverageStatement, Recommendation } from "@/lib/founder/intelligence";
 
 const FOCUS = "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
 
@@ -18,16 +18,24 @@ function Suggestion({ text }: { text: string | null }) {
   );
 }
 
+/** The sources the ranking couldn't check, said plainly - so a short list is never read as complete. */
+function NotChecked({ coverage }: { coverage: CoverageStatement }) {
+  if (!coverage.notChecked.length) return null;
+  return <p className="mt-1 text-xs text-ink-3">Not checked: {coverage.notChecked.join("; ")}.</p>;
+}
+
 /**
  * The single highest-ranked recommendation, at the top of the home page.
  * `why` is the stored fact that triggered it; `suggestion` is the inference.
+ * With nothing to recommend, it states only what was actually checked.
  */
-export function NextBestAction({ action }: { action: Recommendation | null }) {
+export function NextBestAction({ action, coverage }: { action: Recommendation | null; coverage: CoverageStatement }) {
   if (!action) {
     return (
       <section aria-labelledby="next-best-action" className="rounded-xl border border-line bg-surface px-4 py-3">
         <h2 id="next-best-action" className="text-xs font-semibold uppercase tracking-wide text-ink-3">Next best action</h2>
-        <p className="mt-1 text-sm text-ink-2">Nothing is pressing: no open priorities, nothing overdue or due soon, and every open deal has a next step.</p>
+        <p className="mt-1 text-sm text-ink-2">Nothing is pressing: {coverage.checked}.</p>
+        <NotChecked coverage={coverage} />
       </section>
     );
   }
@@ -42,6 +50,7 @@ export function NextBestAction({ action }: { action: Recommendation | null }) {
             {action.why}
           </p>
           <Suggestion text={action.suggestion} />
+          <NotChecked coverage={coverage} />
         </div>
         <Link href={action.href} className={`${primaryButtonAutoClass} shrink-0 gap-1.5 self-start`}>
           Open

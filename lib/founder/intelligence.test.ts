@@ -18,6 +18,7 @@ import {
   STALE_DEAL_DAYS,
   buildEndOfDaySummary,
   buildFounderBriefing,
+  coverageStatement,
   dealHref,
   itemHref,
   rankRecommendations,
@@ -29,6 +30,8 @@ import {
 import { localDateKey, type FounderDeal, type FounderItem } from "./model";
 import { DEAL_DEFAULTS } from "./test-fixtures";
 import type { DailyFocus } from "./queries";
+import { buildSalesToday, type DealActivity } from "./sales";
+import type { ClientHandoff } from "./handoff";
 
 const TZ = "America/Denver";
 const item = (o: Partial<FounderItem> & { title: string }): FounderItem => ({ id: o.title, kind: "task", notes: null, priority: "medium", dueAt: null, startsAt: null, endsAt: null, completedAt: null, dealId: null, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z", ...o });
@@ -39,10 +42,11 @@ const NOW = new Date("2026-10-09T20:00:00Z");
 const TODAY = "2026-10-09";
 const GENERATED = "2026-10-09T20:00:00.000Z";
 
-function brief(o: { items?: FounderItem[]; deals?: FounderDeal[]; focus?: DailyFocus[]; now?: Date; todayKey?: string; prioritiesAvailable?: boolean; timeZone?: string } = {}): FounderBriefing {
+type Sources = Pick<Parameters<typeof buildFounderBriefing>[0], "salesHistory" | "handoffs">;
+function brief(o: { items?: FounderItem[]; deals?: FounderDeal[]; focus?: DailyFocus[]; now?: Date; todayKey?: string; prioritiesAvailable?: boolean; timeZone?: string } & Sources = {}): FounderBriefing {
   const timeZone = o.timeZone ?? TZ;
   const now = o.now ?? NOW;
-  return buildFounderBriefing({ items: o.items ?? [], deals: o.deals ?? [], focus: o.focus ?? [], now, timeZone, todayKey: o.todayKey ?? localDateKey(now, timeZone), prioritiesAvailable: o.prioritiesAvailable ?? true, generatedAt: now.toISOString() });
+  return buildFounderBriefing({ items: o.items ?? [], deals: o.deals ?? [], focus: o.focus ?? [], now, timeZone, todayKey: o.todayKey ?? localDateKey(now, timeZone), prioritiesAvailable: o.prioritiesAvailable ?? true, generatedAt: now.toISOString(), salesHistory: o.salesHistory, handoffs: o.handoffs });
 }
 const rules = (b: FounderBriefing) => b.recommended_actions.map((r) => r.rule);
 const recIds = (b: FounderBriefing) => b.recommended_actions.map((r) => r.records.map((x) => x.id).join("+") || r.rule);
@@ -425,4 +429,199 @@ test("end-of-day summary: only what the records confirm", () => {
 
   const empty = buildEndOfDaySummary({ items: [], deals: [], focus: [], dayKey: TODAY, timeZone: TZ });
   assert.equal(empty.sentence, "No commitments were set; 0 items completed; no deal changes; no priorities set for Saturday yet.");
+});
+
+// --- sales history: the Deals page's definitions ---------------------------------------------
+
+const daysAgo = (days: number) => new Date(NOW.getTime() - days * 86_400_000).toISOString();
+let actSeq = 0;
+const act = (dealId: string, kind: DealActivity["kind"], occurredAt: string, o: Partial<DealActivity> = {}): DealActivity => ({
+  id: `act${++actSeq}`, dealId, kind, occurredAt, channel: null, scheduledFor: null, summary: null, fromStage: null, toStage: null, setupFee: null, monthlyFee: null, currency: null, voidedAt: null, voidReason: null, recordedAt: occurredAt, ...o,
+});
+
+function salesDay() {
+  const deals = [
+    deal({ name: "Stalled", stage: "meeting_held", nextAction: "Call", nextActionAt: null, lastActivityAt: daysAgo(20), updatedAt: daysAgo(20) }),
+    deal({ name: "Cold", stage: "outreach", nextAction: "Email", nextActionAt: null, lastActivityAt: daysAgo(15), updatedAt: daysAgo(15) }),
+    deal({ name: "Met", stage: "meeting_booked", nextAction: "Prep", nextActionAt: "2026-10-20T16:00:00Z", lastActivityAt: daysAgo(10) }),
+    deal({ name: "Proposal", stage: "proposal_sent", nextAction: "Wait", nextActionAt: "2026-10-15T16:00:00Z", lastActivityAt: daysAgo(5) }),
+    deal({ name: "Fresh identified", stage: "identified", nextAction: "Research", nextActionAt: null, updatedAt: daysAgo(20) }),
+    deal({ name: "Covered", stage: "replied", nextAction: null, nextActionAt: null, lastActivityAt: daysAgo(30), updatedAt: daysAgo(30) }),
+  ];
+  const activities = [
+    act("Stalled", "meeting_held", daysAgo(20)),
+    act("Cold", "outreach", daysAgo(25)),
+    act("Cold", "outreach", daysAgo(20)),
+    act("Cold", "outreach", daysAgo(15)),
+    act("Met", "meeting_booked", daysAgo(10), { scheduledFor: "2026-10-07T17:00:00Z" }),
+    act("Proposal", "proposal_sent", daysAgo(5)),
+    act("Covered", "reply_received", daysAgo(30)),
+  ];
+  return { deals, activities };
+}
+
+/** Every deal signal on Home - recommended or under needs attention - as kind -> deal ids. */
+function dealSignals(b: FounderBriefing): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const push = (kind: string, id: string) => (out[kind] = [...(out[kind] ?? []), id]);
+  for (const r of b.recommended_actions) for (const rec of r.records) if (rec.type === "deal") push(r.rule, rec.id);
+  for (const e of b.needs_attention) if (e.record.type === "deal") push(e.kind, e.record.id);
+  return out;
+}
+
+test("sales history loaded: Home reports exactly what the Deals page reports, once per deal", () => {
+  const { deals, activities } = salesDay();
+  const b = brief({ deals, prioritiesAvailable: false, salesHistory: { status: "loaded", data: activities } });
+  const sales = buildSalesToday({ deals, activities, items: [], now: NOW, timeZone: TZ, todayKey: TODAY });
+  const covered = new Set(["Covered"]); // no next action: reported as that, not again as stalled
+  const ids = (list: { deal: FounderDeal }[]) => list.map((e) => e.deal.id).filter((id) => !covered.has(id));
+  const signals = dealSignals(b);
+  assert.deepEqual(signals.stalled_deal, ids(sales.stalled));
+  assert.deepEqual(signals.cold_prospect, ids(sales.cold));
+  assert.deepEqual(signals.record_meeting_outcome, ids(sales.outcomeMissing));
+  assert.deepEqual(signals.proposal_waiting, ids(sales.proposalsWaiting));
+  assert.deepEqual(sales.stalled.map((e) => e.deal.id).sort(), ["Covered", "Stalled"], "Deals lists both; Home shows Covered once, as its missing next step");
+  assert.deepEqual(signals.deal_next_action, ["Covered"]);
+  assert.equal(signals.stale_deal, undefined, "the fallback rule is off when the history is readable");
+  assert.ok(!Object.values(signals).flat().includes("Fresh identified"), "a dated-less next action at Identified isn't stalled on Deals, so not on Home");
+  const all = Object.values(signals).flat();
+  assert.equal(new Set(all).size, all.length, "each deal appears in one place only");
+  assert.deepEqual(rules(b), ["record_meeting_outcome", "deal_next_action", "stalled_deal", "cold_prospect"], "fixed tiers: meetings, missing steps, then maintenance");
+  assert.match(b.recommended_actions[0].why, /^The meeting logged as booked for Wed, Oct 7, 11:00\s?AM has no held or no-show recorded since\.$/);
+  assert.equal(b.recommended_actions[0].href, "/founder/deals?deal=Met");
+  assert.match(b.recommended_actions[2].why, /^No activity recorded for 20 days, nothing scheduled \(deal at Meeting held\)\.$/);
+  assert.match(b.recommended_actions[3].why, /^3 outreach attempts recorded, last 15 days ago, no reply recorded\.$/);
+  assert.deepEqual(b.coverage, { salesHistory: "loaded", handoffs: "unavailable" });
+});
+
+test("sales history: a calendar meeting and a logged booking for the same deal give one recommendation", () => {
+  const deals = [deal({ name: "Twice", stage: "meeting_booked", nextActionAt: "2026-10-20T16:00:00Z" })];
+  const items = [item({ title: "Call with Twice", kind: "meeting", dealId: "Twice", startsAt: "2026-10-06T17:00:00Z", endsAt: "2026-10-06T17:30:00Z" })];
+  const activities = [act("Twice", "meeting_booked", daysAgo(9), { scheduledFor: "2026-10-08T17:00:00Z" })];
+  const b = brief({ deals, items, prioritiesAvailable: false, salesHistory: { status: "loaded", data: activities } });
+  assert.deepEqual(rules(b), ["record_meeting_outcome"]);
+  assert.match(b.recommended_actions[0].why, /on your calendar for Tue, Oct 6/, "the earliest missing outcome, as Deals orders them");
+  const heldFirst = brief({ deals, items, prioritiesAvailable: false, salesHistory: { status: "loaded", data: [...activities, act("Twice", "meeting_held", "2026-10-06T18:00:00Z")] } });
+  assert.match(heldFirst.recommended_actions[0]?.why ?? "", /logged as booked for Thu, Oct 8/, "an outcome clears only the meetings it follows, as on Deals");
+  const heldBoth = brief({ deals, items, prioritiesAvailable: false, salesHistory: { status: "loaded", data: [...activities, act("Twice", "meeting_held", "2026-10-08T18:00:00Z")] } });
+  assert.deepEqual(rules(heldBoth), [], "a recorded outcome after both meetings clears them");
+});
+
+test("sales history unreadable: the older stale rule is used, and the briefing says what wasn't checked", () => {
+  const { deals, activities } = salesDay();
+  for (const status of ["failed", "unavailable"] as const) {
+    const b = brief({ deals, prioritiesAvailable: false, salesHistory: { status } });
+    const signals = dealSignals(b);
+    assert.deepEqual(signals.stale_deal, ["Fresh identified", "Stalled", "Cold"], status);
+    for (const kind of ["stalled_deal", "cold_prospect", "record_meeting_outcome", "meeting_outcome_missing", "proposal_waiting"]) assert.equal(signals[kind], undefined, `${status}: ${kind}`);
+    assert.equal(b.coverage.salesHistory, status);
+  }
+  assert.equal(brief({ deals }).coverage.salesHistory, "unavailable", "omitted = not loaded, never 'checked'");
+  assert.notDeepEqual(dealSignals(brief({ deals, salesHistory: { status: "loaded", data: activities } })), dealSignals(brief({ deals })));
+});
+
+// --- client handoffs ----------------------------------------------------------------------------
+
+const wonDeal = (o: Partial<FounderDeal> & { name: string }) => deal({ stage: "won", nextAction: null, nextActionAt: null, wonSetupFee: 1000, wonMonthlyFee: 500, contactName: "Dana", contactEmail: "dana@example.com", ...o });
+const handoff = (d: FounderDeal, o: Partial<ClientHandoff> = {}): ClientHandoff => ({
+  id: `h-${d.id}`, dealId: d.id, status: "prepared", clientName: d.name, contactName: d.contactName ?? "", contactEmail: d.contactEmail, contactPhone: d.contactPhone, setupFee: d.wonSetupFee ?? 0, monthlyFee: d.wonMonthlyFee ?? 0, currency: d.currency, scope: "Website and ads", preparedBy: "me", preparedAt: "2026-10-05T16:00:00Z", confirmedBy: null, confirmedAt: null, cancelledBy: null, cancelledAt: null, cancelReason: null, agencyClientId: null, ...o,
+});
+
+function handoffDay() {
+  const ready = wonDeal({ name: "Ready", wonOn: "2026-10-02" });
+  const missing = wonDeal({ name: "Missing", wonOn: "2026-10-03", contactName: null });
+  const waiting = wonDeal({ name: "Waiting", wonOn: "2026-09-20" });
+  const changed = wonDeal({ name: "Changed", wonOn: "2026-10-01" });
+  const reopened = deal({ name: "Reopened", stage: "negotiation", nextActionAt: "2026-10-20T16:00:00Z" });
+  const confirmedOld = wonDeal({ name: "Done", wonOn: "2026-09-01" });
+  const handoffs = [
+    handoff(waiting),
+    handoff(changed, { monthlyFee: 400 }),
+    handoff(reopened, { status: "confirmed", clientName: "Reopened", contactName: "Dana", setupFee: 1000, monthlyFee: 500, confirmedAt: "2026-10-06T16:00:00Z", agencyClientId: "c1" }),
+    handoff(confirmedOld, { status: "confirmed", confirmedAt: "2026-09-02T16:00:00Z", agencyClientId: "c2" }),
+    handoff(ready, { id: "h-cancelled", status: "cancelled", cancelledAt: "2026-10-03T16:00:00Z" }),
+  ];
+  return { deals: [ready, missing, waiting, changed, reopened, confirmedOld], handoffs };
+}
+
+test("handoffs: won deals to hand off, complete or redo are actions; a current one only waits", () => {
+  const { deals, handoffs } = handoffDay();
+  const b = brief({ deals, prioritiesAvailable: false, handoffs: { status: "loaded", data: handoffs } });
+  assert.deepEqual(rules(b), ["client_handoff", "client_handoff", "client_handoff"]);
+  assert.deepEqual(b.recommended_actions.map((r) => r.title), ["Redo the client handoff for Changed", "Prepare the client handoff for Ready", "Complete Missing for its client handoff"], "ordered by won date, then name");
+  assert.match(b.recommended_actions[1].why, /no handoff prepared yet/, "a cancelled handoff can be redone");
+  assert.match(b.recommended_actions[2].why, /needs a decision-maker name\.$/);
+  assert.ok(b.recommended_actions.every((r) => r.href === `/founder/deals?deal=${r.records[0].id}`));
+  assert.deepEqual(b.needs_attention.filter((e) => e.kind === "handoff_waiting").map((e) => e.record.id), ["Waiting"]);
+  assert.match(b.needs_attention.find((e) => e.kind === "handoff_waiting")?.detail ?? "", /waiting for an agency admin to confirm/);
+  assert.deepEqual(b.review_needed.filter((f) => f.kind === "handoff_on_reopened_deal").map((f) => f.records[0].id), ["Reopened"]);
+  assert.ok(!Object.values(dealSignals(b)).flat().includes("Done") && !b.review_needed.some((f) => f.records.some((r) => r.id === "Done")), "a confirmed handoff on a won deal needs nothing");
+  assert.equal(b.coverage.handoffs, "loaded");
+});
+
+test("handoffs rank as client commitments: after meetings and late-stage next steps, before deadlines and upkeep", () => {
+  const { deals, handoffs } = handoffDay();
+  const items = [item({ title: "Tax filing", kind: "deadline", dueAt: "2026-10-11T23:00:00Z" })];
+  const extra = [deal({ name: "Late", stage: "negotiation", nextAction: null, nextActionAt: null }), deal({ name: "Met", stage: "meeting_booked", nextActionAt: "2026-10-20T16:00:00Z" })];
+  const activities = [act("Met", "meeting_booked", daysAgo(5), { scheduledFor: "2026-10-08T17:00:00Z" })];
+  const b = brief({ items, deals: [...extra, ...deals.filter((d) => d.name === "Ready")], prioritiesAvailable: false, salesHistory: { status: "loaded", data: activities }, handoffs: { status: "loaded", data: handoffs } });
+  assert.deepEqual(rules(b), ["record_meeting_outcome", "deal_next_action_late_stage", "client_handoff", "deadline_soon"]);
+});
+
+test("handoffs not loaded: no handoff signals, and the briefing says won deals weren't checked", () => {
+  const { deals } = handoffDay();
+  for (const status of ["failed", "unavailable"] as const) {
+    const b = brief({ deals, prioritiesAvailable: false, handoffs: { status } });
+    assert.ok(!b.recommended_actions.some((r) => r.rule === "client_handoff"), status);
+    assert.ok(!b.needs_attention.some((e) => e.kind === "client_handoff" || e.kind === "handoff_waiting"), status);
+    assert.ok(!b.review_needed.some((f) => f.kind === "handoff_on_reopened_deal"), status);
+    assert.match(coverageStatement(b.coverage).notChecked.join(" "), status === "failed" ? /client handoffs didn't load/ : /client handoffs aren't enabled/);
+  }
+});
+
+// --- combined: ranking, dedup, caps, determinism ---------------------------------------------------
+
+test("combined: fixed tiers, one place per record, five recommendations and three priorities at most", () => {
+  const { items, deals, focus } = mixedDay();
+  const sales = salesDay();
+  const hand = handoffDay();
+  const allDeals = [...deals, ...sales.deals, ...hand.deals];
+  const input = { items, deals: allDeals, focus: [...focus, { itemId: "Old chore", date: TODAY, rank: 3 }], salesHistory: { status: "loaded" as const, data: sales.activities }, handoffs: { status: "loaded" as const, data: hand.handoffs } };
+  const b = brief(input);
+  assert.deepEqual([b.top_priorities.items.length, b.top_priorities.max], [3, 3], "three priorities, unchanged by the new sources");
+  assert.equal(b.recommended_actions.length, MAX_RECOMMENDATIONS);
+  const tiers = b.recommended_actions.map((r) => RECOMMENDATION_TIERS.indexOf(r.rule));
+  assert.deepEqual(tiers, [...tiers].sort((x, y) => x - y));
+  const keys = [...b.recommended_actions.flatMap((r) => r.records.map((x) => `${x.type}:${x.id}`)), ...b.needs_attention.map((e) => `${e.record.type}:${e.record.id}`)];
+  assert.equal(new Set(keys).size, keys.length, "no record is both recommended and listed, or listed twice");
+  const reversed = brief({ ...input, items: [...items].reverse(), deals: [...allDeals].reverse(), focus: [...input.focus].reverse(), salesHistory: { status: "loaded", data: [...sales.activities].reverse() }, handoffs: { status: "loaded", data: [...hand.handoffs].reverse() } });
+  assert.deepEqual(JSON.parse(JSON.stringify(reversed)), JSON.parse(JSON.stringify(b)), "deterministic whatever the input order");
+  for (const rec of b.recommended_actions) if (rec.suggestion) assert.doesNotMatch(rec.suggestion, /\d/);
+});
+
+test("new sources are never modified", () => {
+  const sales = salesDay();
+  const hand = handoffDay();
+  const deals = [...sales.deals, ...hand.deals];
+  const before = JSON.stringify({ deals, a: sales.activities, h: hand.handoffs });
+  deepFreeze(deals);
+  deepFreeze(sales.activities);
+  deepFreeze(hand.handoffs);
+  assert.doesNotThrow(() => brief({ deals, salesHistory: { status: "loaded", data: sales.activities }, handoffs: { status: "loaded", data: hand.handoffs } }));
+  assert.equal(JSON.stringify({ deals, a: sales.activities, h: hand.handoffs }), before);
+});
+
+test("coverage statement: the all-clear names what was checked, and every source that wasn't", () => {
+  assert.deepEqual(coverageStatement({ salesHistory: "loaded", handoffs: "loaded" }), {
+    checked: "no open priorities, nothing overdue, no follow-up due today, no deadline in the next 3 days, no meeting in the next 2 hours, every open deal has a next step that isn't due yet, no meeting is missing its outcome, no deal has stalled or gone cold, and every won deal's client handoff is in hand",
+    notChecked: [],
+  });
+  const partial = coverageStatement({ salesHistory: "failed", handoffs: "unavailable" });
+  assert.equal(partial.checked, "no open priorities, nothing overdue, no follow-up due today, no deadline in the next 3 days, no meeting in the next 2 hours, every open deal has a next step that isn't due yet, and no open deal has gone 14 days without a change");
+  assert.doesNotMatch(partial.checked, /due soon|nothing due/, "tasks due later today aren't a recommendation, so they aren't claimed");
+  assert.deepEqual(partial.notChecked, [
+    "sales history didn't load, so meeting outcomes, stalled deals and cold prospects weren't checked",
+    "client handoffs aren't enabled on this database, so won deals weren't checked for a handoff",
+  ]);
+  assert.doesNotMatch(partial.checked, /outcome|stalled|cold|handoff/, "never claims a check that didn't run");
 });

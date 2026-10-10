@@ -35,8 +35,8 @@ test("the engine is pure: no database, no network, no model, no writes, no clock
 
 test("home: one briefing from the founder's own data decides every section", () => {
   assert.match(HOME, /await requireFounderPage\(\)/);
-  for (const q of ["getFounderItems(supabase, userId, since)", "getFounderDeals(supabase, userId)", "getFounderMrrEntries(supabase, userId)", "getFounderFocus(supabase, userId, todayKey, todayKey)"]) assert.ok(HOME.includes(q), q);
-  assert.match(HOME, /buildFounderBriefing\(\{ items, deals, focus, now, timeZone, todayKey, prioritiesAvailable: focusResult\.ok && focusResult\.data\.available, generatedAt: now\.toISOString\(\) \}\)/);
+  for (const q of ["getFounderItems(supabase, userId, since)", "getFounderDeals(supabase, userId)", "getFounderMrrEntries(supabase, userId)", "getFounderFocus(supabase, userId, todayKey, todayKey)", "getFounderDealActivities(supabase, userId)", "getFounderHandoffs(supabase, userId)"]) assert.ok(HOME.includes(q), q);
+  assert.match(HOME, /buildFounderBriefing\(\{ items, deals, focus, now, timeZone, todayKey, prioritiesAvailable: focusResult\.ok && focusResult\.data\.available, generatedAt: now\.toISOString\(\), salesHistory, handoffs \}\)/);
   assert.doesNotMatch(HOME, /plan\.attention|buildDailyPlan/, "attention comes only from the briefing (already de-duplicated)");
   assert.match(HOME, /const otherRecommendations = briefing\.recommended_actions\.slice\(1\);/, "the best next action isn't repeated in the list");
   assert.match(HOME, /briefing\.needs_attention\.filter/);
@@ -57,9 +57,27 @@ test("home: loading, error and empty states are honest", () => {
   assert.match(HOME, /<LoadFailed what="Your tasks and events" \/>/);
   assert.match(HOME, /<LoadFailed what="Your deals" \/>/);
   assert.match(HOME, /const briefingReady = itemsResult\.ok && dealsResult\.ok;/);
-  assert.match(HOME, /\{briefingReady \? <NextBestAction action=\{briefing\.best_next_action\} \/> : null\}/, "no 'nothing pressing' claim when data failed to load");
+  assert.match(HOME, /\{briefingReady \? <NextBestAction action=\{briefing\.best_next_action\} coverage=\{coverage\} \/> : null\}/, "no 'nothing pressing' claim when data failed to load");
   assert.match(HOME, /!briefingReady \? null : briefing\.needs_attention\.length === 0/);
-  assert.match(RECS, /Nothing is pressing/);
+  assert.match(RECS, /Nothing is pressing: \{coverage\.checked\}\./, "the all-clear names only what was checked");
+  assert.doesNotMatch(RECS, /every open deal has a next step\./, "no fixed all-clear sentence");
+});
+
+test("home: sales history and handoffs are named when they fail, and say what wasn't checked otherwise", () => {
+  assert.match(HOME, /<LoadFailed what="Your sales history" \/>/);
+  assert.match(HOME, /<LoadFailed what="Your client handoffs" \/>/);
+  assert.match(HOME, /if \(!result\.ok\) return \{ status: "failed" \};\s*return result\.data\.available \? \{ status: "loaded", data: pick\(result\.data\) \} : \{ status: "unavailable" \};/, "a missing table is 'unavailable', an error is 'failed' - neither is an empty list");
+  assert.match(HOME, /const coverage = coverageStatement\(briefing\.coverage\);/);
+  assert.match(HOME, /coverage\.notChecked\.length \? ` Not checked: \$\{coverage\.notChecked\.join\("; "\)\}\.` : null/);
+  assert.match(RECS, /Not checked: \{coverage\.notChecked\.join\("; "\)\}\./);
+});
+
+test("home stays read-only and apart from Finance: no finance reads, no writes, no new data paths", () => {
+  assert.doesNotMatch(HOME, /finance|stripe|\.rpc\(|\.from\(/i, "Finance signals aren't part of this phase; reads go through lib/founder/queries");
+  assert.doesNotMatch(ENGINE_CODE, /finance/i);
+  const queries = read("lib/founder/queries.ts");
+  assert.match(queries, /from\("founder_deal_activities"\)\.select\(ACTIVITY_COLUMNS\)\.eq\("owner_id", ownerId\)/, "the founder's own history only");
+  assert.match(queries, /from\("agency_client_handoffs"\)\.select\(HANDOFF_COLUMNS\)\.eq\("founder_owner_id", ownerId\)/, "the founder's own handoffs only");
 });
 
 test("recommendations: a server component of links; the suggestion is always labelled", () => {

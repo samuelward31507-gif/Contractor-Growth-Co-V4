@@ -31,7 +31,7 @@ test("loading, error, empty and not-enabled states", () => {
   assert.match(HOME, /<LoadFailed what="Your tasks and events" \/>/);
   assert.match(HOME, /<LoadFailed what="Today's priorities" \/>/);
   assert.match(HOME, /No meetings, events or tasks due today\./);
-  assert.match(HOME, /Nothing overdue, no follow-ups due, and every open deal has a next action\./);
+  assert.match(HOME, /Nothing needs attention among what was checked\./);
   assert.match(HOME, /Nothing scheduled for the next three days\./);
   assert.match(PRIORITIES, /if \(!available\) \{[\s\S]*?aren&rsquo;t enabled on this database yet/);
   assert.match(PRIORITIES, /No priorities set for \{dayLabel\}/);

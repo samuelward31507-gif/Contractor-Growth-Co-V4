@@ -4,9 +4,9 @@ import { PageHeader } from "@/lib/ui/page-header";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 import { SectionCard } from "@/lib/ui/section-card";
 import { secondaryButtonAutoClass } from "@/lib/ui/form";
-import { getFounderDeals, getFounderFocus, getFounderItems, getFounderMrrEntries } from "@/lib/founder/queries";
+import { getFounderDealActivities, getFounderDeals, getFounderFocus, getFounderHandoffs, getFounderItems, getFounderMrrEntries, type Loaded } from "@/lib/founder/queries";
 import { SCHEDULED_KINDS, mrrSnapshot, pipelineSummary, sortByTimeThenPriority, toDealOptions } from "@/lib/founder/model";
-import { DEADLINE_WINDOW_DAYS, buildFounderBriefing, type AttentionEntry } from "@/lib/founder/intelligence";
+import { DEADLINE_WINDOW_DAYS, buildFounderBriefing, coverageStatement, type AttentionEntry, type BriefingSource } from "@/lib/founder/intelligence";
 import { formatDateKey, formatMoney } from "@/lib/founder/format";
 import { calendarHref } from "@/lib/founder/calendar";
 import { requireFounderPage, LoadFailed } from "./_components/page-parts";
@@ -24,7 +24,14 @@ const ITEM_SECTIONS: { kind: AttentionEntry["kind"]; label: string }[] = [
   { kind: "follow_up_today", label: "Follow-ups due today" },
   { kind: "deadline_soon", label: `Deadlines in the next ${DEADLINE_WINDOW_DAYS} days` },
 ];
-const DEAL_KINDS: AttentionEntry["kind"][] = ["deal_follow_up", "deal_no_next_action", "stale_deal"];
+const DEAL_KINDS: AttentionEntry["kind"][] = ["deal_follow_up", "meeting_outcome_missing", "client_handoff", "deal_no_next_action", "stalled_deal", "cold_prospect", "proposal_waiting", "handoff_waiting", "stale_deal"];
+const QUIET_DEAL_KINDS: AttentionEntry["kind"][] = ["stalled_deal", "cold_prospect", "proposal_waiting", "handoff_waiting", "stale_deal"];
+
+/** A supporting read as the briefing sees it: loaded, not on this database yet, or failed. */
+function toSource<T, D extends { available: boolean }>(result: Loaded<D>, pick: (data: D) => T): BriefingSource<T> {
+  if (!result.ok) return { status: "failed" };
+  return result.data.available ? { status: "loaded", data: pick(result.data) } : { status: "unavailable" };
+}
 
 /**
  * Founder home - the daily operating system. One deterministic briefing
@@ -33,6 +40,9 @@ const DEAL_KINDS: AttentionEntry["kind"][] = ["deal_follow_up", "deal_no_next_ac
  * next best action, the day's three priorities, what's on today, the other
  * ranked recommendations (each with its reason), whatever else needs
  * attention, anything that looks inconsistent, and the next few days.
+ * Sales work follows the Deals page's definitions (from the recorded sales
+ * history) and won deals' client handoffs are included; a source that
+ * didn't load is named, and empty states claim only what was checked.
  * Nothing here completes, moves or edits a record on its own; every write is
  * a button the founder presses.
  */
@@ -40,17 +50,22 @@ export default async function FounderHomePage() {
   const { supabase, userId, timeZone, now, todayKey, today, monthKey } = await requireFounderPage();
   const since = new Date(today.start.getTime() - 30 * 86_400_000).toISOString();
 
-  const [itemsResult, dealsResult, mrrResult, focusResult] = await Promise.all([
+  const [itemsResult, dealsResult, mrrResult, focusResult, activitiesResult, handoffsResult] = await Promise.all([
     getFounderItems(supabase, userId, since),
     getFounderDeals(supabase, userId),
     getFounderMrrEntries(supabase, userId),
     getFounderFocus(supabase, userId, todayKey, todayKey),
+    getFounderDealActivities(supabase, userId),
+    getFounderHandoffs(supabase, userId),
   ]);
 
   const items = itemsResult.ok ? itemsResult.data : [];
   const deals = dealsResult.ok ? dealsResult.data : [];
   const focus = focusResult.ok ? focusResult.data.focus : [];
-  const briefing = buildFounderBriefing({ items, deals, focus, now, timeZone, todayKey, prioritiesAvailable: focusResult.ok && focusResult.data.available, generatedAt: now.toISOString() });
+  const salesHistory = toSource(activitiesResult, (data) => data.activities);
+  const handoffs = toSource(handoffsResult, (data) => data.handoffs);
+  const briefing = buildFounderBriefing({ items, deals, focus, now, timeZone, todayKey, prioritiesAvailable: focusResult.ok && focusResult.data.available, generatedAt: now.toISOString(), salesHistory, handoffs });
+  const coverage = coverageStatement(briefing.coverage);
   const priorities = briefing.top_priorities.items;
   const dealOptions = toDealOptions(deals);
   const candidates = sortByTimeThenPriority(items.filter((item) => item.completedAt == null && !SCHEDULED_KINDS.includes(item.kind) && !priorities.includes(item)));
@@ -72,7 +87,9 @@ export default async function FounderHomePage() {
 
       {!itemsResult.ok ? <LoadFailed what="Your tasks and events" /> : null}
       {!dealsResult.ok ? <LoadFailed what="Your deals" /> : null}
-      {briefingReady ? <NextBestAction action={briefing.best_next_action} /> : null}
+      {!activitiesResult.ok ? <LoadFailed what="Your sales history" /> : null}
+      {!handoffsResult.ok ? <LoadFailed what="Your client handoffs" /> : null}
+      {briefingReady ? <NextBestAction action={briefing.best_next_action} coverage={coverage} /> : null}
 
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Quick actions">
@@ -166,7 +183,8 @@ export default async function FounderHomePage() {
           <SectionCard title="Needs attention" action={briefing.needs_attention.length ? <span className="text-xs tabular-nums text-ink-3">{briefing.needs_attention.length}</span> : undefined}>
             {!briefingReady ? null : briefing.needs_attention.length === 0 ? (
               <p className="text-sm text-ink-3">
-                {briefing.attention_total === 0 ? "Nothing overdue, no follow-ups due, and every open deal has a next action." : "Everything that needs attention is in the recommendations above."}
+                {briefing.attention_total === 0 ? "Nothing needs attention among what was checked." : "Everything that needs attention is in the recommendations above."}
+                {coverage.notChecked.length ? ` Not checked: ${coverage.notChecked.join("; ")}.` : null}
               </p>
             ) : (
               <div className="space-y-4">
@@ -190,7 +208,7 @@ export default async function FounderHomePage() {
                         <li key={entry.id} className="py-2.5">
                           <Link href={entry.href} className="block min-w-0 hover:underline">
                             <span className="flex items-center gap-1.5 text-sm font-medium text-ink">
-                              {entry.kind === "deal_follow_up" ? <Handshake className="h-3.5 w-3.5 text-ink-3" aria-hidden /> : entry.kind === "stale_deal" ? <Clock className="h-3.5 w-3.5 text-ink-3" aria-hidden /> : <AlertTriangle className="h-3.5 w-3.5 text-warning-text" aria-hidden />}
+                              {entry.kind === "deal_follow_up" ? <Handshake className="h-3.5 w-3.5 text-ink-3" aria-hidden /> : QUIET_DEAL_KINDS.includes(entry.kind) ? <Clock className="h-3.5 w-3.5 text-ink-3" aria-hidden /> : <AlertTriangle className="h-3.5 w-3.5 text-warning-text" aria-hidden />}
                               {entry.title}
                             </span>
                             <span className="mt-0.5 block text-xs text-ink-3">
