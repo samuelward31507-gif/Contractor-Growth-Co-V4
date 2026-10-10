@@ -227,7 +227,7 @@ export default async function FounderFinancePage({ searchParams }: { searchParam
             {!unrecovered.ok ? (
               <LoadFailed what="Unpaid invoices" />
             ) : unrecovered.data.length === 0 ? (
-              <p className="mt-3 text-sm text-ink-3">None. Every invoice with a failed attempt was later paid.</p>
+              <p className="mt-3 text-sm text-ink-3">None. No Stripe invoice is unpaid after a failed payment.</p>
             ) : (
               <ul className="mt-3 divide-y divide-line">
                 {unrecovered.data.map((u) => {

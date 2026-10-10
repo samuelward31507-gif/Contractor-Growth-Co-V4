@@ -110,3 +110,9 @@ test("finance forms keep what was typed when a save is refused (no auto-resettin
   assert.doesNotMatch(forms, /<form[^>]*\saction=/, "a form action resets every field when it finishes");
   assert.match(forms, /event\.preventDefault\(\);\s*if \(!isPending\) onSubmit\(new FormData\(event\.currentTarget\)\);/);
 });
+
+test("the unpaid-invoices empty state never claims failures happened", () => {
+  const overview = read("app/founder/finance/page.tsx");
+  assert.doesNotMatch(overview, /Every invoice with a failed attempt was later paid/);
+  assert.match(overview, /unrecovered\.data\.length === 0 \? \(\s*<p[^>]*>None\. No Stripe invoice is unpaid after a failed payment\.<\/p>/);
+});
