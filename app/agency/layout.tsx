@@ -2,9 +2,8 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isAgencyAdmin } from "@/lib/agency/queries";
-import { isFounder } from "@/lib/founder/access";
 import { OperatorShell } from "@/lib/ui/operator-shell/operator-shell";
-import { AGENCY_NAV_GROUP, FOUNDER_NAV_GROUP } from "@/lib/ui/operator-shell/nav";
+import { AGENCY_NAV_GROUP } from "@/lib/ui/operator-shell/nav";
 
 /**
  * Agency Command Center UI review: this layout's authorization gate is
@@ -47,10 +46,9 @@ export default async function AgencyLayout({ children }: { children: ReactNode }
   // page they land on already tells them so via UnauthorizedState.
   const isAdmin = await isAgencyAdmin(supabase);
 
-  // A founder also sees the Founder Command Center group - a display
-  // convenience only; /founder enforces founder access on every request.
-  const founder = await isFounder(supabase);
-  const groups = founder ? [AGENCY_NAV_GROUP, FOUNDER_NAV_GROUP] : [AGENCY_NAV_GROUP];
+  // The personal Founder workspace has moved out of TrackPR, so the Agency
+  // shell no longer links to it (see app/founder/layout.tsx).
+  const groups = [AGENCY_NAV_GROUP];
 
   return (
     <OperatorShell title="Agency Command Center" groups={groups} userEmail={userEmail} roleLabel={isAdmin ? "Agency admin" : "Not an agency admin"}>

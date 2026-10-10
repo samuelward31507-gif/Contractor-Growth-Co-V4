@@ -60,8 +60,10 @@ test("access resolution fails closed, and founder access is separate from agency
   assert.doesNotMatch(sql, /create policy[^;]*founder_users[^;]*for (insert|update|delete|all)/i, "no self-service grant of founder access");
 });
 
-test("the agency shell shows the Founder group only to a verified founder; the client app is unchanged", () => {
+test("the personal Founder workspace is disabled: /founder 404s and no shell links to it; the client app is unchanged", () => {
   const agency = read("app/agency/layout.tsx");
-  assert.match(agency, /const founder = await isFounder\(supabase\);\s*const groups = founder \? \[AGENCY_NAV_GROUP, FOUNDER_NAV_GROUP\] : \[AGENCY_NAV_GROUP\];/);
+  assert.match(agency, /const groups = \[AGENCY_NAV_GROUP\];/);
+  assert.doesNotMatch(agency, /FOUNDER_NAV_GROUP|isFounder/);
+  assert.match(read("app/founder/layout.tsx"), /const FOUNDER_WORKSPACE_ENABLED = false;[\s\S]*if \(!FOUNDER_WORKSPACE_ENABLED\) notFound\(\);/);
   assert.doesNotMatch(read("app/(app)/_components/nav-items.ts"), /founder/i);
 });

@@ -23,7 +23,13 @@ export const metadata: Metadata = {
  * the list - gets a 404, so the area's existence isn't confirmed. Signed-out
  * visitors are sent to /login (the middleware already does this too).
  */
+// The personal Founder workspace is moving out of TrackPR. While false, every
+// /founder page returns 404 for everyone (data, SQL and server-side code are
+// untouched). Set to true to restore the workspace.
+const FOUNDER_WORKSPACE_ENABLED = false;
+
 export default async function FounderLayout({ children }: { children: ReactNode }) {
+  if (!FOUNDER_WORKSPACE_ENABLED) notFound();
   const supabase = await createClient();
   const {
     data: { user },
