@@ -70,6 +70,7 @@ export const FOUNDER_NAV_GROUP: OperatorNavGroup = {
     { href: "/founder/calendar", label: "Calendar", icon: "CalendarDays" },
     { href: "/founder/tasks", label: "Tasks & events", icon: "ListChecks" },
     { href: "/founder/deals", label: "Deals", icon: "Handshake" },
+    { href: "/founder/finance", label: "Finance", icon: "Receipt" },
     { href: "/founder/metrics", label: "MRR & metrics", icon: "LineChart" },
     { href: "/founder/review", label: "Daily review", icon: "NotebookPen" },
   ],
