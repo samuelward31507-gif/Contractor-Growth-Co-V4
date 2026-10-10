@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Dialog, DialogFooter, DialogTitle } from "@/lib/ui/dialog";
 import { errorBannerClass, ghostButtonClass, inputClass, primaryButtonAutoClass, secondaryButtonAutoClass } from "@/lib/ui/form";
-import type { ClientHandoff } from "@/lib/founder/handoff";
-import { formatMoney } from "@/lib/founder/format";
+import type { ClientHandoff } from "@/lib/agency/handoff-records";
+import { formatMoney } from "@/lib/format/operator";
 import { cancelAgencyClientHandoff, confirmClientHandoff } from "../actions";
 
 /**

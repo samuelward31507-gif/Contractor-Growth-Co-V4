@@ -23,7 +23,7 @@ import { DetailHeader } from "@/lib/ui/detail-header";
 import { SectionCard } from "@/lib/ui/section-card";
 import { Badge, type BadgeTone } from "@/lib/ui/badge";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
-import { formatDateKey, formatMoney } from "@/lib/founder/format";
+import { formatDateKey, formatMoney } from "@/lib/format/operator";
 import { UnauthorizedState } from "../../_components/unauthorized-state";
 import { ErrorState } from "../../_components/error-state";
 import { CHECK_LABEL, CHECK_TONE, DELIVERY_TZ, STAGE_TONE, formatWhen } from "../_components/stage";

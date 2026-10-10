@@ -23,7 +23,7 @@ const DEALS = read("app/founder/deals/page.tsx");
 const QUERIES = read("lib/founder/queries.ts");
 const MIGRATION = read("supabase/pending/agency_client_handoff.sql");
 const ROLLBACK = read("supabase/pending/agency_client_handoff_rollback.sql");
-const NEW_CODE = [PAGE, AGENCY_LIB, AGENCY_ACTIONS, CONTROLS, PANEL, read("lib/founder/handoff.ts")].map(code).join("\n");
+const NEW_CODE = [PAGE, AGENCY_LIB, AGENCY_ACTIONS, CONTROLS, PANEL, read("lib/founder/handoff.ts"), read("lib/agency/handoff-records.ts")].map(code).join("\n");
 
 test("agency side: session client only, admin check first, unauthorized and error states distinct", () => {
   for (const src of [PAGE, AGENCY_LIB, AGENCY_ACTIONS]) assert.doesNotMatch(code(src), /createServiceRoleClient|service_role/, "no service-role client - RLS applies");

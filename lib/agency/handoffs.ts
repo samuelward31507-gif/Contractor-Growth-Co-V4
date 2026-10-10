@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { HANDOFF_COLUMNS, isMissingHandoffTable, toHandoff, type ClientHandoff } from "@/lib/founder/handoff";
+import { HANDOFF_COLUMNS, isMissingHandoffTable, toHandoff, type ClientHandoff } from "./handoff-records";
 import { isAgencyAdmin } from "./queries";
 import type { LifecycleStatus } from "./delivery";
 

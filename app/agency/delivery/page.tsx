@@ -9,7 +9,7 @@ import { EmptyState } from "@/lib/ui/empty-state";
 import { Badge } from "@/lib/ui/badge";
 import { StatGrid, StatCard } from "@/lib/ui/stat-card";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
-import { formatDateKey } from "@/lib/founder/format";
+import { formatDateKey } from "@/lib/format/operator";
 import { UnauthorizedState } from "../_components/unauthorized-state";
 import { ErrorState } from "../_components/error-state";
 import { DELIVERY_TZ } from "./_components/stage";

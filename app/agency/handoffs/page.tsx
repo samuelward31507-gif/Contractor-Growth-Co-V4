@@ -7,7 +7,7 @@ import { SectionCard } from "@/lib/ui/section-card";
 import { EmptyState } from "@/lib/ui/empty-state";
 import { Badge } from "@/lib/ui/badge";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
-import { formatMoney } from "@/lib/founder/format";
+import { formatMoney } from "@/lib/format/operator";
 import { UnauthorizedState } from "../_components/unauthorized-state";
 import { ErrorState } from "../_components/error-state";
 import { HandoffControls } from "./_components/handoff-controls";
