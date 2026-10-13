@@ -8,7 +8,8 @@ import { SectionCard } from "@/lib/ui/section-card";
 import { secondaryButtonSmallClass } from "@/lib/ui/form";
 import { metaClass } from "@/lib/ui/typography";
 
-export type FailedFollowupItem = { id: string; leadId: string; failedTouch: number; updatedAt: string };
+/** needs_review: Stop/Skip offered. retrying: Trackpr is still retrying it automatically. unknown: retry status unreadable - no controls. */
+export type FailedFollowupItem = { id: string; leadId: string; failedTouch: number; updatedAt: string; status: "needs_review" | "retrying" | "unknown" };
 
 /**
  * Audit: follow-ups that stopped after a failure and wait for a person. Two
@@ -54,10 +55,12 @@ function FailedFollowupRow({ item, canManage }: { item: FailedFollowupItem; canM
           View lead
         </Link>
         <p className={metaClass}>Message {item.failedTouch} could not be sent.</p>
+        {item.status === "retrying" ? <p className={metaClass}>Trackpr is still trying again automatically - nothing to do yet.</p> : null}
+        {item.status === "unknown" ? <p className={metaClass}>Could not check whether Trackpr is still trying again. Reload the page to see your options.</p> : null}
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         {message ? <p className="text-sm text-ink">{message}</p> : null}
       </div>
-      {canManage && !message ? (
+      {canManage && !message && item.status === "needs_review" ? (
         <div className="flex gap-2">
           <button type="button" className={secondaryButtonSmallClass} disabled={isPending} onClick={() => resolve("skip")}>
             Skip this message

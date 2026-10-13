@@ -839,6 +839,66 @@ test("recovery (audit): a person can stop or skip-and-continue a FAILED follow-u
   assert.deepEqual(audits().map((r) => [r.user_id, (r.metadata as Row).resolution]), [["user-1", "stop"], ["user-1", "skip"], ["user-1", "skip"]]);
 });
 
+test("recovery (review): Stop/Skip are refused while Trackpr is still retrying the failed touch automatically - no race with an in-flight retry", async () => {
+  const { resolveFailedFollowup, automaticRetryPending, loadFailedFollowupReviewStatus } = await import(lib("lib/followups/recovery.ts"));
+  assert.equal(automaticRetryPending([{ status: "failed", retry_state: null }]), true, "a failure waiting for its retry decision");
+  assert.equal(automaticRetryPending([{ status: "failed", retry_state: "scheduled" }]), true, "a scheduled retry");
+  assert.equal(automaticRetryPending([{ status: "failed", retry_state: "retried" }, { status: "running", retry_state: null }]), true, "a newer attempt is running");
+  assert.equal(automaticRetryPending([{ status: "failed", retry_state: "retried" }, { status: "failed", retry_state: "exhausted" }]), false, "retries stopped");
+  assert.equal(automaticRetryPending([{ status: "failed", retry_state: "not_retryable" }]), false);
+  assert.equal(automaticRetryPending([{ status: "failed", retry_state: "retried" }]), false, "superseded with no newer attempt - nothing is retrying it");
+
+  const executions = (store.workflow_executions ??= []);
+  const failedTouch = (retryStates: (string | null)[], running = false) => {
+    const eventId = uuid();
+    const attempts: Row[] = retryStates.map((retry_state, i) => ({ id: uuid(), organization_id: ORG, automation_event_id: eventId, workflow_name: "lead_followup_touch", status: "failed", attempt: i + 1, retry_state }));
+    if (running) attempts.push({ id: uuid(), organization_id: ORG, automation_event_id: eventId, workflow_name: "lead_followup_touch", status: "running", attempt: attempts.length + 1, retry_state: null });
+    executions.push(...attempts);
+    const lead = addLead();
+    const row = { id: uuid(), organization_id: ORG, lead_id: lead.id, stage: "lead_no_reply", state: "failed", waiting_on: "none", next_action: "retry", next_action_at: null, attempt_count: 0, lease_until: null, paused_reason: null, exit_reason: null, last_execution_id: attempts[retryStates.length - 1].id, reactivated_at: null, created_at: clock.toISOString(), updated_at: clock.toISOString() };
+    store.followups!.push(row);
+    return row;
+  };
+  const scheduled = failedTouch(["scheduled"]);
+  const undecided = failedTouch([null]);
+  const inFlight = failedTouch(["retried"], true);
+  const exhausted = failedTouch(["retried", "exhausted"]);
+  const statuses = await loadFailedFollowupReviewStatus(db as never, ORG, [scheduled, undecided, inFlight, exhausted]);
+  assert.deepEqual([scheduled, undecided, inFlight, exhausted].map((r) => statuses.get(r.id)), ["retrying", "retrying", "retrying", "needs_review"]);
+
+  for (const row of [scheduled, undecided, inFlight]) {
+    for (const resolution of ["stop", "skip"] as const) {
+      const result = await resolveFailedFollowup(db as never, { organizationId: ORG, followupId: row.id, resolution, actorUserId: "user-1", now: clock });
+      assert.equal(result.ok, false, `${resolution} is refused while a retry is pending`);
+      assert.match(result.error, /still retrying/);
+    }
+    assert.deepEqual([fu(row.id).state, fu(row.id).attempt_count], ["failed", 0], "untouched");
+  }
+  const done = await resolveFailedFollowup(db as never, { organizationId: ORG, followupId: exhausted.id, resolution: "skip", actorUserId: "user-1", now: clock });
+  assert.deepEqual([done.ok, fu(exhausted.id).state], [true, "scheduled"], "once retries stopped, a person can skip");
+});
+
+test("Today (review): a failed follow-up Trackpr is still retrying counts as handled, not as needing review", async () => {
+  const eventId = uuid();
+  const executionId = uuid();
+  (store.workflow_executions ??= []).push({ id: executionId, organization_id: ORG, automation_event_id: eventId, workflow_name: "lead_followup_touch", status: "failed", attempt: 1, retry_state: "scheduled", started_at: clock.toISOString() });
+  (store.followups ??= []).push(
+    { id: "fu-retrying-1", organization_id: ORG, lead_id: "lead-r", state: "failed", next_action: "retry", last_execution_id: executionId },
+    { id: "fu-review-1", organization_id: ORG, lead_id: "lead-h", state: "failed", next_action: "human_review", last_execution_id: null },
+  );
+  const items = await loadAutomationAttention(db as never, ORG, clock);
+  assert.equal(items.find((i: Row) => i.id === "followups-active")?.detail, "Trackpr is following up with 1 lead.", "the retrying follow-up is Trackpr's work");
+  assert.equal(items.find((i: Row) => i.id === "followups-failed")?.detail, "1 lead's follow-up stopped after a failure and needs review.", "only the one waiting for a person");
+});
+
+test("recovery UI (review): Stop/Skip are rendered only for follow-ups that need a person", () => {
+  const ui = readFileSync(path.join(process.cwd(), "app/(app)/automations/_components/failed-followups.tsx"), "utf8");
+  assert.match(ui, /canManage && !message && item\.status === "needs_review"/);
+  const page = readFileSync(path.join(process.cwd(), "app/(app)/automations/[automationId]/page.tsx"), "utf8");
+  assert.match(page, /loadFailedFollowupReviewStatus\(supabase, membership\.organizationId, rows\)/);
+  assert.match(page, /status: review\?\.get\(row\.id\) \?\? "unknown"/, "unreadable status fails closed (no controls)");
+});
+
 test("recovery UI (audit): admin-checked server action; the list never offers a 'retry' it cannot safely perform", () => {
   const actions = readFileSync(path.join(process.cwd(), "app/(app)/leads/actions.ts"), "utf8");
   const action = actions.slice(actions.indexOf("export async function resolveFailedFollowupAction"));

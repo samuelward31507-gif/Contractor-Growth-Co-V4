@@ -34,6 +34,7 @@ import { EnableToggle } from "../_components/enable-toggle";
 import { IncidentList } from "../_components/incident-list";
 import { FailedFollowups, type FailedFollowupItem } from "../_components/failed-followups";
 import { FOLLOWUP_AUTOMATION_ID } from "@/lib/followups/store";
+import { loadFailedFollowupReviewStatus } from "@/lib/followups/recovery";
 import { AppointmentReminderConfigForm } from "../_components/appointment-reminder-config";
 import { EstimateFollowupConfigForm } from "../_components/estimate-followup-config";
 import { InboundCustomerReplyConfigForm } from "../_components/inbound-customer-reply-config";
@@ -137,17 +138,22 @@ export default async function AutomationDetailPage({ params }: { params: Promise
   if (definition.id === FOLLOWUP_AUTOMATION_ID) {
     const { data, error } = await supabase
       .from("followups")
-      .select("id, lead_id, attempt_count, updated_at")
+      .select("id, lead_id, attempt_count, updated_at, next_action, last_execution_id")
       .eq("organization_id", membership.organizationId)
       .eq("state", "failed")
       .order("updated_at", { ascending: false })
       .limit(50);
     if (error) console.error("[automations] failed follow-ups read failed", { organizationId: membership.organizationId, error: error.message });
-    failedFollowups = ((data ?? []) as { id: string; lead_id: string; attempt_count: number; updated_at: string }[]).map((row) => ({
+    const rows = (data ?? []) as { id: string; lead_id: string; attempt_count: number; updated_at: string; next_action: string | null; last_execution_id: string | null }[];
+    // Stop/Skip only once Trackpr has stopped retrying; unknown -> no controls.
+    const review = rows.length > 0 ? await loadFailedFollowupReviewStatus(supabase, membership.organizationId, rows) : new Map();
+    if (!review) console.error("[automations] failed follow-up retry status read failed", { organizationId: membership.organizationId });
+    failedFollowups = rows.map((row) => ({
       id: row.id,
       leadId: row.lead_id,
       failedTouch: row.attempt_count + 1,
       updatedAt: row.updated_at,
+      status: review?.get(row.id) ?? "unknown",
     }));
   }
 

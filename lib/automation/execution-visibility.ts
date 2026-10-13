@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AttentionItem } from "@/lib/dashboard/queries";
 import { getAutomationForWorkflowName } from "./catalog";
 import type { WorkflowExecutionOutcome, WorkflowRetryState } from "./executions";
+import { loadFailedFollowupReviewStatus } from "@/lib/followups/recovery";
 
 /**
  * P0 A2: what Today says about automations, in contractor terms - built from
@@ -169,6 +170,35 @@ async function countFollowups(supabase: SupabaseClient, organizationId: string, 
   return count ?? 0;
 }
 
+const FAILED_FOLLOWUP_SCAN_LIMIT = 200;
+
+/**
+ * Failed follow-ups split by who owns them now: still being retried
+ * automatically (Trackpr is handling it) or waiting for a person
+ * (lib/followups/recovery.ts). If the retry status cannot be read, every
+ * failed follow-up is shown as needing review - visible, never hidden.
+ */
+async function countFailedFollowups(supabase: SupabaseClient, organizationId: string): Promise<{ needsReview: number; retrying: number }> {
+  const { data, error } = await supabase
+    .from("followups")
+    .select("id, next_action, last_execution_id")
+    .eq("organization_id", organizationId)
+    .eq("state", "failed")
+    .limit(FAILED_FOLLOWUP_SCAN_LIMIT);
+  if (error) {
+    console.error("[followups] Today failed follow-up read failed", { organizationId, error: error.message });
+    return { needsReview: 0, retrying: 0 };
+  }
+  const rows = (data ?? []) as { id: string; next_action: string | null; last_execution_id: string | null }[];
+  const statuses = await loadFailedFollowupReviewStatus(supabase, organizationId, rows);
+  if (!statuses) {
+    console.error("[followups] Today could not read retry status for failed follow-ups", { organizationId });
+    return { needsReview: rows.length, retrying: 0 };
+  }
+  const retrying = [...statuses.values()].filter((status) => status === "retrying").length;
+  return { needsReview: rows.length - retrying, retrying };
+}
+
 /**
  * Today's read: running work, undecided/scheduled failures, and permanent
  * failures or person-blocked sends from the last NEEDS_YOU_WINDOW_DAYS.
@@ -212,11 +242,8 @@ export async function loadAutomationAttention(supabase: SupabaseClient, organiza
       }
       for (const row of permanent) if ((latest.get(row.automation_event_id as string) ?? 0) > row.attempt) superseded.add(row.id);
     }
-    const [activeFollowups, failedFollowups] = await Promise.all([
-      countFollowups(supabase, organizationId, ["scheduled", "processing"]),
-      countFollowups(supabase, organizationId, ["failed"]),
-    ]);
-    const followupItems = [buildFollowupAttentionItem(activeFollowups), buildFollowupFailedItem(failedFollowups)].filter((item): item is AttentionItem => item !== null);
+    const [activeFollowups, failed] = await Promise.all([countFollowups(supabase, organizationId, ["scheduled", "processing"]), countFailedFollowups(supabase, organizationId)]);
+    const followupItems = [buildFollowupAttentionItem(activeFollowups + failed.retrying), buildFollowupFailedItem(failed.needsReview)].filter((item): item is AttentionItem => item !== null);
     return [...buildAutomationAttentionItems(rows, superseded), ...followupItems];
   } catch (error) {
     console.error("[automation] Today automation read threw", { organizationId, error: error instanceof Error ? error.message : String(error) });
