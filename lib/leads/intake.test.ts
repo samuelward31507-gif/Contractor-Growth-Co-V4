@@ -48,6 +48,8 @@ const calls = {
 let faults: Record<string, number> = {};
 /** Final Batch 2: what is_org_admin answers for the signed-in user. */
 let isOrgAdmin = true;
+/** Audit: simulate a database that predates lead_web_form_intake_unique.sql. */
+let missingIntakeChannelColumn = false;
 /** Reads a plain column or a jsonb `column->>key` path, like PostgREST. */
 const readColumn = (row: Row, column: string) => {
   const [base, key] = column.split("->>");
@@ -105,8 +107,25 @@ class Query {
         ) {
           return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint \"leads_one_new_sms_intake_per_contact\"" } };
         }
+        // A database without lead_web_form_intake_unique.sql has no intake_channel column.
+        if (this.table === "leads" && "intake_channel" in row && missingIntakeChannelColumn) {
+          return { data: null, error: { code: "42703", message: "column \"intake_channel\" of relation \"leads\" does not exist" } };
+        }
+        // Mirrors supabase/pending/lead_web_form_intake_unique.sql: one 'new' web-form lead per contact.
+        if (
+          this.table === "leads" &&
+          row.intake_channel === "web_form" &&
+          (row.status ?? "new") === "new" &&
+          rows.some((r) => r.organization_id === row.organization_id && r.contact_id === row.contact_id && r.intake_channel === "web_form" && r.status === "new")
+        ) {
+          return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint \"leads_one_new_web_form_intake_per_contact\"" } };
+        }
         if (this.table === "messages" && row.provider_message_id && rows.some((r) => r.provider_message_id === row.provider_message_id)) {
           return { data: null, error: { code: "23505", message: "duplicate provider_message_id" } };
+        }
+        // Mirrors contacts_org_phone_normalized_unique (20260919153000_contact_deduplication.sql).
+        if (this.table === "contacts" && row.phone_normalized && rows.some((r) => r.organization_id === row.organization_id && r.phone_normalized === row.phone_normalized)) {
+          return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint \"contacts_org_phone_normalized_unique\"" } };
         }
         if (this.table === "contacts") {
           row.sms_opt_out ??= false;
@@ -1034,4 +1053,28 @@ test("conflict (audit): a phone/email pair on two different contacts is refused 
   assert.doesNotMatch(String(json.error), /contact|on file|already/i, "does not reveal that both identities exist");
   assert.equal(json.leadId, undefined);
   assert.equal(json.contactId, undefined);
+});
+
+test("web form 7 (audit): two simultaneous submissions for a new contact create ONE lead and ONE lead.created", async () => {
+  const [a, b] = await Promise.all([webForm(FORM), webForm(FORM)]);
+  assert.deepEqual([a.status, b.status].sort(), [200, 201]);
+  assert.equal(leads().length, 1, "one lead");
+  assert.equal(leads()[0].intake_channel, "web_form", "marked by the route itself, not from the caller's source");
+  assert.equal(calls.leadCreated.length, 1, "one lead.created, so one first follow-up");
+});
+
+test("web form 8 (audit): before the intake_channel migration is applied, capture still creates the lead (without the marker)", async () => {
+  missingIntakeChannelColumn = true;
+  const original = console.warn;
+  console.warn = () => undefined;
+  try {
+    const response = await webForm(FORM);
+    assert.equal(response.status, 201);
+    assert.equal(leads().length, 1);
+    assert.equal(leads()[0].intake_channel, undefined);
+    assert.equal(calls.leadCreated.length, 1);
+  } finally {
+    console.warn = original;
+    missingIntakeChannelColumn = false;
+  }
 });

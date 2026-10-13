@@ -43,6 +43,14 @@ export type LeadIntakeInput = {
    * the same insert, so the lead never exists without it.
    */
   smsConsent?: "granted" | "declined" | "not_provided";
+  /**
+   * Audit: a fixed origin marker set by the intake route itself (never taken
+   * from the caller's free-text `source`), so the database can allow one
+   * 'new' web-form lead per contact (supabase/pending/
+   * lead_web_form_intake_unique.sql) and a simultaneous duplicate submission
+   * resolves to the winner through the 23505 path below.
+   */
+  intakeChannel?: "web_form";
 };
 
 export type LeadIntakeResult =
@@ -94,19 +102,27 @@ export async function resolveLeadForIntake(supabase: SupabaseClient, input: Lead
   }
 
   if (!leadId) {
-    const { data: newLead, error } = await supabase
+    const leadRow: Record<string, unknown> = {
+      organization_id: organizationId,
+      contact_id: contactId,
+      source: input.source,
+      service: input.service ?? null,
+      status: "new",
+      temperature: input.temperature ?? "cold",
+      ...(input.smsConsent ? { sms_consent: input.smsConsent } : {}),
+    };
+    let { data: newLead, error } = await supabase
       .from("leads")
-      .insert({
-        organization_id: organizationId,
-        contact_id: contactId,
-        source: input.source,
-        service: input.service ?? null,
-        status: "new",
-        temperature: input.temperature ?? "cold",
-        ...(input.smsConsent ? { sms_consent: input.smsConsent } : {}),
-      })
+      .insert(input.intakeChannel ? { ...leadRow, intake_channel: input.intakeChannel } : leadRow)
       .select("id")
       .single();
+    if (input.intakeChannel && (error?.code === "42703" || error?.code === "PGRST204")) {
+      // The database predates lead_web_form_intake_unique.sql (no
+      // intake_channel column): create the lead without the marker - exactly
+      // the pre-migration behavior - and say so, rather than failing intake.
+      console.warn("[lead-intake] leads.intake_channel is missing - apply supabase/pending/lead_web_form_intake_unique.sql; concurrent web-form duplicates are not prevented until then");
+      ({ data: newLead, error } = await supabase.from("leads").insert(leadRow).select("id").single());
+    }
     if (error?.code === "23505") {
       // P0 A3: a concurrent intake for the same contact won the insert
       // (supabase/pending/lead_sms_intake_unique.sql) - reuse its lead, the

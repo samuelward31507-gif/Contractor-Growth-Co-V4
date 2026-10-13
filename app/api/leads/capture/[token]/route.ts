@@ -279,7 +279,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // (recorded as lead.intake_received) instead of getting a duplicate
   // parallel lead; a contact with no open lead (new, or only closed leads)
   // gets a new lead, and the contact's SMS conversation is pointed at it.
-  const intake = await resolveLeadForIntake(service, { organizationId, contactId, source: leadSource, service: serviceField, temperature: "cold", smsConsent: leadSmsConsentFor(smsConsent) });
+  const intake = await resolveLeadForIntake(service, { organizationId, contactId, source: leadSource, service: serviceField, temperature: "cold", smsConsent: leadSmsConsentFor(smsConsent), intakeChannel: "web_form" });
   if (!intake.ok) {
     console.error("[lead-capture] failed to create lead", { organizationId, contactId, error: intake.error });
     return NextResponse.json({ ok: false, error: "Could not create this lead. Please try again." }, { status: 500 });

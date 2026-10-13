@@ -530,3 +530,61 @@ test("eligibility gate still rejects unsafe workflows even if asked directly", a
   assert.equal(result.ok, false);
   assert.equal(!result.ok && result.reason, "not_safely_retryable");
 });
+
+// ===========================================================================
+// Audit: follow-up retries wait for the send window (quiet hours / business hours)
+// ===========================================================================
+
+test("audit: a follow-up touch retry that falls due in quiet hours is deferred to the next send window - no attempt is started or consumed, nothing is sent", async () => {
+  store.automation_settings!.push({ organization_id: ORG, automation_id: "lead-followup-sequence", enabled: true });
+  const { event, execution } = startReminder("lead_followup_touch", "followup.touch");
+  await failWorkflowExecutionAsService(db as never, execution.id as string, "provider timeout");
+  await classifyFailedExecutions(db as never, at(0));
+
+  advanceTo(10 * 60); // 22:00 UTC - inside the 21:00-08:00 quiet-hours floor (org time zone UTC)
+  const night = await processDueRetries(db as never, at(10 * 60));
+  assert.equal(night.started.length, 0, "no retry started at night");
+  assert.equal(executionsOf(event.id).length, 1, "no new attempt consumed");
+  assert.equal(calls.sends, 0);
+  const failed = store.workflow_executions!.find((e) => e.id === execution.id)!;
+  assert.equal(failed.retry_state, "scheduled", "still scheduled - not exhausted, not stopped");
+  assert.equal(failed.next_retry_at, "2026-10-06T08:00:00.000Z", "moved to the next allowed moment");
+
+  // Ticks through the night change nothing.
+  for (const minutes of [11 * 60, 14 * 60, 19 * 60 + 45]) {
+    advanceTo(minutes);
+    assert.equal((await processDueRetries(db as never, at(minutes))).started.length, 0);
+  }
+  assert.equal(executionsOf(event.id).length, 1);
+
+  advanceTo(20 * 60); // 08:00 UTC next day: the window opens
+  const morning = (await quiet(() => processDueRetries(db as never, at(20 * 60))) as { started: unknown[] });
+  assert.equal(morning.started.length, 1, `the retry runs once the window opens: ${JSON.stringify(morning)}`);
+  assert.equal(executionsOf(event.id).length, 2);
+});
+
+test("audit: other workflows keep the plain backoff (an appointment reminder retry is not window-deferred)", async () => {
+  const { event, execution } = startReminder();
+  await failWorkflowExecutionAsService(db as never, execution.id as string, "provider timeout");
+  await classifyFailedExecutions(db as never, at(0));
+  advanceTo(10 * 60);
+  await quiet(() => processDueRetries(db as never, at(10 * 60)));
+  assert.equal(executionsOf(event.id).length, 2);
+});
+
+test("audit: the follow-up send window across time zones, weekends, DST and no business hours", async () => {
+  const { followupSendOpening } = await import(lib("lib/followups/engine.ts"));
+  const weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday"].map((day) => ({ day_of_week: day, is_open: true, open_time: "09:00", close_time: "17:00" }));
+  // Tue 2026-10-13 22:30 New York (EDT) -> Wed 08:00 EDT (quiet-hours floor, no business hours configured).
+  assert.equal(followupSendOpening(new Date("2026-10-14T02:30:00Z"), "America/New_York", []).toISOString(), "2026-10-14T12:00:00.000Z");
+  // Inside the window: now.
+  assert.equal(followupSendOpening(new Date("2026-10-13T15:00:00Z"), "America/New_York", weekdays).toISOString(), "2026-10-13T15:00:00.000Z");
+  // Saturday 10:00 EDT with Mon-Fri 09-17 -> Monday 09:00 EDT.
+  assert.equal(followupSendOpening(new Date("2026-10-17T14:00:00Z"), "America/New_York", weekdays).toISOString(), "2026-10-19T13:00:00.000Z");
+  // DST ends Sun 2026-11-01: Sat 23:00 EDT -> Sun 08:00 EST (13:00Z, not 12:00Z).
+  assert.equal(followupSendOpening(new Date("2026-11-01T03:00:00Z"), "America/New_York", []).toISOString(), "2026-11-01T13:00:00.000Z");
+  // Friday 18:00 Pacific (after close) -> Monday 09:00 PDT.
+  assert.equal(followupSendOpening(new Date("2026-10-17T01:00:00Z"), "America/Los_Angeles", weekdays).toISOString(), "2026-10-19T16:00:00.000Z");
+  // Every day closed -> no opening.
+  assert.equal(followupSendOpening(new Date("2026-10-13T15:00:00Z"), "America/New_York", ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].map((d) => ({ day_of_week: d, is_open: false, open_time: null, close_time: null }))), null);
+});
