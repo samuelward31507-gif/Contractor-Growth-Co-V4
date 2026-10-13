@@ -7,7 +7,6 @@ import { getReviewRequestForJob, getReferralRequestForJob } from "@/lib/reviews-
 import { contactDisplayName, formatContactDate } from "@/lib/contacts/format";
 import { STATUS_LABELS as LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from "@/lib/leads/format";
 import { STATUS_LABELS as ESTIMATE_STATUS_LABELS } from "@/lib/estimates/format";
-import { STATUS_LABELS as JOB_STATUS_LABELS } from "@/lib/jobs/format";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { detailLabelClass, detailValueClass, subsectionTitleClass } from "@/lib/ui/typography";
 import { Badge } from "@/lib/ui/badge";
@@ -22,7 +21,7 @@ import { calendarDateInTimeZone } from "@/lib/invoices/domain";
 import { InvoiceSection } from "./_components/invoice-section";
 import { JobScheduleSection } from "./_components/job-schedule-section";
 import { formatDateTime, resolveTimeZone } from "@/lib/format/datetime";
-import { isApprovedJobAwaitingSchedule, jobScheduleInputValues } from "@/lib/jobs/schedule";
+import { isApprovedJobAwaitingSchedule, jobScheduleInputValues, jobStatusDisplayLabel } from "@/lib/jobs/schedule";
 import { PAGE_CONTAINER_CLASS, PAGE_MAX_WIDTH_CLASS } from "@/lib/ui/page";
 
 export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">) {
@@ -88,7 +87,7 @@ export default async function JobDetailPage({ params }: PageProps<"/jobs/[id]">)
         subtitle={customerName}
         badges={
           <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
-            {JOB_STATUS_LABELS[job.status]}
+            {jobStatusDisplayLabel(job)}
           </Badge>
         }
         action={<JobActions job={job} />}

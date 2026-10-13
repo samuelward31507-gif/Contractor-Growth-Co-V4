@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronRight, SearchX } from "lucide-react";
 import { formatCurrency } from "@/lib/dashboard/format";
 import { contactDisplayName, contactInitials, formatContactDate } from "@/lib/contacts/format";
-import { STATUS_LABELS } from "@/lib/jobs/format";
+import { jobStatusDisplayLabel } from "@/lib/jobs/schedule";
 import type { Job } from "@/lib/jobs/queries";
 import { Badge, RAIL_TONE_CLASS } from "@/lib/ui/badge";
 import { EmptyState } from "@/lib/ui/empty-state";
@@ -56,7 +56,7 @@ export function JobsTable({ jobs, hasActiveFilters }: { jobs: Job[]; hasActiveFi
                 </span>
               </span>
               <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
-                {STATUS_LABELS[job.status]}
+                {jobStatusDisplayLabel(job)}
               </Badge>
               <span className="text-right text-sm font-medium tabular-nums text-ink-2">
                 {job.amount != null ? formatCurrency(job.amount) : "—"}
@@ -87,7 +87,7 @@ export function JobsTable({ jobs, hasActiveFilters }: { jobs: Job[]; hasActiveFi
                 <span className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium text-ink">{job.title}</span>
                   <Badge tone={JOB_STATUS_TONE[job.status]} icon={JOB_STATUS_ICON[job.status]}>
-                    {STATUS_LABELS[job.status]}
+                    {jobStatusDisplayLabel(job)}
                   </Badge>
                 </span>
                 <span className="mt-0.5 flex items-center justify-between gap-2">

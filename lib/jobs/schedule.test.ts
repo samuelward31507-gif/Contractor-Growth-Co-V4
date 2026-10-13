@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isApprovedJobAwaitingSchedule, jobScheduleInputValues, parseJobSchedule } from "./schedule";
+import { isApprovedJobAwaitingSchedule, jobScheduleInputValues, jobStatusDisplayLabel, parseJobSchedule } from "./schedule";
 import { findPersonNextStep, lifecyclePolicyFrom, type PersonNextStepInput } from "@/lib/people/next-step";
 import { assembleDecisions } from "@/lib/decisions/assemble";
 import { ATTENTION_COPY } from "@/lib/today/copy";
@@ -249,4 +249,12 @@ test("13. a stored time reads back as the same wall-clock date and time in the o
     }
   }
   assert.deepEqual(jobScheduleInputValues(null, "America/Denver"), { date: "", time: "" });
+});
+
+test("audit: an undated 'scheduled' job is labelled 'Not scheduled yet', never 'Scheduled'", async () => {
+  assert.equal(jobStatusDisplayLabel({ status: "scheduled", scheduled_for: null }), "Not scheduled yet");
+  assert.equal(jobStatusDisplayLabel({ status: "scheduled", scheduled_for: "2026-10-20T15:00:00.000Z" }), "Scheduled");
+  assert.equal(jobStatusDisplayLabel({ status: "scheduled", scheduled_for: undefined }), "Scheduled", "a read that did not select the column is not guessed");
+  assert.equal(jobStatusDisplayLabel({ status: "in_progress", scheduled_for: null }), "In Progress");
+  assert.equal(jobStatusDisplayLabel({ status: "completed", scheduled_for: null }), "Completed");
 });

@@ -1,5 +1,7 @@
 import { zonedWallTimeToUtc } from "@/lib/scheduling/availability";
 import { resolveTimeZone } from "@/lib/format/datetime";
+import { STATUS_LABELS } from "@/lib/jobs/format";
+import type { JobStatus } from "@/lib/jobs/queries";
 
 /**
  * Job scheduling state (jobs.scheduled_for - supabase/pending/job_scheduled_for.sql).
@@ -75,4 +77,17 @@ export function jobScheduleInputValues(scheduledFor: string | null, timeZone: st
     parts[part.type] = part.value;
   }
   return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
+
+/**
+ * Audit: the status text shown for a job. jobs.status 'scheduled' only
+ * means "not started" (an accepted estimate creates its job immediately), so
+ * a 'scheduled' job with no scheduled_for is shown as "Not scheduled yet" -
+ * never as genuinely scheduled. Display only; the status itself is
+ * unchanged. undefined (a read that did not select the column) is not
+ * guessed at.
+ */
+export function jobStatusDisplayLabel(job: { status: JobStatus; scheduled_for: string | null | undefined }): string {
+  if (job.status === "scheduled" && job.scheduled_for === null) return "Not scheduled yet";
+  return STATUS_LABELS[job.status];
 }
