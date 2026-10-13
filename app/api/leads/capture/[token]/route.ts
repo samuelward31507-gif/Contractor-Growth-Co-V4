@@ -198,11 +198,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   });
 
   if (contactResult.outcome === "conflict") {
-    console.error("[lead-capture] phone/email matched two different contacts", { organizationId });
-    return NextResponse.json(
-      { ok: false, error: "This phone number and email are already on file for two different contacts. Please reconcile them in Trackpr before this lead can be captured automatically." },
-      { status: 409 },
-    );
+    // Diagnostics stay server-side. The public response must not tell whoever
+    // holds the form token that this phone and this email each belong to an
+    // existing (different) contact.
+    console.error("[lead-capture] phone/email matched two different contacts - reconcile in Trackpr", {
+      organizationId,
+      phoneContactId: contactResult.phoneMatch.id,
+      emailContactId: contactResult.emailMatch.id,
+    });
+    return NextResponse.json({ ok: false, error: "This submission could not be processed automatically. Please call or text us instead." }, { status: 409 });
   }
   if (contactResult.outcome === "error") {
     console.error("[lead-capture] failed to resolve/create contact", { organizationId, error: contactResult.error });
@@ -230,10 +234,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // intentionally a simple, existing-schema-only check (no new idempotency
   // column) - a true external-id-based idempotency key is a reasonable
   // post-launch enhancement, not required for the first contractor.
+  const leadSource = source ?? "lead_capture_api";
   const duplicateWindowStart = new Date(Date.now() - DUPLICATE_WINDOW_MINUTES * 60 * 1000).toISOString();
   const { data: recentLead, error: recentLeadError } = await service
     .from("leads")
-    .select("id")
+    .select("id, status, source")
     .eq("organization_id", organizationId)
     .eq("contact_id", contactId)
     .gte("created_at", duplicateWindowStart)
@@ -249,6 +254,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   if (recentLead) {
     if (!(await applyConsentToExisting(recentLead.id as string))) return NextResponse.json(CONSENT_FAILED, { status: 500 });
+    // A retry may be the only chance to repair a lead.created event that was
+    // lost the first time (the emit logs and swallows failures). The event key
+    // is lead.created:<leadId>, so this is a no-op when the event exists. Only
+    // for a still-new lead this route created - never for a lead another path
+    // (e.g. a missed call) deliberately created without lead.created.
+    if (recentLead.status === "new" && recentLead.source === leadSource) {
+      await emitLeadCreatedFollowupAsService(service, {
+        leadId: recentLead.id as string,
+        contactId,
+        organizationId,
+        source: leadSource,
+        service: serviceField ?? "",
+        status: "new",
+        temperature: "cold",
+        estimatedValue: null,
+      });
+    }
     return NextResponse.json({ ok: true, duplicate: true, leadId: recentLead.id, contactId });
   }
 
@@ -257,7 +279,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // (recorded as lead.intake_received) instead of getting a duplicate
   // parallel lead; a contact with no open lead (new, or only closed leads)
   // gets a new lead, and the contact's SMS conversation is pointed at it.
-  const leadSource = source ?? "lead_capture_api";
   const intake = await resolveLeadForIntake(service, { organizationId, contactId, source: leadSource, service: serviceField, temperature: "cold", smsConsent: leadSmsConsentFor(smsConsent) });
   if (!intake.ok) {
     console.error("[lead-capture] failed to create lead", { organizationId, contactId, error: intake.error });

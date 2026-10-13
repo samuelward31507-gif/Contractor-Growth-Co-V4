@@ -786,6 +786,17 @@ test("Today (audit): a FAILED follow-up is shown as needing attention, never cou
   assert.equal(failed?.detail, "1 lead's follow-up stopped after a failure and needs review.");
 });
 
+test("recovery (audit): a follow-up stranded in 'pending' (insert ok, scheduling lost) is scheduled by the next tick and its touch runs", async () => {
+  store.organizations![0].automation_mode = "test";
+  const lead = addLead();
+  const stranded = { id: uuid(), organization_id: ORG, lead_id: lead.id, stage: "lead_no_reply", state: "pending", waiting_on: null, next_action: null, next_action_at: null, attempt_count: 0, lease_until: null, paused_reason: null, exit_reason: null, last_execution_id: null, reactivated_at: null, created_at: clock.toISOString(), updated_at: clock.toISOString() };
+  store.followups!.push(stranded);
+  clock = at(24);
+  await quiet(() => dispatchDueFollowups(db as never, clock));
+  assert.notEqual(fu(stranded.id).state, "pending", "no longer stranded");
+  assert.equal(touchEvents().filter((e) => (e.payload as Row)?.followup_id === stranded.id || String(e.idempotency_key).includes(stranded.id)).length, 1, "its first touch ran exactly once");
+});
+
 test("cadence has ONE source: the dispatcher reads config.ts, nothing else hard-codes 24/72/168", () => {
   for (const file of ["lib/followups/engine.ts", "lib/followups/producer.ts", "lib/followups/store.ts"]) {
     const source = readFileSync(path.join(process.cwd(), file), "utf8");

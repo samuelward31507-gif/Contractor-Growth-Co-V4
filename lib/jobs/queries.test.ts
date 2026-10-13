@@ -115,3 +115,8 @@ test("summarizeJobs: completedValue sums only completed jobs' amounts, treating 
   ];
   assert.equal(summarizeJobs(jobs).completedValue, 1500);
 });
+
+test("audit: status 'active' is scheduled + in progress - the same set the Today 'In progress' tile sums", () => {
+  const all = (["scheduled", "in_progress", "completed", "cancelled"] as const).map((status, i) => ({ id: `j-${i}`, status, title: `Job ${i}`, contact: null }) as unknown as Job);
+  assert.deepEqual(filterJobs(all, { status: "active" }).map((j) => j.status), ["scheduled", "in_progress"]);
+});

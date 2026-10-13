@@ -67,7 +67,8 @@ function normalizeEstimateStatus(value: string | undefined): EstimateStatus | "a
   return value && ESTIMATE_STATUSES.some((s) => s.value === value) ? (value as EstimateStatus) : "all";
 }
 
-function normalizeJobStatus(value: string | undefined): JobStatus | "all" {
+function normalizeJobStatus(value: string | undefined): JobStatus | "all" | "active" {
+  if (value === "active") return "active";
   return value && JOB_STATUSES.some((s) => s.value === value) ? (value as JobStatus) : "all";
 }
 
