@@ -141,3 +141,64 @@ Stop / Skip-this-message: org admin/owner only (`assertOrgAdmin` in the server a
 ## Roadmap
 
 `Trackpr_Master_Product_Roadmap_No_Gaps.pdf` was not found in the repository or the audit environment's filesystem; no roadmap comparison was made.
+
+## Phase 5 - release scope control
+
+### Scope classification (`b6cbde3..02365ba`, 28 commits)
+
+| # | Category | Commits | Schema needed |
+|---|---|---|---|
+| 1 | Audit safety/correctness fixes | `9ba8a6c`, `2988441`, `3ff1e96`, `2a5b17d` | none required (`lead_web_form_intake_unique.sql` recommended; code falls back without it) |
+| 2 | Job scheduling | `3993668`, `cbdc7b7` | `job_scheduled_for.sql` (hard) |
+| 3 | Quote redesign | `e078f1f`, `5bcb717`, `26201d4`, `a1c32d2` | `estimate_quote_details.sql` (editor writes) |
+| 4 | Agency handoff/delivery/redesign | `e9e39da`, `6688932`, `df9a298`, `e3f48b4` | `agency_client_handoff.sql`, `agency_client_delivery.sql` (pages degrade to "unavailable" without) |
+| 5 | Founder workspace (now disabled) | `d60b9d9`, `a7f22c4`, `cd9986d`, `1e755e6`, `f4ab10c`, `98c8d9e`, `4c60b8b`, `91c2949`, `c61247c` | `founder_*.sql` (UI is a 404) |
+| 6 | Invoice delivery fixes | `a861be2`, `a13786d`, `f20fd42` | none (not separated in the minimal candidate; candidates for a follow-up release) |
+| 7 | Docs | `ad27f13`, `a83fb32`, `02365ba` | - |
+
+Uncommitted, untouched: `supabase/pending/README.md` edit, Phase 2A agency-intake files.
+
+### Minimal separation is safe (tested)
+
+`release/audit-minimal-candidate` = `b6cbde3` + the four category-1 commits cherry-picked with `-x` (no conflicts): `01ef8ff`, `f27d3b5`, `77430b6`, `55b5b78` (HEAD `55b5b78`, pushed; not merged). 27 files, no `package.json` change, no reference to `jobs.scheduled_for`, quote-detail, Agency or Founder schema. Validated in a separate worktree with a real `node_modules`:
+- `next build` exit 0; `tsc --noEmit` exit 0; ESLint on changed files exit 0
+- non-integration suite: 2,744 tests, 2,737 pass, 7 fail - the same 7 environment-blocked files as the full candidate
+- `validate-lead-web-form-intake-unique.mjs` passes
+Excluded on purpose: `cbdc7b7` ("Not scheduled yet" needs `scheduled_for`), invoice-delivery fixes (category 6), all doc commits except the readiness doc carried by `2988441`.
+
+### Options
+
+| | A. Whole candidate | B. Minimal audit release (**recommended**) | C. Hold everything |
+|---|---|---|---|
+| Ships | 242 files: audit fixes + scheduling + quote redesign + Agency + disabled Founder | 27 files: audit fixes only | nothing |
+| Migrations | `job_scheduled_for` (blocker), `estimate_quote_details` (data backfill, ACCESS EXCLUSIVE on estimates), `lead_web_form_intake_unique` | `lead_web_form_intake_unique` only (optional; order-independent) | none |
+| Regression risk | high - large UI/data surface never lifecycle-tested on TEST | low - small, isolated, every change has regression tests | none, but known defects stay live (lost leads on DB blips, duplicate leads, overnight retry exhaustion, silent 5,000-row Collected cap) |
+| Validation needed | TEST lifecycle + integration suite + Preview-on-TEST confirmation | integration suite + one lead end-to-end on TEST (smaller) | - |
+| Rollback | code redeploy easy; `estimate_quote_details` rollback destroys quote data | code redeploy to `b6cbde3`; the one migration is additive and harmless to leave | - |
+| Current work preserved | yes | yes (separate branch; candidate untouched) | yes |
+
+Recommendation: **B**, then release categories 2-3 later as their own tested release (with their migrations) once the TEST lifecycle can be run. B fixes the confirmed live defects with the smallest schema and UI change.
+
+### Test environment requirements (no secrets recorded)
+
+The 7 blocked unit-suite files and the 100 integration files read `.env.local` (repo root) and need a real Supabase project: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`; additionally `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (`app/api/webhooks/stripe/route.test.ts`), `RESEND_API_KEY` + `EMAIL_FROM` (`app/(auth)/signup/actions.notification.test.ts`), `N8N_WEBHOOK_SECRET` (n8n-callback integration tests). Placeholder values make them fail on connection - not a meaningful result. Minimum safe setup: a `.env.local` pointing at **TEST** (`lwofqffxagxiqodqvcfr`) with Stripe test-mode keys and no Twilio credentials (tests delete them or simulate).
+
+**Safety gap:** only ~10 integration files refuse to run against a non-TEST project; the 7 blocked files and most integration files do not. A `.env.local` with Production keys would write test rows to Production. Recommended before anyone runs them: a shared guard in the test loader that aborts unless the Supabase URL is the TEST project.
+
+### Preview database identity - unresolved
+
+The READY Preview for `a83fb32` (`dpl_94tgibw1po6tg9CUjbfQgR4nHax1`) gets its Supabase URL from Vercel environment variables. Confirming TEST would require reading an environment value (not permitted) or using the Preview with a session; it remains **unverified**.
+
+### Cumulative diff review
+
+No keys/tokens/secrets in `b6cbde3..02365ba`; no hardcoded Production project ref or Production URL in code; new logging records ids only (no phone, email, message body or token). The earlier ESLint exit 2 came from passing a deleted file; changed-file lint lists now use `git diff --name-only --diff-filter=d`.
+
+## Decision records (not implemented)
+
+| | Refunds / disputes | Public capture response | 409 contact conflict |
+|---|---|---|---|
+| Current | Stripe refund/dispute raises an incident; Collected keeps the payment until a person records a reversal | returns `leadId`, `contactId`, `duplicate`, `attachedToExistingLead` | generic 409; the submission is not saved |
+| Proposed | refunds auto-reverse (per refund id); disputes flagged, reversed only if lost | add v2 `{ ok, status: "received" }`; Settings/Onboarding snippet uses v2; log v1 use; retire ids when unused | accept (202) and queue for a person to reconcile the two contacts, then create the lead |
+| Customer / ops impact | Collected matches cash kept; fewer manual corrections; disputes visible | none for existing integrations; new ones leak nothing | no lost customer requests; one new review task type |
+| Data / migration | reversal key column + per-refund uniqueness (current constraint allows one reversal per payment); `charge.dispute.closed` handling | none (code only) | a queue (new table or audit-log-backed item) + reconcile action |
+| Decision needed | approve option B (or C) from the refund table above | approve v2 + deprecation timeline | approve accept-and-queue and who owns the queue |
