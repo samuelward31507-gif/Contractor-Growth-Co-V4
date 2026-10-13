@@ -1,6 +1,8 @@
 # Trackpr minimal audit release - release notes
 
 Branch `release/audit-minimal-candidate`, based on Production `b6cbde3`. Not merged, not deployed.
+
+**Status: production release BLOCKED pending authorized TEST validation.** No integration test and no TEST lifecycle step has been run (no TEST credentials in the review environment). Phase 8 review started from `d4dceb3`; the review commit that updates these notes follows it.
 This file describes **this minimal release only**. The full candidate (`audit/trackpr-readiness-fixes`) keeps its own readiness notes, including the `jobs.scheduled_for` and quote-schema blockers that do **not** apply here.
 
 ## Contents
@@ -13,7 +15,7 @@ This file describes **this minimal release only**. The full candidate (`audit/tr
 | `f27d3b5` | `2988441` | A `lead.created` lost on the first submission is re-emitted on retry; the 409 contact conflict no longer reveals that a phone and email belong to two contacts; follow-ups stranded in `pending` are scheduled; Money pages the whole payments ledger (no silent 5,000 cap); Today "In progress" links to scheduled + in-progress jobs |
 | `77430b6` | `3ff1e96` | A2 follow-up retries wait for the next allowed send time (quiet hours / business hours) instead of consuming attempts overnight; route-set `intake_channel = 'web_form'` + optional migration below |
 | `55b5b78` | `2a5b17d` | Failed follow-ups: admins can Stop, or Skip the failed message and continue (never re-sends; idempotent; audited) |
-| (this commit) | new | Fail-closed integration-test database guard |
+| `3e3ec7a`, `d4dceb3` | new | Fail-closed integration-test database guard (loader + first import in database-capable tests) |
 
 Not included (each needs schema Production lacks, or is unrelated): job scheduling and the "Not scheduled yet" label (`jobs.scheduled_for`), quote redesign (`estimate_quote_details.sql`), Agency handoff/delivery, Founder workspace, invoice-delivery fixes.
 
@@ -44,7 +46,7 @@ To run them (only with authorization to write test rows to TEST):
 
 ### Guard coverage (phase 7)
 
-- Installed by the shared loader before any test module loads, and self-installed by `import "@/lib/automation/test-db-guard.mjs"` - the first import of all 109 database-capable test files (102 `*.integration.test.ts` + the 7 database-backed unit files). Without the loader that `@/` import cannot resolve, so a direct `node --test <file>` fails to load instead of running unguarded.
+- Installed by the shared loader before any test module loads, and self-installed by `import "@/lib/automation/test-db-guard.mjs"` - the first import of the 109 test files that need a real database (102 `*.integration.test.ts` + the 7 database-backed unit files). Eight further unit files read `.env.local` only for Stripe mode and use in-memory fakes (`app/api/webhooks/stripe*/**/route.guard.test.ts` x3, `lib/billing/stripe-mode-guard.test.ts`, `lib/payments/{connect-webhook,connect,pay-routes,connect-routes}.test.ts`); they are guarded by the loader and also fail to load without it (verified). Without the loader that `@/` import cannot resolve, so a direct `node --test <file>` fails to load instead of running unguarded.
 - Child processes started with the loader are guarded (tested). Request shapes covered by tests: string/URL/`Request` input, plain-object/`Headers`/array headers, mixed-case hosts, `.supabase.in`.
 
 ### TEST validation status - BLOCKED
@@ -56,7 +58,19 @@ Minimum safe action to unblock (by a person with TEST access):
 2. Run `node --experimental-test-module-mocks --import ./lib/automation/test-loader.mjs --test $(git ls-files '*integration.test.ts')` and the 7 database-backed unit files; the guard refuses anything not provably TEST.
 3. Lifecycle check on TEST: submit one synthetic lead to `/api/leads/capture/<TEST org token>` on a deployment known to use TEST; verify contact/lead/`lead.created`/follow-up rows by id. Optionally apply `lead_web_form_intake_unique.sql` to TEST first (separate authorization) to exercise the concurrency path.
 
-## Known limitations and open decisions
+## Release checklist (for a human reviewer)
+
+Technical blockers (must be done before Production):
+1. Code review of `b6cbde3..` this branch (30+ files of product code; the guard change touches 109 test files with one added import each).
+2. TEST integration run and one synthetic lead on TEST (steps above), by a person with TEST access. Record test-record ids only.
+3. Decide whether to apply the optional `lead_web_form_intake_unique.sql` (TEST first, then Production); not required for this release.
+4. Merge/deploy only with explicit approval; rollback = redeploy `b6cbde3` (no required schema change).
+
+No migration is required for this release.
+
+Guard limitations: it only protects test runs (it is not runtime code); TEST keys must be legacy JWT keys (new `sb_secret_` keys are refused as unverifiable); the TEST project ref is a constant in `test-db-guard.mjs`; it cannot stop a person running app code outside the test runner against Production.
+
+## Product decisions (not release blockers) and known limitations
 
 - Refunds/disputes still count as Collected until a person records a reversal (policy decision pending).
 - Capture responses still include `leadId`/`contactId` (versioned-response decision pending).
