@@ -55,10 +55,16 @@ Not run. This environment has no `.env.local` and no Supabase keys; the TEST ser
 
 Preview database identity (2026-10-13, read-only, no secrets read): the Preview for this branch (`contractor-growth-co-v4-16pq64xiz-contractor-growth-co.vercel.app`, commit `3e3ec7a`; later commits change only tests and these notes) answers `/api/health` with `database: ok` and `lastHeartbeatAt: null`. TEST's `automation_health_check_runs` is empty; Production's gets a row every 15 minutes; the only other Supabase project (`trackpr-v2`) is paused. So the Preview reads TEST, not Production. The disposable TEST org ("Smoke Test Disposable Org", `automation_mode = test`, no SMS number) has an intake token that does not exist in Production (checked read-only), so a submission with it cannot create a Production row. The synthetic-lead POST itself was not sent: this session's permission policy blocked it pending the owner's explicit go-ahead.
 
+Re-check at `041606a` (2026-10-13): still no `.env.local` and none of `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `TRACKPR_INTEGRATION_TARGET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` set (Twilio/Resend also absent, as required). Each of the 7 database-backed files was run on its own: every one fails only on missing configuration (`supabaseUrl is required` or `Supabase service-role client is not configured`); the rest of their tests pass (passed/total: forgot-password 6/7, signup 6/7, agency organizations 12/13, Stripe webhook 0/1 - the file fails while loading, reset-password 6/7, blocked-time 6/7, opportunities 10/11). Per-file needs: all 7 need the TEST Supabase URL + anon + service-role keys; `app/api/webhooks/stripe/route.test.ts` also needs `STRIPE_SECRET_KEY` (test mode) and `STRIPE_WEBHOOK_SECRET`; `app/(auth)/signup/actions.notification.test.ts` also reads `RESEND_API_KEY`/`EMAIL_FROM` (Resend calls stay blocked by the guard). The 102 integration files were not started. The synthetic lead was not submitted (its precondition - TEST credentials configured - is not met).
+
 Minimum safe action to unblock (by a person with TEST access):
 1. On a machine with the repo at this branch, create `.env.local` with TEST's URL, anon key and service-role key (legacy JWT keys), Stripe **test-mode** keys, no Twilio/Resend credentials, and `TRACKPR_INTEGRATION_TARGET=test`.
 2. Run `node --experimental-test-module-mocks --import ./lib/automation/test-loader.mjs --test $(git ls-files '*integration.test.ts')` and the 7 database-backed unit files; the guard refuses anything not provably TEST.
 3. Lifecycle check on TEST: submit one synthetic lead to `/api/leads/capture/<TEST org token>` on a deployment known to use TEST; verify contact/lead/`lead.created`/follow-up rows by id. Optionally apply `lead_web_form_intake_unique.sql` to TEST first (separate authorization) to exercise the concurrency path.
+
+### Roadmap availability
+
+The Trackpr Master Product Roadmap is not in this repository (only `docs/trackpr-hermes-separation-plan.md` refers to it, and says it is stored elsewhere) and not on this machine. Google Drive search and recent-files listing both return `Forbidden` (2026-10-13), so the release scope could not be checked against the roadmap. No roadmap gaps are claimed or verified here.
 
 ## Release checklist (for a human reviewer)
 
