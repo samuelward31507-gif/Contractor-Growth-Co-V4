@@ -15,6 +15,7 @@
  * Run with:
  *   node --import ./lib/automation/test-loader.mjs --test "app/(auth)/forgot-password/actions.test.ts"
  */
+import "@/lib/automation/test-db-guard.mjs"; // fail-closed database guard - must stay the first import
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";

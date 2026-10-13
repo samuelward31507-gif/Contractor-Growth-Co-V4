@@ -115,3 +115,35 @@ test("real-message providers and live Stripe keys are refused; ordinary non-data
   assert.equal(evaluateTestRequest("https://api.stripe.com/v1/charges", { Authorization: "Bearer sk_test_x" }, {}).allowed, true);
   assert.equal(evaluateTestRequest("http://127.0.0.1:3000/api/health", {}, {}).allowed, true, "a local test server without database credentials");
 });
+
+test("request shapes cannot slip past: Request objects, URL objects, Headers instances, header arrays, mixed-case hosts, .supabase.in", async () => {
+  const original = globalThis.fetch;
+  let networkCalls = 0;
+  globalThis.fetch = (async () => {
+    networkCalls += 1;
+    return new Response("[]", { status: 200 });
+  }) as typeof fetch;
+  try {
+    installTestDatabaseGuard({ TRACKPR_INTEGRATION_TARGET: "test" });
+    const prodKey = key(PROD);
+    const attempts: (() => Promise<unknown>)[] = [
+      () => fetch(new Request(url(PROD), { headers: { apikey: prodKey } })),
+      () => fetch(new URL(url(PROD)), { headers: new Headers({ apikey: prodKey }) }),
+      () => fetch(url(PROD).replace(PROD, PROD.toUpperCase()), { headers: [["apikey", prodKey]] }),
+      () => fetch(`https://${PROD}.supabase.in/rest/v1/leads`, { headers: { APIKEY: prodKey } }),
+      () => fetch(url(UNKNOWN), { headers: { apikey: key(UNKNOWN) } }),
+      () => fetch(new Request(url(TEST), { headers: { apikey: key(UNKNOWN) } })),
+    ];
+    for (const attempt of attempts) await assert.rejects(attempt(), (error: Error) => error.name === "TestDatabaseGuardError");
+    assert.equal(networkCalls, 0, "none of them reached the network");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("child processes started with the shared loader are guarded too", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const script = `const r = await fetch("https://${PROD}.supabase.co/rest/v1/leads", { headers: { apikey: "x" } }).then(() => "sent", (e) => e.name); console.log(r);`;
+  const out = execFileSync(process.execPath, ["--import", "./lib/automation/test-loader.mjs", "--input-type=module", "-e", script], { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, TRACKPR_INTEGRATION_TARGET: "test" } }).trim();
+  assert.equal(out, "TestDatabaseGuardError");
+});

@@ -42,6 +42,20 @@ To run them (only with authorization to write test rows to TEST):
 1. `.env.local` with the TEST project's URL, anon key and service-role key (legacy JWT keys - non-JWT `sb_secret_` keys cannot be verified and are refused), Stripe test-mode keys, no Twilio credentials; set `TRACKPR_INTEGRATION_TARGET=test`.
 2. `node --experimental-test-module-mocks --import ./lib/automation/test-loader.mjs --test $(git ls-files '*integration.test.ts')`, plus the 7 database-backed unit files: `app/(auth)/forgot-password/actions.test.ts`, `app/(auth)/signup/actions.notification.test.ts` (also needs `RESEND_API_KEY`/`EMAIL_FROM` - Resend calls are blocked by the guard), `app/agency/organizations/actions.test.ts`, `app/api/webhooks/stripe/route.test.ts`, `app/auth/reset-password/actions.test.ts`, `supabase/migrations/blocked-time-migration.test.ts`, `supabase/migrations/opportunities-migration.test.ts`.
 
+### Guard coverage (phase 7)
+
+- Installed by the shared loader before any test module loads, and self-installed by `import "@/lib/automation/test-db-guard.mjs"` - the first import of all 109 database-capable test files (102 `*.integration.test.ts` + the 7 database-backed unit files). Without the loader that `@/` import cannot resolve, so a direct `node --test <file>` fails to load instead of running unguarded.
+- Child processes started with the loader are guarded (tested). Request shapes covered by tests: string/URL/`Request` input, plain-object/`Headers`/array headers, mixed-case hosts, `.supabase.in`.
+
+### TEST validation status - BLOCKED
+
+Not run. This environment has no `.env.local` and no Supabase keys; the TEST service-role key is required by the integration helpers and is not obtainable here without exposing a secret. TEST schema (read-only, 2026-10-13): has every object this release reads; lacks only `leads.intake_channel` (the optional migration) - the code falls back without it.
+
+Minimum safe action to unblock (by a person with TEST access):
+1. On a machine with the repo at this branch, create `.env.local` with TEST's URL, anon key and service-role key (legacy JWT keys), Stripe **test-mode** keys, no Twilio/Resend credentials, and `TRACKPR_INTEGRATION_TARGET=test`.
+2. Run `node --experimental-test-module-mocks --import ./lib/automation/test-loader.mjs --test $(git ls-files '*integration.test.ts')` and the 7 database-backed unit files; the guard refuses anything not provably TEST.
+3. Lifecycle check on TEST: submit one synthetic lead to `/api/leads/capture/<TEST org token>` on a deployment known to use TEST; verify contact/lead/`lead.created`/follow-up rows by id. Optionally apply `lead_web_form_intake_unique.sql` to TEST first (separate authorization) to exercise the concurrency path.
+
 ## Known limitations and open decisions
 
 - Refunds/disputes still count as Collected until a person records a reversal (policy decision pending).

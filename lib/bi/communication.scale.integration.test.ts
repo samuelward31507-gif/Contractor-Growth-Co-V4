@@ -14,6 +14,7 @@
  * Inserts are plain rows - no automation, n8n, Twilio or provider call.
  * after() deletes both fixture organizations; everything else cascades.
  */
+import "@/lib/automation/test-db-guard.mjs"; // fail-closed database guard - must stay the first import
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";

@@ -12,6 +12,7 @@
  * Run with:
  *   node --import ./lib/automation/test-loader.mjs --test lib/opportunities/detect.review-rebooking.integration.test.ts
  */
+import "@/lib/automation/test-db-guard.mjs"; // fail-closed database guard - must stay the first import
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
