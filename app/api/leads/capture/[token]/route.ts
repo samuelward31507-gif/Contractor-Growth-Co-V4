@@ -231,7 +231,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // column) - a true external-id-based idempotency key is a reasonable
   // post-launch enhancement, not required for the first contractor.
   const duplicateWindowStart = new Date(Date.now() - DUPLICATE_WINDOW_MINUTES * 60 * 1000).toISOString();
-  const { data: recentLead } = await service
+  const { data: recentLead, error: recentLeadError } = await service
     .from("leads")
     .select("id")
     .eq("organization_id", organizationId)
@@ -240,6 +240,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  // Fail closed: an unreadable duplicate window must not be treated as "no
+  // duplicate", or a retried delivery could create or attach a second intake.
+  if (recentLeadError) {
+    console.error("[lead-capture] duplicate check failed", { organizationId, error: recentLeadError.message });
+    return NextResponse.json(TEMPORARILY_UNAVAILABLE, { status: 503 });
+  }
 
   if (recentLead) {
     if (!(await applyConsentToExisting(recentLead.id as string))) return NextResponse.json(CONSENT_FAILED, { status: 500 });

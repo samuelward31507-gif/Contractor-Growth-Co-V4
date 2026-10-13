@@ -138,14 +138,35 @@ export function buildFollowupAttentionItem(activeFollowups: number): AttentionIt
   };
 }
 
-async function countActiveFollowups(supabase: SupabaseClient, organizationId: string): Promise<number> {
+/**
+ * A follow-up in state "failed" stopped and will not continue on its own, so
+ * it is a person's decision (needs attention), never "Trackpr is handling it".
+ */
+export function buildFollowupFailedItem(failedFollowups: number): AttentionItem | null {
+  if (failedFollowups <= 0) return null;
+  return {
+    id: "followups-failed",
+    kind: "automation_needs_attention",
+    title: "Lead Follow-Up Sequence",
+    detail: `${plural(failedFollowups, "lead's follow-up", "leads' follow-ups")} stopped after a failure and needs review.`,
+    value: null,
+    href: "/automations/lead-followup-sequence",
+  };
+}
+
+async function countFollowups(supabase: SupabaseClient, organizationId: string, states: string[]): Promise<number> {
   const { count, error } = await supabase
     .from("followups")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
-    .in("state", ["scheduled", "processing", "failed"]);
-  // A database without the followups table yields no item.
-  return error ? 0 : (count ?? 0);
+    .in("state", states);
+  if (error) {
+    // Logged, not silent: on a database without the followups table (pending
+    // migration) this is the signal that the engine is not running.
+    console.error("[followups] Today follow-up count failed", { organizationId, error: error.message });
+    return 0;
+  }
+  return count ?? 0;
 }
 
 /**
@@ -191,9 +212,12 @@ export async function loadAutomationAttention(supabase: SupabaseClient, organiza
       }
       for (const row of permanent) if ((latest.get(row.automation_event_id as string) ?? 0) > row.attempt) superseded.add(row.id);
     }
-    const followupItem = buildFollowupAttentionItem(await countActiveFollowups(supabase, organizationId));
-    const items = buildAutomationAttentionItems(rows, superseded);
-    return followupItem ? [...items, followupItem] : items;
+    const [activeFollowups, failedFollowups] = await Promise.all([
+      countFollowups(supabase, organizationId, ["scheduled", "processing"]),
+      countFollowups(supabase, organizationId, ["failed"]),
+    ]);
+    const followupItems = [buildFollowupAttentionItem(activeFollowups), buildFollowupFailedItem(failedFollowups)].filter((item): item is AttentionItem => item !== null);
+    return [...buildAutomationAttentionItems(rows, superseded), ...followupItems];
   } catch (error) {
     console.error("[automation] Today automation read threw", { organizationId, error: error instanceof Error ? error.message : String(error) });
     return [];
