@@ -1,4 +1,4 @@
-# Trackpr release readiness (audit, 2026-10-13)
+# Trackpr release readiness (audit, 2026-10-13; updated phase 3)
 
 Branch `audit/trackpr-readiness-fixes`. Not merged, not deployed.
 
@@ -19,38 +19,63 @@ Catalog-only queries (`information_schema`, `pg_catalog`, `supabase_migrations.s
 
 Ledger: 68 rows; latest `20261007132058`. `supabase/pending/README.md` still describes several of these as "not applied to Production" - that text is out of date (the README is protected and was not edited here).
 
-## Release blocker: `jobs.scheduled_for`
+## Required migrations (none applied; each needs explicit approval)
 
-Production runs `b6cbde3`, which does not use the column. `feature/quote-redesign` (and this branch) select it in `lib/jobs/queries.ts` for every job read, and write it from the job page. **Deploying this branch to Production before `supabase/pending/job_scheduled_for.sql` is applied breaks every job read.**
+### 1. `job_scheduled_for.sql` - BLOCKER, must precede the deploy
 
-Migration plan (requires explicit approval; not applied):
-1. File: `supabase/pending/job_scheduled_for.sql` - one nullable `timestamptz` column, no default, no backfill, RLS unchanged, idempotent. Rollback: `job_scheduled_for_rollback.sql` (contains DROP; run by a person).
-2. Lock: `ALTER TABLE ... ADD COLUMN` (nullable, no default) takes a brief `ACCESS EXCLUSIVE` lock on `jobs` and rewrites nothing. No uniqueness, no data conflicts possible.
-3. Process: per `supabase/pending/README.md` - a person applies it to one named project as one transaction, reads back the ledger, then moves the file into `supabase/migrations/` under the recorded version. Never `supabase db push`.
-4. Verify after: `select column_name, data_type, is_nullable from information_schema.columns where table_schema='public' and table_name='jobs' and column_name='scheduled_for';` → one row, `timestamp with time zone`, `YES`.
-5. Order: migration first, then deploy.
+This branch selects `jobs.scheduled_for` on every job read (`lib/jobs/queries.ts` JOB columns) and also uses it in `app/(app)/jobs/actions.ts`, `app/(app)/jobs/[id]/page.tsx`, `app/(app)/jobs/[id]/_components/job-schedule-section.tsx`, `lib/dashboard/queries.ts`, `lib/jobs/schedule.ts`, `lib/people/next-step.ts`. Production lacks the column (verified). Deploying first breaks every job read.
 
-## Fixes on this branch (each with a regression test that failed before)
+- Shape: one `timestamptz`, nullable, no default, no backfill, no index; RLS unchanged (row policies already cover it); idempotent (`add column if not exists`). Rollback `job_scheduled_for_rollback.sql` (DROP; run by a person; only safe after rolling the code back first).
+- Lock: brief `ACCESS EXCLUSIVE` on `jobs` for a catalog-only change (nullable, no default: no table rewrite).
+- Preflight (read-only):
+  `select count(*) = 0 as column_absent from information_schema.columns where table_schema='public' and table_name='jobs' and column_name='scheduled_for';` -> `true`
+  `select version, name from supabase_migrations.schema_migrations order by version desc limit 1;` -> record it.
+- Postflight:
+  `select data_type, is_nullable, column_default from information_schema.columns where table_schema='public' and table_name='jobs' and column_name='scheduled_for';` -> `timestamp with time zone | YES | null`
+  plus the ledger read-back, then move the file into `supabase/migrations/` under the recorded version.
+
+### 2. `lead_web_form_intake_unique.sql` - recommended, order-independent
+
+Adds `leads.intake_channel` (nullable, check `= 'web_form'`) and partial unique index `leads_one_new_web_form_intake_per_contact`. All existing rows are null, so it cannot conflict with data; `CREATE INDEX` holds a SHARE lock on `leads` while building over a predicate that matches no rows. The code works before it (falls back to an unmarked insert and logs a warning) and after it (duplicates prevented). Validated: `supabase/pending/scratch/validate-lead-web-form-intake-unique.mjs`.
+- Preflight: `select count(*) = 0 from information_schema.columns where table_schema='public' and table_name='leads' and column_name='intake_channel';`
+- Postflight: `select indexdef from pg_indexes where indexname = 'leads_one_new_web_form_intake_per_contact';` -> one row.
+
+Retry-window deferral needs **no** migration (uses existing `next_retry_at`).
+
+## Release plan (dependency order)
+
+1. Approval for the migrations above.
+2. TEST: apply `job_scheduled_for.sql` and `lead_web_form_intake_unique.sql`; read back; deploy the branch as a Preview against TEST; run the integration tests with TEST credentials; one end-to-end lead on TEST.
+3. Production: preflight queries; apply `job_scheduled_for.sql` (and the intake migration); postflight; ledger read-back.
+4. Merge and deploy the code (promotion is a separate approval).
+5. Watch: lead capture 201/200/409/503 rates, `[lead-intake] leads.intake_channel is missing` warnings (should be none), follow-up dispatch and A2 retry outcomes, Today load errors.
+
+Rollback: redeploy `b6cbde3` first (it does not read either new column), then - only if needed - the rollback SQL files. Additive columns can stay after a code rollback.
+
+## Fixes on this branch (each with a regression test that fails without it)
 
 | Area | Fix | Test |
 |---|---|---|
 | Lead capture | Duplicate-window read error fails closed (503) | `lib/leads/intake.test.ts` web form 5 |
-| Lead capture | A `lead.created` event lost on first submission is re-emitted on retry (idempotent key; only for a still-`new` lead this route created) | web form 6 |
-| Lead capture | 409 conflict no longer tells the submitter a phone and email belong to different existing contacts; details logged server-side | conflict (audit) |
+| Lead capture | Lost `lead.created` re-emitted on retry (idempotent key; still-`new` leads this route created) | web form 6 |
+| Lead capture | 409 conflict no longer discloses that a phone and email belong to two contacts | conflict (audit) |
+| Lead capture | Simultaneous submissions -> one lead, one `lead.created` (route-set `intake_channel` + pending unique index; pre-migration fallback) | web form 7, 8; PGlite validator |
 | Payments | Server refuses a future received date | `lib/invoices/service.test.ts` |
-| Money | Payments ledger paged in full; a partial read reports `failed` (was a silent 5,000-row cap) | `lib/invoices/payments-ledger.test.ts` |
-| Follow-ups | Rows stranded in `pending` are scheduled by the next dispatch tick (after a lease-length grace) | `lib/followups/followups.test.ts` recovery |
-| Today | Failed follow-ups shown as needing attention, not as active; count errors logged | followups Today (audit) |
-| Today | "In progress" tile links to `status=active` (scheduled + in progress), matching the number it shows | `lib/jobs/queries.test.ts`, `dashboard.test.ts` |
+| Money | Payments ledger paged in full; partial read reports `failed` | `lib/invoices/payments-ledger.test.ts` |
+| Follow-ups | Rows stranded in `pending` are scheduled by the next tick | `lib/followups/followups.test.ts` recovery |
+| Follow-ups | A2 retry of a follow-up touch falling due outside quiet/business hours is moved to the next allowed moment (no attempt consumed, nothing sent); no allowed time in 8 days -> not_retryable | `lib/automation/execution-retry.test.ts` (UTC night, NY, weekend, DST, closed) |
+| Follow-ups | Failed follow-ups: admin can Stop or Skip-and-continue (never re-sends; idempotent; audited) on the Lead Follow-Up Sequence page | followups recovery + recovery UI |
+| Today | Failed follow-ups shown as needing attention; count errors logged | followups Today (audit) |
+| Today | "In progress" tile -> `status=active` (scheduled + in progress) | `lib/jobs/queries.test.ts` |
+| Jobs | Undated `scheduled` job labelled "Not scheduled yet" | `lib/jobs/schedule.test.ts` |
 
-## Confirmed, not fixed (decision or larger change needed)
+## Remaining items (decision or access needed)
 
-1. **Concurrent web-form submissions can create two open leads.** The duplicate check is read-then-insert. A unique index cannot single out web-form leads because the route stores the submitter-supplied `source`. Options: (a) store a fixed origin marker (e.g. `intake_channel = 'web_form'`) and add a partial unique index like the SMS one; (b) a transaction-scoped advisory lock per (organization, contact) via an RPC. Both need a migration.
-2. **Follow-up retry outside the send window consumes the touch.** `retryObligationTouch` goes straight to the gate; a quiet-hours or business-hours denial is non-terminal and advances the cadence. A2 retries at 5/15/45 minutes (3 attempts), so a night-time failure exhausts before morning. Fix needs A2 to accept a "defer until" time (`next_retry_at`) instead of failing.
-3. **`start_failed` follow-ups go to human review** (`state = failed`, `next_action = human_review`) by design; they are now visible on Today. There is no UI action to resume one.
-4. **Capture responses still return internal `leadId`/`contactId` and `duplicate`/`attachedToExistingLead` flags.** External forms may read these, so removing them is a contract change for contractors' integrations.
-5. **Accepted estimate → job with status `scheduled`.** Intended semantics (see `job_scheduled_for.sql`): `status = scheduled` means "not started"; booking is `scheduled_for`. Resolved by the migration above plus the existing job-page scheduling UI; not by changing status semantics.
-6. **Manual-payment duplicate key is optional server-side** on purpose (older open dialogs). All current callers (`record-payment-dialog.tsx` → `recordCustomerPayment` → service) send one.
+1. **Refund / dispute accounting** - see below; product decision.
+2. **Public response contract** - capture responses return `leadId`, `contactId`, `duplicate`, `attachedToExistingLead`. No consumer exists in this repo, but contractors' own forms/integrations may read them, so they were not removed. Proposed path: document the contract in the settings page where the URL is shown; add `?v=2` (or an `Accept-Version` header) returning only `{ ok, status: "received" }`; switch the onboarding snippet to v2; deprecate v1 later.
+3. **Capture endpoint still reveals *something* on conflict** - the 409 status (generic message). Fully hiding it means accepting the submission and queueing it for reconciliation - a product decision.
+4. **Manual-payment duplicate key optional server-side** - kept on purpose for older open dialogs; all current callers send it.
+5. **Seven environment-dependent unit-suite files** need a real database (with placeholder settings they still fail on connection): `app/(auth)/forgot-password/actions.test.ts`, `app/(auth)/signup/actions.notification.test.ts`, `app/agency/organizations/actions.test.ts`, `app/api/webhooks/stripe/route.test.ts`, `app/auth/reset-password/actions.test.ts`, `supabase/migrations/blocked-time-migration.test.ts`, `supabase/migrations/opportunities-migration.test.ts`. Treat as integration tests (run with TEST credentials).
 
 ## Refunds and disputes - recommended policy (product decision required)
 
