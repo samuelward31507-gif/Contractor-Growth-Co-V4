@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { FOLLOWUP_WORKFLOW, nextFollowupSendOpening } from "@/lib/followups/engine";
 import { AUTOMATIC_RETRY_POLICY, retryDelayMinutes } from "./retry-eligibility";
 import { MAX_WORKFLOW_RETRY_ATTEMPTS, type WorkflowRetryState } from "./executions";
 import { retryWorkflowExecutionAsService } from "./retry";
@@ -123,7 +124,7 @@ export async function processDueRetries(service: SupabaseClient, now: Date = new
   const nowIso = now.toISOString();
   const { data, error } = await service
     .from("workflow_executions")
-    .select("id, organization_id, next_retry_at")
+    .select("id, organization_id, workflow_name, next_retry_at")
     .eq("retry_state", "scheduled")
     .lte("next_retry_at", nowIso)
     .order("next_retry_at", { ascending: true })
@@ -133,7 +134,29 @@ export async function processDueRetries(service: SupabaseClient, now: Date = new
     return { ...result, errors: 1 };
   }
 
-  for (const row of (data ?? []) as { id: string; organization_id: string; next_retry_at: string }[]) {
+  for (const row of (data ?? []) as { id: string; organization_id: string; workflow_name?: string; next_retry_at: string }[]) {
+    // A follow-up touch retried outside its send window (quiet hours,
+    // business hours) would be refused by the gate and the touch consumed -
+    // and the 5/15/45-minute backoff exhausts overnight. Instead the retry is
+    // moved, durably, to the next moment a send is allowed: no new attempt is
+    // started and nothing is sent until then.
+    if (row.workflow_name === FOLLOWUP_WORKFLOW) {
+      const opening = await nextFollowupSendOpening(service, row.organization_id, now);
+      if (!opening) {
+        await settle(service, row.id, "not_retryable", "no_business_hours: no allowed send time in the next 8 days");
+        result.stopped.push({ id: row.id, reason: "no_business_hours" });
+        continue;
+      }
+      if (opening.getTime() > now.getTime()) {
+        await service
+          .from("workflow_executions")
+          .update({ next_retry_at: opening.toISOString(), retry_detail: `deferred to the next send window (${opening.toISOString()})` })
+          .eq("id", row.id)
+          .eq("retry_state", "scheduled")
+          .eq("next_retry_at", row.next_retry_at);
+        continue;
+      }
+    }
     // Lease: only the tick whose conditional update wins may retry.
     const lease = new Date(now.getTime() + RETRY_LEASE_MINUTES * 60_000).toISOString();
     const { data: leased } = await service

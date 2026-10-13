@@ -440,6 +440,24 @@ export type DispatchOptions = {
   sendSmsFn?: (input: SendSmsInput) => Promise<SendSmsResult>;
 };
 
+/**
+ * The first moment at or after `now` when an automated follow-up may be sent:
+ * inside the quiet-hours floor AND the organization's business hours, in the
+ * organization's time zone (DST-aware via Intl). null = no such moment in the
+ * next 8 days (no open business hours). The ONE send-window rule shared by the
+ * dispatcher and the A2 retry scheduler, so a retry is never started while a
+ * send is not allowed.
+ */
+export function followupSendOpening(now: Date, timeZone: string | null | undefined, hours: BusinessHour[]): Date | null {
+  const zone = sendTimeZone(timeZone);
+  return nextAllowedSendTime(now, (at) => isWithinQuietHoursFloor(at, zone) && isWithinBusinessHours(at, zone, hours));
+}
+
+export async function nextFollowupSendOpening(service: SupabaseClient, organizationId: string, now: Date): Promise<Date | null> {
+  const [hours, timeZone] = await Promise.all([getBusinessHours(service, organizationId), getOrganizationTimezone(service, organizationId)]);
+  return followupSendOpening(now, timeZone, hours);
+}
+
 /** One tick: every due scheduled obligation plus any whose lease expired (crash recovery). */
 export async function dispatchDueObligations(service: SupabaseClient, now: Date = new Date(), options: DispatchOptions = {}): Promise<DispatchOutcome[]> {
   const nowIso = now.toISOString();
@@ -536,9 +554,7 @@ export async function dispatchObligation(service: SupabaseClient, id: string, no
 
   // Business hours and the quiet-hours floor (lib/automation/send-window.ts): defer to the next moment both
   // allow; the touch is not consumed.
-  const [hours, timeZone] = await Promise.all([getBusinessHours(service, row.organization_id), getOrganizationTimezone(service, row.organization_id)]);
-  const zone = sendTimeZone(timeZone);
-  const opening = nextAllowedSendTime(now, (at) => isWithinQuietHoursFloor(at, zone) && isWithinBusinessHours(at, zone, hours));
+  const opening = await nextFollowupSendOpening(service, row.organization_id, now);
   if (!opening) {
     await release("paused", { paused_reason: "no_business_hours", waiting_on: "business", next_action: "human_review" });
     return { followupId: id, outcome: "paused", reason: "no_business_hours" };
