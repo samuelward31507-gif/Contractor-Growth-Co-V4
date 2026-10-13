@@ -935,3 +935,12 @@ test("Phase 1C reverse: an online card payment is refunded in Stripe, never reve
   assert.equal(writes(fake.calls, "customer_payments").length, 0);
   assert.equal(fake.rpcCalls.length, 0);
 });
+
+test("record (audit): the server refuses a received date in the future, not only the browser form", async () => {
+  const tables = { invoices: [invoice({ status: "sent" })], customer_payments: [] as Row[] };
+  const fake = makeFakeSupabase(tables, { onInsert: withLedgerApply(tables) });
+  const result = await recordCustomerPaymentForOrganization(fake.client, ORG_A, USER_A, { invoiceId: "inv-1", amount: 100, method: "cash", receivedAt: "2099-01-01T00:00:00.000Z" });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "The received date can't be in the future.");
+  assert.equal(tables.customer_payments.length, 0, "nothing recorded");
+});

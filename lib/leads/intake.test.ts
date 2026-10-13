@@ -997,3 +997,12 @@ test("token 7: a rotation whose audit write fails still rotates, warns, and logs
   assert.ok(logged.length > 0, "the audit failure is logged");
   assert.ok(logged.every((line) => !line.includes(rotated) && !line.includes(TOKEN)));
 });
+
+test("web form 5 (audit): a failed duplicate-window check fails closed (503) instead of being read as 'no duplicate'", async () => {
+  await webForm(FORM);
+  faults["leads:select"] = 1; // the first leads select after resolving the contact is the duplicate-window check
+  const response = await webForm(FORM);
+  assert.equal(response.status, 503);
+  assert.equal(leads().length, 1, "no new lead");
+  assert.equal((store.automation_events ?? []).filter((e) => e.event_type === "lead.intake_received").length, 0, "nothing attached or recorded");
+});

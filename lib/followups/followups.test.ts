@@ -773,6 +773,19 @@ test("Today: one low-noise line for active follow-ups (never a row per lead), no
   assert.deepEqual(await loadAutomationAttention(db as never, OTHER_ORG, clock), [], "another organization sees nothing");
 });
 
+test("Today (audit): a FAILED follow-up is shown as needing attention, never counted as healthy active work", async () => {
+  (store.followups ??= []).push(
+    { id: "fu-failed-1", organization_id: ORG, lead_id: "lead-x", state: "failed" },
+    { id: "fu-active-1", organization_id: ORG, lead_id: "lead-y", state: "scheduled" },
+  );
+  const items = await loadAutomationAttention(db as never, ORG, clock);
+  const active = items.find((i: Row) => i.id === "followups-active");
+  const failed = items.find((i: Row) => i.id === "followups-failed");
+  assert.equal(active?.detail, "Trackpr is following up with 1 lead.", "failed rows are not counted as active");
+  assert.equal(failed?.kind, "automation_needs_attention");
+  assert.equal(failed?.detail, "1 lead's follow-up stopped after a failure and needs review.");
+});
+
 test("cadence has ONE source: the dispatcher reads config.ts, nothing else hard-codes 24/72/168", () => {
   for (const file of ["lib/followups/engine.ts", "lib/followups/producer.ts", "lib/followups/store.ts"]) {
     const source = readFileSync(path.join(process.cwd(), file), "utf8");

@@ -352,6 +352,9 @@ export async function recordCustomerPaymentForOrganization(
 
   const receivedAt = (input.receivedAt ?? "").trim() || null;
   if (receivedAt && !isIsoTimestamp(receivedAt)) return { ok: false, error: "Enter a valid received date." };
+  // Same rule as the form (lib/invoices/forms.ts), enforced here too: a
+  // post-dated payment would count as collected before the money arrives.
+  if (receivedAt && new Date(receivedAt).getTime() > Date.now() + 5 * 60 * 1000) return { ok: false, error: "The received date can't be in the future." };
 
   const clientKey = typeof input.clientKey === "string" && input.clientKey.trim() ? input.clientKey.trim() : null;
   if (clientKey && !isValidClientKey(clientKey)) return { ok: false, error: "This payment form is out of date. Close it and try again." };
