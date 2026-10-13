@@ -797,6 +797,59 @@ test("recovery (audit): a follow-up stranded in 'pending' (insert ok, scheduling
   assert.equal(touchEvents().filter((e) => (e.payload as Row)?.followup_id === stranded.id || String(e.idempotency_key).includes(stranded.id)).length, 1, "its first touch ran exactly once");
 });
 
+test("recovery (audit): a person can stop or skip-and-continue a FAILED follow-up - never re-sending the failed touch, idempotent, audited, org-scoped", async () => {
+  const { resolveFailedFollowup } = await import(lib("lib/followups/recovery.ts"));
+  const failedRow = (extra: Row = {}) => {
+    const lead = addLead();
+    const row = { id: uuid(), organization_id: ORG, lead_id: lead.id, stage: "lead_no_reply", state: "failed", waiting_on: "none", next_action: "human_review", next_action_at: null, attempt_count: 0, lease_until: null, paused_reason: null, exit_reason: null, last_execution_id: null, reactivated_at: null, created_at: clock.toISOString(), updated_at: clock.toISOString(), ...extra };
+    store.followups!.push(row);
+    return row;
+  };
+  const audits = () => (store.audit_log ?? []).filter((a) => a.action === "followup_failed_resolved");
+  const sendsBefore = calls.sends;
+  const touchesBefore = touchEvents().length;
+
+  const a = failedRow();
+  const stopped = await resolveFailedFollowup(db as never, { organizationId: ORG, followupId: a.id, resolution: "stop", actorUserId: "user-1", now: clock });
+  assert.deepEqual([stopped.ok, stopped.outcome], [true, "stopped"]);
+  assert.deepEqual([fu(a.id).state, fu(a.id).exit_reason], ["exited", "stopped_by_person"]);
+
+  const again = await resolveFailedFollowup(db as never, { organizationId: ORG, followupId: a.id, resolution: "skip", actorUserId: "user-1", now: clock });
+  assert.equal(again.ok, false, "a second resolution changes nothing");
+  assert.equal(fu(a.id).state, "exited");
+
+  const b = failedRow();
+  const skipped = await resolveFailedFollowup(db as never, { organizationId: ORG, followupId: b.id, resolution: "skip", actorUserId: "user-1", now: clock });
+  assert.deepEqual([skipped.ok, skipped.outcome], [true, "continued"]);
+  assert.equal(fu(b.id).state, "scheduled");
+  assert.equal(fu(b.id).attempt_count, 1, "the failed touch is counted, not re-sent");
+  assert.ok(new Date(String(fu(b.id).next_action_at)).getTime() > clock.getTime(), "the next touch is on its normal cadence, not now");
+
+  const last = failedRow({ attempt_count: 2 });
+  const completed = await resolveFailedFollowup(db as never, { organizationId: ORG, followupId: last.id, resolution: "skip", actorUserId: "user-1", now: clock });
+  assert.deepEqual([completed.ok, completed.outcome, fu(last.id).state], [true, "completed", "completed"]);
+
+  assert.equal((await resolveFailedFollowup(db as never, { organizationId: OTHER_ORG, followupId: failedRow().id, resolution: "stop", actorUserId: "user-2", now: clock })).ok, false, "another organization cannot resolve it");
+  const { followup: active } = await newFollowup({ contact_id: OTHER_CONTACT });
+  assert.equal((await resolveFailedFollowup(db as never, { organizationId: ORG, followupId: active.id, resolution: "stop", actorUserId: "user-1", now: clock })).ok, false, "only failed follow-ups");
+
+  assert.equal(calls.sends, sendsBefore, "nothing was sent");
+  assert.equal(touchEvents().length, touchesBefore, "no touch was recorded");
+  assert.equal(audits().length, 3);
+  assert.deepEqual(audits().map((r) => [r.user_id, (r.metadata as Row).resolution]), [["user-1", "stop"], ["user-1", "skip"], ["user-1", "skip"]]);
+});
+
+test("recovery UI (audit): admin-checked server action; the list never offers a 'retry' it cannot safely perform", () => {
+  const actions = readFileSync(path.join(process.cwd(), "app/(app)/leads/actions.ts"), "utf8");
+  const action = actions.slice(actions.indexOf("export async function resolveFailedFollowupAction"));
+  assert.match(action, /assertOrgAdmin\(supabase, organizationId\)/);
+  assert.match(action, /resolveFailedFollowup\(createServiceRoleClient\(\), \{ organizationId, followupId, resolution, actorUserId: userId \}\)/);
+  const ui = readFileSync(path.join(process.cwd(), "app/(app)/automations/_components/failed-followups.tsx"), "utf8");
+  assert.doesNotMatch(ui.replace(/\/\*[\s\S]*?\*\//g, ""), />[^<]*\bretry\b/i, "no visible Retry control or copy");
+  const page = readFileSync(path.join(process.cwd(), "app/(app)/automations/[automationId]/page.tsx"), "utf8");
+  assert.match(page, /<FailedFollowups items=\{failedFollowups\} canManage=\{canManage\} \/>/);
+});
+
 test("cadence has ONE source: the dispatcher reads config.ts, nothing else hard-codes 24/72/168", () => {
   for (const file of ["lib/followups/engine.ts", "lib/followups/producer.ts", "lib/followups/store.ts"]) {
     const source = readFileSync(path.join(process.cwd(), file), "utf8");
