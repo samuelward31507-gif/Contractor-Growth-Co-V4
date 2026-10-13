@@ -14,6 +14,7 @@ import { assertOrgAdmin } from "@/lib/automation/authorization";
 import { isCustomerReplySimulationEnvironment } from "@/lib/messaging/simulate-customer-reply";
 import { dispatchFollowup } from "@/lib/followups/engine";
 import { describeDispatchOutcome } from "@/lib/followups/format";
+import { resolveFailedFollowup } from "@/lib/followups/recovery";
 
 export type LeadFormState = {
   error?: string;
@@ -405,4 +406,29 @@ function describeLeadTouchNow(outcome: { outcome: string; occurrence?: number; e
     default:
       return { status: "not_owed", result: `Nothing to run (${outcome.reason ?? outcome.outcome}).` };
   }
+}
+
+export type ResolveFailedFollowupActionResult = { ok: true; message: string } | { ok: false; error: string };
+
+/**
+ * Audit: a person resolves a follow-up that stopped after a failure
+ * (lib/followups/recovery.ts) - "stop" ends it, "skip" gives up the failed
+ * message (never re-sent) and continues with the next one on its normal
+ * cadence. Org admins/owners only, re-verified here; the write is
+ * conditional on the follow-up still being failed (idempotent) and audited.
+ */
+export async function resolveFailedFollowupAction(followupId: string, resolution: "stop" | "skip"): Promise<ResolveFailedFollowupActionResult> {
+  if (!followupId) return { ok: false, error: "Missing follow-up." };
+  if (resolution !== "stop" && resolution !== "skip") return { ok: false, error: "Choose how to resolve this follow-up." };
+  const { supabase, organizationId, userId } = await requireOrganization();
+  const admin = await assertOrgAdmin(supabase, organizationId);
+  if (!admin.ok) return { ok: false, error: admin.error };
+
+  const result = await resolveFailedFollowup(createServiceRoleClient(), { organizationId, followupId, resolution, actorUserId: userId });
+  if (!result.ok) return { ok: false, error: result.error };
+  revalidatePath("/automations/lead-followup-sequence");
+  revalidatePath("/today");
+  const message =
+    result.outcome === "stopped" ? "Follow-up stopped." : result.outcome === "completed" ? "That was the last message - the follow-up is complete." : "Skipped. The next message will go out on its normal schedule.";
+  return { ok: true, message };
 }

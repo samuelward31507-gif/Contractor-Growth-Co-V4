@@ -32,6 +32,8 @@ import { RecentExecutions } from "../_components/recent-executions";
 import { ManualRunControls } from "../_components/manual-run-controls";
 import { EnableToggle } from "../_components/enable-toggle";
 import { IncidentList } from "../_components/incident-list";
+import { FailedFollowups, type FailedFollowupItem } from "../_components/failed-followups";
+import { FOLLOWUP_AUTOMATION_ID } from "@/lib/followups/store";
 import { AppointmentReminderConfigForm } from "../_components/appointment-reminder-config";
 import { EstimateFollowupConfigForm } from "../_components/estimate-followup-config";
 import { InboundCustomerReplyConfigForm } from "../_components/inbound-customer-reply-config";
@@ -128,6 +130,26 @@ export default async function AutomationDetailPage({ params }: { params: Promise
   const automationIncidents = orgIncidents.filter((incident) => incident.automationId === definition.id);
 
   const hasBusinessHoursConfigured = businessHours.length > 0;
+
+  // Audit: follow-ups waiting for a person after a failure (resolved via
+  // lib/followups/recovery.ts). RLS (followups_select) scopes the read.
+  let failedFollowups: FailedFollowupItem[] = [];
+  if (definition.id === FOLLOWUP_AUTOMATION_ID) {
+    const { data, error } = await supabase
+      .from("followups")
+      .select("id, lead_id, attempt_count, updated_at")
+      .eq("organization_id", membership.organizationId)
+      .eq("state", "failed")
+      .order("updated_at", { ascending: false })
+      .limit(50);
+    if (error) console.error("[automations] failed follow-ups read failed", { organizationId: membership.organizationId, error: error.message });
+    failedFollowups = ((data ?? []) as { id: string; lead_id: string; attempt_count: number; updated_at: string }[]).map((row) => ({
+      id: row.id,
+      leadId: row.lead_id,
+      failedTouch: row.attempt_count + 1,
+      updatedAt: row.updated_at,
+    }));
+  }
 
   const summary = buildAutomationSummaries(statsByName, enabledByAutomationId).find((s) => s.definition.id === definition.id)!;
   const automationEnabled = summary.enabled;
@@ -247,6 +269,8 @@ export default async function AutomationDetailPage({ params }: { params: Promise
           )}
         </>
       ) : null}
+
+      <FailedFollowups items={failedFollowups} canManage={canManage} />
 
       {definition.kind !== "safety-layer" ? <IncidentList incidents={automationIncidents} /> : null}
 
