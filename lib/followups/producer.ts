@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAutomationEnabled } from "@/lib/automation/settings";
-import { FOLLOWUP_CADENCE_HOURS, touchDueAt } from "./config";
+import { FOLLOWUP_CADENCE_HOURS, FOLLOWUP_DISPATCH_BATCH, FOLLOWUP_LEASE_MINUTES, touchDueAt } from "./config";
 import { FOLLOWUP_AUTOMATION_ID, FOLLOWUP_COLUMNS, transitionFollowup, type FollowupRow } from "./store";
 import { getObligationKindDescriptor, LEAD_NO_REPLY } from "./kinds";
 
@@ -88,3 +88,32 @@ export async function reactivateLeadFollowup(
   return transitionFollowup(service, row, "scheduled", { next_action_at: next.toISOString(), paused_reason: null, reactivated_at: now.toISOString(), waiting_on: "customer", next_action: "send_followup" });
 }
 
+
+/**
+ * Recovery: ensureObligation inserts a row as `pending` and then schedules it
+ * in a second write. If that second write is lost (process died, write
+ * failed) the row stays `pending`, which the dispatcher never scans and a
+ * repeat ensure (23505 -> "existing") never fixes. Each dispatch tick
+ * schedules such rows - after a grace period, so an in-flight ensure is never
+ * raced - from their own created_at, exactly as ensureObligation would have.
+ * The transition is conditional on the row still being `pending`.
+ */
+export async function scheduleStrandedPendingFollowups(service: SupabaseClient, now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - FOLLOWUP_LEASE_MINUTES * 60 * 1000).toISOString();
+  const { data, error } = await service.from("followups").select(FOLLOWUP_COLUMNS).eq("state", "pending").lt("created_at", cutoff).limit(FOLLOWUP_DISPATCH_BATCH);
+  if (error) {
+    console.error("[followups] stranded pending scan failed", { error: error.message });
+    return 0;
+  }
+  let scheduled = 0;
+  for (const row of (data ?? []) as FollowupRow[]) {
+    const firstDue = touchDueAt(new Date(row.created_at), row.stage, 1);
+    if (!firstDue) continue;
+    const result = await transitionFollowup(service, row, "scheduled", { next_action_at: firstDue.toISOString(), waiting_on: "customer", next_action: "send_followup" });
+    if (result) {
+      scheduled += 1;
+      console.warn("[followups] recovered a follow-up stranded in pending", { followupId: row.id, organizationId: row.organization_id });
+    }
+  }
+  return scheduled;
+}

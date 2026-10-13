@@ -183,16 +183,22 @@ export async function getInvoicePayments(supabase: SupabaseClient, organizationI
 
 export type CustomerPaymentsResult = { data: CustomerPayment[]; failed: boolean };
 
-/** Every payment row for the org (capped) - the "collected" ledger for Money. `failed` distinguishes a read error from a genuinely empty ledger. */
+/**
+ * Every payment row for the org - the "collected" ledger for Money, newest
+ * first. Paged in full (it used to stop silently at 5,000 rows, undercounting
+ * Collected). `failed` is true on a read error or a ledger at the paging cap,
+ * so a partial ledger is never presented as complete.
+ */
 export async function getCustomerPaymentsResult(supabase: SupabaseClient, organizationId: string): Promise<CustomerPaymentsResult> {
-  const { data, error } = await supabase
-    .from("customer_payments")
-    .select(PAYMENT_COLUMNS)
-    .eq("organization_id", organizationId)
-    .order("received_at", { ascending: false })
-    .limit(5000);
-
-  return { data: (data ?? []) as CustomerPayment[], failed: error != null };
+  const read = await readAllPages<CustomerPayment>(() =>
+    supabase
+      .from("customer_payments")
+      .select(PAYMENT_COLUMNS)
+      .eq("organization_id", organizationId)
+      .order("received_at", { ascending: false })
+      .order("id"),
+  );
+  return { data: read.rows, failed: read.failed };
 }
 
 /**

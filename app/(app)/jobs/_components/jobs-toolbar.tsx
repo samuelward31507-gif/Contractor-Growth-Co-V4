@@ -81,6 +81,7 @@ export function JobsToolbar({
         className={`${inputClass} sm:w-44`}
       >
         <option value="all">All statuses</option>
+        <option value="active">Scheduled or in progress</option>
         {JOB_STATUSES.map((item) => (
           <option key={item.value} value={item.value}>
             {item.label}

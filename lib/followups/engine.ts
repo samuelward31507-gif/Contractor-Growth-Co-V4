@@ -17,6 +17,7 @@ import type { LifecycleSnapshot } from "@/lib/lifecycle/snapshot";
 import { FOLLOWUP_DISPATCH_BATCH, FOLLOWUP_LEASE_MINUTES, touchCount, touchDueAt } from "./config";
 import type { FollowupState } from "./state";
 import { FOLLOWUP_COLUMNS, transitionFollowup, type FollowupRow, type Fields } from "./store";
+import { scheduleStrandedPendingFollowups } from "./producer";
 import { FOLLOWUP_EVENT_TYPE, LEAD_NO_REPLY, getObligationKindDescriptor, type ObligationKindDescriptor } from "./kinds";
 
 export { FOLLOWUP_AUTOMATION_ID } from "./store";
@@ -442,6 +443,7 @@ export type DispatchOptions = {
 /** One tick: every due scheduled obligation plus any whose lease expired (crash recovery). */
 export async function dispatchDueObligations(service: SupabaseClient, now: Date = new Date(), options: DispatchOptions = {}): Promise<DispatchOutcome[]> {
   const nowIso = now.toISOString();
+  await scheduleStrandedPendingFollowups(service, now);
   const [due, stale] = await Promise.all([
     service.from("followups").select("id").eq("state", "scheduled").lte("next_action_at", nowIso).order("next_action_at", { ascending: true }).limit(FOLLOWUP_DISPATCH_BATCH),
     service.from("followups").select("id").eq("state", "processing").lt("lease_until", nowIso).limit(FOLLOWUP_DISPATCH_BATCH),

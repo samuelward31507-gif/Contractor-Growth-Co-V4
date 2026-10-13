@@ -101,7 +101,7 @@ test("where the work stands: six current-state stages, each linking to the page 
     ["Leads", "$10", "2 hot", "/people?view=leads", undefined],
     ["Quoted", "$20", "3 estimates", "/estimates?status=sent", undefined],
     ["Accepted", "$30", "1 to book", "/estimates?status=accepted", undefined],
-    ["In progress", "$40", "4 jobs", "/jobs?status=in_progress", undefined],
+    ["In progress", "$40", "4 jobs", "/jobs?status=active", undefined],
     ["Ready to invoice", "$45.00", "2 completed jobs", "/money?browse=jobs&status=completed", undefined],
     ["Unpaid", "$50.00", "1 invoice", "/money?browse=invoices&status=sent", undefined],
   ]);

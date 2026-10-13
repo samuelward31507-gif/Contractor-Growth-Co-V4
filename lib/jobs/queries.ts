@@ -165,9 +165,15 @@ export async function getContactJobs(supabase: SupabaseClient, organizationId: s
   return (read.rows as RawJobRow[]).map(normalizeJob);
 }
 
+/**
+ * "active" = scheduled or in progress: the booked-but-not-finished work the
+ * Today "In progress" tile sums, so the tile and the list it links to match.
+ */
+export const ACTIVE_JOB_STATUSES: readonly JobStatus[] = ["scheduled", "in_progress"];
+
 export type JobFilters = {
   query?: string;
-  status?: JobStatus | "all";
+  status?: JobStatus | "all" | "active";
 };
 
 /**
@@ -180,7 +186,9 @@ export function filterJobs(jobs: Job[], filters: JobFilters): Job[] {
   const term = filters.query?.trim().toLowerCase() ?? "";
 
   return jobs.filter((job) => {
-    if (filters.status && filters.status !== "all" && job.status !== filters.status) return false;
+    if (filters.status === "active") {
+      if (!ACTIVE_JOB_STATUSES.includes(job.status)) return false;
+    } else if (filters.status && filters.status !== "all" && job.status !== filters.status) return false;
 
     if (!term) return true;
 

@@ -168,7 +168,12 @@ mock.module(lib("lib/automation/executions.ts"), {
     failWorkflowExecutionAsService: failExecution,
   },
 });
+// Mirrors the real idempotency key `lead.created:<leadId>`: a second emit for
+// the same lead is a no-op. faults["lead.created"] simulates a swallowed
+// event-creation failure (the real function logs and returns).
 const captureLeadCreated = async (_s: unknown, input: Row) => {
+  if ((faults["lead.created"] ?? 0) > 0) { faults["lead.created"] -= 1; return; }
+  if (calls.leadCreated.some((c) => c.leadId === input.leadId)) return;
   calls.leadCreated.push(input);
 };
 mock.module(lib("lib/automation/lead-followup.ts"), { namedExports: { emitLeadCreatedFollowup: captureLeadCreated, emitLeadCreatedFollowupAsService: captureLeadCreated } });
@@ -1005,4 +1010,28 @@ test("web form 5 (audit): a failed duplicate-window check fails closed (503) ins
   assert.equal(response.status, 503);
   assert.equal(leads().length, 1, "no new lead");
   assert.equal((store.automation_events ?? []).filter((e) => e.event_type === "lead.intake_received").length, 0, "nothing attached or recorded");
+});
+
+test("web form 6 (audit): a lead.created event lost on the first submission is repaired by the retry, without a second lead", async () => {
+  faults["lead.created"] = 1;
+  const first = await webForm(FORM);
+  assert.equal(first.status, 201);
+  assert.equal(calls.leadCreated.length, 0, "the event was lost");
+  const retry = await (await webForm(FORM)).json();
+  assert.equal(retry.duplicate, true);
+  assert.equal(leads().length, 1, "no second lead");
+  assert.equal(calls.leadCreated.length, 1, "the retry re-emitted the missing lead.created");
+  assert.equal(calls.leadCreated[0].leadId, leads()[0].id);
+});
+
+test("conflict (audit): a phone/email pair on two different contacts is refused without telling the submitter why", async () => {
+  await webForm(FORM); // contact A: PHONE
+  await webForm({ ...FORM, phone: "+15125550177", email: "b@example.com" }); // contact B: other phone + email
+  const response = await webForm({ ...FORM, email: "b@example.com" }); // PHONE -> A, email -> B
+  assert.equal(response.status, 409);
+  const json = await response.json();
+  assert.equal(json.ok, false);
+  assert.doesNotMatch(String(json.error), /contact|on file|already/i, "does not reveal that both identities exist");
+  assert.equal(json.leadId, undefined);
+  assert.equal(json.contactId, undefined);
 });
