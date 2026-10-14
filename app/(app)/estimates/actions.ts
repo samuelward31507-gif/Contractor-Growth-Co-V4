@@ -5,11 +5,12 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getUserOrganization } from "@/lib/auth/organization";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 import { emitEstimateSent, emitEstimateLifecycleEvent } from "@/lib/automation/estimates";
 import { deliverEstimateToCustomer, describeEstimateDelivery, type EstimateDeliverySummary } from "@/lib/automation/estimate-delivery";
 import { resolveCustomerLinkBaseUrl } from "@/lib/estimates/approval-link";
 import { emitJobCreatedFromEstimate } from "@/lib/automation/jobs";
-import { findRecentDuplicateEstimate } from "@/lib/estimates/duplicate-guard";
+import { findRecentDuplicateEstimate, reconcileConcurrentDuplicateEstimate } from "@/lib/estimates/duplicate-guard";
 import { getJobByEstimateId } from "@/lib/jobs/queries";
 
 export type EstimateActionResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -45,7 +46,7 @@ async function requireOrganization() {
     redirect("/onboarding");
   }
 
-  return { supabase, organizationId: membership.organizationId };
+  return { supabase, organizationId: membership.organizationId, userId: user.id };
 }
 
 async function verifyContactInOrganization(
@@ -143,8 +144,11 @@ export async function createEstimate(_prevState: EstimateFormState, formData: Fo
 
   if (insertError || !data) return { error: "We couldn't create this estimate. Please try again." };
 
+  // A concurrent identical submission may have inserted too - converge on one.
+  const id = await reconcileConcurrentDuplicateEstimate(supabase, organizationId, input, data.id);
+
   revalidatePath("/money");
-  return { success: true, id: data.id };
+  return { success: true, id };
 }
 
 /**
@@ -258,12 +262,21 @@ export async function createJobFromAcceptedEstimate(estimateId: string): Promise
   return { ok: true, id: created.id };
 }
 
+const ESTIMATE_TRANSITION_AUDIT_ACTION = {
+  accepted: "estimate_marked_accepted",
+  declined: "estimate_marked_declined",
+  cancelled: "estimate_cancelled",
+} as const;
+
 async function transitionEstimate(
   estimateId: string,
   toStatus: "accepted" | "declined" | "cancelled",
   fromStatuses: string[],
 ): Promise<EstimateActionResult> {
-  const { supabase, organizationId } = await requireOrganization();
+  const { supabase, organizationId, userId } = await requireOrganization();
+
+  // Read for the audit record only; the update below stays conditional.
+  const { data: before } = await supabase.from("estimates").select("status").eq("id", estimateId).eq("organization_id", organizationId).maybeSingle();
 
   const patch: Record<string, unknown> = { status: toStatus };
   if (toStatus === "accepted" || toStatus === "declined") {
@@ -281,6 +294,22 @@ async function transitionEstimate(
 
   if (error) return { ok: false, error: "We couldn't update this estimate." };
   if (!data) return { ok: false, error: "This estimate could not be found or is not in an eligible state." };
+
+  // Who changed the estimate and from what. Written only after the
+  // conditional update succeeded, so a repeated click (which finds no
+  // eligible row) records nothing. audit_log has no client INSERT policy:
+  // the service role writes it, as elsewhere (settings/lead-capture).
+  const { error: auditError } = await createServiceRoleClient()
+    .from("audit_log")
+    .insert({
+      organization_id: organizationId,
+      user_id: userId,
+      action: ESTIMATE_TRANSITION_AUDIT_ACTION[toStatus],
+      entity_type: "estimate",
+      entity_id: estimateId,
+      metadata: { from_status: (before as { status?: string } | null)?.status ?? null, to_status: toStatus },
+    });
+  if (auditError) console.error("[estimates] failed to record the status change in audit_log", { organizationId, estimateId, toStatus, error: auditError.message });
 
   if (toStatus === "accepted") {
     await emitEstimateLifecycleEvent(supabase, estimateId, "estimate.accepted");

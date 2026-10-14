@@ -104,7 +104,7 @@ test("11. a manual Confirm records confirmed_at: applyAppointmentUpdate - shared
   const body = helperMatch![0];
   assert.match(body, /computeConfirmationOnStatusChange\(previous\.status, invalidation\.status \?\? fields\.status \?\? previous\.status, new Date\(\)\)/);
   assert.match(body, /fieldsWithInvalidation: AppointmentUpdateFields = \{ \.\.\.fields, \.\.\.invalidation, \.\.\.confirmation \}/, "confirmation must be applied last, in the single write");
-  assert.match(extractFunction("updateAppointmentStatus"), /applyAppointmentUpdate\(supabase, organizationId, id, \{ status \}\)/, "the one-click Confirm goes through that same helper");
+  assert.match(extractFunction("updateAppointmentStatus"), /applyAppointmentUpdate\(supabase, organizationId, userId, id, \{ status \}\)/, "the one-click Confirm goes through that same helper");
 });
 
 test("12. creating an appointment directly as 'confirmed' records confirmed_at through the same rule, never a separate one", () => {

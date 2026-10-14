@@ -1,0 +1,117 @@
+# Trackpr verification.
+#
+# offline      - every pull request / push to a QA or release branch: TypeScript,
+#                ESLint, the unit suite (no database), and a production build.
+#                Needs no secrets.
+# test-database - manual only (workflow_dispatch): the 7 database-backed test
+#                files and every *.integration.test.ts against the TEST
+#                Supabase project. Reads TEST credentials from the
+#                `trackpr-test` GitHub environment. The fail-closed guard
+#                (lib/automation/test-db-guard.mjs, installed by the loader)
+#                refuses any request that is not provably the TEST project
+#                lwofqffxagxiqodqvcfr - Production is always refused - and any
+#                Twilio/Resend call or live-mode Stripe key.
+name: Trackpr verification
+
+on:
+  pull_request:
+  push:
+    branches: ["qa/**", "release/**"]
+  workflow_dispatch:
+    inputs:
+      run_test_database:
+        description: "Also run the database-backed and integration suites against TEST"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # The 7 non-*.integration test files that need a real database.
+  DATABASE_UNIT_FILES: >-
+    app/(auth)/forgot-password/actions.test.ts
+    app/(auth)/signup/actions.notification.test.ts
+    app/agency/organizations/actions.test.ts
+    app/api/webhooks/stripe/route.test.ts
+    app/auth/reset-password/actions.test.ts
+    supabase/migrations/blocked-time-migration.test.ts
+    supabase/migrations/opportunities-migration.test.ts
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Some tests compare files against earlier commits (git show <sha>:path).
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # PageProps / LayoutProps are global types Next.js generates into .next/;
+      # a fresh checkout has none, so generate them before type-checking.
+      - name: Generate Next.js route types
+        run: npx next typegen
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: ESLint
+        run: npx eslint .
+      - name: Unit suite (no database)
+        shell: bash
+        run: |
+          mapfile -t db < <(printf '%s\n' $DATABASE_UNIT_FILES)
+          mapfile -t files < <(git ls-files '*.test.ts' | grep -v 'integration\.test\.ts$' | grep -vxF -f <(printf '%s\n' "${db[@]}"))
+          status=0
+          node --experimental-test-module-mocks --import ./lib/automation/test-loader.mjs --test "${files[@]}" > unit.tap 2>&1 || status=$?
+          # Print every failure with its diagnostics, then the totals - not 18k lines of passing TAP.
+          awk '/^not ok/{p=1} /^ok /{p=0} p' unit.tap | head -n 400
+          grep -E '^# (tests|pass|fail|cancelled|skipped|todo)' unit.tap
+          exit $status
+      - name: Production build
+        run: npx next build
+
+  test-database:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_test_database
+    needs: offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: trackpr-test
+    env:
+      TRACKPR_INTEGRATION_TARGET: test
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      STRIPE_SECRET_KEY: ${{ secrets.TEST_STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.TEST_STRIPE_WEBHOOK_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify the target is TEST (prints project refs and modes only)
+        run: |
+          node -e '
+            const claims = (t) => JSON.parse(Buffer.from(String(t).split(".")[1] ?? "", "base64url").toString() || "{}");
+            const host = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).host;
+            const anon = claims(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY).ref;
+            const service = claims(process.env.SUPABASE_SERVICE_ROLE_KEY).ref;
+            const stripeTest = String(process.env.STRIPE_SECRET_KEY).startsWith("sk_test_");
+            console.log({ host, anon, service, stripeTest });
+            if (host !== "lwofqffxagxiqodqvcfr.supabase.co" || anon !== "lwofqffxagxiqodqvcfr" || service !== "lwofqffxagxiqodqvcfr" || !stripeTest) process.exit(1);'
+      - name: Database-backed unit files
+        shell: bash
+        run: |
+          mapfile -t db < <(printf '%s\n' $DATABASE_UNIT_FILES)
+          node --experimental-test-module-mocks --import ./lib/automation/test-loader.mjs --test "${db[@]}"
+      - name: Integration suite
+        if: always()
+        shell: bash
+        run: |
+          mapfile -t files < <(git ls-files '*integration.test.ts')
+          node --experimental-test-module-mocks --import ./lib/automation/test-loader.mjs --test "${files[@]}"
