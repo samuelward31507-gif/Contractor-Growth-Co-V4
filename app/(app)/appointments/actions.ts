@@ -11,6 +11,8 @@ import { syncAppointmentCreatedToGoogle, syncAppointmentUpdatedToGoogle, syncApp
 import { zonedWallTimeToUtc } from "@/lib/scheduling/availability";
 import { getOrganizationTimezone } from "@/lib/settings/queries";
 import { computeConfirmationInvalidationOnTimeChange, computeConfirmationOnStatusChange } from "@/lib/appointments/confirmation";
+import { checkAppointmentOutcomeTiming } from "@/lib/appointments/outcome-timing";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 
 export type AppointmentFormState = {
   error?: string;
@@ -142,7 +144,7 @@ async function requireOrganization() {
     redirect("/onboarding");
   }
 
-  return { supabase, organizationId: membership.organizationId };
+  return { supabase, organizationId: membership.organizationId, userId: user.id };
 }
 
 async function verifyContactInOrganization(
@@ -283,7 +285,7 @@ export async function updateAppointment(
     return { error: "Missing appointment." };
   }
 
-  const { supabase, organizationId } = await requireOrganization();
+  const { supabase, organizationId, userId } = await requireOrganization();
   const timeZone = (await getOrganizationTimezone(supabase, organizationId)) ?? "UTC";
 
   const { input, error } = parseAppointmentForm(formData, timeZone);
@@ -294,7 +296,7 @@ export async function updateAppointment(
     return { error: relationshipError };
   }
 
-  const result = await applyAppointmentUpdate(supabase, organizationId, id, input);
+  const result = await applyAppointmentUpdate(supabase, organizationId, userId, id, input);
   if (!result.ok) {
     return { error: result.error };
   }
@@ -392,9 +394,31 @@ type ApplyAppointmentUpdateResult = { ok: true; warning?: string } | { ok: false
  * field-specific validation (conflict checks, form parsing) before calling
  * this - it only performs the write and the resulting dispatch.
  */
+/**
+ * QA: who changed an appointment's status, and from what. The automation
+ * event (appointment.completed etc.) records THAT it happened; this records
+ * WHO did it. audit_log has no client INSERT policy, so the service role
+ * writes it after the RLS-checked update succeeded. A failed audit write is
+ * logged, never surfaced as a failed save.
+ */
+async function auditAppointmentStatusChange(organizationId: string, actorUserId: string, appointmentId: string, fromStatus: AppointmentStatus, toStatus: AppointmentStatus): Promise<void> {
+  const { error } = await createServiceRoleClient()
+    .from("audit_log")
+    .insert({
+      organization_id: organizationId,
+      user_id: actorUserId,
+      action: "appointment_status_changed",
+      entity_type: "appointment",
+      entity_id: appointmentId,
+      metadata: { from_status: fromStatus, to_status: toStatus },
+    });
+  if (error) console.error("[appointments] failed to record the status change in audit_log", { organizationId, appointmentId, toStatus, error: error.message });
+}
+
 async function applyAppointmentUpdate(
   supabase: Awaited<ReturnType<typeof createClient>>,
   organizationId: string,
+  actorUserId: string,
   id: string,
   fields: AppointmentUpdateFields,
 ): Promise<ApplyAppointmentUpdateResult> {
@@ -410,6 +434,18 @@ async function applyAppointmentUpdate(
 
   if (!previous) {
     return { ok: false, error: "This appointment could not be found." };
+  }
+
+  // QA: completed / no-show only once the appointment has started, judged
+  // against the time being saved (lib/appointments/outcome-timing.ts).
+  const prematureOutcome = checkAppointmentOutcomeTiming({
+    previousStatus: previous.status,
+    nextStatus: fields.status ?? previous.status,
+    startAt: fields.start_at ?? previous.start_at,
+    now: new Date(),
+  });
+  if (prematureOutcome) {
+    return { ok: false, error: prematureOutcome };
   }
 
   // Pass 5B, Part A5: a time change invalidates any prior confirmation - see
@@ -461,6 +497,7 @@ async function applyAppointmentUpdate(
     updated_at: data.updated_at,
   };
 
+  if (next.status !== previous.status) await auditAppointmentStatusChange(organizationId, actorUserId, id, previous.status, next.status);
   await emitAppointmentTransitions(supabase, id, previous, next);
   const warning = await syncAppointmentEditToGoogle(supabase, organizationId, id, previous, next.status);
 
@@ -484,8 +521,8 @@ export async function updateAppointmentStatus(id: string, status: AppointmentSta
   if (!id) return { error: "Missing appointment." };
   if (!CONFIRMABLE_STATUSES.includes(status)) return { error: "Invalid status." };
 
-  const { supabase, organizationId } = await requireOrganization();
-  const result = await applyAppointmentUpdate(supabase, organizationId, id, { status });
+  const { supabase, organizationId, userId } = await requireOrganization();
+  const result = await applyAppointmentUpdate(supabase, organizationId, userId, id, { status });
   if (!result.ok) return { error: result.error };
 
   revalidatePath("/appointments");
@@ -523,7 +560,7 @@ export async function rescheduleAppointmentTime(id: string, date: string, startT
     return { error: "Enter a valid date and time." };
   }
 
-  const { supabase, organizationId } = await requireOrganization();
+  const { supabase, organizationId, userId } = await requireOrganization();
   const timeZone = (await getOrganizationTimezone(supabase, organizationId)) ?? "UTC";
 
   const [, yearStr, monthStr, dayStr] = dateMatch;
@@ -551,7 +588,7 @@ export async function rescheduleAppointmentTime(id: string, date: string, startT
   const hasBlockedTimeOverlap = await checkBlockedTimeOverlap(supabase, organizationId, { start_at: startAt, end_at: endAt });
   if (hasBlockedTimeOverlap) return { error: BLOCKED_TIME_CONFLICT_ERROR };
 
-  const result = await applyAppointmentUpdate(supabase, organizationId, id, { start_at: startAt, end_at: endAt });
+  const result = await applyAppointmentUpdate(supabase, organizationId, userId, id, { start_at: startAt, end_at: endAt });
   if (!result.ok) return { error: result.error };
 
   revalidatePath("/appointments");
