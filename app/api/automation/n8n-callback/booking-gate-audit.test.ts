@@ -27,6 +27,7 @@ const state = {
   gate: { allowed: false, reason: "organization_not_live" } as Record<string, unknown>,
   availabilityRange: null as [string, string] | null,
   completion: null as Record<string, unknown> | null,
+  failure: null as { message: string; category: string } | null,
   sends: 0,
 };
 
@@ -41,7 +42,10 @@ mock.module(lib("lib/automation/executions.ts"), {
       state.completion = metadata;
       return { ok: true };
     },
-    failWorkflowExecutionAsService: async () => ({ ok: true }),
+    failWorkflowExecutionAsService: async (_c: unknown, _id: string, message: string, category: string) => {
+      state.failure = { message, category };
+      return { ok: true };
+    },
   },
 });
 mock.module(lib("lib/messaging/outbound.ts"), {
@@ -97,6 +101,7 @@ beforeEach(() => {
   state.gate = { allowed: false, reason: "organization_not_live" };
   state.availabilityRange = null;
   state.completion = null;
+  state.failure = null;
   state.sends = 0;
 });
 
@@ -115,7 +120,15 @@ test("check_availability: the AI's exact local-day range drives the real availab
 test("check_availability: a missing range is still rejected as missing_date_range (ambiguous requests are never guessed)", async () => {
   await handleBookingIntent(service, params({}));
   assert.equal(state.availabilityRange, null);
-  assert.equal(state.completion?.error, "missing_date_range");
+  assert.match(String(state.failure?.message), /^missing_date_range:/);
+});
+
+test("QA reproduction: a missing_date_range run is recorded as FAILED, never as a completed (outcome 'succeeded') run - the customer was not answered", async () => {
+  await handleBookingIntent(service, params({}));
+  assert.equal(state.completion, null, "not completed");
+  assert.equal(state.failure?.category, "workflow_failed");
+  assert.match(String(state.failure?.message), /needs a person/);
+  assert.equal(state.sends, 0, "still nothing is sent to the customer");
 });
 
 test("check_availability: an allowed offer records no block reason", async () => {

@@ -653,9 +653,18 @@ export async function handleBookingIntent(
 
   if (bookingIntent.action === "check_availability") {
     if (!bookingIntent.date_range_start || !bookingIntent.date_range_end) {
-      const result = await completeWorkflowExecutionAsService(service, executionId, { should_send: false, booking_action: "check_availability", error: "missing_date_range" });
+      // QA: the customer asked about a time and got nothing - this run did
+      // not do its job, so it is recorded as FAILED (outcome 'failed', shown
+      // on Today as needing a person), never as a completed run with the
+      // error tucked into its metadata (which derived outcome 'succeeded').
+      const result = await failWorkflowExecutionAsService(
+        service,
+        executionId,
+        "missing_date_range: the AI asked to check availability without a date range - the customer's scheduling request was not answered and needs a person",
+        "workflow_failed",
+      );
       if (!result.ok && !isAlreadyProcessedError(result.error)) {
-        console.error("[automation] failed to complete check_availability execution", { executionId, error: result.error });
+        console.error("[automation] failed to record the check_availability failure", { executionId, error: result.error });
       }
       return NextResponse.json({ ok: true, booking: { status: "invalid_request", slots: [] } });
     }
