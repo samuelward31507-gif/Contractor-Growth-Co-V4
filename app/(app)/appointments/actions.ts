@@ -382,19 +382,6 @@ type AppointmentUpdateFields = Partial<AppointmentInput>;
 type ApplyAppointmentUpdateResult = { ok: true; warning?: string } | { ok: false; error: string };
 
 /**
- * Pass 2 (Native Calendar System): the shared "read previous state, apply a
- * partial update, dispatch whichever lifecycle automation/Google sync the
- * transition implies" sequence updateAppointment's full-form save already
- * established - extracted so the calendar's one-click status actions and
- * drag-free reschedule action reuse the exact same automation dispatch
- * (emitAppointmentTransitions) and Google Calendar sync
- * (syncAppointmentEditToGoogle) rather than duplicating either, per this
- * pass's own "do not duplicate confirmation/reminder logic in the calendar
- * UI" instruction. Every caller is still responsible for its own
- * field-specific validation (conflict checks, form parsing) before calling
- * this - it only performs the write and the resulting dispatch.
- */
-/**
  * QA: who changed an appointment's status, and from what. The automation
  * event (appointment.completed etc.) records THAT it happened; this records
  * WHO did it. audit_log has no client INSERT policy, so the service role
@@ -415,6 +402,19 @@ async function auditAppointmentStatusChange(organizationId: string, actorUserId:
   if (error) console.error("[appointments] failed to record the status change in audit_log", { organizationId, appointmentId, toStatus, error: error.message });
 }
 
+/**
+ * Pass 2 (Native Calendar System): the shared "read previous state, apply a
+ * partial update, dispatch whichever lifecycle automation/Google sync the
+ * transition implies" sequence updateAppointment's full-form save already
+ * established - extracted so the calendar's one-click status actions and
+ * drag-free reschedule action reuse the exact same automation dispatch
+ * (emitAppointmentTransitions) and Google Calendar sync
+ * (syncAppointmentEditToGoogle) rather than duplicating either, per this
+ * pass's own "do not duplicate confirmation/reminder logic in the calendar
+ * UI" instruction. Every caller is still responsible for its own
+ * field-specific validation (conflict checks, form parsing) before calling
+ * this - it only performs the write and the resulting dispatch.
+ */
 async function applyAppointmentUpdate(
   supabase: Awaited<ReturnType<typeof createClient>>,
   organizationId: string,
@@ -469,6 +469,13 @@ async function applyAppointmentUpdate(
     .update(fieldsWithInvalidation)
     .eq("id", id)
     .eq("organization_id", organizationId)
+    // QA: optimistic concurrency - only if the status and start time are
+    // still what the checks above were judged against. A concurrent change
+    // (another tab, a reschedule) makes this match nothing instead of
+    // recording an outcome against a time it was never checked for, and a
+    // double-click records (and audits) the transition once.
+    .eq("status", previous.status)
+    .eq("start_at", previous.start_at)
     .select("id, updated_at")
     .maybeSingle();
 
@@ -483,7 +490,7 @@ async function applyAppointmentUpdate(
   }
 
   if (!data) {
-    return { ok: false, error: "This appointment could not be found." };
+    return { ok: false, error: "This appointment was just changed. Reload it and try again." };
   }
 
   const next = {

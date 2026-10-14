@@ -22,6 +22,8 @@ const lib = (relative: string) => pathToFileURL(path.join(process.cwd(), relativ
 type Row = Record<string, unknown>;
 const ORG = "org-1";
 let store: Record<string, Row[]> = {};
+/** Test hook: runs once right after the next plain read of `appointments` (simulates a concurrent change between read and write). */
+let afterAppointmentRead: (() => void) | null = null;
 const emitted: string[] = [];
 
 class Query {
@@ -41,6 +43,7 @@ class Query {
   single() { return this.maybeSingle(); }
   then<T>(resolve: (value: { data: unknown; error: null }) => T, reject?: (reason: unknown) => T) { return this.run().then(resolve, reject); }
   private async run() {
+    await new Promise((resolve) => setImmediate(resolve)); // interleave concurrent requests
     const table = (store[this.table] ??= []);
     if (this.insertRows) {
       table.push(...this.insertRows.map((r) => ({ ...r })));
@@ -49,6 +52,11 @@ class Query {
     const rows = table.filter((row) => this.filters.every((f) => f(row)));
     if (this.updateValues) for (const row of rows) Object.assign(row, this.updateValues, { updated_at: new Date().toISOString() });
     const copy = rows.map((r) => ({ ...r }));
+    if (this.table === "appointments" && !this.updateValues && afterAppointmentRead) {
+      const hook = afterAppointmentRead;
+      afterAppointmentRead = null;
+      hook();
+    }
     return { data: this.singleRow ? (copy[0] ?? null) : copy, error: null };
   }
 }
@@ -89,6 +97,7 @@ const audits = (id: string) => (store.audit_log ?? []).filter((a) => a.entity_id
 
 beforeEach(() => {
   store = { appointments: [] };
+  afterAppointmentRead = null;
   emitted.length = 0;
 });
 
@@ -144,4 +153,25 @@ test("every status writer goes through the shared rule: the full edit form, the 
   const apply = source.slice(source.indexOf("async function applyAppointmentUpdate("));
   assert.ok(apply.indexOf("checkAppointmentOutcomeTiming(") < apply.indexOf(".update(fieldsWithInvalidation)"), "checked before the write");
   assert.equal((source.match(/from\("appointments"\)\s*\.update\(/g) ?? []).length, 2, "only the shared update and the Google-id cleanup write appointments");
+});
+
+test("concurrency: two simultaneous 'complete' clicks record the transition, the event and the audit row once", async () => {
+  appointment("past-2", -60 * 60 * 1000);
+  const results = await Promise.all([updateAppointmentStatus("past-2", "completed"), updateAppointmentStatus("past-2", "completed")]);
+  assert.equal(row("past-2").status, "completed");
+  assert.equal(results.filter((r) => !r.error).length, 1, "one request makes the change");
+  assert.equal(results.filter((r) => r.error).length, 1, "the other is told the appointment just changed");
+  assert.deepEqual(emitted, ["appointment.completed:past-2"]);
+  assert.equal(audits("past-2").length, 1);
+});
+
+test("concurrency: an outcome is never written against a start time it was not checked for (moved to the future in between)", async () => {
+  const appt = appointment("past-3", -60 * 60 * 1000);
+  afterAppointmentRead = () => {
+    appt.start_at = at(5 * DAY); // a concurrent reschedule lands after the read, before the write
+  };
+  const result = await updateAppointmentStatus("past-3", "completed");
+  assert.match(String(result.error), /just changed/);
+  assert.equal(row("past-3").status, "scheduled", "not completed against the new future time");
+  assert.deepEqual(emitted, []);
 });
