@@ -62,7 +62,12 @@ jobs:
         run: |
           mapfile -t db < <(printf '%s\n' $DATABASE_UNIT_FILES)
           mapfile -t files < <(git ls-files '*.test.ts' | grep -v 'integration\.test\.ts$' | grep -vxF -f <(printf '%s\n' "${db[@]}"))
-          node --experimental-test-module-mocks --import ./lib/automation/test-loader.mjs --test "${files[@]}"
+          status=0
+          node --experimental-test-module-mocks --import ./lib/automation/test-loader.mjs --test "${files[@]}" > unit.tap 2>&1 || status=$?
+          # Print every failure with its diagnostics, then the totals - not 18k lines of passing TAP.
+          awk '/^not ok/{p=1} /^ok /{p=0} p' unit.tap | head -n 400
+          grep -E '^# (tests|pass|fail|cancelled|skipped|todo)' unit.tap
+          exit $status
       - name: Production build
         run: npx next build
 
