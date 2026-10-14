@@ -73,3 +73,45 @@ export async function findRecentDuplicateEstimate(
   const match = (data as ExistingEstimateRow[]).find((row) => isSameEstimateSubmission(row, input));
   return match?.id ?? null;
 }
+
+/**
+ * The check above runs before the insert, so two submissions in flight at
+ * the same moment can both find nothing and both insert. After inserting,
+ * each submission therefore looks again: of the identical drafts in the
+ * window, the earliest (created_at, then id) is the one kept, and a later
+ * one removes itself - conditional on still being a draft - and resolves to
+ * the kept estimate. Every racer that sees the same rows picks the same
+ * survivor, so they converge on exactly one estimate. Returns the id the
+ * caller should use. A failed read or delete keeps the inserted row: a
+ * possible duplicate is safer than a lost estimate.
+ */
+export async function reconcileConcurrentDuplicateEstimate(
+  supabase: SupabaseClient,
+  organizationId: string,
+  input: EstimateCreateFields,
+  insertedId: string,
+  now: Date = new Date(),
+): Promise<string> {
+  const since = new Date(now.getTime() - ESTIMATE_DUPLICATE_WINDOW_MS).toISOString();
+  const { data, error } = await supabase
+    .from("estimates")
+    .select("id, lead_id, title, amount, notes, expires_at")
+    .eq("organization_id", organizationId)
+    .eq("contact_id", input.contactId)
+    .eq("status", "draft")
+    .eq("title", input.title)
+    .gte("created_at", since)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(10);
+  if (error || !data) return insertedId;
+  const survivor = (data as ExistingEstimateRow[]).find((row) => isSameEstimateSubmission(row, input));
+  if (!survivor || survivor.id === insertedId) return insertedId;
+
+  const { error: deleteError } = await supabase.from("estimates").delete().eq("id", insertedId).eq("organization_id", organizationId).eq("status", "draft");
+  if (deleteError) {
+    console.error("[estimates] could not remove a concurrent duplicate draft", { organizationId, estimateId: insertedId, error: deleteError.message });
+    return insertedId;
+  }
+  return survivor.id;
+}
