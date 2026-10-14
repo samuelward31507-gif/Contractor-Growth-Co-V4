@@ -49,6 +49,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # PageProps / LayoutProps are global types Next.js generates into .next/;
+      # a fresh checkout has none, so generate them before type-checking.
+      - name: Generate Next.js route types
+        run: npx next typegen
       - name: TypeScript
         run: npx tsc --noEmit
       - name: ESLint
